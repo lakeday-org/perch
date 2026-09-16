@@ -12,8 +12,10 @@ export const DEFECT_KINDS = {
 };
 
 /**
- * Vulnerability classes, asked only of a method the model says touches something outside the program. They are separate from
+ * Vulnerability classes, asked of a method the model says touches something outside the program. They are separate from
  * DEFECT_KINDS because a vulnerability is not a wrong answer to a caller: the code does what it was written to do, and that is the problem.
+ * Every class is asked of every language rather than chosen by one, since a repository mixes them and a memory-safety question
+ * answered about JavaScript costs an answer nobody reads, while a missing one costs a bug nobody finds.
  */
 export const SECURITY_KINDS = {
   injection: 'A value from outside is put into a shell command, a query, a path of execution, or anything that gets evaluated, without being escaped or parameterised',
@@ -24,7 +26,30 @@ export const SECURITY_KINDS = {
   weak_crypto: 'Security rests on predictable randomness, a home-made scheme, a broken algorithm, or a comparison that leaks timing',
   unvalidated_destination: 'An address, host, or redirect target from outside decides where a request or a user is sent',
   resource_exhaustion: 'Input from outside decides how much memory, recursion, time, or work happens, with nothing bounding it',
+  unsafe_reflection: 'A name from outside chooses which function, class, field, or module is reached, so the caller picks the code that runs',
+  disabled_safeguard: 'A check that exists is turned off or weakened: certificate verification skipped, a permission widened, a warning suppressed, a sandbox opened',
+  buffer_overflow: 'An index, length, or offset can reach past the end of a buffer, string, slice, or array, on a read or a write',
+  use_after_free: 'Something freed, closed, moved, unlocked, or otherwise finished with is used again, or released twice',
+  uninitialized_use: 'A value is read on a path where nothing has written it yet, so what a caller gets is whatever was there',
+  integer_overflow: 'Arithmetic can wrap, truncate, or change sign, and the result is then used as a size, an index, a length, or a permission',
+  race_condition: 'Two paths can reach the same state at once without holding anything, or a check and the act it guards are separated in a way another path can exploit',
+  type_confusion: 'A value is treated as a type, shape, or variant it may not be: an unchecked cast, a union read through the wrong member, a parsed object trusted to have a shape',
 };
+
+/**
+ * The classes that only matter when something from outside reaches the method. The rest are wrong on their own terms: a value
+ * freed twice or an index past the end of a buffer is a hole whoever the caller is, and gating those on exposure hid a
+ * use-after-free the model had rated at 95% behind a method it was only 46% sure took outside input.
+ */
+export const EXPOSURE_GATED = new Set(['injection', 'path_traversal', 'unsafe_deserialization', 'secret_exposure', 'missing_authorization', 'unvalidated_destination', 'resource_exhaustion', 'unsafe_reflection']);
+
+/** The strongest vulnerability the answers support, skipping the ones that need outside input when none is said to reach it. */
+export function securityOf(answers, min = 0.5) {
+  const exposed = answers.exposed ?? 0;
+  const entries = Object.entries(answers.securities ?? (answers.security ? { [answers.security.kind]: answers.security.probability } : {}));
+  const eligible = entries.filter(([kind]) => !EXPOSURE_GATED.has(kind) || exposed >= min).sort((a, b) => b[1] - a[1])[0];
+  return eligible ? { kind: eligible[0], probability: eligible[1] } : null;
+}
 
 export const REFACTORS = {
   split: 'Does too many things; split it into smaller methods with one job each',
@@ -78,8 +103,9 @@ export const COMPLEX_RISK = 70;
 export function issuesOf(answers, min = 0.5) {
   const issues = [];
   if (answers.has_bug !== undefined && answers.has_bug >= min && (answers.reachable === undefined || answers.reachable >= min)) issues.push({ type: 'defect', label: spaced(answers.kind?.kind ?? 'defect'), probability: answers.has_bug, text: `${spaced(answers.kind?.kind ?? 'defect')} ${percent(answers.has_bug)}` });
-  if (answers.security && answers.exposed >= min && answers.security.probability >= min)
-    issues.push({ type: 'security', label: spaced(answers.security.kind), probability: answers.security.probability, text: `${spaced(answers.security.kind)} ${percent(answers.security.probability)}` });
+  const vulnerability = securityOf(answers, min);
+  if (vulnerability && vulnerability.probability >= min)
+    issues.push({ type: 'security', label: spaced(vulnerability.kind), probability: vulnerability.probability, text: `${spaced(vulnerability.kind)} ${percent(vulnerability.probability)}` });
   const refactor = answers.refactor?.refactor;
   const refactorProbability = refactor && refactor !== 'none' ? answers.refactor.probabilities?.[refactor] ?? 0 : 0;
   if (refactor && refactor !== 'none' && refactorProbability >= min) issues.push({ type: 'refactor', label: spaced(refactor), probability: refactorProbability, text: `${spaced(refactor)} ${percent(refactorProbability)}` });
@@ -93,7 +119,7 @@ export function issuesOf(answers, min = 0.5) {
  * Bumped whenever the question set changes. A finding answered by an older set is read again before it is worked: its answers
  * cannot contain a kind that did not exist yet, so every rewrite would look like it introduced one.
  */
-export const ANSWERS_VERSION = 2;
+export const ANSWERS_VERSION = 3;
 
 /** Everything `--filter` understands, so `perch findings --types` can print it and a typo can be answered with the real list. */
 export const filterKeys = () => ({

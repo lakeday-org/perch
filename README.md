@@ -116,7 +116,7 @@ of them, trimmed to stay under 48KB. The questions are:
 | `reachable` | noul, asked only when `has_bug` is at least 50% | Probability that the flagged line is actually executable given the method's own guards. A method is not reported as a defect unless this is also at the threshold. |
 | `kind_*` | one noul per defect kind | Probability of each: boundary, missing null handling, wrong return, swallowed error, state mutation, ordering, resource leak, inverted condition. |
 | `exposed` | noul | Does anything from outside the program reach this method, or does it act on the world outside? |
-| `security_*` | noul, one per class | Injection, path traversal, unsafe deserialization, secret exposure, missing authorization, weak crypto, unvalidated destination, resource exhaustion. Listed only when `exposed` also clears the threshold. |
+| `security_*` | noul, one per class | Sixteen: injection, path traversal, unsafe deserialization, secret exposure, missing authorization, unvalidated destination, resource exhaustion, unsafe reflection, disabled safeguard, weak crypto, buffer overflow, use after free, uninitialised use, integer overflow, race condition, type confusion. The first eight need something from outside to reach the method, so they are listed only when `exposed` also clears the threshold; the rest are wrong on their own terms and are listed either way. |
 | `severe_data_or_security` | noul | Can it destroy, corrupt, or expose data, or get past a check? |
 | `severe_normal_use` | noul | Does a caller meet it on an ordinary path? |
 | `severe_recoverable` | noul | When a caller hits it, can it tell and carry on? |

@@ -10,7 +10,7 @@ import { huntAnswers } from '../src/prompts.js';
 import { createMeter, money } from '../src/meter.js';
 import { createShell } from '../src/shell.js';
 import { openStore } from '../src/store.js';
-import { ANSWERS_VERSION } from '../src/questions.js';
+import { ANSWERS_VERSION, issuesOf } from '../src/questions.js';
 import { formatFinding, formatFix, formatFixes, formatIssues } from '../src/report.js';
 import { createUi } from '../src/ui.js';
 import { buggySource, commitAll, documentedSource, fixedMethod, fixedSource, fixtureOptions, leanerSource, makeFixture, scriptedModel, scriptedSystemOne } from './helpers.js';
@@ -57,15 +57,15 @@ describe('perch fix', () => {
     expect(queued.fixes[0]).toMatchObject({ finding_id: 'a1', status: 'failed', error: 'finding a1 has no repository recorded; scan again' });
   });
 
-  it('judges a rewrite by whether every issue is gone and nothing new appeared', () => {
+  it('judges a rewrite by whether every issue it was pointed at is gone', () => {
     const issue = (type, probability, text = `${type} ${Math.round(probability * 100)}%`) => ({ type, label: type, probability, text });
-    expect(improvement([issue('defect', 0.9), issue('refactor', 0.8)], [])).toEqual([]);
-    expect(improvement([issue('defect', 0.9), issue('refactor', 0.8)], [issue('refactor', 0.6)])).toEqual(['refactor is still open (refactor 80% -> refactor 60%)']);
-    expect(improvement([issue('defect', 0.9)], [issue('defect', 0.4)])).toEqual(['defect is still a defect (defect 90% -> defect 40%)']);
-    expect(improvement([issue('refactor', 0.8)], [issue('refactor', 0.8)])).toEqual(['refactor is still open (refactor 80% -> refactor 80%)']);
-    expect(improvement([issue('refactor', 0.97)], [issue('refactor', 0.96)])).toEqual(['refactor is still open (refactor 97% -> refactor 96%)']);
-    expect(improvement([issue('complex', 0.84)], [issue('complex', 0.74)])).toEqual(['complex is still open (complex 84% -> complex 74%)']);
-    expect(improvement([issue('refactor', 0.8)], [issue('misdocumented', 0.7)])).toEqual(['new issue: misdocumented 70%']);
+    const objections = (before, after) => improvement(before, after).objections;
+    expect(objections([issue('defect', 0.9), issue('refactor', 0.8)], [])).toEqual([]);
+    expect(objections([issue('defect', 0.9), issue('refactor', 0.8)], [issue('refactor', 0.6)])).toEqual(['refactor is still open (refactor 80% -> refactor 60%)']);
+    expect(objections([issue('defect', 0.9)], [issue('defect', 0.4)])).toEqual(['defect is still open (defect 90% -> defect 40%)']);
+    expect(objections([issue('refactor', 0.97)], [issue('refactor', 0.96)])).toEqual(['refactor is still open (refactor 97% -> refactor 96%)']);
+    expect(objections([issue('complex', 0.84)], [issue('complex', 0.74)])).toEqual(['complex is still open (complex 84% -> complex 74%)']);
+    expect(improvement([issue('refactor', 0.8)], [issue('misdocumented', 0.7)])).toEqual({ objections: [], left: ['misdocumented 70%'] });
     expect(sameLines('a\n  b\nc', 'c\nb\n\n a')).toBe(true);
     expect(sameLines('a\nb', 'a\nb\nc')).toBe(false);
     expect(regionStart(['// a', '// b', 'function f() {}'], 3)).toBe(1);
@@ -83,14 +83,32 @@ describe('perch fix', () => {
     expect(total).toMatch(/^total +\$0\.07$/);
   });
 
-  it('clears an issue below 40% and only counts a new one above 60%', () => {
-    const at = (type, probability) => ({ type, label: type, probability, text: `${type} ${Math.round(probability * 100)}%` });
+  it('lists a hole that stands on its own even when nothing outside is said to reach the method', async () => {
+    const { securityOf } = await import('../src/questions.js');
+    const answers = { exposed: 0.46, securities: { use_after_free: 0.95, injection: 0.99, buffer_overflow: 0.2 } };
+    // injection needs something from outside; a value freed twice is wrong whoever calls it.
+    expect(securityOf(answers)).toEqual({ kind: 'use_after_free', probability: 0.95 });
+    expect(securityOf({ ...answers, exposed: 0.8 })).toEqual({ kind: 'injection', probability: 0.99 });
+    expect(issuesOf(answers).find(issue => issue.type === 'security').text).toBe('use after free 95%');
+  });
+
+  it('judges the issue it was pointed at, not the question that raised it', () => {
+    const at = (type, label, probability) => ({ type, label, probability, text: `${label} ${Math.round(probability * 100)}%` });
+    const big = at('refactor', 'too big', 0.98), dead = at('refactor', 'dead code', 0.84);
+
     // Read at CLEARED, so anything still listed here is still standing.
-    expect(improvement([at('refactor', 0.63)], [at('refactor', 0.45)])).toEqual(['refactor is still open (refactor 63% -> refactor 45%)']);
-    expect(improvement([at('refactor', 0.63)], [])).toEqual([]);
+    expect(improvement([big], [at('refactor', 'too big', 0.45)]).objections).toEqual(['too big is still open (too big 98% -> too big 45%)']);
+    expect(improvement([big], []).objections).toEqual([]);
+
+    // The refactor question always names something, so one falling away raises the next. That is the next run's work.
+    expect(improvement([big], [dead])).toEqual({ objections: [], left: ['dead code 84%'] });
+
+    // A defect or a vulnerability that was not there is a regression, whatever the old one was called.
+    expect(improvement([big], [at('defect', 'unhandled null', 0.85)]).objections).toEqual(['the rewrite brings unhandled null 85%, which was not there before']);
+    expect(improvement([big], [at('security', 'buffer overflow', 0.7)]).objections).toEqual(['the rewrite brings buffer overflow 70%, which was not there before']);
+
     // A reading that wanders just over the listing threshold is the same reading, not a regression the rewrite caused.
-    expect(improvement([at('refactor', 0.8)], [at('defect', 0.54)])).toEqual([]);
-    expect(improvement([at('refactor', 0.8)], [at('defect', 0.61)])).toEqual(['new issue: defect 61%']);
+    expect(improvement([big], [at('defect', 'unhandled null', 0.54)]).objections).toEqual([]);
   });
 
   it('lets a split cost a few lines but refuses a rewrite that inflates the file', () => {
@@ -271,7 +289,7 @@ describe('perch fix', () => {
     const impatient = { id: 'impatient', effort: null, calls: [], async run({ tools }) { const result = await tools.find(item => item.name === 'submit').handler({ source: fixedMethod, summary: 'trust me' }); return { done: Boolean(result.done), turns: 1, usage: { input_tokens: 1, cached_tokens: 0, output_tokens: 1, reasoning_tokens: 0 }, trace: [{ type: 'tool_call', name: 'submit' }, { type: 'tool_result', name: 'submit', result }] }; } };
     const refused = await fixMethod(options(other, again, { model: impatient }));
     expect(refused.status).toBe('rejected');
-    expect(refused.error).toBe('measure has not passed this exact source');
+    expect(refused.error).toContain('measure has not passed this exact source');
     expect(await readFile(join(other.root, 'src', 'clamp.js'), 'utf8')).toBe(buggySource);
   });
 
@@ -285,12 +303,13 @@ describe('perch fix', () => {
 
     // The scan rated the defect at 90%; a rewrite System One still calls a defect, at any number, is not a fix.
     const stillThere = await attempt('still', { systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.55, kind_wrong_return: 0.5 } }) });
-    expect(stillThere.error).toBe('wrong return value is still a defect (wrong return value 90% -> wrong return value 55%)');
-    const worse = await attempt('worse', { systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.2, misdocumented: 0.9 } }) });
-    expect(worse.error).toBe('new issue: misdocumented 90%');
-
+    expect(stillThere.error).toBe('wrong return value is still open (wrong return value 90% -> wrong return value 55%)');
+    // A defect the rewrite brought with it is a regression, whatever it cleared.
+    const brought = await attempt('brought', { systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.85, kind_missing_null_handling: 0.85 } }) });
+    expect(brought.error).toBe('the rewrite brings unhandled null 85%, which was not there before');
     const breaking = await attempt('breaking', { model: scriptedModel({ fix: () => proposal(fixedMethod.replace('  return v;', '  return hi;')) }) });
     expect(breaking.error).toBe('test/clamp.test.js fails on the rewrite and passes on the original');
+
     expect(breaking.trace.at(-1).result.output).toMatch(/not ok|AssertionError/);
 
     const store = openStore(repo.out);
@@ -302,6 +321,15 @@ describe('perch fix', () => {
     expect((await git(['status', '--porcelain'], repo.root)).trim()).toBe('');
     expect(await readFile(join(repo.root, 'src', 'clamp.js'), 'utf8')).toBe(buggySource);
   }, 60_000);
+
+  it('carries a design issue named for the first time into the next run instead of throwing the rewrite away', async () => {
+    // The refactor question always names something, so one issue falling away tends to raise the next. That is not a regression.
+    const { repo, finding } = await scanned();
+    const systemOne = scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.2, misdocumented: 0.9 } });
+    const fix = await fixMethod(options(repo, finding, { systemOne }));
+    expect(fix.status).toBe('ready');
+    expect(fix.trace.find(event => event.name === 'rescan' && event.result?.ok).result.left_for_next_time).toEqual(['misdocumented 90%']);
+  });
 
   it('lets measure pass a split that adds sibling helpers in the replacement region', async () => {
     const { repo, finding } = await scanned({ has_bug: 0.9, where: 'L0003', kind_wrong_return: 0.9, refactor: 'split', severe_normal_use: 0.8 });

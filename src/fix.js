@@ -131,17 +131,28 @@ const trim = metrics => (metrics ? { risk_score: metrics.risk_score, maintainabi
  */
 export const CLEARED = 0.4, APPEARED = 0.6;
 
-/** Why a rewrite did not resolve a method's issues: one still stands, or it brought a new one. `after` is read at CLEARED. */
+/**
+ * Whether a rewrite resolved what it was asked to resolve. `after` is read at CLEARED.
+ *
+ * Issues are matched by what they are, not by which question raised them: `too big` and `dead code` are both refactors, and
+ * comparing the slot rather than the issue said "too big is still open" about a rewrite that had just cleared it.
+ *
+ * Every issue it was pointed at must clear. Bringing a defect or a vulnerability that was not there rejects the rewrite, since
+ * those are regressions. A design issue named for the first time does not: the refactor question always names something, so one
+ * falling away tends to raise the next, and that is the next run's work rather than a reason to throw this one out.
+ */
 export function improvement(before, after) {
-  const objections = [];
+  const objections = [], left = [];
   for (const issue of before) {
-    const now = after.find(item => item.type === issue.type);
-    if (!now) continue;
-    if (issue.type === 'defect') objections.push(`${issue.label} is still a defect (${issue.text} -> ${now.text})`);
-    else objections.push(`${issue.label} is still open (${issue.text} -> ${now.text})`);
+    const now = after.find(item => item.label === issue.label);
+    if (now) objections.push(`${issue.label} is still open (${issue.text} -> ${now.text})`);
   }
-  for (const issue of after) if (issue.probability >= APPEARED && !before.some(item => item.type === issue.type)) objections.push(`new issue: ${issue.text}`);
-  return objections;
+  for (const issue of after) {
+    if (issue.probability < APPEARED || before.some(item => item.label === issue.label)) continue;
+    if (isDesign(issue)) left.push(issue.text);
+    else objections.push(`the rewrite brings ${issue.text}, which was not there before`);
+  }
+  return { objections, left };
 }
 
 export const command = (template, file) => template.replaceAll('{file}', quote(file)).replaceAll('{dir}', quote(dirname(file) === '.' ? '.' : `./${dirname(file)}`));
@@ -312,12 +323,12 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
       const patchedStep = huntStep({ node: patchedNode, lines: patchedLines, imports, methods: patchedMethods, callees, callers });
       const { answers } = await questionMethod({ systemOne, node: patchedNode, step: patchedStep, lines: patchedLines, debug });
       const reading = { ...answers, metrics, file: fileMetrics };
-      const objections = improvement(before, issuesOf(reading, CLEARED));
+      const { objections, left } = improvement(before, issuesOf(reading, CLEARED));
       const after = issuesOf(reading);
       const result = { before: before.map(issue => issue.text), after: after.map(issue => issue.text) };
       if (objections.length) return { ok: false, error: objections.join('; '), ...result };
-      passed.rescan.set(source, { answers, after });
-      return { ok: true, ...result };
+      passed.rescan.set(source, { answers, after, left });
+      return { ok: true, ...result, ...(left.length ? { left_for_next_time: left } : {}) };
     };
     const runTests = async ({ source }) => {
       if (!passed.measure.has(source)) return { ok: false, error: 'run measure on this exact source first' };
@@ -345,9 +356,14 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
       passed.tests.set(source, ran);
       return { ok: true, checks: ran, ...(ignored.size ? { ignored_already_failing: [...ignored] } : {}) };
     };
-    let accepted = null;
+    let accepted = null, refusedSubmits = 0;
     const submit = async ({ source, summary, notes }) => {
-      for (const [name, map] of [['measure', passed.measure], ['rescan', passed.rescan], ['run_tests', passed.tests]]) if (!map.has(source)) return { ok: false, error: `${name} has not passed this exact source` };
+      for (const [name, map] of [['measure', passed.measure], ['rescan', passed.rescan], ['run_tests', passed.tests]]) {
+        if (map.has(source)) continue;
+        // Submitting again cannot make a check pass, so a model that keeps trying is looping, not working.
+        if (++refusedSubmits >= 3) return { ok: false, done: true, error: `submitted ${refusedSubmits} times without ${name} passing that source` };
+        return { ok: false, error: `${name} has not passed this exact source; run it, and if it rejects the source then change the source` };
+      }
       const line = plainSummary(summary);
       if (line.error) return { ok: false, error: line.error };
       const note = plainNotes(notes);
