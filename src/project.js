@@ -22,15 +22,9 @@ export async function candidateCommands({ root, revision, paths }) {
     if (/node --test|node:test/.test(script) || !single.size) single.add('node --test {file}');
     if (pkg.dependencies || pkg.devDependencies) install.add(manager === 'pnpm' ? 'pnpm install --frozen-lockfile' : manager === 'yarn' ? 'yarn install --frozen-lockfile' : has(paths, 'package-lock.json') ? 'npm ci' : 'npm install');
   }
-  if (has(paths, 'pyproject.toml') || has(paths, 'pytest.ini') || has(paths, 'setup.cfg') || has(paths, 'tox.ini') || paths.some(path => /(^|\/)test_.*\.py$|_test\.py$/.test(path))) {
-    suite.add('python3 -m pytest -q');
-    single.add('python3 -m pytest -q {file}');
-    if (has(paths, 'uv.lock')) install.add('uv sync');
-    else if (has(paths, 'requirements.txt')) install.add('python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt');
-    else if (has(paths, 'pyproject.toml')) install.add('python3 -m venv .venv && .venv/bin/pip install -q -e .');
-  }
-  if (has(paths, 'Cargo.toml')) { suite.add('cargo test'); single.add('cargo test'); install.add('cargo fetch'); }
-  if (has(paths, 'go.mod')) { suite.add('go test ./...'); single.add('go test {dir}'); install.add('go mod download'); }
+  addPythonCommands(suite, single, install, paths);
+  addCargoCommands(suite, single, install, paths);
+  addGoCommands(suite, single, install, paths);
   if (has(paths, 'Makefile') && /^test:/m.test(await read('Makefile'))) suite.add('make test');
   if (has(paths, 'justfile') && /^test\b/m.test(await read('justfile'))) suite.add('just test');
   if (hasPrefix(paths, '.github/workflows/')) {
@@ -42,6 +36,24 @@ export async function candidateCommands({ root, revision, paths }) {
     }
   }
   return { suite: [...suite], single: [...single], install: [...install] };
+}
+
+function addPythonCommands(suite, single, install, paths) {
+  if (has(paths, 'pyproject.toml') || has(paths, 'pytest.ini') || has(paths, 'setup.cfg') || has(paths, 'tox.ini') || paths.some(path => /(^|\/)test_.*\.py$|_test\.py$/.test(path))) {
+    suite.add('python3 -m pytest -q');
+    single.add('python3 -m pytest -q {file}');
+    if (has(paths, 'uv.lock')) install.add('uv sync');
+    else if (has(paths, 'requirements.txt')) install.add('python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt');
+    else if (has(paths, 'pyproject.toml')) install.add('python3 -m venv .venv && .venv/bin/pip install -q -e .');
+  }
+}
+
+function addCargoCommands(suite, single, install, paths) {
+  if (has(paths, 'Cargo.toml')) { suite.add('cargo test'); single.add('cargo test'); install.add('cargo fetch'); }
+}
+
+function addGoCommands(suite, single, install, paths) {
+  if (has(paths, 'go.mod')) { suite.add('go test ./...'); single.add('go test {dir}'); install.add('go mod download'); }
 }
 
 /** The project's test commands at a commit, cached under <out>/projects. */
