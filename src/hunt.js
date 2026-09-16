@@ -82,6 +82,18 @@ export async function runHunt({ root, revision, out, analyzer, systemOne, label 
     const { response, answers } = await questionMethod({ systemOne, node, step, lines: await linesOf(node), debug });
     return { node, calleeIds, callerIds, response, answers };
   };
+  const recordHuntResults = async results => {
+    for (const { node, calleeIds, callerIds, response, answers } of results) {
+      hunt.calls++;
+      if (response.usage) { hunt.usage.input_tokens += response.usage.input_tokens ?? 0; hunt.usage.output_tokens += response.usage.output_tokens ?? 0; }
+      const event = huntedEvent({ node, answers, response, huntId: id, root, github, revision, calleeIds, callerIds });
+      await store.appendEvent(event);
+      hunted.set(node.id, node.hash);
+      hunt.visited.push({ ...event, status: 'hunted' });
+      push([...calleeIds, ...callerIds].filter(other => other !== answers.follow.method));
+      if (answers.follow.method) push([answers.follow.method]);
+    }
+  };
 
   try {
     while (hunt.calls < budget) {
@@ -103,16 +115,7 @@ export async function runHunt({ root, revision, out, analyzer, systemOne, label 
       if (!batch.length) break;
       let done = 0;
       const results = await Promise.all(batch.map(async nodeId => { const result = await ask(nodeId); progress(hunt.calls + ++done, budget); return result; }));
-      for (const { node, calleeIds, callerIds, response, answers } of results) {
-        hunt.calls++;
-        if (response.usage) { hunt.usage.input_tokens += response.usage.input_tokens ?? 0; hunt.usage.output_tokens += response.usage.output_tokens ?? 0; }
-        const event = huntedEvent({ node, answers, response, huntId: id, root, github, revision, calleeIds, callerIds });
-        await store.appendEvent(event);
-        hunted.set(node.id, node.hash);
-        hunt.visited.push({ ...event, status: 'hunted' });
-        push([...calleeIds, ...callerIds].filter(other => other !== answers.follow.method));
-        if (answers.follow.method) push([answers.follow.method]);
-      }
+      await recordHuntResults(results);
       await writeJson(huntPath, hunt);
     }
     hunt.remaining = ranked.filter(nodeId => !visited.has(nodeId)).length;
