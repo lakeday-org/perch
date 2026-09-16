@@ -11,7 +11,7 @@ import { createShell } from '../src/shell.js';
 import { openStore } from '../src/store.js';
 import { formatFinding, formatFix, formatFixes, formatIssues } from '../src/report.js';
 import { createUi } from '../src/ui.js';
-import { buggySource, fixedMethod, fixedSource, fixtureOptions, makeFixture, scriptedModel, scriptedSystemOne } from './helpers.js';
+import { buggySource, commitAll, fixedMethod, fixedSource, fixtureOptions, makeFixture, scriptedModel, scriptedSystemOne } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
 const shell = createShell();
@@ -45,9 +45,9 @@ describe('perch fix', () => {
     expect(underPath([open, messy, later], 'lib/e.js').map(finding => finding.id)).toEqual(['eeee5555']);
     const scan = { files: [{ path: 'src/a.js', methods: [{ id: 'src/a.js::f', hash: 'same' }] }] };
     const { current, stale } = splitStale([{ method: 'src/a.js::f', hash: 'same' }, { method: 'src/a.js::f', hash: 'old' }, { method: 'gone.js::g', hash: 'x' }], scan);
-    expect(current).toHaveLength(1);
-    expect(stale).toHaveLength(2);
-    expect(formatFixes({ kind: 'fix', budget: 5, remaining: 3, stale: 2, fixes: [] })).toBe('No open defects to fix. 2 findings are for methods that changed since the hunt; hunt again to refresh them.');
+    expect(current).toHaveLength(2);
+    expect(stale).toHaveLength(1);
+    expect(formatFixes({ kind: 'fix', budget: 5, remaining: 3, stale: 2, fixes: [] })).toBe('No open defects to fix. 2 findings are for methods that no longer exist under that name; hunt again to see what replaced them.');
     const queued = await runFixQueue({ findings: [defect({ id: 'a1', method: 'm', path: 'src/a.js', revision: 'r' }), defect({ id: 'b2', method: 'n', path: 'src/b.js', revision: 'r' })], budget: 1, root: null, out: '/tmp', model: { id: 'x' }, systemOne: { id: 'y' }, analyzer: {}, shell: {} });
     expect(queued.attempted).toBe(1);
     expect(queued.remaining).toBe(1);
@@ -147,6 +147,34 @@ describe('perch fix', () => {
     expect(fix.error).toContain('not clearly reachable (15%)');
     expect(model.calls).toHaveLength(0);
     expect(systemOne.calls).toHaveLength(1);
+  });
+
+  it('re-questions a method that changed since the hunt and goes on from the fresh answers, or drops it when no defect is left', async () => {
+    const { repo, finding } = await huntedFixture();
+    // The method changes in a way that leaves the bug: a comment inside it.
+    await writeFile(join(repo.root, 'src', 'clamp.js'), buggySource.replace('  if (v > hi) return v;', '  // upper bound\n  if (v > hi) return v;'));
+    await commitAll(repo.root, 'touch clamp');
+    const lines = [];
+    const systemOne = scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.85, where: 'L0004', kind_wrong_return: 0.8 } });
+    const fix = await runFix(fixOptions(repo, finding, { systemOne, ui: createUi({ live: false, log: text => lines.push(text) }) }));
+    expect(fix.status).toBe('ready');
+    expect(lines.some(line => /^✓ scripted-jev re-reading clamp, changed since the hunt — still looks defective: wrong return 85% at line 4/.test(line))).toBe(true);
+    expect(fix.verification.before).toEqual({ has_bug: 0.85, kind: 0.8, reachable: 0.9 });
+    const store = openStore(repo.out);
+    const hunted = (await store.readEvents()).filter(event => event.type === 'hunted');
+    expect(hunted).toHaveLength(2);
+    expect(hunted[1]).toMatchObject({ id: finding.id, hunt_id: null, has_bug: 0.85, where: { line: 4, text: 'if (v > hi) return v;' } });
+    expect((await store.findings())[0].fix).toMatchObject({ id: fix.id, status: 'ready' });
+
+    // Changed again, and this time System One sees nothing: the finding leaves the list without a generative call.
+    await writeFile(join(repo.root, 'src', 'clamp.js'), fixedSource);
+    await commitAll(repo.root, 'fix by hand');
+    const model = scriptedModel();
+    const gone = await runFix(fixOptions(repo, { ...finding, hash: 'stale' }, { model, systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.1 } }) }));
+    expect(gone.status).toBe('rejected');
+    expect(gone.error).toContain('no longer sees a reachable defect (defect 10%)');
+    expect(model.calls).toHaveLength(0);
+    expect(await store.findings()).toEqual([]);
   });
 
   it('feeds a rejected attempt back to the model with more effort and accepts the next one', async () => {
