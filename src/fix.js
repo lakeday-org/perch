@@ -33,9 +33,11 @@ export async function workingBranch(root, verb) {
 export const underPath = (findings, path) => (path ? findings.filter(finding => finding.path === path || finding.path.startsWith(path.replace(/\/$/, '') + '/')) : findings);
 
 export const MAX_ATTEMPTS = 3;
+/** Bumped whenever how a fix is made or judged changes, so a rejection recorded by an older pipeline is never reused. */
+export const FIX_VERSION = 2;
 
 export function fixIdentity({ finding, model }) {
-  return identity('fix', finding.id, finding.hash, model);
+  return identity('fix', FIX_VERSION, finding.id, finding.hash, model);
 }
 
 /** Open defects with no fix record yet, most likely first, capped at `budget`. */

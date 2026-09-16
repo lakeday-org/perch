@@ -21,7 +21,9 @@ import { FAIL, OK, plainUi } from './ui.js';
 
 /** Methods at or above this risk score are refactor candidates by default. */
 export const DEFAULT_MIN_RISK = 70;
-export const refactorIdentity = ({ method, model }) => identity('refactor', method.id, method.hash, model);
+/** Bumped whenever how a refactor is made or judged changes, so a rejection recorded by an older pipeline is never reused. */
+export const REFACTOR_VERSION = 2;
+export const refactorIdentity = ({ method, model }) => identity('refactor', REFACTOR_VERSION, method.id, method.hash, model);
 
 const commentLine = /^\s*(\/\/|\/\*|\*|#|"""|''')/;
 /** The first line of the comment block sitting directly above a method, or the method's own line when there is none. */
