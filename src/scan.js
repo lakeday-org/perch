@@ -27,7 +27,7 @@ export async function runScan({ root, revision, out, analyzer, label = root, git
   // Blobs stream from one git process while the analyzer works through them in order.
   const blobs = new Map(), waiting = new Map();
   const reading = readBlobs(root, sources.map(file => file.sha), (index, text) => { const wake = waiting.get(index); if (wake) { waiting.delete(index); wake(text); } else blobs.set(index, text); });
-  reading.catch(() => {});
+  reading.catch(error => { log(`blob reading failed: ${error.message}`); });
   const readSource = (file, index) => {
     if (blobs.has(index)) { const text = blobs.get(index); blobs.delete(index); return text; }
     return Promise.race([new Promise(resolve => waiting.set(index, resolve)), reading.then(() => { throw new Error(`Blob for ${file.path} was not delivered`); })]);
