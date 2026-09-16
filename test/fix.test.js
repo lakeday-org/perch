@@ -56,12 +56,14 @@ describe('perch fix', () => {
     expect(queued.fixes[0]).toMatchObject({ finding_id: 'a1', status: 'failed', error: 'finding a1 has no repository recorded; scan again' });
   });
 
-  it('judges a rewrite by whether every issue is gone or lower and nothing new appeared', () => {
+  it('judges a rewrite by whether every issue is gone and nothing new appeared', () => {
     const issue = (type, probability, text = `${type} ${Math.round(probability * 100)}%`) => ({ type, label: type, probability, text });
     expect(improvement([issue('defect', 0.9), issue('refactor', 0.8)], [])).toEqual([]);
-    expect(improvement([issue('defect', 0.9), issue('refactor', 0.8)], [issue('refactor', 0.6)])).toEqual([]);
+    expect(improvement([issue('defect', 0.9), issue('refactor', 0.8)], [issue('refactor', 0.6)])).toEqual(['refactor is still open (refactor 80% -> refactor 60%)']);
     expect(improvement([issue('defect', 0.9)], [issue('defect', 0.4)])).toEqual(['defect is still a defect (defect 90% -> defect 40%)']);
-    expect(improvement([issue('refactor', 0.8)], [issue('refactor', 0.8)])).toEqual(['refactor did not improve (refactor 80% -> refactor 80%)']);
+    expect(improvement([issue('refactor', 0.8)], [issue('refactor', 0.8)])).toEqual(['refactor is still open (refactor 80% -> refactor 80%)']);
+    expect(improvement([issue('refactor', 0.97)], [issue('refactor', 0.96)])).toEqual(['refactor is still open (refactor 97% -> refactor 96%)']);
+    expect(improvement([issue('complex', 0.84)], [issue('complex', 0.74)])).toEqual(['complex is still open (complex 84% -> complex 74%)']);
     expect(improvement([issue('refactor', 0.8)], [issue('misdocumented', 0.7)])).toEqual(['new issue: misdocumented 70%']);
     expect(sameLines('a\n  b\nc', 'c\nb\n\n a')).toBe(true);
     expect(sameLines('a\nb', 'a\nb\nc')).toBe(false);

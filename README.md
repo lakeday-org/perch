@@ -167,8 +167,9 @@ as a trace, with the tokens each model used and what they cost.
      method of the same name. Improvement is judged by rescan, not here.
    - `rescan(source)`: the same scan over the rewrite, the same System One
      questions with the same neighborhood plus the metrics. Every issue the
-     scan raised must be gone or lower, a defect gone outright, and nothing
-     new may appear. At most six per fix.
+     scan raised must be gone (no longer listed at the threshold), a defect gone
+     outright, and nothing new may appear. A 1% nudge is not enough. At most six
+     per fix.
    - `run_tests(source)`: every test that reaches the method (or the whole
      suite, when none does) must pass on the rewrite. A test that fails on the
      rewrite is run once on the original, and one that already fails there is
@@ -183,7 +184,7 @@ as a trace, with the tokens each model used and what they cost.
 
 Reasoning effort is `max` by default (`--effort` lowers it) and held constant
 through the run, since the prompt cache is keyed on it. A run is cut off after
-sixteen model turns. A rejected run leaves the checkout as it was, and a method
+eight model turns. A rejected run leaves the checkout as it was, and a method
 already worked by the same model is not retried until it changes.
 
 How the project runs its tests is discovered from the tree at `HEAD`: candidate

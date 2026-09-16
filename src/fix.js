@@ -2,7 +2,7 @@
  * `perch fix`: one agent per method, every issue the scan raised about it as an objective. The generating model rewrites the method
  * (and the comment above it) with the verifiers as tools, and the decisive verifier is the scan itself run again over the rewrite:
  * tree-sitter and the full System One question set, with the same neighborhood. The rewrite is accepted only when every issue is
- * gone or lower and nothing new appeared, the tests that reach the method still pass, and the model submits that exact source.
+ * every issue gone and nothing new appeared, the tests that reach the method still pass, and the model submits that exact source.
  * Each accepted result is one commit on the current branch; a rejected run leaves the checkout as it was.
  */
 import { writeFile } from 'node:fs/promises';
@@ -83,8 +83,9 @@ export const sameLines = (before, after) => {
 };
 const trim = metrics => (metrics ? { risk_score: metrics.risk_score, maintainability_index: metrics.maintainability_index, cyclomatic_complexity: metrics.cyclomatic_complexity, max_nesting: metrics.max_nesting, sloc: metrics.sloc } : null);
 /**
- * Whether a rewrite improved a method: every issue it had is gone or lower, a defect is gone outright, and nothing new appeared.
- * Returns the objections, empty when it did.
+ * Whether a rewrite resolved a method's issues: every prior issue is gone from the rescan
+ * (below the listing threshold), a defect is gone even if a weaker signal remains, and nothing new appeared.
+ * A 1% nudge on "too big" does not count.
  */
 export function improvement(before, after) {
   const objections = [];
@@ -92,7 +93,7 @@ export function improvement(before, after) {
     const now = after.find(item => item.type === issue.type);
     if (!now) continue;
     if (issue.type === 'defect') objections.push(`${issue.label} is still a defect (${issue.text} -> ${now.text})`);
-    else if (now.probability >= issue.probability) objections.push(`${issue.label} did not improve (${issue.text} -> ${now.text})`);
+    else objections.push(`${issue.label} is still open (${issue.text} -> ${now.text})`);
   }
   for (const issue of after) if (!before.some(item => item.type === issue.type)) objections.push(`new issue: ${issue.text}`);
   return objections;
@@ -297,7 +298,7 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
     };
     const tools = [
       tool('measure', `Splice the rewrite over lines ${start}-${end} of ${node.path} and measure with tree-sitter: it must parse and still contain ${node.qualified_name}. Sibling helpers in that range are fine. Returns the method and file metrics; improvement is judged by rescan, not here. Call this on every version you write.`, { source: { type: 'string', description: 'replacement for the region: comment, method, and any helpers it needs' } }, measure),
-      tool('rescan', 'Run the scan again over the rewrite: the same System One questions with the same neighborhood, plus the metrics. Every issue the scan raised must be gone or lower, a defect gone outright, and nothing new. Requires measure to have passed this exact source.', { source: { type: 'string' }, summary: { type: 'string', description: 'the commit line, under 72 characters' } }, rescan),
+      tool('rescan', 'Run the scan again over the rewrite: the same System One questions with the same neighborhood, plus the metrics. Every issue the scan raised must be gone (no longer listed), a defect gone outright, and nothing new. A tiny probability drop is not enough. Requires measure to have passed this exact source.', { source: { type: 'string' }, summary: { type: 'string', description: 'the commit line, under 72 characters' } }, rescan),
       tool('run_tests', `Run the tests that reach ${node.qualified_name}${checks.length ? ` (${checks.map(check => check.name).join(', ')})` : ' (none found; passes trivially)'} against the rewrite. Requires measure to have passed this exact source.`, { source: { type: 'string' } }, runTests),
       tool('submit', 'Finish with the rewrite. Refused unless measure, rescan, and run_tests have all passed this exact source.', { source: { type: 'string' }, summary: { type: 'string' } }, submit),
     ];
