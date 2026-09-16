@@ -81,7 +81,9 @@ describe('perch hunt', () => {
     expect((await git(['status', '--porcelain'], repo.root)).trim()).toBe('');
     expect(f.where.text).toBe('if (x > 10) return g(x) + h(x);');
     const shown = formatScanRun(hunt, await openStore(repo.out).issues());
-    expect(shown).toMatch(/^Scanned .* at commit [0-9a-f]{7}: 4 methods; System One read 4\./m);
+    expect(shown).toMatch(/^Scanned .* at commit [0-9a-f]{7}: 4 methods\. Read 4\./m);
+    expect(hunt.budget).toBeNull();
+    expect(hunt.to_read).toBe(4);
     expect(shown).toContain('1 open issue.');
     expect(shown).toMatch(new RegExp(`${f.id}  f +src/a.js:4 +off by one 90%, too big 80%, misdocumented 70% +major +open +-`));
 
@@ -89,6 +91,8 @@ describe('perch hunt', () => {
     const again = await runHunt(await withRevision(repo, { systemOne: scriptedSystemOne() }));
     expect(again.calls).toBe(0);
     expect(again.skipped).toBe(4);
+    expect(again.to_read).toBe(0);
+    expect(formatScanRun(again, [])).toContain('4 methods. Read 0, 4 unchanged since the last scan.');
 
     // Changing one method makes only that method huntable again.
     await writeFile(join(repo.root, 'src', 'b.js'), (await readFile(join(repo.root, 'src', 'b.js'), 'utf8')).replace('return x - 1;', 'return x - 2;'));

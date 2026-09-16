@@ -7,7 +7,8 @@ import { huntStep, locateWhere, reachCheck, readAnswers } from './questions.js';
 import { findingId, identity, openStore, writeJson } from './store.js';
 export { findingId };
 
-export const DEFAULT_BUDGET = 20, DEFAULT_PARALLEL = 8;
+/** By default a scan reads every method it has not read before, or whose code changed since; `budget` caps that. `perch fix` works twenty issues by default. */
+export const DEFAULT_BUDGET = Infinity, DEFAULT_FIX_BUDGET = 20, DEFAULT_PARALLEL = 8;
 
 /** One System One pass over a method: the hunt's questions, the line, and, when a defect looks likely, whether that line is reachable. */
 export async function questionMethod({ systemOne, node, step, lines, debug = () => {} }) {
@@ -40,8 +41,11 @@ export async function runHunt({ root, revision, out, analyzer, systemOne, label 
   const created = new Date().toISOString();
   const id = identity('hunt', revision, created);
   const dir = store.huntDir(id), huntPath = join(dir, 'hunt.json');
-  const hunt = { id, status: 'running', target: label, github, root, revision, model: systemOne.id, paths, budget, parallel, force, scan_id: scan.id, out: dir, created_at: created,
-    methods: scan.candidates.length, edges: graph.edgeCount(), calls: 0, skipped: 0, visited: [], usage: { input_tokens: 0, output_tokens: 0 } };
+  // What this scan has to read: every candidate whose code is new or changed since it was last read.
+  const toRead = scan.candidates.filter(candidate => hunted.get(candidate.id) !== graph.nodes.get(candidate.id).hash).length;
+  const total = Math.min(budget, toRead);
+  const hunt = { id, status: 'running', target: label, github, root, revision, model: systemOne.id, paths, budget: Number.isFinite(budget) ? budget : null, parallel, force, scan_id: scan.id, out: dir, created_at: created,
+    methods: scan.candidates.length, to_read: toRead, edges: graph.edgeCount(), calls: 0, skipped: 0, visited: [], usage: { input_tokens: 0, output_tokens: 0 } };
   await writeJson(huntPath, hunt);
 
   const sources = new Map();
@@ -113,7 +117,7 @@ export async function runHunt({ root, revision, out, analyzer, systemOne, label 
       }
       if (!batch.length) break;
       let done = 0;
-      const results = await Promise.all(batch.map(async nodeId => { const result = await ask(nodeId); progress(hunt.calls + ++done, budget); return result; }));
+      const results = await Promise.all(batch.map(async nodeId => { const result = await ask(nodeId); progress(hunt.calls + ++done, total); return result; }));
       await recordHuntResults(results);
       await writeJson(huntPath, hunt);
     }

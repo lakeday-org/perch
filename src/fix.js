@@ -4,7 +4,7 @@
  * again, must find the defect less likely and nothing else changed. No test is run: the judge is System One and the metrics. Each
  * accepted fix is one commit on the current branch. A rejected attempt leaves the checkout as it was.
  */
-import { DEFAULT_BUDGET, huntedEvent, questionMethod } from './hunt.js';
+import { DEFAULT_FIX_BUDGET, huntedEvent, questionMethod } from './hunt.js';
 import { visibleFindings, workFor, workOn } from './report.js';
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -47,7 +47,7 @@ export function fixIdentity({ finding, model }) {
 }
 
 /** Open issues nothing has worked yet, strongest first, capped at `budget`. */
-export function pendingFixes(findings, budget = DEFAULT_BUDGET) {
+export function pendingFixes(findings, budget = DEFAULT_FIX_BUDGET) {
   return visibleFindings(findings).filter(finding => !workOn(finding)).slice(0, budget);
 }
 
@@ -290,7 +290,7 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
  * agent on the file's score. Each accepted result is one commit on the current branch. Findings whose method no longer exists are
  * set aside and counted, not attempted.
  */
-export async function runFixQueue({ findings, budget = DEFAULT_BUDGET, root, out, model, systemOne, analyzer, shell, ui = plainUi(), log = () => {}, debug = () => {}, simplify = null }) {
+export async function runFixQueue({ findings, budget = DEFAULT_FIX_BUDGET, root, out, model, systemOne, analyzer, shell, ui = plainUi(), log = () => {}, debug = () => {}, simplify = null }) {
   const pending = pendingFixes(findings, Infinity);
   let current = pending, stale = [], scan = null;
   if (root && pending.length) {
