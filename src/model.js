@@ -9,8 +9,12 @@ export const DEFAULT_MODEL = 'gpt-5.6-luna';
 /** Reasoning effort, one level for the whole run; the prompt cache is keyed on it, so it never changes mid-run. */
 export const EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh', 'max'];
 export const DEFAULT_EFFORT = 'max';
-/** How many model turns one run may take before it is cut off. Each turn may call several tools. */
-export const MAX_TURNS = 8;
+/**
+ * How many turns one run may take before it is cut off. Tools are called one per turn, and a single verified attempt already
+ * costs five (read, measure, rescan, run_tests, submit), so a low cap does not make the model careful, it makes it give up
+ * mid-correction. This leaves room for several real attempts; the verifier calls are cheap next to the model's own reasoning.
+ */
+export const MAX_TURNS = 40;
 
 /** Thrown by a tool handler when the run cannot go on for reasons the model cannot fix (the checkout changed under it); ends the run. */
 export class Abort extends Error {}

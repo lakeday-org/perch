@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { scanRepository } from '../src/hunt.js';
-import { fixIssues, fixMethod, improvement, pendingFixes, regionStart, sameLines, splitStale, underPath } from '../src/fix.js';
+import { fileBudget, fileObjections, fixIssues, fixMethod, improvement, plainNotes, pendingFixes, regionStart, sameLines, splitStale, underPath } from '../src/fix.js';
 import { huntAnswers } from '../src/prompts.js';
 import { createMeter, money } from '../src/meter.js';
 import { createShell } from '../src/shell.js';
@@ -20,7 +20,7 @@ const cleanups = [];
 afterEach(async () => { for (const dir of cleanups.splice(0)) await rm(dir, { recursive: true, force: true }); });
 
 /** The clamp fixture scanned once, with a defect on clamp pointing at the upper-bound line. */
-async function scanned(answers = { has_bug: 0.9, where: 'L0003', kind_wrong_return: 0.9, severity: 2 }) {
+async function scanned(answers = { has_bug: 0.9, where: 'L0003', kind_wrong_return: 0.9, severe_normal_use: 0.8 }) {
   const root = await makeFixture();
   cleanups.push(root);
   const repo = { root, revision: await revision(root), out: join(root, '.perch') };
@@ -29,7 +29,7 @@ async function scanned(answers = { has_bug: 0.9, where: 'L0003', kind_wrong_retu
   return { repo, scan, finding };
 }
 const options = (repo, finding, extra) => ({ finding, root: repo.root, out: repo.out, analyzer, shell, systemOne: scriptedSystemOne(), model: scriptedModel(), ...extra });
-const proposal = (source, summary = 'Change the method') => ({ source, summary });
+const proposal = (source, summary = 'Change the method') => ({ source, summary, notes: 'The method returned the wrong value on one branch and the comment did not say what callers get. Both are corrected here.' });
 const captured = () => { const lines = []; return { lines, ui: createUi({ live: false, log: text => lines.push(text) }) }; };
 
 describe('perch fix', () => {
@@ -82,9 +82,32 @@ describe('perch fix', () => {
     expect(total).toMatch(/^total +\$0\.07$/);
   });
 
+  it('lets a split cost a few lines but refuses a rewrite that inflates the file', () => {
+    const base = { risk_score: 100, cyclomatic_complexity: 139, max_nesting: 7, sloc: 319 };
+    expect(fileBudget(base)).toEqual({ risk_score: 105, cyclomatic_complexity: 146, sloc: 351 });
+    expect(fileObjections(base, { ...base, sloc: 340, cyclomatic_complexity: 142 })).toEqual([]);
+    // The run that started this: the method's own score improved while the file grew by a third.
+    expect(fileObjections(base, { ...base, cyclomatic_complexity: 142, sloc: 436 })).toEqual(['the file grows too much, 319 -> 436 lines, and 351 is the most this fix may leave']);
+    expect(fileObjections(base, { ...base, cyclomatic_complexity: 160 })).toEqual(['the file\'s complexity goes up too far, 139 -> 160, and 146 is the most this fix may leave']);
+    // A real split of a small method costs a signature and a return, and that is allowed.
+    const small = { risk_score: 26.47, cyclomatic_complexity: 3, max_nesting: 1, sloc: 5 };
+    expect(fileObjections(small, { risk_score: 30.2, cyclomatic_complexity: 3, max_nesting: 1, sloc: 8 })).toEqual([]);
+    expect(fileObjections(small, { ...small, risk_score: 40 })).toEqual(["the file's risk goes up too far, 26 -> 40, and 31 is the most this fix may leave"]);
+  });
+
+  it('insists the note is prose a reviewer can read', () => {
+    const good = 'The upper bound was returned as the value the caller passed in, so clamp(11, 0, 10) gave back 11. The branch now returns hi.';
+    expect(plainNotes(good)).toEqual({ text: good });
+    expect(plainNotes('')).toMatchObject({ error: expect.stringContaining('notes is required') });
+    expect(plainNotes('Fixed it.')).toMatchObject({ error: expect.stringContaining('too short') });
+    expect(plainNotes('This change fixes the upper bound branch so that callers get the right value back every time.')).toMatchObject({ error: expect.stringContaining('not "This change"') });
+    expect(plainNotes('- the bound was wrong\n- it is right now, which callers depend on for every clamped value')).toMatchObject({ error: 'notes must be sentences, not bullets' });
+    expect(plainNotes('Leveraged a robust approach to the upper bound so that every caller gets a correct value back.')).toMatchObject({ error: expect.stringContaining('"Leveraged"') });
+  });
+
   it('tells the model everything System One answered, with probabilities', () => {
     const finding = { has_bug: 0.63, where: { line: 48, confidence: 0.71, text: 'return null;' }, kind: { kind: 'swallowed_error', probability: 0.6 }, kinds: { swallowed_error: 0.6, wrong_return: 0.4, boundary: 0.1 },
-      severity: { level: 'major', confidence: 0.55 }, misuse: [{ callee: 'src/gh.js::gh', probability: 0.7 }], misused_by: [{ caller: 'src/cli.js::publish', probability: 0.3 }], does_what_it_claims: 0.8, misdocumented: 0.53, refactor: { refactor: 'split', probabilities: { split: 0.84, none: 0.1, flatten: 0.05 } } };
+      severity: { level: 'P1', confidence: 0.55 }, misuse: [{ callee: 'src/gh.js::gh', probability: 0.7 }], misused_by: [{ caller: 'src/cli.js::publish', probability: 0.3 }], does_what_it_claims: 0.8, misdocumented: 0.53, refactor: { refactor: 'split', probabilities: { split: 0.84, none: 0.1, flatten: 0.05 } } };
     const text = huntAnswers(finding, { reachable: 0.88 });
     expect(text).toContain('reachable behavioral defect: 63%; the flagged line is reachable by a real caller: 88%');
     expect(text).toContain('defect kinds, most likely first: error ignored 60%, wrong return value 40%, off by one 10%');
@@ -134,17 +157,18 @@ describe('perch fix', () => {
 
     // What was printed: the objectives, each tool call as the model's, the result, and the usage.
     expect(lines).toContainEqual(`${finding.id}  clamp  src/clamp.js:1`);
-    expect(lines.some(line => /^ {2}wrong return value 90% +→ scripted-jev must no longer see it$/.test(line))).toBe(true);
+    expect(lines.some(line => /^ {2}wrong return value 90% +→ scripted-jev must no longer see this defect when it reads the rewrite$/.test(line))).toBe(true);
     expect(lines.some(line => /^✓ scripted-jev: can a caller reach src\/clamp.js:3\? — reachable 90%/.test(line))).toBe(true);
-    expect(lines.some(line => /^✓ scripted-model ▸ tree-sitter — file risk \d+ -> \d+, complexity 3 -> 3/.test(line))).toBe(true);
+    // Returning hi instead of v moves no metric, and the line says so rather than printing three numbers that did not change.
+    expect(lines.some(line => /^✓ scripted-model ▸ tree-sitter — file unchanged/.test(line))).toBe(true);
     expect(lines.some(line => /^✓ scripted-model ▸ scripted-jev rescan — now: no issues/.test(line))).toBe(true);
     expect(lines.some(line => /^✓ scripted-model ▸ tests — 1 pass/.test(line))).toBe(true);
     expect(lines.some(line => /^✓ scripted-model done — 1 turn/.test(line))).toBe(true);
     expect(lines.some(line => /^✓ [0-9a-f]{7} Return hi when v exceeds the upper bound$/.test(line))).toBe(true);
-    expect(lines).toContainEqual('  before  wrong return value 90%');
-    expect(lines).toContainEqual('  after   no issues');
-    expect(lines.some(line => /^ {2}scripted-jev +2 requests/.test(line))).toBe(true);
-    expect(lines.some(line => /^ {2}scripted-model +1 turn/.test(line))).toBe(true);
+    // The run tells the story once: the objectives, the steps, and the commit. The report is printed by whoever asked for the fix.
+    expect(lines.filter(line => line.startsWith('  Was') || line.startsWith('  Now'))).toEqual([]);
+    expect(fix.usage['scripted-jev'].requests).toBe(2);
+    expect(fix.usage['scripted-model'].turns).toBe(1);
 
     // The record is in the events log, so issues shows the finding fixed with its commit.
     const store = openStore(repo.out);
@@ -154,11 +178,12 @@ describe('perch fix', () => {
     expect(formatIssues([listed], 0.5)).toMatch(new RegExp(`Status  Commit\\n.*open +${fix.commit.slice(0, 7)}`));
     expect(formatFinding(listed)).toContain('Fixed: Return hi when v exceeds the upper bound');
     const text = formatFix(fix);
-    expect(text).toContain(`${finding.id}  src/clamp.js::clamp  ready: Return hi when v exceeds the upper bound`);
-    expect(text).toContain('before  wrong return value 90%');
-    expect(text).toContain('after   no issues');
-    expect(text).toContain(`commit  ${fix.commit.slice(0, 7)} on work; tests: test/clamp.test.js`);
-    expect(text).toMatch(/scripted-model: 1 turns, 1k in/);
+    expect(text).toContain(`${finding.id}  clamp  src/clamp.js:1  fixed in ${fix.commit.slice(0, 7)} on work`);
+    expect(text).toContain('Was    wrong return value 90%');
+    expect(text).toContain('Now    clear');
+    expect(text).toContain('The upper bound was returned as the caller');
+    expect(text).toContain('Tests   test/clamp.test.js pass');
+    expect(fix.usage['scripted-model'].input).toBe(1000);
 
     const again = scriptedModel();
     expect((await fixMethod(options(repo, finding, { model: again }))).id).toBe(fix.id);
@@ -172,8 +197,8 @@ describe('perch fix', () => {
     expect(closed.status).toBe('closed');
     expect(closed.reason).toBe('no caller can reach the flagged line (15%); nothing else is open');
     expect(model.calls).toHaveLength(0);
-    expect(formatFix(closed)).toContain('closed\n  no caller can reach the flagged line (15%)');
-    expect(formatIssues(await openStore(repo.out).issues(), 0.5)).toBe('No open issues. 1 closed (--closed).');
+    expect(formatFix(closed)).toContain('closed, nothing to do\n\n  no caller can reach the flagged line (15%)');
+    expect(formatIssues(await openStore(repo.out).issues(), 0.5)).toBe('Nothing matches.');
 
     // A method with design issues and an unreachable defect still gets worked for the design issues.
     const { repo: other, finding: design } = await scanned({ has_bug: 0.9, where: 'L0003', kind_wrong_return: 0.9, refactor: 'split', misdocumented: 0.8 });
@@ -181,7 +206,7 @@ describe('perch fix', () => {
     const fix = await fixMethod(options(other, design, { model: worker, systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { reachable: 0.1 } }) }));
     expect(fix.status).toBe('ready');
     expect(fix.before.map(issue => issue.text)).toEqual(['too big 80%', 'misdocumented 80%']);
-    expect(worker.calls[0].prompt).toContain("- too big 80%: do the structural change this calls for (split, flatten, simplify, dedupe, rename, or delete); System One must see it less\n- misdocumented 80%: the comment above the method must say what a caller needs");
+    expect(worker.calls[0].prompt).toContain("- too big 80%: do the structural change this calls for: split, flatten, simplify, dedupe, rename, or delete\n- misdocumented 80%: the comment above the method must say what a caller needs: the contract, edge cases, side effects");
     expect(await readFile(join(other.root, 'src', 'clamp.js'), 'utf8')).toBe(leanerSource + '\n');
   });
 
@@ -247,14 +272,14 @@ describe('perch fix', () => {
     expect((await store.readEvents()).filter(event => event.type === 'fixed').map(event => event.status)).toEqual(Array(4).fill('rejected'));
     const [discarded] = await store.issues();
     expect(discarded.fix).toMatchObject({ status: 'rejected', attempts: 3 });
-    expect(formatIssues([discarded], 0.5)).toBe('No open issues. 1 closed (--closed).');
+    expect(formatIssues([discarded], 0.5)).toBe('Nothing matches.');
     expect(formatFinding(discarded)).toContain('No fix on');
     expect((await git(['status', '--porcelain'], repo.root)).trim()).toBe('');
     expect(await readFile(join(repo.root, 'src', 'clamp.js'), 'utf8')).toBe(buggySource);
   }, 60_000);
 
   it('lets measure pass a split that adds sibling helpers in the replacement region', async () => {
-    const { repo, finding } = await scanned({ has_bug: 0.9, where: 'L0003', kind_wrong_return: 0.9, refactor: 'split', severity: 2 });
+    const { repo, finding } = await scanned({ has_bug: 0.9, where: 'L0003', kind_wrong_return: 0.9, refactor: 'split', severe_normal_use: 0.8 });
     const split = `function above(v, hi) {\n  return v > hi;\n}\n\nexport function clamp(v, lo, hi) {\n  if (v < lo) return lo;\n  if (above(v, hi)) return hi;\n  return v;\n}`;
     const model = scriptedModel({ fix: () => proposal(split, 'Extract the upper-bound check') });
     const fix = await fixMethod(options(repo, finding, { model }));

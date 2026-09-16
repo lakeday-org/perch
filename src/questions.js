@@ -11,6 +11,21 @@ export const DEFECT_KINDS = {
   inverted_condition: 'A condition, sign, or boolean is the wrong way round',
 };
 
+/**
+ * Vulnerability classes, asked only of a method the model says touches something outside the program. They are separate from
+ * DEFECT_KINDS because a vulnerability is not a wrong answer to a caller: the code does what it was written to do, and that is the problem.
+ */
+export const SECURITY_KINDS = {
+  injection: 'A value from outside is put into a shell command, a query, a path of execution, or anything that gets evaluated, without being escaped or parameterised',
+  path_traversal: 'A name from outside is used to build a filesystem path, URL, or key without being confined to the place it is meant to reach',
+  unsafe_deserialization: 'Data from outside is parsed, evaluated, or turned into objects in a way that lets it decide what code or type comes back',
+  secret_exposure: 'A password, token, key, or other credential is written into the source, logged, returned to a caller, or sent somewhere it need not go',
+  missing_authorization: 'An action that should check who is asking, or what they may touch, does not check, or checks after it has already acted',
+  weak_crypto: 'Security rests on predictable randomness, a home-made scheme, a broken algorithm, or a comparison that leaks timing',
+  unvalidated_destination: 'An address, host, or redirect target from outside decides where a request or a user is sent',
+  resource_exhaustion: 'Input from outside decides how much memory, recursion, time, or work happens, with nothing bounding it',
+};
+
 export const REFACTORS = {
   split: 'Does too many things; split it into smaller methods with one job each',
   flatten: 'Nested too deeply; flatten with early returns or extracted helpers',
@@ -21,8 +36,28 @@ export const REFACTORS = {
   none: 'No refactor needed',
 };
 
-export const SEVERITY_LEVELS = ['Cosmetic: no caller would notice', 'Minor: a wrong result in a rare or recoverable case', 'Major: a wrong result or state in normal use', 'Critical: data loss, corruption, a crash, or a security impact'];
-export const SEVERITY_NAMES = ['cosmetic', 'minor', 'major', 'critical'];
+/**
+ * How badly a caller feels a defect. Asked as three separate yes/no questions rather than one rating: a single 0-3 score came back
+ * between 1.2 and 2.3 on every method in a real repository, which rounds to the same label every time and says nothing.
+ */
+export const SEVERITY_QUESTIONS = {
+  severe_data_or_security: ['P0', 'Could the defect in `method` destroy or corrupt data a caller relies on, or let someone past a check that is meant to stop them?',
+    'Stored or returned data can be lost, silently corrupted, or exposed, or a security check can be bypassed',
+    'Nothing is lost or exposed: the caller gets a wrong answer, or an error, and the damage stops there'],
+  severe_normal_use: ['P1', 'Does a caller hit the defect in `method` on an ordinary path, with input it passes every day?',
+    'The inputs that trigger it are ordinary, so a caller meets it in normal use',
+    'It needs an unusual input, a rare state, or a path callers do not take'],
+  severe_recoverable: ['P2', 'When a caller does hit the defect in `method`, can it tell something went wrong and carry on?',
+    'It throws, returns something visibly wrong, or the caller can check and recover',
+    'It fails quietly: the caller gets a plausible wrong answer and carries on as if nothing happened'],
+};
+export const SEVERITY_NAMES = ['P0', 'P1', 'P2', 'P3'];
+/** The worst band the answers support, or P3 when none of them holds. */
+export const severityOf = (answers, min = 0.5) => Object.entries(SEVERITY_QUESTIONS).find(([key]) => (answers[key]?.noul ?? 0) >= min)?.[1][0] ?? 'P3';
+/** The label for a recorded severity: the band if one was stored, else the old 0-3 score, else nothing. */
+export const severityName = severity => (severity?.level ? severity.level
+  : severity?.score === undefined || severity.score === null ? '-'
+  : ['P3', 'P2', 'P1', 'P0'][Math.min(3, Math.max(0, Math.round(severity.score)))]);
 
 /** Plain names for the defect kinds and refactors, for anything a person reads. */
 export const KIND_LABELS = { boundary: 'off by one', missing_null_handling: 'unhandled null', wrong_return: 'wrong return value', swallowed_error: 'error ignored', state_mutation: 'bad state change', ordering: 'wrong order', resource_leak: 'leak', inverted_condition: 'inverted condition',
@@ -43,6 +78,8 @@ export const COMPLEX_RISK = 70;
 export function issuesOf(answers, min = 0.5) {
   const issues = [];
   if (answers.has_bug !== undefined && answers.has_bug >= min && (answers.reachable === undefined || answers.reachable >= min)) issues.push({ type: 'defect', label: spaced(answers.kind?.kind ?? 'defect'), probability: answers.has_bug, text: `${spaced(answers.kind?.kind ?? 'defect')} ${percent(answers.has_bug)}` });
+  if (answers.security && answers.exposed >= min && answers.security.probability >= min)
+    issues.push({ type: 'security', label: spaced(answers.security.kind), probability: answers.security.probability, text: `${spaced(answers.security.kind)} ${percent(answers.security.probability)}` });
   const refactor = answers.refactor?.refactor;
   const refactorProbability = refactor && refactor !== 'none' ? answers.refactor.probabilities?.[refactor] ?? 0 : 0;
   if (refactor && refactor !== 'none' && refactorProbability >= min) issues.push({ type: 'refactor', label: spaced(refactor), probability: refactorProbability, text: `${spaced(refactor)} ${percent(refactorProbability)}` });
@@ -52,9 +89,51 @@ export function issuesOf(answers, min = 0.5) {
   if (risk !== undefined && risk !== null && risk >= COMPLEX_RISK) issues.push({ type: 'complex', label: 'complex', probability: risk / 100, text: `complex, risk ${Math.round(risk)}` });
   return issues.sort((a, b) => b.probability - a.probability);
 }
-export const isDesign = issue => issue.type !== 'defect';
+/** Everything `--filter` understands, so `perch findings --types` can print it and a typo can be answered with the real list. */
+export const filterKeys = () => ({
+  type: ['defect', 'security', 'refactor', 'misdocumented', 'misaligned', 'complex'],
+  // The labels a finding is listed under, written the way they are typed. parseFilters reads either form, so
+  // `kind=too_big` and `kind=too big` both work.
+  kind: [...Object.keys(DEFECT_KINDS), ...Object.keys(SECURITY_KINDS), ...Object.keys(REFACTORS).filter(kind => kind !== 'none'), 'misdocumented', 'complex', 'does_not_do_what_it_claims']
+    .map(kind => spaced(kind).replaceAll(' ', '_')),
+  severity: [...SEVERITY_NAMES],
+});
+
+const canon = value => String(value).trim().toLowerCase().replace(/[_-]+/g, ' ');
+
+/** `type=security,kind=too big` as a list of tests; an unknown key or value is an error naming what is allowed. */
+export function parseFilters(text) {
+  const keys = filterKeys(), filters = [];
+  for (const clause of String(text).split(',').map(part => part.trim()).filter(Boolean)) {
+    const [key, ...rest] = clause.split('=');
+    const name = canon(key), value = canon(rest.join('='));
+    if (!Object.hasOwn(keys, name)) throw new Error(`unknown filter "${key.trim()}"; filter on ${Object.keys(keys).join(', ')}`);
+    if (!rest.length || !value) throw new Error(`filter ${name} needs a value: one of ${keys[name].join(', ')}`);
+    const allowed = keys[name].map(canon);
+    if (!allowed.includes(value)) throw new Error(`${name} "${rest.join('=').trim()}" is not one of ${keys[name].join(', ')}`);
+    filters.push({ key: name, value });
+  }
+  return filters;
+}
+
+/** A finding matches when every clause is true of it; clauses on the same key are alternatives. */
+export function matchesFilters(finding, filters, min = 0.5) {
+  if (!filters.length) return true;
+  const issues = issuesOf(finding, min);
+  const byKey = new Map();
+  for (const { key, value } of filters) byKey.set(key, [...(byKey.get(key) ?? []), value]);
+  for (const [key, values] of byKey) {
+    const ok = key === 'severity' ? values.includes(canon(severityName(finding.severity))) && issues.some(issue => issue.type === 'defect')
+      : key === 'type' ? issues.some(issue => values.includes(issue.type))
+      : issues.some(issue => values.includes(canon(issue.label)));
+    if (!ok) return false;
+  }
+  return true;
+}
+
+export const isDesign = issue => issue.type !== 'defect' && issue.type !== 'security';
 /** A hunted method is flagged when it carries a reachable defect at `min`. */
-export const flagged = (answers, min = 0.5) => issuesOf(answers, min).some(issue => issue.type === 'defect');
+export const flagged = (answers, min = 0.5) => issuesOf(answers, min).some(issue => !isDesign(issue));
 /** A method needs design work when it carries a refactor, alignment, documentation, or complexity issue at `min`. */
 export const needsDesign = (answers, min = 0.5) => issuesOf(answers, min).some(isDesign);
 export const hasIssue = (answers, min = 0.5) => issuesOf(answers, min).length > 0;
@@ -148,8 +227,12 @@ export function huntStep({ node, lines, imports = [], methods = [node], callees,
     module_scope: moduleScope(lines, methods),
     calls: callees.slice(0, MAX_CALLEES).map(({ node: callee, lines: calleeLines, calls = [] }) =>
       ({ id: callee.id, name: callee.qualified_name, path: callee.path, source: excerpt(calleeLines, callee.line, callee.end_line, limit), calls: calls.map(short) })),
-    called_by: callers.slice(0, MAX_CALLERS).map(({ node: caller, lines: callerLines, site }) =>
-      ({ id: caller.id, name: caller.qualified_name, path: caller.path, calls_method_at: site ?? null, source: excerpt(callerLines, caller.line, caller.end_line, limit, site ?? null) })),
+    called_by: callers.slice(0, MAX_CALLERS).map(({ node: caller, lines: callerLines, site, handover = false }) =>
+      ({ id: caller.id, name: caller.qualified_name, path: caller.path,
+        ...(handover
+          ? { hands_method_on_at: site ?? null, note: 'this caller does not call the method here: it passes it on to be called later, so the call itself is not in view' }
+          : { calls_method_at: site ?? null }),
+        source: excerpt(callerLines, caller.line, caller.end_line, limit, site ?? null) })),
     call_graph: edges,
   });
   let state = build(80);
@@ -162,7 +245,8 @@ export function huntStep({ node, lines, imports = [], methods = [node], callees,
     has_bug: { type: 'noul', instructions: 'Does `method` contain a concrete behavioral defect that a caller can reach?',
       criteria: { true: 'For some input a caller can pass, the method returns a wrong result, leaves wrong state, throws when it should not, or fails to throw when it should', false: 'The method behaves correctly for every input its callers can pass; style, performance, and hypothetical misuse do not count' } },
     ...(windows ? { where_window: whereWindowQuestion(windows) } : { where: whereQuestion(lineIds) }),
-    severity: { type: 'score', instructions: 'If `method` has a defect, how severe is it for its callers?', criteria: SEVERITY_LEVELS },
+    ...Object.fromEntries(Object.entries(SEVERITY_QUESTIONS).map(([key, [, instructions, yes, no]]) =>
+      [key, { type: 'noul', instructions: `If \`method\` has a defect: ${instructions}`, criteria: { true: yes, false: no } }])),
     follow: { type: 'choice', instructions: 'Which related method most likely holds or reveals a defect connected to `method`, and is worth examining next?',
       criteria: { ...Object.fromEntries(neighbors.map(item => [item.id, `${item.name} in ${item.path}`])), none: 'No related method is worth following' } },
   };
@@ -171,8 +255,14 @@ export function huntStep({ node, lines, imports = [], methods = [node], callees,
       criteria: { true: 'Its behavior matches what a reader would expect from its name and comment', false: 'It does something different from, less than, or more than its name and comment promise' } },
     misdocumented: { type: 'noul', instructions: 'Is `method` undocumented or misdocumented for what it does, given its `leading_comment` and its callers?',
       criteria: { true: 'A caller could not learn its contract, edge cases, or side effects from the comment, or the comment is wrong', false: 'The comment, or the code itself for a trivial method, states the contract accurately' } },
+    exposed: { type: 'noul', instructions: 'Does `method` handle anything that comes from outside the program, or act on the world outside it?',
+      criteria: { true: 'It takes or passes on a request, a file, an environment variable, a database row, a command line, a message, or a response from another service; or it runs a command, builds a query, touches the filesystem, sends a request, or decides what someone is allowed to do',
+        false: 'Everything it works on comes from inside the program, and it changes nothing outside it' } },
     refactor: { type: 'choice', instructions: 'Judging from `method`, its `metrics` (risk_score and maintainability_index run 0-100, cyclomatic_complexity and max_nesting are counts), and how its callers use it, what does it most need?', criteria: REFACTORS },
   });
+  for (const [kind, description] of Object.entries(SECURITY_KINDS))
+    questions[`security_${kind}`] = { type: 'noul', instructions: `If \`method\` handles anything from outside the program: is this true of it? ${description}.`,
+      criteria: { true: `Yes: ${description.toLowerCase()}`, false: 'No, or nothing from outside reaches this method' } };
   for (const [kind, description] of Object.entries(DEFECT_KINDS))
     questions[`kind_${kind}`] = { type: 'noul', instructions: `Does \`method\` have this kind of defect: ${description.toLowerCase()}?`, criteria: { true: `Yes: ${description.toLowerCase()}, reachable by a caller`, false: 'No defect of this kind' } };
   for (const [index, call] of calls.entries())
@@ -187,15 +277,20 @@ export function huntStep({ node, lines, imports = [], methods = [node], callees,
 /** Typed answers reduced to the fields the walk and the log use. */
 export function readAnswers(answers, { calls, calledBy, neighbors }) {
   const follow = answers.follow.choice;
-  const severity = answers.severity.score;
+  const severity = Object.fromEntries(Object.keys(SEVERITY_QUESTIONS).map(key => [key, answers[key].noul]));
   const kinds = Object.fromEntries(Object.keys(DEFECT_KINDS).map(kind => [kind, answers[`kind_${kind}`].noul]));
   const [topKind, topProbability] = Object.entries(kinds).sort((a, b) => b[1] - a[1])[0];
+  const securityKinds = Object.fromEntries(Object.keys(SECURITY_KINDS).map(kind => [kind, answers[`security_${kind}`].noul]));
+  const [topSecurity, topSecurityProbability] = Object.entries(securityKinds).sort((a, b) => b[1] - a[1])[0];
   return {
     has_bug: answers.has_bug.noul,
     where: { line: Number(answers.where.choice.slice(1)), confidence: answers.where.confidence },
     kind: { kind: topKind, probability: topProbability },
     kinds,
-    severity: { score: severity, level: SEVERITY_NAMES[Math.min(SEVERITY_NAMES.length - 1, Math.max(0, Math.round(severity)))], confidence: answers.severity.confidence },
+    severity: { level: severityOf(answers), ...severity },
+    exposed: answers.exposed.noul,
+    security: { kind: topSecurity, probability: topSecurityProbability },
+    securities: securityKinds,
     misuse: calls.map((call, index) => ({ callee: call.id, probability: answers[`misuse_${index}`].noul })),
     misused_by: calledBy.map((caller, index) => ({ caller: caller.id, probability: answers[`misused_by_${index}`].noul })),
     follow: { method: neighbors.some(item => item.id === follow) ? follow : null, confidence: answers.follow.confidence, probabilities: answers.follow.probabilities },
@@ -250,7 +345,7 @@ export function readPatchCheck({ finding, answers, calledBy }) {
   const kind = answers[`kind_${finding.kind.kind}`]?.noul ?? null;
   const kindBefore = finding.kind.probability ?? null;
   const misusedBy = calledBy.map((caller, index) => ({ caller: caller.id, before: finding.misused_by?.find(item => item.caller === caller.id)?.probability ?? 0, after: answers[`misused_by_${index}`].noul }));
-  const verification = { has_bug: answers.has_bug.noul, kind, severity: answers.severity?.score ?? null, misused_by: misusedBy };
+  const verification = { has_bug: answers.has_bug.noul, kind, severity: severityOf(answers), misused_by: misusedBy };
   const objections = [
     verification.has_bug >= finding.has_bug && `defect no less likely (${percent(finding.has_bug)} -> ${percent(verification.has_bug)})`,
     kind !== null && kindBefore !== null && kind >= kindBefore && `${label(finding.kind.kind)} looks no less likely (${percent(kindBefore)} -> ${percent(kind)})`,

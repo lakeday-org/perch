@@ -72,7 +72,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const calleeIds = byRisk(graph.callees(nodeId)), callerIds = byRisk(graph.callers(nodeId));
     const callees = [], callers = [];
     for (const calleeId of calleeIds) { const callee = graph.nodes.get(calleeId); callees.push({ node: callee, lines: await linesOf(callee), calls: graph.callees(calleeId) }); }
-    for (const callerId of callerIds) { const caller = graph.nodes.get(callerId); callers.push({ node: caller, lines: await linesOf(caller), site: graph.site(callerId, nodeId) }); }
+    for (const callerId of callerIds) { const caller = graph.nodes.get(callerId); callers.push({ node: caller, lines: await linesOf(caller), site: graph.site(callerId, nodeId), handover: graph.isDynamic(callerId, nodeId) }); }
     const members = new Set([nodeId, ...calleeIds, ...callerIds, ...calleeIds.flatMap(calleeId => graph.callees(calleeId))]);
     const edges = [];
     for (const member of members) for (const target of graph.callees(member)) if (members.has(target)) edges.push(`${member.split('::').at(-1)} -> ${target.split('::').at(-1)}`);

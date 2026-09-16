@@ -35,8 +35,16 @@ async function entries(dir) {
 }
 
 /** A fix counts for a finding when the method read the same when it was made as when it was read by System One. */
-const fixApplies = (fix, finding) => Boolean(fix) && (fix.hash ? fix.hash === finding.hash : fix.revision === finding.revision || fix.at >= finding.at);
-const summarizeFix = work => ({ id: work.fix_id, status: work.status, at: work.at, summary: work.summary ?? null, commit: work.commit ?? null, branch: work.branch ?? null, patch_path: work.patch_path ?? null, before: work.before ?? null, after: work.after ?? null, reason: work.reason ?? null, error: work.error ?? null, attempts: work.attempts ?? 0 });
+/**
+ * Whether a recorded fix still describes this method: the code it was about, or, for one that landed, the code it produced.
+ * Anything else means the method has moved on since, and it is workable again.
+ */
+const fixApplies = (fix, finding) => {
+  if (!fix) return false;
+  if (fix.status === 'ready' && fix.hash_after === finding.hash) return true;
+  return fix.hash ? fix.hash === finding.hash : fix.revision === finding.revision || fix.at >= finding.at;
+};
+const summarizeFix = work => ({ id: work.fix_id, status: work.status, notes: work.notes ?? null, at: work.at, summary: work.summary ?? null, commit: work.commit ?? null, branch: work.branch ?? null, patch_path: work.patch_path ?? null, before: work.before ?? null, after: work.after ?? null, reason: work.reason ?? null, error: work.error ?? null, attempts: work.attempts ?? 0 });
 
 const byCreation = (a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '') || a.id.localeCompare(b.id);
 
@@ -109,7 +117,7 @@ export function openStore(out) {
             const base = { metrics: method.metrics, file: file.metrics };
             // Answers about a method that has since changed are stale; the metrics are always about the code as it is.
             const fix = fixes.get(method.id);
-            every.push(hunted && hunted.hash === method.hash ? { ...hunted, ...base } : { id: findingId(method.id), method: method.id, path: file.path, name: method.qualified_name, line: method.line, end_line: method.end_line, hash: method.hash, revision: scan.revision, root: scan.root, at: scan.created_at, unread: true, ...base, ...(fix && fix.hash === method.hash ? { fix: summarizeFix(fix) } : {}) });
+            every.push(hunted && hunted.hash === method.hash ? { ...hunted, ...base, ...(fixApplies(fix, method) ? { fix: summarizeFix(fix) } : {}) } : { id: findingId(method.id), method: method.id, path: file.path, name: method.qualified_name, line: method.line, end_line: method.end_line, hash: method.hash, revision: scan.revision, root: scan.root, at: scan.created_at, unread: true, ...base, ...(fixApplies(fix, method) ? { fix: summarizeFix(fix) } : {}) });
           }
         }
         for (const finding of findings) if (!seen.has(finding.method)) every.push(finding);

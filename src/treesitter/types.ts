@@ -102,7 +102,7 @@ export interface Declaration {
   metrics: QualityMetrics;
 }
 
-export type ReferenceKind = "call" | "import";
+export type ReferenceKind = "call" | "import" | "value";
 
 export interface Reference {
   kind: ReferenceKind;

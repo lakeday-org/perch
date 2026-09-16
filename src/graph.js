@@ -67,7 +67,14 @@ export function buildGraph(files) {
     return viaImport(file, head, tail) ?? lookup(file.path, `${head}.${tail}`) ?? lookup(file.path, tail);
   };
 
-  const callees = new Map(), callers = new Map(), sites = new Map();
+  // A name that belongs to exactly one method in the repository can be resolved wherever it appears; anything more common is guesswork.
+  const unique = new Map();
+  for (const [id, node] of nodes) {
+    const key = node.name;
+    unique.set(key, unique.has(key) ? null : id);
+  }
+
+  const callees = new Map(), callers = new Map(), sites = new Map(), dynamic = new Set();
   const link = (map, from, to) => { if (!map.has(from)) map.set(from, new Set()); map.get(from).add(to); };
   for (const file of files) {
     for (const call of file.calls) {
@@ -79,8 +86,23 @@ export function buildGraph(files) {
       if (!sites.has(key)) sites.set(key, call.line);
     }
   }
+  // Functions passed as values: the dispatcher that eventually calls them has no name for them, so the edge comes from the handover.
+  for (const file of files) {
+    for (const value of file.values ?? []) {
+      const to = resolve(file, value.name) ?? unique.get(value.name.split(/::|\./).at(-1)) ?? null;
+      if (!to || to === value.from || !nodes.has(to)) continue;
+      if (callees.get(value.from)?.has(to)) continue;
+      link(callees, value.from, to);
+      link(callers, to, value.from);
+      dynamic.add(`${value.from}->${to}`);
+      if (!sites.has(`${value.from}->${to}`)) sites.set(`${value.from}->${to}`, value.line);
+    }
+  }
+
   return {
     nodes,
+    /** Whether an edge was inferred from a handover rather than seen as a call. */
+    isDynamic: (from, to) => dynamic.has(`${from}->${to}`),
     files: byPath,
     callees: id => [...(callees.get(id) ?? [])],
     callers: id => [...(callers.get(id) ?? [])],

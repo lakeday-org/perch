@@ -9,13 +9,13 @@ import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { git, listTree, revision as gitRevision } from './git.js';
 import { DEFAULT_FIX_BUDGET, huntedEvent, questionMethod } from './hunt.js';
-import { visibleFindings } from './report.js';
+import { formatFix, visibleFindings } from './report.js';
 import { languageOf } from './analysis.js';
 import { analyzeTree } from './scan.js';
 import { buildGraph, resolveModule } from './graph.js';
 import { huntStep, isDesign, issuesOf, reachCheck, SURE } from './questions.js';
-import { identity, openStore, readJson, writeJson } from './store.js';
-import { fixPrompt } from './prompts.js';
+import { identity, openStore, readJson, sha256, writeJson } from './store.js';
+import { fixPrompt, goalOf } from './prompts.js';
 import { Abort, DEFAULT_EFFORT, tool } from './model.js';
 import { createMeter, metered } from './meter.js';
 import { discoverProject } from './project.js';
@@ -38,6 +38,46 @@ export function plainSummary(summary) {
   if (text.length > 72) return { error: `summary is ${text.length} characters; the commit line must be under 72, imperative, plain words` };
   return { text };
 }
+/** Marketing words and hedges that make a note unreadable; a rejected note names the one it used. */
+const CLANKERESE = /\b(leverag\w+|robust|comprehensive|seamless\w*|streamlin\w+|utiliz\w+|holistic|synerg\w+|cutting-edge|best-in-class|delve[sd]?|underscor\w+|pivotal|myriad)\b/i;
+/**
+ * The note that ships with a fix: two or three plain sentences saying what was wrong, what changed, and why that is better.
+ * A reviewer reads this instead of the diff, so it must be prose an engineer would write, not bullets and not marketing.
+ */
+export function plainNotes(notes) {
+  const text = String(notes ?? '').trim().replace(/\s*\n\s*/g, ' ');
+  if (!text) return { error: 'notes is required: two or three plain sentences saying what was wrong, what you changed, and why it is better' };
+  if (text.length < 40) return { error: 'notes is too short to tell a reviewer anything; two or three sentences' };
+  if (text.length > 600) return { error: `notes is ${text.length} characters; keep it under 600` };
+  if (/^[-*\u2022]|\n[-*\u2022]/.test(notes.trim())) return { error: 'notes must be sentences, not bullets' };
+  if (/^(this|the)\s+(commit|change|patch|pr|rewrite|refactor)\b/i.test(text)) return { error: 'start with what was wrong or what you did, not "This change"' };
+  const filler = text.match(CLANKERESE);
+  if (filler) return { error: `notes uses "${filler[0]}"; write it the way you would explain the change to the next engineer` };
+  return { text };
+}
+
+/**
+ * How much bigger the whole file may get. Splitting a method into helpers costs a few signatures and returns, so a little growth is
+ * honest; a rewrite that inflates the file has moved the mess rather than removed it, whatever it did for the one method's score.
+ */
+export function fileBudget(base) {
+  return {
+    // Risk climbs with size, so the line cap already holds it down; this catches a rewrite that trades lines for density.
+    risk_score: base.risk_score + 5,
+    // A split moves decisions, it does not create them; the slack is for a real error path the fix adds.
+    cyclomatic_complexity: base.cyclomatic_complexity + Math.max(2, Math.round(base.cyclomatic_complexity * 0.05)),
+    sloc: base.sloc + Math.max(25, Math.round(base.sloc * 0.1)),
+  };
+}
+/** Why a rewrite that helps one method still leaves the file worse off. */
+export function fileObjections(base, after) {
+  const limit = fileBudget(base), objections = [];
+  if (after.risk_score > limit.risk_score) objections.push(`the file's risk goes up too far, ${Math.round(base.risk_score)} -> ${Math.round(after.risk_score)}, and ${Math.round(limit.risk_score)} is the most this fix may leave`);
+  if (after.cyclomatic_complexity > limit.cyclomatic_complexity) objections.push(`the file's complexity goes up too far, ${base.cyclomatic_complexity} -> ${after.cyclomatic_complexity}, and ${limit.cyclomatic_complexity} is the most this fix may leave`);
+  if (after.sloc > limit.sloc) objections.push(`the file grows too much, ${base.sloc} -> ${after.sloc} lines, and ${limit.sloc} is the most this fix may leave`);
+  return objections;
+}
+
 /** Findings under a repository-relative path (a file or a directory). */
 export const underPath = (findings, path) => (path ? findings.filter(finding => finding.path === path || finding.path.startsWith(path.replace(/\/$/, '') + '/')) : findings);
 
@@ -134,7 +174,7 @@ export async function methodContext({ finding, root, out, analyzer, revision = f
   const callees = [], callers = [];
   const calleeIds = graph.callees(node.id), callerIds = graph.callers(node.id);
   for (const calleeId of calleeIds) { const callee = graph.nodes.get(calleeId); callees.push({ node: callee, lines: await linesOf(callee), calls: graph.callees(calleeId) }); }
-  for (const callerId of callerIds) { const caller = graph.nodes.get(callerId); callers.push({ node: caller, lines: await linesOf(caller), site: graph.site(callerId, node.id) }); }
+  for (const callerId of callerIds) { const caller = graph.nodes.get(callerId); callers.push({ node: caller, lines: await linesOf(caller), site: graph.site(callerId, node.id), handover: graph.isDynamic(callerId, node.id) }); }
   const { imports, methods } = graph.files.get(node.path).file;
   const fileLines = await linesOf(node);
   const step = huntStep({ node, lines: fileLines, imports, methods, callees, callers });
@@ -155,16 +195,15 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
   await store.exclude(root);
   const branch = await workingBranch(root, 'fix');
   const revision = await gitRevision(root);
-  const fix = { id, finding_id: hunted.id, method: hunted.method, path: hunted.path, root, branch, revision, hunted_at: hunted.revision, model: model.id, verifier: systemOne.id, out: dir, status: 'running', created_at: new Date().toISOString() };
+  const fix = { id, finding_id: hunted.id, method: hunted.method, path: hunted.path, line: hunted.line, root, branch, revision, hunted_at: hunted.revision, model: model.id, verifier: systemOne.id, out: dir, status: 'running', created_at: new Date().toISOString() };
   await writeJson(fixPath, fix);
   const pct = value => `${Math.round(value * 100)}%`;
   let finding = hunted;
   const finish = async (status, extra) => {
     Object.assign(fix, { status, completed_at: new Date().toISOString(), ...extra, usage: meter.toJSON() });
     await writeJson(fixPath, fix);
-    await store.appendEvent({ type: 'fixed', at: fix.completed_at, id: finding.id, fix_id: id, method: finding.method, hash: finding.hash, revision, status, summary: fix.summary ?? null, commit: fix.commit ?? null, branch, patch_path: fix.patch_path ?? null, before: fix.before ?? null, after: fix.after ?? null, reason: fix.reason ?? null, error: fix.error ?? null, attempts: fix.turns ?? 0 });
+    await store.appendEvent({ type: 'fixed', at: fix.completed_at, id: finding.id, fix_id: id, method: finding.method, hash: finding.hash, revision, status, summary: fix.summary ?? null, notes: fix.notes ?? null, hash_after: fix.hash_after ?? null, commit: fix.commit ?? null, branch, patch_path: fix.patch_path ?? null, before: fix.before ?? null, after: fix.after ?? null, reason: fix.reason ?? null, error: fix.error ?? null, attempts: fix.turns ?? 0 });
     if (status !== 'ready') ui.say(`${status === 'closed' ? NOTE : FAIL} ${hunted.name}: ${status === 'closed' ? `closed — ${fix.reason}` : `no fix — ${(fix.error ?? '').split('\n')[0]}`}`);
-    ui.say(...meter.lines().map(line => `  ${line}`));
     return fix;
   };
 
@@ -189,8 +228,7 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
 
     // The objectives, stated up front: each issue and what has to be true afterwards.
     ui.say(`${finding.id}  ${finding.name}  ${finding.path}:${finding.line}`);
-    const goal = issue => (issue.type === 'defect' ? `${systemOne.id} must no longer see it` : issue.type === 'complex' ? "this method's risk must come down" : issue.type === 'misdocumented' ? 'the comment must say what a caller needs' : issue.type === 'refactor' ? 'do the structural change' : `${systemOne.id} must see it less`);
-    for (const issue of before) ui.say(`  ${issue.text.padEnd(28)} → ${goal(issue)}`);
+    for (const issue of before) ui.say(`  ${issue.text.padEnd(28)} → ${goalOf(issue, systemOne.id)}`);
 
     // A defect the caller cannot reach is not one: System One says so before anything is generated.
     let reachable = null;
@@ -216,7 +254,8 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
     const splice = source => [...fileLines.slice(0, start - 1), ...methodLines(source), ...fileLines.slice(end)];
 
     // The tests that reach the method, run only when the model asks; one already failing on the original is ignored, not blamed.
-    const project = await discoverProject({ root, revision, out, paths: (await listTree(root, revision)).map(item => item.path), systemOne, log: debug });
+    const tracked = new Set((await listTree(root, revision)).map(item => item.path));
+    const project = await discoverProject({ root, revision, out, paths: [...tracked], systemOne, log: debug });
     const reaching = testsTouching({ graph, files: scan.files, node });
     const runFile = file => shell.run(command(project.single, file), { cwd: root, timeoutMs: COMMAND_MS, env: workspaceEnv() });
     const checks = project.single ? reaching.map(path => ({ name: path, run: () => runFile(path) })) : [];
@@ -226,7 +265,10 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
 
     const place = async text => { await writeFile(join(root, node.path), text); placed = true; };
     const restore = async () => { await git(['checkout', '--', node.path], root); placed = false; };
-    const shift = (from, to) => `risk ${Math.round(from.risk_score)} -> ${Math.round(to.risk_score)}, complexity ${from.cyclomatic_complexity} -> ${to.cyclomatic_complexity}, nesting ${from.max_nesting} -> ${to.max_nesting}`;
+    // Only what moved: "risk 84 -> 62, complexity 55 -> 40". A number that did not change is not news.
+    const shift = (from, to) => [['risk', 'risk_score'], ['complexity', 'cyclomatic_complexity'], ['nesting', 'max_nesting'], ['lines', 'sloc']]
+      .filter(([, key]) => Math.round(from[key]) !== Math.round(to[key]))
+      .map(([name, key]) => `${name} ${Math.round(from[key])} -> ${Math.round(to[key])}`).join(', ') || 'unchanged';
 
     // The verifiers, as tools. Each remembers the exact source it passed; submit insists on all that apply.
     const passed = { measure: new Map(), rescan: new Map(), tests: new Map() };
@@ -242,6 +284,8 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
       const kept = inRegion.find(declaration => declaration.qualified_name === node.qualified_name);
       if (!kept) return { ok: false, error: `keep a method named ${node.qualified_name} in lines ${start}-${regionEnd}; found ${inRegion.map(declaration => declaration.qualified_name).join(', ') || 'none'}` };
       const fileMetrics = trim(after.metrics), metrics = trim(kept.metrics);
+      const bloat = fileObjections(base, fileMetrics);
+      if (bloat.length) return { ok: false, error: `${bloat.join('; ')}. Take code out of the file or cut it; do not add.`, file: shift(base, fileMetrics) };
       const detail = { file: shift(base, fileMetrics), method: shift(node.metrics ?? metrics, metrics), helpers: inRegion.filter(declaration => declaration.qualified_name !== node.qualified_name).map(declaration => declaration.qualified_name) };
       // measure only checks that the rewrite parses and keeps the method; rescan and the tests decide whether it improved.
       passed.measure.set(source, { kept, metrics, fileMetrics, inRegion: inRegion.map(declaration => ({ line: declaration.line, end_line: declaration.end_line, qualified_name: declaration.qualified_name })), replacementLength: replacement.length });
@@ -289,34 +333,52 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
       return { ok: true, checks: ran, ...(ignored.size ? { ignored_already_failing: [...ignored] } : {}) };
     };
     let accepted = null;
-    const submit = async ({ source, summary }) => {
+    const submit = async ({ source, summary, notes }) => {
       for (const [name, map] of [['measure', passed.measure], ['rescan', passed.rescan], ['run_tests', passed.tests]]) if (!map.has(source)) return { ok: false, error: `${name} has not passed this exact source` };
       const line = plainSummary(summary);
       if (line.error) return { ok: false, error: line.error };
-      accepted = { source, summary: line.text, ...passed.measure.get(source), ...passed.rescan.get(source), checks: passed.tests.get(source) };
+      const note = plainNotes(notes);
+      if (note.error) return { ok: false, error: note.error };
+      accepted = { source, summary: line.text, notes: note.text, ...passed.measure.get(source), ...passed.rescan.get(source), checks: passed.tests.get(source) };
       return { ok: true, done: true };
     };
+    const MAX_READ_LINES = 400;
+    const read = async ({ path }) => {
+      if (!tracked.has(path)) {
+        const prefix = path.replace(/\/$/, '') + '/';
+        const inside = [...tracked].filter(item => item.startsWith(prefix));
+        if (inside.length) return { ok: true, path, directory: inside.slice(0, 200) };
+        const near = [...tracked].filter(item => item.endsWith(`/${path.split('/').at(-1)}`)).slice(0, 5);
+        return { ok: false, error: `${path} is not tracked at this revision${near.length ? `; did you mean ${near.join(', ')}?` : ''}` };
+      }
+      const lines = (await git(['show', `${revision}:${path}`], root)).split('\n');
+      const shown = lines.slice(0, MAX_READ_LINES).map((text, index) => `${index + 1}| ${text}`).join('\n');
+      return { ok: true, path, lines: lines.length, source: shown + (lines.length > MAX_READ_LINES ? `\n... ${lines.length - MAX_READ_LINES} more lines` : '') };
+    };
     const tools = [
+      tool('read', 'Read any file tracked at this revision, with line numbers, or list a directory, when the context below does not tell you enough: a caller you need to keep working, a callee\'s real contract, a test that covers this method, a sibling that already does what you are about to write.', { path: { type: 'string', description: 'repository-relative path' } }, read),
       tool('measure', `Splice the rewrite over lines ${start}-${end} of ${node.path} and measure with tree-sitter: it must parse and still contain ${node.qualified_name}. Sibling helpers in that range are fine. Returns the method and file metrics; improvement is judged by rescan, not here. Call this on every version you write.`, { source: { type: 'string', description: 'replacement for the region: comment, method, and any helpers it needs' } }, measure),
-      tool('rescan', 'Run the scan again over the rewrite: the same System One questions with the same neighborhood, plus the metrics. Every issue the scan raised must be gone (no longer listed), a defect gone outright, and nothing new. A tiny probability drop is not enough. Requires measure to have passed this exact source.', { source: { type: 'string' }, summary: { type: 'string', description: 'the commit line, under 72 characters' } }, rescan),
+      tool('rescan', 'Run the scan again over the rewrite: the same System One questions with the same neighborhood, plus the metrics. Every issue the scan raised must be gone (no longer listed), a defect gone outright, and nothing new. A tiny probability drop is not enough. Requires measure to have passed this exact source.', { source: { type: 'string' } }, rescan),
       tool('run_tests', `Run the tests that reach ${node.qualified_name}${checks.length ? ` (${checks.map(check => check.name).join(', ')})` : ' (none found; passes trivially)'} against the rewrite. Requires measure to have passed this exact source.`, { source: { type: 'string' } }, runTests),
-      tool('submit', 'Finish with the rewrite. Refused unless measure, rescan, and run_tests have all passed this exact source.', { source: { type: 'string' }, summary: { type: 'string' } }, submit),
+      tool('submit', 'Finish with the rewrite. Refused unless measure, rescan, and run_tests have all passed this exact source.',
+        { source: { type: 'string' }, summary: { type: 'string', description: 'the commit line: imperative, under 72 characters' },
+          notes: { type: 'string', description: 'two or three plain sentences for the reviewer: what was wrong, what you changed, why it is better. No bullets, no marketing words.' } }, submit),
     ];
 
     const effort = model.effort ?? DEFAULT_EFFORT;
-    const names = { measure: 'tree-sitter', rescan: `${systemOne.id} rescan`, run_tests: 'tests', submit: 'submit' };
+    const names = { read: 'read', measure: 'tree-sitter', rescan: `${systemOne.id} rescan`, run_tests: 'tests', submit: 'submit' };
     const running = ui.task(`${model.id} working (effort ${effort})`);
     let current = null;
     const onEvent = event => {
       if (event.type === 'tool_call') current = ui.task(`${model.id} ▸ ${names[event.name] ?? event.name}`);
       else if (event.type === 'tool_result' && current) {
         const r = event.result ?? {};
-        const detail = r.error ?? (r.after ? `now: ${r.after.join(', ') || 'no issues'}` : r.file ? `file ${r.file}` : r.checks ? (r.checks.length ? `${r.checks.length} pass${r.ignored_already_failing ? ` (${r.ignored_already_failing.join(', ')} already failing, ignored)` : ''}` : r.note ?? 'nothing to run') : '');
+        const detail = r.error ?? (r.after ? `now: ${r.after.join(', ') || 'no issues'}` : r.directory ? `${r.path}, ${r.directory.length} files` : r.source !== undefined ? `${r.path}, ${r.lines} lines` : r.file ? `file ${r.file}` : r.checks ? (r.checks.length ? `${r.checks.length} pass${r.ignored_already_failing ? ` (${r.ignored_already_failing.join(', ')} already failing, ignored)` : ''}` : r.note ?? 'nothing to run') : '');
         (r.ok ? current.ok : current.fail)(detail); current = null;
         running.update(`${model.id} working (turn ${event.turn}, effort ${effort})`);
       }
     };
-    const run = await model.run({ prompt: fixPrompt({ finding, before, reachable, fileMetrics: trim(base), state: step.state, region, start, end, checks: checks.map(check => check.name) }), tools, effort, onEvent });
+    const run = await model.run({ prompt: fixPrompt({ finding, before, reachable, fileMetrics: trim(base), budget: fileBudget(base), state: step.state, region, start, end, checks: checks.map(check => check.name) }), tools, effort, onEvent });
     meter.add(model.id, run.usage, { turns: run.turns, requests: run.turns });
     Object.assign(fix, { trace: run.trace, turns: run.turns });
     if (!accepted) {
@@ -338,10 +400,9 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
     const patchPath = join(dir, 'fix.patch');
     await writeFile(patchPath, patch);
     ui.say(`${OK} ${commit.slice(0, 7)} ${accepted.summary}`);
-    ui.say(`  before  ${before.map(issue => issue.text).join(', ')}`);
-    ui.say(`  after   ${accepted.after.map(issue => issue.text).join(', ') || 'no issues'}`);
-    ui.say(`  file    ${shift(base, accepted.fileMetrics)}${accepted.checks.length ? `; tests: ${accepted.checks.join(', ')}` : ''}`);
-    return await finish('ready', { summary: accepted.summary, commit, patch_path: patchPath, before, after: accepted.after, file_before: trim(base), file_after: accepted.fileMetrics, method_before: trim(node.metrics), method_after: accepted.metrics, reachable, checks: accepted.checks });
+    // The hash of the method as it now reads, so `issues` shows this fix against what it produced rather than what it replaced.
+    const hashAfter = sha256(splice(accepted.source).slice(accepted.kept.line - 1, accepted.kept.end_line).join('\n'));
+    return await finish('ready', { summary: accepted.summary, notes: accepted.notes, line: node.line, hash_after: hashAfter, commit, patch_path: patchPath, before, after: accepted.after, file_before: trim(base), file_after: accepted.fileMetrics, method_before: trim(node.metrics), method_after: accepted.metrics, reachable, checks: accepted.checks });
   } catch (error) {
     fix.status = 'failed';
     fix.error = error.message;
@@ -371,7 +432,9 @@ export async function fixIssues({ findings, budget = DEFAULT_FIX_BUDGET, root, o
     const findingRoot = finding.root ?? root;
     try {
       if (!findingRoot) throw new Error(`finding ${finding.id} has no repository recorded; scan again`);
-      fixes.push(await fixMethod({ finding, root: findingRoot, out, model, systemOne, analyzer, shell, ui, meter: createMeter(), log, debug }));
+      const fix = await fixMethod({ finding, root: findingRoot, out, model, systemOne, analyzer, shell, ui, meter: createMeter(), log, debug });
+      fixes.push(fix);
+      ui.say('', ...formatFix(fix).split('\n'));
     } catch (error) {
       ui.say(`${FAIL} ${finding.id} failed: ${error.message.split('\n')[0]}`);
       fixes.push({ id: null, finding_id: finding.id, method: finding.method, path: finding.path, root: findingRoot, revision: finding.revision, out, status: 'failed', error: error.message });

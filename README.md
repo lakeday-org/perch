@@ -115,7 +115,11 @@ of them, trimmed to stay under 48KB. The questions are:
 | `where` | choice over the method's line ids | The line, with confidence. |
 | `reachable` | noul, asked only when `has_bug` is at least 50% | Probability that the flagged line is actually executable given the method's own guards. A method is not reported as a defect unless this is also at the threshold. |
 | `kind_*` | one noul per defect kind | Probability of each: boundary, missing null handling, wrong return, swallowed error, state mutation, ordering, resource leak, inverted condition. |
-| `severity` | score | Cosmetic, minor, major, or critical. |
+| `exposed` | noul | Does anything from outside the program reach this method, or does it act on the world outside? |
+| `security_*` | noul, one per class | Injection, path traversal, unsafe deserialization, secret exposure, missing authorization, weak crypto, unvalidated destination, resource exhaustion. Listed only when `exposed` also clears the threshold. |
+| `severe_data_or_security` | noul | Can it destroy, corrupt, or expose data, or get past a check? |
+| `severe_normal_use` | noul | Does a caller meet it on an ordinary path? |
+| `severe_recoverable` | noul | When a caller hits it, can it tell and carry on? |
 | `misuse_N` | one noul per callee | Probability the call violates that callee's evident contract. |
 | `misused_by_N` | one noul per caller | Probability the caller violates this method's contract or relies on what it does not guarantee. |
 | `does_what_it_claims` | noul | Probability the behavior matches the name, parameters, and comment. |
@@ -136,6 +140,13 @@ a refactor other than none, doubt that it does what it claims, or
 `misdocumented` reaches the threshold, and `complex` when its tree-sitter risk
 score is 70 or more, whether or not System One has read it. `issues` lists
 every method with at least one, all of its issues on the row.
+
+Severity is the worst band those three answers support: `P0` data lost, corrupted,
+exposed, or a check bypassed; `P1` a caller meets it in normal use; `P2` it is rare
+or the caller can recover; `P3` none of the above. They are three yes/no questions
+rather than one rating because a single four-point score came back between 1.2 and
+2.3 on every method of a real repository, which rounds to one label and says
+nothing. Severity is only shown for a method that carries a defect.
 
 ## How an issue is fixed
 
@@ -161,10 +172,20 @@ as a trace, with the tokens each model used and what they cost.
    wrong; the file's metrics; and the neighborhood the scan used: imports and
    module scope, the callees' source, the callers' source around the call
    site, and the call graph.
-4. **The tools.**
+4. **The tools.** They are the model's to use in any order and as often as it
+   needs; perch does not drive it through a fixed sequence.
+   - `read(path)`: any file tracked at the revision, with line numbers, or the
+     listing of a directory. The
+     prompt carries the neighborhood, not the repository, so this is how the
+     model checks a caller it must keep working, a callee's real contract, or a
+     test that covers the method.
    - `measure(source)`: splice over the region (comment, method, and any sibling
-     helpers) and measure with tree-sitter. It must parse and still contain a
-     method of the same name. Improvement is judged by rescan, not here.
+     helpers) and measure with tree-sitter. It must parse, still contain a
+     method of the same name, and leave the file no worse: risk within five
+     points, complexity within two (or 5%), and lines within twenty-five (or
+     10%) of where they started. Extracting helpers costs a few lines and that
+     is allowed; a rewrite that inflates the file has moved the mess rather than
+     removed it. Whether the issues cleared is judged by rescan, not here.
    - `rescan(source)`: the same scan over the rewrite, the same System One
      questions with the same neighborhood plus the metrics. Every issue the
      scan raised must be gone (no longer listed at the threshold), a defect gone
@@ -174,17 +195,25 @@ as a trace, with the tokens each model used and what they cost.
      suite, when none does) must pass on the rewrite. A test that fails on the
      rewrite is run once on the original, and one that already fails there is
      ignored rather than blamed. At most six runs.
-   - `submit(source, summary)`: refused unless all three passed that exact
-     source. The summary is the commit line: one line, under 72 characters.
+   - `submit(source, summary, notes)`: refused unless measure, rescan, and
+     run_tests all passed that exact source. The summary is the commit line: one
+     line, under 72 characters. The notes are two or three sentences of plain
+     technical English for the reviewer, saying what was wrong, what changed,
+     and what is better now; bullets, marketing words, and openings like "This
+     change" are refused.
 5. **Commit and record.** The file is committed on the current branch with the
    summary as the message and `perch <finding-id>` in the body. The diff is
    kept at `<out>/fixes/<fix-id>/fix.patch`, the trace on `fix.json`, and a
-   `fixed` event with the commit and the issues before and after goes to
-   `events.jsonl`.
+   `fixed` event with the commit, the notes, and the issues before and after
+   goes to `events.jsonl`. What perch then prints is that record: what was
+   wrong, the model's notes, the metrics that actually moved, the tests that
+   passed, and the cost.
 
 Reasoning effort is `max` by default (`--effort` lowers it) and held constant
-through the run, since the prompt cache is keyed on it. A run is cut off after
-eight model turns. A rejected run leaves the checkout as it was, and a method
+through the run, since the prompt cache is keyed on it. Tools are called one per
+turn and a single verified attempt already costs five, so a run is given forty
+turns before it is cut off: enough to correct itself several times rather than
+stop mid-fix. A rejected run leaves the checkout as it was, and a method
 already worked by the same model is not retried until it changes.
 
 How the project runs its tests is discovered from the tree at `HEAD`: candidate

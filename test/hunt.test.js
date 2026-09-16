@@ -7,7 +7,7 @@ import { createSourceAnalyzer } from '../src/analysis.js';
 import { scanRepository } from '../src/hunt.js';
 import { huntStep, locateWhere, MAX_CHOICES } from '../src/questions.js';
 import { openStore } from '../src/store.js';
-import { formatScanRun } from '../src/report.js';
+import { formatScanRun, scanCount } from '../src/report.js';
 import { commitAll, fixtureOptions, makeGraphFixture, scriptedSystemOne } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
@@ -42,7 +42,7 @@ describe('perch hunt', () => {
 
   it('walks every method once from riskiest down, logs each, and skips unchanged methods next time', async () => {
     const repo = await fixture();
-    const systemOne = scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.9, where: 'L0004', kind_boundary: 0.8, severity: 2, refactor: 'split', misdocumented: 0.7 } });
+    const systemOne = scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.9, where: 'L0004', kind_boundary: 0.8, severe_normal_use: 0.8, refactor: 'split', misdocumented: 0.7 } });
     const hunt = await scanRepository(await withRevision(repo, { systemOne }));
 
     expect(hunt.status).toBe('complete');
@@ -52,7 +52,7 @@ describe('perch hunt', () => {
     expect(hunt.visited.map(visit => visit.method)[0]).toBe('src/a.js::f');
     expect(new Set(hunt.visited.map(visit => visit.method))).toEqual(new Set(['src/a.js::f', 'src/a.js::g', 'src/b.js::h', 'src/b.js::k']));
     const f = hunt.visited.find(visit => visit.method === 'src/a.js::f');
-    expect(f).toMatchObject({ status: 'hunted', id: expect.stringMatching(/^[0-9a-f]{8}$/), has_bug: 0.9, reachable: 0.9, where: { line: 4 }, kind: { kind: 'boundary', probability: 0.8 }, severity: { level: 'major' }, misdocumented: 0.7, refactor: { refactor: 'split' }, callees: expect.arrayContaining(['src/a.js::g', 'src/b.js::h']) });
+    expect(f).toMatchObject({ status: 'hunted', id: expect.stringMatching(/^[0-9a-f]{8}$/), has_bug: 0.9, reachable: 0.9, where: { line: 4 }, kind: { kind: 'boundary', probability: 0.8 }, severity: { level: 'P1' }, misdocumented: 0.7, refactor: { refactor: 'split' }, callees: expect.arrayContaining(['src/a.js::g', 'src/b.js::h']) });
     expect(f.kinds.boundary).toBe(0.8);
     expect(f.callers).toEqual([]);
 
@@ -81,18 +81,21 @@ describe('perch hunt', () => {
     expect((await git(['status', '--porcelain'], repo.root)).trim()).toBe('');
     expect(f.where.text).toBe('if (x > 10) return g(x) + h(x);');
     const shown = formatScanRun(hunt, await openStore(repo.out).issues());
-    expect(shown).toMatch(/^Scanned .* at commit [0-9a-f]{7}: 4 methods\. Read 4\./m);
+    // The run prints the table and nothing else; what it read is context, and goes to stderr.
+    expect(shown).toMatch(/^ID +Method +Location/m);
+    expect(shown).not.toMatch(/^Scanned /m);
     expect(hunt.budget).toBeNull();
     expect(hunt.to_read).toBe(4);
-    expect(shown).toContain('1 open issue.');
-    expect(shown).toMatch(new RegExp(`${f.id}  f +src/a.js:4 +off by one 90%, too big 80%, misdocumented 70% +major +open +-`));
+
+    expect(shown).toMatch(new RegExp(`${f.id}  f +src/a.js:4 +off by one 90%, too big 80%, misdocumented 70% +P1 +open +-`));
 
     // A second hunt skips everything, without a single model call.
     const again = await scanRepository(await withRevision(repo, { systemOne: scriptedSystemOne() }));
     expect(again.calls).toBe(0);
     expect(again.skipped).toBe(4);
     expect(again.to_read).toBe(0);
-    expect(formatScanRun(again, [])).toContain('4 methods. Read 0, 4 unchanged since the last scan.');
+    expect(scanCount(again)).toContain('4 methods, read 0, 4 unchanged');
+    expect(formatScanRun(again, [])).toBe('Nothing matches.');
 
     // Changing one method makes only that method huntable again.
     await writeFile(join(repo.root, 'src', 'b.js'), (await readFile(join(repo.root, 'src', 'b.js'), 'utf8')).replace('return x - 1;', 'return x - 2;'));

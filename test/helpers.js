@@ -65,7 +65,8 @@ export function clamp(v, lo, hi) {
 }`;
 
 export const defaultResponses = {
-  fix: () => ({ source: fixedMethod, summary: 'Return hi when v exceeds the upper bound.' }),
+  fix: () => ({ source: fixedMethod, summary: 'Return hi when v exceeds the upper bound.',
+    notes: 'The upper bound was returned as the caller\'s own value, so clamp(11, 0, 10) gave back 11 instead of 10. The branch now returns hi. Callers that rely on the result staying inside the range get that again.' }),
 };
 
 /**
@@ -95,7 +96,7 @@ export function scriptedModel(overrides = {}) {
         turns++;
         const proposal = responses.fix(`fix-${attempt}`, prompt);
         for (const name of ['measure', 'rescan', 'run_tests', 'submit']) {
-          const result = await call(name, name === 'measure' || name === 'run_tests' ? { source: proposal.source } : { source: proposal.source, summary: proposal.summary });
+          const result = await call(name, name === 'submit' ? { source: proposal.source, summary: proposal.summary, notes: proposal.notes } : { source: proposal.source });
           if (!result.ok) break;
           if (result.done) { done = true; break; }
         }
