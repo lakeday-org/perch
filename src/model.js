@@ -12,6 +12,9 @@ export const DEFAULT_EFFORT = 'max';
 /** How many model turns one run may take before it is cut off. Each turn may call several tools. */
 export const MAX_TURNS = 16;
 
+/** Thrown by a tool handler when the run cannot go on for reasons the model cannot fix (the checkout changed under it); ends the run. */
+export class Abort extends Error {}
+
 /** A function tool the model can call: JSON-schema arguments, strict, and a handler that returns a JSON-serializable result. */
 export const tool = (name, description, properties, handler) => ({
   type: 'function', name, description, strict: true,
@@ -107,7 +110,7 @@ export function createModel({
           let result;
           if (!item) result = { ok: false, error: `unknown tool ${call.name}` };
           else if (args === null) result = { ok: false, error: 'arguments were not valid JSON' };
-          else { try { result = await item.handler(args); } catch (error) { result = { ok: false, error: error.message }; } }
+          else { try { result = await item.handler(args); } catch (error) { if (error instanceof Abort) throw error; result = { ok: false, error: error.message }; } }
           emit({ type: 'tool_result', turn: turns, name: call.name, call_id: call.call_id, result });
           input.push({ type: 'function_call_output', call_id: call.call_id, output: JSON.stringify(result) });
           if (result?.done) { done = true; break; }

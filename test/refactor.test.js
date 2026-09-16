@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { runScan } from '../src/scan.js';
-import { improves, refactorCandidates, regionStart, runRefactor, runRefactorQueue, withinRefactorGate } from '../src/refactor.js';
+import { improves, refactorCandidates, regionStart, runRefactor, runRefactorQueue } from '../src/refactor.js';
 import { moduleScope } from '../src/questions.js';
 import { createShell } from '../src/shell.js';
 import { openStore } from '../src/store.js';
@@ -30,18 +30,24 @@ async function scanned() {
 const options = (repo, method, extra) => ({ method, root: repo.root, out: repo.out, analyzer, shell, systemOne: scriptedSystemOne(), model: scriptedModel(), ...extra });
 
 describe('perch refactor', () => {
-  it('finds the comment block above a method, picks candidates by risk, and gates on metrics', async () => {
+  it('finds the comment block above a method, picks candidates by file risk, and gates on the file score', async () => {
     expect(regionStart(['// a', '// b', 'function f() {}'], 3)).toBe(1);
     expect(regionStart(['x', '', 'function f() {}'], 3)).toBe(3);
     expect(improves({ risk_score: 50, cyclomatic_complexity: 3, max_nesting: 1 }, { risk_score: 40, cyclomatic_complexity: 3, max_nesting: 1 })).toBe(true);
     expect(improves({ risk_score: 50, cyclomatic_complexity: 3, max_nesting: 1 }, { risk_score: 50, cyclomatic_complexity: 2, max_nesting: 1 })).toBe(false);
     expect(improves({ risk_score: 50, cyclomatic_complexity: 3, max_nesting: 1 }, { risk_score: 40, cyclomatic_complexity: 4, max_nesting: 1 })).toBe(false);
-    expect(withinRefactorGate({ risk_score: 50, cyclomatic_complexity: 10, max_nesting: 3 }, { risk_score: 50.5, cyclomatic_complexity: 10, max_nesting: 2 })).toBe(true);
-    expect(withinRefactorGate({ risk_score: 50, cyclomatic_complexity: 10, max_nesting: 3 }, { risk_score: 50, cyclomatic_complexity: 11, max_nesting: 3 })).toBe(false);
     const { scan } = await scanned();
     expect(refactorCandidates(scan, { min: 99 })).toEqual([]);
     expect(refactorCandidates(scan, { min: 0, path: 'test' })).toEqual([]);
     expect(refactorCandidates(scan, { min: 0, path: 'src' }).map(method => method.id)).toEqual(['src/clamp.js::clamp']);
+    expect(refactorCandidates(scan, { min: 0 })[0].file.risk_score).toBeTypeOf('number');
+    // Candidates follow the file ranking, then the method's own risk within the file.
+    const ranked = refactorCandidates({ files: [
+      { path: 'a.js', test: false, metrics: { risk_score: 40 }, methods: [{ id: 'a.js::x', metrics: { risk_score: 90 } }] },
+      { path: 'b.js', test: false, metrics: { risk_score: 80 }, methods: [{ id: 'b.js::y', metrics: { risk_score: 10 } }, { id: 'b.js::z', metrics: { risk_score: 30 } }] },
+    ], candidates: [{ id: 'a.js::x' }, { id: 'b.js::z' }, { id: 'b.js::y' }] }, { min: 0 });
+    expect(ranked.map(method => method.id)).toEqual(['b.js::z', 'b.js::y', 'a.js::x']);
+    expect(refactorCandidates({ files: ranked.length ? [] : [], candidates: [] }, { min: 70 })).toEqual([]);
     // Module scope is the file outside its methods: constants and the like, never imports, blanks, or comments.
     expect(moduleScope(['import x from "y";', 'const LIMIT = 3;', '// note', '', 'function f() {', '  return LIMIT;', '}'], [{ line: 5, end_line: 7 }])).toBe('L0002| const LIMIT = 3;');
     expect(moduleScope(['function f() {}'], [{ line: 1, end_line: 1 }])).toBeNull();
@@ -57,14 +63,16 @@ describe('perch refactor', () => {
     expect(record.kind).toBe('refactor');
     expect(record.before.cyclomatic_complexity).toBe(3);
     expect(record.after.cyclomatic_complexity).toBe(2);
-    expect(record.after.risk_score).toBeLessThan(record.before.risk_score);
+    expect(record.file_before.cyclomatic_complexity).toBe(3);
+    expect(record.file_after.cyclomatic_complexity).toBe(2);
+    expect(record.file_after.risk_score).toBeLessThan(record.file_before.risk_score);
     expect(record.checks).toEqual(['test/clamp.test.js']);
     expect(record.proof).toEqual({ checks: ['test/clamp.test.js'] });
     expect(record.region).toEqual({ start: 1, end: 5 });
     expect(record.turns).toBe(1);
     expect(record.branch).toBe('work');
     expect(record.commit).toBe(await revision(repo.root));
-    expect((await git(['log', '-1', '--format=%s%n%n%b'], repo.root)).trim()).toBe(`Drop the branch that returns v unchanged.\n\nperch refactor src/clamp.js::clamp`);
+    expect((await git(['log', '-1', '--format=%s%n%n%b'], repo.root)).trim()).toBe(`Drop the branch that returns v unchanged\n\nperch refactor src/clamp.js::clamp`);
     expect(await readFile(join(repo.root, 'src', 'clamp.js'), 'utf8')).toBe(leanerSource + '\n');
     expect((await git(['status', '--porcelain'], repo.root)).trim()).toBe('');
 
@@ -76,16 +84,18 @@ describe('perch refactor', () => {
     expect(model.calls[0].prompt).toContain('cyclomatic complexity 3, max nesting 1, 5 lines');
     expect(model.calls[0].prompt).toContain('ORIGINAL, lines 1-5');
     expect(model.calls[0].prompt).toContain('"called_by"');
-    expect(record.trace.find(event => event.type === 'tool_result' && event.name === 'measure').result).toMatchObject({ ok: true, method: expect.stringMatching(/^risk \d+ -> \d+, complexity 3 -> 2, nesting 1 -> 1$/) });
+    expect(record.trace.find(event => event.type === 'tool_result' && event.name === 'measure').result).toMatchObject({ ok: true, file: expect.stringMatching(/^risk \d+ -> \d+, complexity 3 -> 2, nesting 1 -> 1, maintainability \d+ -> \d+, lines 5 -> 4$/), method: expect.stringMatching(/complexity 3 -> 2/) });
+    expect(model.calls[0].prompt).toContain('THE MEASURE: the file\'s tree-sitter score');
+    expect(model.calls[0].prompt).toMatch(/The file today: risk score \d+ \(0-100, lower is better\)/);
     // Each step was reported as the model's call; the record prints its metrics and commit.
     expect(lines.some(line => /on the original/.test(line))).toBe(false);
-    expect(lines.some(line => /^scripted-model simplifying clamp: thinking \(effort max\)/.test(line))).toBe(true);
-    expect(lines.some(line => /^✓ scripted-model ▸ measure — risk \d+ -> \d+, complexity 3 -> 2, nesting 1 -> 1/.test(line))).toBe(true);
-    expect(lines.some(line => /^✓ scripted-model ▸ run_tests — 1 pass/.test(line))).toBe(true);
-    expect(lines.some(line => /^✓ committed [0-9a-f]{7} on work: Drop the branch/.test(line))).toBe(true);
+    expect(lines.some(line => /^scripted-model working on clamp \(effort max\)/.test(line))).toBe(true);
+    expect(lines.some(line => /^✓ scripted-model ▸ tree-sitter measure — file risk \d+ -> \d+, complexity 3 -> 2, nesting 1 -> 1/.test(line))).toBe(true);
+    expect(lines.some(line => /^✓ scripted-model ▸ tests — 1 pass/.test(line))).toBe(true);
+    expect(lines.some(line => /^✓ [0-9a-f]{7} Drop the branch that returns v unchanged  \(file risk/.test(line))).toBe(true);
     const text = formatFix(record);
     expect(text).toContain('perch refactor');
-    expect(text).toContain('after:  risk');
+    expect(text).toContain('file after:  risk');
     expect(text).toContain('complexity 3 -> 2');
     expect(text).toContain(`committed: ${record.commit.slice(0, 7)} on work`);
 
@@ -106,8 +116,8 @@ describe('perch refactor', () => {
     expect(unchanged.turns).toBe(3);
 
     const noBetter = await attempt('nobetter', { model: scriptedModel({ refactor: () => ({ source: documentedSource, summary: 'comment only' }) }) });
-    expect(noBetter.error).toBe('clamp must come out less risky with complexity and nesting no higher');
-    expect(noBetter.trace.at(-1).result.method).toMatch(/complexity 3 -> 3, nesting 1 -> 1$/);
+    expect(noBetter.error).toMatch(/^the file's score must come down: risk lower, complexity and nesting no higher\./);
+    expect(noBetter.trace.at(-1).result.file).toMatch(/complexity 3 -> 3, nesting 1 -> 1/);
 
     const broken = await attempt('broken', { model: scriptedModel({ refactor: () => ({ source: leanerSource.replace('if (v < lo) return lo;', 'if (v < lo) return v;'), summary: 'oops' }) }) });
     expect(broken.error).toBe('test/clamp.test.js fails on the rewrite and passes on the original');

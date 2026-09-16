@@ -41,7 +41,7 @@ describe('cli', () => {
     expect(out.at(-1)).toContain('perch fix: Fix open defects in this checkout');
     expect(out.at(-1)).toContain('--budget');
     expect(await main(['refactor', '-h'], io)).toBe(0);
-    expect(out.at(-1)).toContain('perch refactor: Simplify the riskiest methods the scan sees');
+    expect(out.at(-1)).toContain('perch refactor: Bring down the score of the riskiest files');
     expect(await main(['bogus'], io)).toBe(2);
     expect(await main(['design'], io)).toBe(2);
     expect(await main(['fix', '--budget', '0'], io)).toBe(2);
@@ -83,10 +83,10 @@ describe('cli', () => {
     expect(JSON.parse(out.at(-1)).id).toBe(hunt.id);
     const [f] = hunt.visited;
     expect(await main(['issues', '--out', repo.out], io)).toBe(0);
-    expect(out.at(-1)).toMatch(new RegExp(`${f.id}  f +src/a.js:\\d+ +wrong return 80% +minor +open`));
+    expect(out.at(-1)).toMatch(new RegExp(`${f.id}  f +src/a.js:\\d+ +wrong return value 80% +minor +open`));
     expect(await main(['issues', f.id.slice(0, 5), '--out', repo.out], io)).toBe(0);
     expect(out.at(-1)).toContain('Reachable defect: 80%');
-    expect(out.at(-1)).toContain('wrong return 60%');
+    expect(out.at(-1)).toContain('wrong return value 60%');
     expect(await main(['issues', '--out', repo.out, '--min', '90'], io)).toBe(0);
     expect(out.at(-1)).toContain('No hunted method has an issue at 90%');
   });

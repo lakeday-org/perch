@@ -1,8 +1,8 @@
 /**
- * `perch refactor`: a pass over the scan, not the hunt. The riskiest methods by tree-sitter metrics (risk score, maintainability,
- * complexity, nesting) are handed to a generative model to simplify; a rewrite is accepted only when the method's own metrics improve,
- * every test that reaches it still passes, and System One agrees behavior is unchanged. Each accepted rewrite is one commit on the
- * current branch. No System One question is asked before the rewrite exists; the metrics are the trigger.
+ * `perch refactor`: a pass over the scan, not the hunt. The target is the file's score, the one `perch scan` ranks by: risk (from
+ * maintainability, volume, lines, branches, nesting). Methods in the riskiest files, riskiest first, are handed to a generative model
+ * to simplify; a rewrite is accepted only when the file comes out less risky with no more complexity or nesting, and every test that
+ * reaches the method still passes. Each accepted rewrite is one commit on the current branch.
  */
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -13,12 +13,12 @@ import { discoverProject } from './project.js';
 import { COMMAND_MS, workspaceEnv } from './workspace.js';
 import { identity, openStore, readJson, writeJson } from './store.js';
 import { refactorPrompt } from './prompts.js';
-import { command, dirtyPaths, MAX_VERIFICATIONS, methodContext, methodLines, tail, testsTouching, underPath, workingBranch } from './fix.js';
+import { command, dirtyPaths, methodContext, methodLines, plainSummary, tail, testsTouching, underPath, workingBranch } from './fix.js';
 import { DEFAULT_BUDGET } from './hunt.js';
-import { DEFAULT_EFFORT, describeRun, tool } from './model.js';
+import { Abort, DEFAULT_EFFORT, describeRun, tool } from './model.js';
 import { FAIL, OK, plainUi } from './ui.js';
 
-/** Methods at or above this risk score are refactor candidates by default. */
+/** Files at or above this risk score are worked by the repo-wide sweep by default; a named path takes every method in it. */
 export const DEFAULT_MIN_RISK = 70;
 /** Bumped whenever how a refactor is made or judged changes, so a rejection recorded by an older pipeline is never reused. */
 export const REFACTOR_VERSION = 3;
@@ -35,15 +35,19 @@ export function regionStart(lines, line) {
 }
 
 const trim = metrics => (metrics ? { risk_score: metrics.risk_score, maintainability_index: metrics.maintainability_index, cyclomatic_complexity: metrics.cyclomatic_complexity, max_nesting: metrics.max_nesting, sloc: metrics.sloc } : null);
-/** The method must come out less risky and no more complex or nested; the file as a whole may not get more complex, deeper, or more than a point riskier. */
+/** The file must come out less risky with no more branches and no deeper nesting: the score `perch scan` ranks by has to move. */
 export const improves = (before, after) => Boolean(after) && after.risk_score < before.risk_score && (after.cyclomatic_complexity ?? 0) <= (before.cyclomatic_complexity ?? 0) && (after.max_nesting ?? 0) <= (before.max_nesting ?? 0);
-export const withinRefactorGate = (base, changed) => Boolean(changed) && changed.risk_score <= base.risk_score + 1 &&
-  (changed.cyclomatic_complexity ?? 0) <= (base.cyclomatic_complexity ?? 0) && (changed.max_nesting ?? 0) <= (base.max_nesting ?? 0);
 
-/** Scan methods worth refactoring: riskiest first, at or above `min`, under `path` when given; test methods are never candidates. */
+/**
+ * Scan methods worth refactoring: the methods of files at or above `min` risk (every file under `path` when one is given), ordered by
+ * the file's risk and then the method's; test methods are never candidates.
+ */
 export function refactorCandidates(scan, { path = null, min = DEFAULT_MIN_RISK } = {}) {
-  const methods = new Map((scan.files ?? []).flatMap(file => file.methods.map(method => [method.id, { ...method, path: file.path }])));
-  return underPath((scan.candidates ?? []).map(candidate => methods.get(candidate.id)).filter(method => method?.metrics && method.metrics.risk_score >= min), path);
+  const files = new Map((scan.files ?? []).map(file => [file.path, file]));
+  const methods = new Map((scan.files ?? []).flatMap(file => file.methods.map(method => [method.id, { ...method, path: file.path, file: file.metrics }])));
+  const fileRisk = method => files.get(method.path)?.metrics?.risk_score ?? 0;
+  return underPath((scan.candidates ?? []).map(candidate => methods.get(candidate.id)).filter(method => method?.metrics && fileRisk(method) >= min), path)
+    .sort((a, b) => fileRisk(b) - fileRisk(a) || b.metrics.risk_score - a.metrics.risk_score);
 }
 
 export async function runRefactor({ method: target, root, out, model, systemOne, analyzer, shell, ui = plainUi(), log = () => {}, debug = () => {} }) {
@@ -55,17 +59,17 @@ export async function runRefactor({ method: target, root, out, model, systemOne,
     ui.say(`${target.qualified_name} ${target.path}: already ${existing.status} by ${model.id}; reusing`);
     return existing;
   }
-  ui.say(`${target.qualified_name}  ${target.path}:${target.line}  risk ${Math.round(target.metrics.risk_score)}, complexity ${target.metrics.cyclomatic_complexity}, nesting ${target.metrics.max_nesting}, ${target.metrics.sloc} lines`);
+  ui.say(`${target.qualified_name}  ${target.path}:${target.line}  file risk ${Math.round(target.file?.risk_score ?? 0)}, maintainability ${Math.round(target.file?.maintainability_index ?? 0)}; method risk ${Math.round(target.metrics.risk_score)}, complexity ${target.metrics.cyclomatic_complexity}, nesting ${target.metrics.max_nesting}, ${target.metrics.sloc} lines`);
   await store.exclude(root);
   const branch = await workingBranch(root, 'refactor');
   const revision = await gitRevision(root);
   const record = { id, kind: 'refactor', method: target.id, name: target.qualified_name, path: target.path, root, branch, revision, hash: target.hash, model: model.id, verifier: systemOne.id, out: dir,
-    before: trim(target.metrics), status: 'running', created_at: new Date().toISOString() };
+    before: trim(target.metrics), file_before: trim(target.file), status: 'running', created_at: new Date().toISOString() };
   await writeJson(recordPath, record);
   const finish = async (status, extra) => {
     Object.assign(record, { status, completed_at: new Date().toISOString(), ...extra });
     await writeJson(recordPath, record);
-    ui.say(`${status === 'ready' ? OK : FAIL} ${target.qualified_name}: refactor ${status}${record.error ? ` — ${record.error.split('\n')[0]}` : ''}`);
+    if (status !== 'ready') ui.say(`${FAIL} ${target.qualified_name}: no refactor — ${(record.error ?? '').split('\n')[0]}`);
     return record;
   };
   const event = extra => store.appendEvent({ type: 'refactored', at: new Date().toISOString(), refactor_id: id, method: target.id, hash: target.hash, revision, ...extra });
@@ -103,7 +107,7 @@ export async function runRefactor({ method: target, root, out, model, systemOne,
     const splice = source => [...fileLines.slice(0, start - 1), ...methodLines(source), ...fileLines.slice(end)];
     const assertTestFiles = async () => {
       const changed = (await dirtyPaths(root)).filter(path => !dirtyBefore.includes(path));
-      if (changed.join('\n') !== node.path) throw new Error(`The test run changed files other than ${node.path}: ${changed.join(', ') || 'none'}`);
+      if (changed.join('\n') !== node.path) throw new Abort(`the checkout changed while perch refactor was running (${changed.filter(path => path !== node.path).join(', ') || 'unknown'}); commit or stash your work and run it again`);
     };
 
     // The verifiers, as tools. Each remembers what it passed, keyed by the exact source, so submit can insist on all three.
@@ -119,11 +123,10 @@ export async function runRefactor({ method: target, root, out, model, systemOne,
       const inRegion = after.declarations.filter(declaration => declaration.line >= start && declaration.line <= regionEnd && declaration.name !== '<anonymous>');
       const kept = inRegion.find(declaration => declaration.qualified_name === node.qualified_name);
       if (!kept) return { ok: false, error: `the rewrite must keep a method named ${node.qualified_name} in lines ${start}-${regionEnd}; found ${inRegion.map(declaration => declaration.qualified_name).join(', ') || 'none'}` };
-      const metrics = trim(kept.metrics);
-      const detail = { method: shift(before, metrics), file: shift(base, after.metrics) };
-      if (!improves(before, metrics)) return { ok: false, error: `${node.qualified_name} must come out less risky with complexity and nesting no higher`, ...detail };
-      if (!withinRefactorGate(base, after.metrics)) return { ok: false, error: 'the file as a whole may not get more complex, deeper, or more than a point riskier', ...detail };
-      passed.measure.set(source, { kept, metrics, inRegion: inRegion.map(declaration => ({ line: declaration.line, end_line: declaration.end_line })), replacementLength: replacement.length });
+      const metrics = trim(kept.metrics), fileMetrics = trim(after.metrics);
+      const detail = { file: `${shift(base, fileMetrics)}, maintainability ${Math.round(base.maintainability_index)} -> ${Math.round(fileMetrics.maintainability_index)}, lines ${base.sloc} -> ${fileMetrics.sloc}`, method: shift(before, metrics) };
+      if (!improves(base, fileMetrics)) return { ok: false, error: `the file's score must come down: risk lower, complexity and nesting no higher. The score is maintainability (volume, lines, branches) and complexity; less code and fewer branches move it, helpers split out add code and rarely do`, ...detail };
+      passed.measure.set(source, { kept, metrics, fileMetrics, inRegion: inRegion.map(declaration => ({ line: declaration.line, end_line: declaration.end_line })), replacementLength: replacement.length });
       return { ok: true, ...detail };
     };
     const runTests = async ({ source }) => {
@@ -154,32 +157,36 @@ export async function runRefactor({ method: target, root, out, model, systemOne,
     let accepted = null;
     const submit = async ({ source, summary }) => {
       for (const [name, map] of [['measure', passed.measure], ['run_tests', passed.tests]]) if (!map.has(source)) return { ok: false, error: `${name} has not passed this exact source` };
-      if (!summary.trim()) return { ok: false, error: 'summary is required: one sentence, as a commit message' };
-      accepted = { source, summary, metrics: passed.measure.get(source).metrics, checks: passed.tests.get(source) };
+      const line = plainSummary(summary);
+      if (line.error) return { ok: false, error: line.error };
+      accepted = { source, summary: line.text, metrics: passed.measure.get(source).metrics, fileMetrics: passed.measure.get(source).fileMetrics, checks: passed.tests.get(source) };
       return { ok: true, done: true };
     };
     const tools = [
-      tool('measure', `Splice the rewrite over lines ${start}-${end} and measure it with tree-sitter: it must parse, keep a method named ${node.qualified_name}, make that method less risky with complexity and nesting no higher, and not make the file deeper, more complex, or more than a point riskier. Call this on every version you write.`, { source: { type: 'string', description: 'the complete replacement for the region: comment, method, any helpers' } }, measure),
+      tool('measure', `Splice the rewrite over lines ${start}-${end} of ${node.path} and measure the whole file with tree-sitter: it must parse, keep a method named ${node.qualified_name}, and the file's risk score must be lower with its complexity and nesting no higher. Call this on every version you write.`, { source: { type: 'string', description: 'the complete replacement for the region: comment, method, any helpers' } }, measure),
       tool('run_tests', `Run the tests that reach ${node.qualified_name} (${checks.map(check => check.name).join(', ')}) against the rewrite. Requires measure to have passed this exact source.`, { source: { type: 'string' } }, runTests),
       tool('submit', 'Finish with the rewrite. Refused unless measure and run_tests have both passed this exact source.', { source: { type: 'string' }, summary: { type: 'string', description: 'one sentence: what the change does, as a commit message' } }, submit),
     ];
 
     const effort = model.effort ?? DEFAULT_EFFORT;
-    const running = ui.task(`${model.id} simplifying ${node.qualified_name}: thinking (effort ${effort})`);
+    const names = { measure: 'tree-sitter measure', run_tests: 'tests', submit: 'submit' };
+    const running = ui.task(`${model.id} working on ${node.qualified_name} (effort ${effort})`);
     let current = null;
     const onEvent = event => {
-      if (event.type === 'tool_call') current = ui.task(`${model.id} ▸ ${event.name}${event.arguments?.summary ? ` — ${event.arguments.summary}` : ''}`);
-      else if (event.type === 'tool_result' && current) { const r = event.result ?? {}; const detail = r.error ?? r.method ?? (r.checks ? `${r.checks.length} pass${r.ignored_already_failing ? ` (${r.ignored_already_failing.join(', ')} already failing on the original, ignored)` : ''}` : ''); (r.ok ? current.ok : current.fail)(detail); current = null; running.update(`${model.id} simplifying ${node.qualified_name}: thinking (turn ${event.turn}, effort ${effort})`); }
+      if (event.type === 'tool_call') current = ui.task(`${model.id} ▸ ${names[event.name] ?? event.name}`);
+      else if (event.type === 'tool_result' && current) { const r = event.result ?? {}; const detail = r.error ?? (r.file ? `file ${r.file}` : null) ?? (r.checks ? `${r.checks.length} pass${r.ignored_already_failing ? ` (${r.ignored_already_failing.join(', ')} already failing on the original, ignored)` : ''}` : ''); (r.ok ? current.ok : current.fail)(detail); current = null; running.update(`${model.id} working on ${node.qualified_name} (turn ${event.turn}, effort ${effort})`); }
     };
-    const run = await model.run({ prompt: refactorPrompt({ node, metrics: before, state: step.state, region, start, end }), tools, effort, onEvent });
+    const run = await model.run({ prompt: refactorPrompt({ node, metrics: before, fileMetrics: trim(base), state: step.state, region, start, end }), tools, effort, onEvent });
     Object.assign(record, { trace: run.trace, usage: run.usage, turns: run.turns });
     if (!accepted) {
-      running.fail(`no accepted submit in ${run.turns} turns (${describeRun(run)})`);
+      running.update(`${model.id} gave up on ${node.qualified_name}`);
+      running.fail(`${run.turns} turns, ${describeRun(run)}`);
       const lastError = [...run.trace].reverse().find(item => item.type === 'tool_result' && item.result?.error)?.result.error ?? 'the model never submitted a verified rewrite';
       await event({ status: 'rejected', attempts: run.turns, error: lastError });
       return await finish('rejected', { error: lastError });
     }
-    running.ok(`${accepted.summary} (${describeRun(run)})`);
+    running.update(`${model.id} simplified ${node.qualified_name}`);
+    running.ok(describeRun(run));
 
     await place(splice(accepted.source).join('\n'));
     await git(['add', '--', node.path], root);
@@ -187,11 +194,11 @@ export async function runRefactor({ method: target, root, out, model, systemOne,
     await git(['commit', '-q', '-m', accepted.summary, '-m', `perch refactor ${node.id}`, '--', node.path], root);
     placed = false;
     const commit = await gitRevision(root);
-    ui.say(`${OK} committed ${commit.slice(0, 7)} on ${branch}: ${accepted.summary} (${shift(before, accepted.metrics)})`);
+    ui.say(`${OK} ${commit.slice(0, 7)} ${accepted.summary}  (file ${shift(base, accepted.fileMetrics)})`);
     const patchPath = join(dir, 'refactor.patch');
     await writeFile(patchPath, patch);
-    const result = { summary: accepted.summary, commit, patch_path: patchPath, after: accepted.metrics, proof: { checks: accepted.checks } };
-    await event({ status: 'ready', branch, before, ...result });
+    const result = { summary: accepted.summary, commit, patch_path: patchPath, after: accepted.metrics, file_after: accepted.fileMetrics, proof: { checks: accepted.checks } };
+    await event({ status: 'ready', branch, before, file_before: trim(base), ...result });
     return await finish('ready', result);
   } catch (error) {
     record.status = 'failed';
@@ -212,13 +219,13 @@ export async function runRefactorQueue({ root, out, path = null, budget = DEFAUL
   const candidates = refactorCandidates(scan, { path, min }).filter(method => !done.has(refactorIdentity({ method, model: model.id })));
   const selected = candidates.slice(0, budget);
   const fixes = [];
-  ui.say(`${candidates.length} ${candidates.length === 1 ? 'method' : 'methods'} at risk ${min} or more${path ? ` under ${path}` : ''}; working ${selected.length}`);
+  ui.say(`${candidates.length} ${candidates.length === 1 ? 'method' : 'methods'}${min ? ` in files at risk ${min} or more` : ''}${path ? ` under ${path}` : ''}, riskiest file first; working ${selected.length}`);
   for (const [index, method] of selected.entries()) {
     ui.say(`\n[${index + 1}/${selected.length}]`);
     try { fixes.push(await runRefactor({ method, root, out, model, systemOne, analyzer, shell, ui, log, debug })); }
     catch (error) {
       ui.say(`${FAIL} ${method.id} failed: ${error.message.split('\n')[0]}`);
-      fixes.push({ id: null, kind: 'refactor', method: method.id, name: method.qualified_name, path: method.path, root, revision, before: trim(method.metrics), out, status: 'failed', error: error.message });
+      fixes.push({ id: null, kind: 'refactor', method: method.id, name: method.qualified_name, path: method.path, root, revision, before: trim(method.metrics), file_before: trim(method.file), out, status: 'failed', error: error.message });
     }
   }
   return { kind: 'refactor', budget, min, open: candidates.length, attempted: fixes.length, remaining: Math.max(0, candidates.length - selected.length), fixes };

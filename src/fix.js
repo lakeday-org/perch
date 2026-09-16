@@ -12,7 +12,7 @@ import { git, revision as gitRevision } from './git.js';
 import { languageOf } from './analysis.js';
 import { runScan } from './scan.js';
 import { buildGraph, resolveModule } from './graph.js';
-import { flagged, huntStep, patchCheck, reachCheck, readPatchCheck, SURE } from './questions.js';
+import { flagged, huntStep, label, patchCheck, reachCheck, readPatchCheck, SURE } from './questions.js';
 import { identity, openStore, readJson, writeJson } from './store.js';
 import { fixPrompt } from './prompts.js';
 import { DEFAULT_EFFORT, describeRun, tool } from './model.js';
@@ -26,6 +26,13 @@ export async function workingBranch(root, verb) {
   const branch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'], root)).trim();
   if (PROTECTED_BRANCHES.includes(branch)) throw new Error(`perch ${verb} commits to the current branch, and ${branch} is protected; check out a feature branch first`);
   return branch;
+}
+/** A commit line: one line, under 72 characters, starting with a word (no ticket-speak); trailing period dropped. */
+export function plainSummary(summary) {
+  const text = String(summary ?? '').trim().split('\n')[0].replace(/\.$/, '');
+  if (!text) return { error: 'summary is required: the commit line, under 72 characters, imperative, plain words' };
+  if (text.length > 72) return { error: `summary is ${text.length} characters; the commit line must be under 72, imperative, plain words` };
+  return { text };
 }
 /** Findings under a repository-relative path (a file or a directory). */
 export const underPath = (findings, path) => (path ? findings.filter(finding => finding.path === path || finding.path.startsWith(path.replace(/\/$/, '') + '/')) : findings);
@@ -118,7 +125,7 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
     ui.say(`${hunted.id} ${hunted.path}::${hunted.name}: already ${existing.status} by ${model.id}; reusing`);
     return existing;
   }
-  ui.say(`${hunted.id}  ${hunted.name}  ${hunted.path}:${hunted.where.line}  ${(hunted.kind?.kind ?? 'defect').replaceAll('_', ' ')} ${Math.round(hunted.has_bug * 100)}%`);
+  ui.say(`${hunted.id}  ${hunted.name}  ${hunted.path}:${hunted.where.line}  ${label(hunted.kind?.kind ?? 'defect')} ${Math.round(hunted.has_bug * 100)}%`);
   await store.exclude(root);
   // The fix is made and committed in the operator's checkout, on whatever branch is checked out; never on a protected one.
   const branch = await workingBranch(root, 'fix');
@@ -130,7 +137,7 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
     Object.assign(fix, { status, completed_at: new Date().toISOString(), ...extra });
     await writeJson(fixPath, fix);
     const mark = status === 'ready' ? OK : status === 'closed' ? NOTE : FAIL;
-    ui.say(`${mark} ${hunted.name}: ${status === 'closed' ? `closed — ${fix.reason}` : `fix ${status}${fix.error ? ` — ${fix.error.split('\n')[0]}` : ''}`}`);
+    if (status !== 'ready') ui.say(`${mark} ${hunted.name}: ${status === 'closed' ? `closed — ${fix.reason}` : `no fix — ${(fix.error ?? '').split('\n')[0]}`}`);
     return fix;
   };
   /** The finding is closed without a fix: System One no longer sees a reachable defect. Recorded so issues drops it. */
@@ -159,8 +166,8 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
         asking.note(`defect ${pct(finding.has_bug)}${finding.reachable !== undefined ? `, reachable ${pct(finding.reachable)}` : ''}`);
         return await close(`no reachable defect in the method as it reads now (defect ${pct(finding.has_bug)}${finding.reachable !== undefined ? `, reachable ${pct(finding.reachable)}` : ''})`);
       }
-      asking.ok(`still looks defective: ${finding.kind.kind.replaceAll('_', ' ')} ${pct(finding.has_bug)} at line ${finding.where.line}`);
-      ui.say(`${finding.id}  ${finding.name}  ${finding.path}:${finding.where.line}  ${finding.kind.kind.replaceAll('_', ' ')} ${pct(finding.has_bug)}`);
+      asking.ok(`still looks defective: ${label(finding.kind.kind)} ${pct(finding.has_bug)} at line ${finding.where.line}`);
+      ui.say(`${finding.id}  ${finding.name}  ${finding.path}:${finding.where.line}  ${label(finding.kind.kind)} ${pct(finding.has_bug)}`);
     }
     const dirtyBefore = await dirtyPaths(root);
     if (dirtyBefore.includes(node.path)) throw new Error(`${node.path} has uncommitted changes; commit or stash them before perch fix touches it`);
@@ -204,7 +211,7 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
       const verify = patchCheck({ step: patchedStep, original: method, summary });
       const { answers } = await systemOne.ask(verify.state, verify.questions);
       const { verification, objections } = readPatchCheck({ finding, answers, calledBy: patchedStep.calledBy });
-      const summaryLine = `defect ${pct(finding.has_bug)} -> ${pct(verification.has_bug)}, ${finding.kind.kind.replaceAll('_', ' ')} ${pct(finding.kind.probability ?? 0)} -> ${pct(verification.kind ?? 0)}`;
+      const summaryLine = `defect ${pct(finding.has_bug)} -> ${pct(verification.has_bug)}, ${label(finding.kind.kind)} ${pct(finding.kind.probability ?? 0)} -> ${pct(verification.kind ?? 0)}`;
       if (objections.length) return { ok: false, error: objections.join('; '), system_one: summaryLine };
       passed.verify.set(source, verification);
       return { ok: true, system_one: summaryLine };
@@ -213,8 +220,9 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
     const submit = async ({ method: source, summary }) => {
       if (!passed.check.has(source)) return { ok: false, error: 'check_method has not passed this exact source' };
       if (!passed.verify.has(source)) return { ok: false, error: 'verify_with_system_one has not passed this exact source' };
-      if (!summary.trim()) return { ok: false, error: 'summary is required: one sentence, as a commit message' };
-      accepted = { source, summary, verification: passed.verify.get(source), metrics: passed.check.get(source) };
+      const line = plainSummary(summary);
+      if (line.error) return { ok: false, error: line.error };
+      accepted = { source, summary: line.text, verification: passed.verify.get(source), metrics: passed.check.get(source) };
       return { ok: true, done: true };
     };
     const tools = [
@@ -225,23 +233,26 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
 
     // The model drives: writes, checks, verifies, submits. Every step is shown and kept on the record.
     const effort = model.effort ?? DEFAULT_EFFORT;
-    const running = ui.task(`${model.id} fixing ${node.qualified_name}: thinking (effort ${effort})`);
+    const names = { check_method: 'tree-sitter check', verify_with_system_one: `${systemOne.id} check`, submit: 'submit' };
+    const running = ui.task(`${model.id} working on ${node.qualified_name} (effort ${effort})`);
     let current = null;
     const onEvent = event => {
-      if (event.type === 'tool_call') current = ui.task(`${model.id} ▸ ${event.name}${event.arguments?.summary ? ` — ${event.arguments.summary}` : ''}`);
-      else if (event.type === 'tool_result' && current) { const r = event.result ?? {}; const detail = r.error ?? r.system_one ?? (r.file_metrics_before_after ? `risk ${r.file_metrics_before_after.risk.join(' -> ')}, complexity ${r.file_metrics_before_after.complexity.join(' -> ')}` : ''); (r.ok ? current.ok : current.fail)(detail); current = null; running.update(`${model.id} fixing ${node.qualified_name}: thinking (turn ${event.turn}, effort ${effort})`); }
+      if (event.type === 'tool_call') current = ui.task(`${model.id} ▸ ${names[event.name] ?? event.name}`);
+      else if (event.type === 'tool_result' && current) { const r = event.result ?? {}; const detail = r.error ?? r.system_one ?? (r.file_metrics_before_after ? `risk ${r.file_metrics_before_after.risk.join(' -> ')}, complexity ${r.file_metrics_before_after.complexity.join(' -> ')}` : ''); (r.ok ? current.ok : current.fail)(detail); current = null; running.update(`${model.id} working on ${node.qualified_name} (turn ${event.turn}, effort ${effort})`); }
     };
     const run = await model.run({ prompt: fixPrompt({ finding, reachable, state: step.state, method }), tools, effort, onEvent });
     fix.trace = run.trace;
     fix.usage = run.usage;
     fix.turns = run.turns;
     if (!accepted) {
-      running.fail(`no accepted submit in ${run.turns} turns (${describeRun(run)})`);
+      running.update(`${model.id} gave up on ${node.qualified_name}`);
+      running.fail(`${run.turns} turns, ${describeRun(run)}`);
       const lastError = [...run.trace].reverse().find(event => event.type === 'tool_result' && event.result?.error)?.result.error ?? 'the model never submitted a verified fix';
       await rejectedEvent(run.turns, lastError);
       return await finish('rejected', { error: lastError });
     }
-    running.ok(`${accepted.summary} (${describeRun(run)})`);
+    running.update(`${model.id} fixed ${node.qualified_name}`);
+    running.ok(describeRun(run));
 
     // Commit on the current branch, with the model's summary as the message.
     await place(splice(accepted.source).join('\n'));
@@ -251,7 +262,7 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
     await git(['commit', '-q', '-m', accepted.summary, '-m', `perch ${finding.id}`, '--', node.path], root);
     placed = false;
     const commit = await gitRevision(root);
-    ui.say(`${OK} committed ${commit.slice(0, 7)} on ${branch}: ${accepted.summary}`);
+    ui.say(`${OK} ${commit.slice(0, 7)} ${accepted.summary}`);
 
     const patchPath = join(dir, 'fix.patch');
     await writeFile(patchPath, patch);

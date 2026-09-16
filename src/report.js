@@ -1,5 +1,5 @@
 /** Human-readable summaries of scan, hunt, fix, and issue records. */
-import { hasIssue, isDesign, issuesOf } from './questions.js';
+import { hasIssue, isDesign, issuesOf, label } from './questions.js';
 
 const short = revision => revision?.slice(0, 12) ?? '?';
 
@@ -34,7 +34,7 @@ export function formatScan(scan, shown = TOP) {
 }
 
 const percent = value => `${Math.round(value * 100)}%`;
-const words = kind => kind.replaceAll('_', ' ');
+const words = label;
 const shortId = id => id.split('::').at(-1);
 export const TOP = 10;
 
@@ -117,7 +117,7 @@ export function formatFinding(finding) {
   if (finding.fix?.status === 'ready') lines.push(`Fixed: ${finding.fix.summary ?? ''} (defect ${percent(finding.fix.verification?.before?.has_bug ?? finding.has_bug)} -> ${percent(finding.fix.verification?.after?.has_bug ?? 0)})`.trimEnd(), `    commit ${finding.fix.commit?.slice(0, 7) ?? '?'}${finding.fix.branch ? ` on ${finding.fix.branch}` : ''}  ${finding.fix.patch_path}`);
   else if (finding.fix?.status === 'closed') lines.push(`Closed on ${finding.fix.at.slice(0, 10)}: ${finding.fix.reason}`);
   else if (finding.fix) lines.push(`Fix discarded on ${finding.fix.at.slice(0, 10)} after ${finding.fix.attempts} model turns; last rejection: ${(finding.fix.error ?? '').split('\n')[0]}`);
-  if (finding.refactored?.status === 'ready') lines.push(`Refactored: ${finding.refactored.summary ?? ''}${finding.refactored.before && finding.refactored.after ? ` (${metricShift(finding.refactored.before, finding.refactored.after)})` : ''}`.trimEnd(), `    commit ${finding.refactored.commit?.slice(0, 7) ?? '?'}${finding.refactored.branch ? ` on ${finding.refactored.branch}` : ''}  ${finding.refactored.patch_path}`);
+  if (finding.refactored?.status === 'ready') lines.push(`Refactored: ${finding.refactored.summary ?? ''}${finding.refactored.file_before && finding.refactored.file_after ? ` (file ${metricShift(finding.refactored.file_before, finding.refactored.file_after)})` : ''}`.trimEnd(), `    commit ${finding.refactored.commit?.slice(0, 7) ?? '?'}${finding.refactored.branch ? ` on ${finding.refactored.branch}` : ''}  ${finding.refactored.patch_path}`);
   else if (finding.refactored) lines.push(`Refactor discarded on ${finding.refactored.at.slice(0, 10)} after ${finding.refactored.attempts} model turns; last rejection: ${(finding.refactored.error ?? '').split('\n')[0]}`);
   return lines.join('\n');
 }
@@ -139,9 +139,9 @@ const metricShift = (before, after) => [['risk', 'risk_score'], ['maintainabilit
 /** One refactor record: the method's metrics before and after, what checked it, and the commit. */
 function formatRefactor(record) {
   const lines = [`perch refactor ${record.id ?? record.method} (${record.status})${record.summary ? ` — ${record.summary}` : ''}`, `  method: ${record.name ?? record.method}  ${record.path} @ ${short(record.revision)}`];
-  if (record.before) lines.push(`  before: risk ${number(record.before.risk_score)}, maintainability ${number(record.before.maintainability_index)}, complexity ${number(record.before.cyclomatic_complexity)}, nesting ${number(record.before.max_nesting)}, ${number(record.before.sloc)} lines`);
+  if (record.file_before) lines.push(`  file before: risk ${number(record.file_before.risk_score)}, maintainability ${number(record.file_before.maintainability_index)}, complexity ${number(record.file_before.cyclomatic_complexity)}, nesting ${number(record.file_before.max_nesting)}, ${number(record.file_before.sloc)} lines`);
   if (record.status === 'ready') {
-    lines.push(`  after:  ${metricShift(record.before, record.after)}`, `  checked by: ${(record.proof?.checks ?? []).join(', ') || 'nothing'}`,
+    lines.push(`  file after:  ${metricShift(record.file_before, record.file_after)}`, `  method:      ${metricShift(record.before, record.after)}`, `  checked by: ${(record.proof?.checks ?? []).join(', ') || 'nothing'}`,
       `  committed: ${record.commit?.slice(0, 7) ?? '?'} on ${record.branch ?? '?'}  (patch: ${record.patch_path})`);
     if (record.turns) lines.push(`  agent: ${record.turns} ${record.turns === 1 ? 'turn' : 'turns'}, ${(record.trace ?? []).filter(event => event.type === 'tool_call').length} tool calls`);
   }

@@ -81,7 +81,7 @@ describe('perch hunt', () => {
     expect((await git(['status', '--porcelain'], repo.root)).trim()).toBe('');
     expect(f.where.text).toBe('if (x > 10) return g(x) + h(x);');
     expect(formatHunt(hunt)).toContain('1 have issues (1 defect, 0 design only), 3 look clean.');
-    expect(formatHunt(hunt)).toMatch(new RegExp(`${f.id}  f +src/a.js:4 +boundary 90%, split 80%, misdocumented 70% +major +open`));
+    expect(formatHunt(hunt)).toMatch(new RegExp(`${f.id}  f +src/a.js:4 +off by one 90%, too big 80%, misdocumented 70% +major +open`));
     expect(formatHunt(hunt)).not.toContain('Design work');
 
     // A second hunt skips everything, without a single model call.

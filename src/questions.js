@@ -24,7 +24,11 @@ export const REFACTORS = {
 export const SEVERITY_LEVELS = ['Cosmetic: no caller would notice', 'Minor: a wrong result in a rare or recoverable case', 'Major: a wrong result or state in normal use', 'Critical: data loss, corruption, a crash, or a security impact'];
 export const SEVERITY_NAMES = ['cosmetic', 'minor', 'major', 'critical'];
 
-const spaced = kind => kind.replaceAll('_', ' ');
+/** Plain names for the defect kinds and refactors, for anything a person reads. */
+export const KIND_LABELS = { boundary: 'off by one', missing_null_handling: 'unhandled null', wrong_return: 'wrong return value', swallowed_error: 'error ignored', state_mutation: 'bad state change', ordering: 'wrong order', resource_leak: 'leak', inverted_condition: 'inverted condition',
+  split: 'too big', flatten: 'too nested', simplify_conditions: 'tangled conditions', deduplicate: 'duplicated logic', rename: 'misnamed', remove_dead_code: 'dead code', none: 'none' };
+export const label = kind => KIND_LABELS[kind] ?? kind.replaceAll('_', ' ');
+const spaced = label;
 
 /**
  * Every issue a hunted method carries at probability `min` or more, strongest first. A defect needs `has_bug` and, when asked,
@@ -242,9 +246,9 @@ export function readPatchCheck({ finding, answers, calledBy }) {
   const misusedBy = calledBy.map((caller, index) => ({ caller: caller.id, before: finding.misused_by?.find(item => item.caller === caller.id)?.probability ?? 0, after: answers[`misused_by_${index}`].noul }));
   const verification = { has_bug: answers.has_bug.noul, kind, severity: answers.severity?.score ?? null, misused_by: misusedBy };
   const objections = [
-    verification.has_bug >= finding.has_bug && `the patch did not lower the defect probability (${percent(finding.has_bug)} -> ${percent(verification.has_bug)})`,
-    kind !== null && kindBefore !== null && kind >= kindBefore && `the ${finding.kind.kind.replaceAll('_', ' ')} defect looks no less likely (${percent(kindBefore)} -> ${percent(kind)})`,
-    ...misusedBy.filter(item => item.after >= SURE && item.before < SURE).map(item => `${item.caller.split('::').at(-1)} now misuses the patched method (${percent(item.after)})`),
+    verification.has_bug >= finding.has_bug && `defect no less likely (${percent(finding.has_bug)} -> ${percent(verification.has_bug)})`,
+    kind !== null && kindBefore !== null && kind >= kindBefore && `${label(finding.kind.kind)} looks no less likely (${percent(kindBefore)} -> ${percent(kind)})`,
+    ...misusedBy.filter(item => item.after >= SURE && item.before < SURE).map(item => `${item.caller.split('::').at(-1)} would now call it wrong (${percent(item.after)})`),
   ].filter(Boolean);
   return { verification, objections };
 }
