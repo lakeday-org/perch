@@ -162,10 +162,9 @@ as a trace, with the tokens each model used and what they cost.
    module scope, the callees' source, the callers' source around the call
    site, and the call graph.
 4. **The tools.**
-   - `measure(source)`: splice over the region (the comment above the method
-     and the method) and measure the file with tree-sitter. It must parse,
-     still contain a method of the same name, and get no deeper, no more than
-     one branch more complex, and no more than a point riskier.
+   - `measure(source)`: splice over the region (comment, method, and any sibling
+     helpers) and measure with tree-sitter. It must parse and still contain a
+     method of the same name. Improvement is judged by rescan, not here.
    - `rescan(source)`: the same scan over the rewrite, the same System One
      questions with the same neighborhood plus the metrics. Every issue the
      scan raised must be gone or lower, a defect gone outright, and nothing

@@ -27,19 +27,20 @@ export function huntAnswers(finding, { reachable = null } = {}) {
 }
 
 const goalOf = issue => (issue.type === 'defect' ? 'System One must no longer see this defect when it reads the rewrite'
-  : issue.type === 'complex' ? "the file's tree-sitter risk score must come down"
+  : issue.type === 'complex' ? "this method's tree-sitter risk score must come down"
   : issue.type === 'misdocumented' ? 'the comment above the method must say what a caller needs: the contract, edge cases, side effects'
   : issue.type === 'misaligned' ? 'the name and the comment must say what the code does'
+  : issue.type === 'refactor' && /too big|too nested|tangled|duplicated|dead code|misnamed/.test(issue.label) ? `do the structural change this calls for (split, flatten, simplify, dedupe, rename, or delete); System One must see it less`
   : `System One must see this less when it reads the rewrite`);
 
 export function fixPrompt({ finding, before, reachable = null, fileMetrics = null, state, region, start, end, checks = [] }) {
   const objectives = before.map(issue => `- ${issue.text}: ${goalOf(issue)}`).join('\n');
-  const file = fileMetrics ? `The file today: risk ${round(fileMetrics.risk_score)} (0-100, lower is better), maintainability ${round(fileMetrics.maintainability_index)} (higher is better), complexity ${round(fileMetrics.cyclomatic_complexity)}, nesting ${round(fileMetrics.max_nesting)}, ${round(fileMetrics.sloc)} lines. The score comes down with fewer lines, fewer branches, shallower nesting, and no repetition; helpers split out add code and rarely help.` : '';
-  return `Rewrite one method so that every issue below is resolved, using the tools: measure every version you write, then rescan it, then run_tests, then submit. submit refuses anything the three have not passed. When a tool rejects a version, read its reason and change the source; do not resubmit it.
-source replaces lines ${start}-${end} of ${finding.path} exactly: the comment above the method (if any) and the method itself, as complete source at the same indentation and nothing outside that range. Keep the method's name and signature so every caller under called_by works unchanged. Change what the issues require and nothing else; the tests that reach the method${checks.length ? ` (${checks.join(', ')})` : ''} must still pass.
+  const file = fileMetrics ? `The file today: risk ${round(fileMetrics.risk_score)} (0-100, lower is better), maintainability ${round(fileMetrics.maintainability_index)} (higher is better), complexity ${round(fileMetrics.cyclomatic_complexity)}, nesting ${round(fileMetrics.max_nesting)}, ${round(fileMetrics.sloc)} lines.` : '';
+  return `Rewrite so every issue below is resolved. Use the tools in order: measure, rescan, run_tests, submit. submit refuses anything the three have not passed. When a tool rejects a version, change the source; do not resubmit the same one.
+Lines ${start}-${end} of ${finding.path} are replaced by your source: the comment above the method (if any), the method, and any sibling helpers it needs in that range. Keep ${finding.name}'s name and signature so every caller under called_by still works. Prefer the real fix — split a too-big method into helpers here, flatten nesting, fix the defect, rewrite the comment — not a cosmetic reshuffle of the same blob.
 OBJECTIVES:
 ${objectives}
-HOW THEY ARE JUDGED: rescan runs the same scan that raised these issues over your rewrite: tree-sitter metrics and the System One questions, with the same callers and callees in view. It passes only when every issue above is gone or lower, a defect gone outright, and nothing new appeared.
+HOW THEY ARE JUDGED: rescan runs the same scan over your rewrite (tree-sitter metrics and System One, same callers and callees). It passes when every issue above is gone or lower, a defect gone outright, and nothing new appeared. Tests that reach the method${checks.length ? ` (${checks.join(', ')})` : ''} must still pass.
 ${file}
 WHAT SYSTEM ONE ANSWERED ABOUT THE ORIGINAL:
 ${huntAnswers(finding, { reachable })}
