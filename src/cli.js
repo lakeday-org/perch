@@ -20,25 +20,25 @@ const options = {
   budget: ['--budget N', `Work at most N issues (default ${DEFAULT_FIX_BUDGET})`, ['fix']],
   parallel: ['--parallel N', `How many methods to read at once (default ${DEFAULT_PARALLEL})`, ['scan']],
   force: ['--force', 'Read every method again, even ones unchanged since an earlier scan', ['scan']],
-  all: ['--all', 'List every row instead of the top 10', ['scan', 'findings']],
-  closed: ['--closed', 'Include closed issues (worked and given up on, or nothing left to do)', ['findings']],
-  min: ['--min P', 'Only methods expected to have more than P problems, on a scale where one certain issue is 100 (default 0: everything, ranked)', ['findings', 'fix']],
-  filter: ['--filter k=v', 'Only issues matching, e.g. type=security, kind=too big, severity=P1 (comma-separated)', ['findings', 'fix']],
-  types: ['--types', 'Print everything --filter accepts and stop', ['findings', 'fix']],
+  all: ['--all', 'List every row instead of the top 10', ['scan', 'issues']],
+  closed: ['--closed', 'Include closed issues (worked and given up on, or nothing left to do)', ['issues']],
+  min: ['--min P', 'Only methods expected to have more than P problems, on a scale where one certain issue is 100 (default 0: everything, ranked)', ['issues', 'fix']],
+  filter: ['--filter k=v', 'Only issues matching, e.g. type=security, kind=too big, severity=P1 (comma-separated)', ['issues', 'fix']],
+  types: ['--types', 'Print everything --filter accepts and stop', ['issues', 'fix']],
   model: ['--model M', `OpenAI model (default ${DEFAULT_MODEL}, or $OPENAI_MODEL)`, ['fix']],
   effort: ['--effort E', `Reasoning effort: ${EFFORTS.join(', ')} (default ${DEFAULT_EFFORT})`, ['fix']],
-  out: ['--out DIR', 'Results directory (default .perch)', ['scan', 'findings', 'fix']],
-  json: ['--json', 'Print JSON instead of a summary', ['scan', 'findings', 'fix']],
-  verbose: ['--verbose', 'Show every file, method, model call, and command', ['scan', 'findings', 'fix']],
+  out: ['--out DIR', 'Results directory (default .perch)', ['scan', 'issues', 'fix']],
+  json: ['--json', 'Print JSON instead of a summary', ['scan', 'issues', 'fix']],
+  verbose: ['--verbose', 'Show every file, method, model call, and command', ['scan', 'issues', 'fix']],
 };
 
-/** Older names that still work. */
-const ALIASES = { issues: 'findings' };
+/** Other names that still work. */
+const ALIASES = { findings: 'issues' };
 
 const commandHelp = {
   scan: { args: '[target]', summary: 'Find issues', detail: 'Scores every method with tree-sitter, then reads them with System One (callers and callees in view). The first scan reads every method; later ones only what changed (--force rereads all). Needs TYPESAFE_API_KEY. target is a directory, owner/repo, or a GitHub URL.' },
-  findings: { args: '[finding-id]', summary: 'List what the scan found, or show one', detail: 'Lists open findings at --min or more, strongest first. --filter narrows them (--types prints what it accepts), --closed includes closed ones, --all lists every row. With a finding id, everything known about that method. perch issues is an older name for this command.' },
-  fix: { args: '[finding-id | path]', summary: 'Fix open issues, one commit each', detail: 'Works open issues, most serious first, up to --budget; with a path, only under that path; with a finding id, that one; --filter narrows which ones and works the surest match first (--types prints what it accepts). An OpenAI agent rewrites each method and must pass measure, rescan, and run_tests before submit. Commits on the current branch; refuses main/master. Needs OPENAI_API_KEY and TYPESAFE_API_KEY.' },
+  issues: { args: '[issue-id]', summary: 'List what the scan found, or show one', detail: 'Lists open issues at --min or more, strongest first. --filter narrows them (--types prints what it accepts), --closed includes closed ones, --all lists every row. With an issue id, everything known about that method. perch findings is another name for this command.' },
+  fix: { args: '[issue-id | path]', summary: 'Fix open issues, one commit each', detail: 'Works open issues, most serious first, up to --budget; with a path, only under that path; with an issue id, that one; --filter narrows which ones and works the surest match first (--types prints what it accepts). An OpenAI agent rewrites each method and must pass measure, rescan, and run_tests before submit. Commits on the current branch; refuses main/master. Needs OPENAI_API_KEY and TYPESAFE_API_KEY.' },
 };
 
 /** Wrap prose at 80 columns. */
@@ -162,7 +162,7 @@ const commands = {
     print(io, { scan: hunt, issues, usage: meter.toJSON() }, formatScanRun(hunt, issues, shown(io)));
     io.note(scanCount(hunt), ...meter.lines());
   },
-  async findings(io) {
+  async issues(io) {
     if (io.flags.types) { io.stdout(formatFilterKeys()); return; }
     const store = await storeFrom(io.flags);
     if (io.argument) {
@@ -198,7 +198,7 @@ const commands = {
     }
     const { findings: all, root } = await openIssues(store, min, io);
     const findings = narrow(underPath(all, io.argument), filters, min / 100);
-    if (!findings.length) throw new Error(`nothing to fix${io.argument ? ` under ${io.argument}` : ''}${filters.length ? ' matching that filter' : ''}; perch findings lists what is open`);
+    if (!findings.length) throw new Error(`nothing to fix${io.argument ? ` under ${io.argument}` : ''}${filters.length ? ' matching that filter' : ''}; perch issues lists what is open`);
     const batch = await fixIssues({ findings, budget, root: root ?? await repoRoot(process.cwd()), ...shared });
     print(io, batch, formatFixes(batch));
   },
