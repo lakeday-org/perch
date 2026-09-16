@@ -15,7 +15,7 @@ import { buildGraph, resolveModule } from './graph.js';
 import { flagged, huntStep, patchCheck, reachCheck, readPatchCheck, SURE } from './questions.js';
 import { identity, openStore, readJson, writeJson } from './store.js';
 import { fixPrompt } from './prompts.js';
-import { describeCall, effortForAttempt } from './model.js';
+import { DEFAULT_EFFORT, describeRun, tool } from './model.js';
 import { FAIL, NOTE, OK, plainUi } from './ui.js';
 
 export const PROTECTED_BRANCHES = ['main', 'master'];
@@ -30,9 +30,10 @@ export async function workingBranch(root, verb) {
 /** Findings under a repository-relative path (a file or a directory). */
 export const underPath = (findings, path) => (path ? findings.filter(finding => finding.path === path || finding.path.startsWith(path.replace(/\/$/, '') + '/')) : findings);
 
-export const MAX_ATTEMPTS = 3;
+/** System One verifications one fix may spend; each is a request. */
+export const MAX_VERIFICATIONS = 6;
 /** Bumped whenever how a fix is made or judged changes, so a rejection recorded by an older pipeline is never reused. */
-export const FIX_VERSION = 2;
+export const FIX_VERSION = 3;
 
 export function fixIdentity({ finding, model }) {
   return identity('fix', FIX_VERSION, finding.id, finding.hash, model);
@@ -123,7 +124,7 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
   const branch = await workingBranch(root, 'fix');
   const revision = await gitRevision(root);
   const fix = { id, finding_id: hunted.id, method: hunted.method, path: hunted.path, root, branch, revision, hunted_at: hunted.revision, model: model.id, verifier: systemOne.id, out: dir,
-    status: 'running', attempts: [], created_at: new Date().toISOString() };
+    status: 'running', created_at: new Date().toISOString() };
   await writeJson(fixPath, fix);
   const finish = async (status, extra) => {
     Object.assign(fix, { status, completed_at: new Date().toISOString(), ...extra });
@@ -180,59 +181,85 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
     if (!base) throw new Error(`${node.path} does not parse at ${revision.slice(0, 12)}`);
 
     const place = async text => { await writeFile(join(root, node.path), text); placed = true; };
-    const restore = async () => { await git(['checkout', '--', node.path], root); placed = false; };
+    const splice = source => [...fileLines.slice(0, node.line - 1), ...methodLines(source), ...fileLines.slice(node.end_line)];
 
-    let feedback = null, accepted = null;
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS && !accepted; attempt++) {
-      const effort = effortForAttempt(attempt, model.effort);
-      const asking = ui.task(`attempt ${attempt} of ${MAX_ATTEMPTS}: ${model.id} writing the fix${feedback ? ', with the rejection fed back' : ''} (effort ${effort})`);
-      const proposal = await model.ask(`fix-${attempt}`, fixPrompt({ finding, reachable, state: step.state, method, feedback }), { effort });
-      asking.ok(`${proposal.summary || 'no summary'} (${describeCall(model.last)})`);
-      const record = { attempt, effort, summary: proposal.summary, method: proposal.method, model_call: model.last };
-      fix.attempts.push(record);
-      const reject = async (reason, undo = false) => { record.rejected = reason; feedback = reason; ui.say(`${FAIL} attempt ${attempt} rejected: ${reason.split('\n')[0]}`); await writeJson(fixPath, fix); if (undo) await restore(); };
-
-      // 2. Splice by line range and gate on the AST.
-      if (!proposal.method.trim() || proposal.method.trim() === method.trim()) { await reject(`the method was returned unchanged: ${proposal.summary || 'no reason given'}`); continue; }
-      const patchedLines = [...fileLines.slice(0, node.line - 1), ...methodLines(proposal.method), ...fileLines.slice(node.end_line)];
-      const patchedFile = patchedLines.join('\n');
-      const after = await analyzer.analyzeSource(patchedFile, language);
-      if (after.parser_status !== 'parsed') { await reject(`the patched file does not parse: ${after.parser_message ?? 'syntax error'}`); continue; }
-      if (!withinQualityGate(base, after.metrics)) { await reject(`the patch adds nesting, more than one branch, or more than one point of risk (risk ${base.risk_score.toFixed(1)} -> ${after.metrics.risk_score.toFixed(1)}, complexity ${base.cyclomatic_complexity} -> ${after.metrics.cyclomatic_complexity}, nesting ${base.max_nesting} -> ${after.metrics.max_nesting})`); continue; }
-
-      // 3. The hunt's questions again over the patched method: the defect must look less likely, nothing else changed, no caller newly misused.
-      const patchedNode = { ...node, end_line: node.line + methodLines(proposal.method).length - 1 };
+    // The verifiers, as tools. Each remembers what it passed, keyed by the exact source, so submit can insist on it.
+    const passed = { check: new Map(), verify: new Map() };
+    let verifications = 0;
+    const checkMethod = async ({ method: source }) => {
+      if (!source.trim() || source.trim() === method.trim()) return { ok: false, error: 'the method is unchanged' };
+      const after = await analyzer.analyzeSource(splice(source).join('\n'), language);
+      if (after.parser_status !== 'parsed') return { ok: false, error: `the patched file does not parse: ${after.parser_message ?? 'syntax error'}` };
+      const metrics = { risk: [Math.round(base.risk_score), Math.round(after.metrics.risk_score)], complexity: [base.cyclomatic_complexity, after.metrics.cyclomatic_complexity], nesting: [base.max_nesting, after.metrics.max_nesting] };
+      if (!withinQualityGate(base, after.metrics)) return { ok: false, error: 'the patch adds nesting, more than one branch, or more than one point of risk; change only what the defect requires', file_metrics_before_after: metrics };
+      passed.check.set(source, metrics);
+      return { ok: true, file_metrics_before_after: metrics };
+    };
+    const verifyWithSystemOne = async ({ method: source, summary }) => {
+      if (!passed.check.has(source)) return { ok: false, error: 'run check_method on this exact source first' };
+      if (++verifications > MAX_VERIFICATIONS) return { ok: false, error: `no more than ${MAX_VERIFICATIONS} System One verifications per fix; submit your best passing source or stop` };
+      const patchedLines = splice(source);
+      const patchedNode = { ...node, end_line: node.line + methodLines(source).length - 1 };
       const patchedStep = huntStep({ node: patchedNode, lines: patchedLines, imports, methods, callees, callers });
-      const verify = patchCheck({ step: patchedStep, original: method, summary: proposal.summary });
-      const verifying = ui.task(`${systemOne.id} comparing the patched method (defect was ${pct(finding.has_bug)})`);
+      const verify = patchCheck({ step: patchedStep, original: method, summary });
       const { answers } = await systemOne.ask(verify.state, verify.questions);
       const { verification, objections } = readPatchCheck({ finding, answers, calledBy: patchedStep.calledBy });
-      record.verification = verification;
-      if (objections.length) { verifying.fail(objections.join('; ')); await reject(objections.join('; '), true); continue; }
-      verifying.ok(`defect ${pct(finding.has_bug)} -> ${pct(verification.has_bug)}, ${finding.kind.kind.replaceAll('_', ' ')} ${pct(finding.kind.probability ?? 0)} -> ${pct(verification.kind ?? 0)}, collateral ${pct(verification.collateral_change)}`);
+      const summaryLine = `defect ${pct(finding.has_bug)} -> ${pct(verification.has_bug)}, ${finding.kind.kind.replaceAll('_', ' ')} ${pct(finding.kind.probability ?? 0)} -> ${pct(verification.kind ?? 0)}, collateral change ${pct(verification.collateral_change)}`;
+      if (objections.length) return { ok: false, error: objections.join('; '), system_one: summaryLine };
+      passed.verify.set(source, verification);
+      return { ok: true, system_one: summaryLine };
+    };
+    let accepted = null;
+    const submit = async ({ method: source, summary }) => {
+      if (!passed.check.has(source)) return { ok: false, error: 'check_method has not passed this exact source' };
+      if (!passed.verify.has(source)) return { ok: false, error: 'verify_with_system_one has not passed this exact source' };
+      if (!summary.trim()) return { ok: false, error: 'summary is required: one sentence, as a commit message' };
+      accepted = { source, summary, verification: passed.verify.get(source), metrics: passed.check.get(source) };
+      return { ok: true, done: true };
+    };
+    const tools = [
+      tool('check_method', 'Splice the corrected method into the file and measure it with tree-sitter: it must parse and may not add nesting, more than one branch, or more than a point of risk. Call this on every version you write.', { method: { type: 'string', description: 'the complete corrected method' } }, checkMethod),
+      tool('verify_with_system_one', 'Ask the System One model that found the defect to judge the patched method with the same context: the defect and its kind must look less likely than before, no caller newly misused, nothing changed beyond the defect. Requires check_method to have passed this exact source.', { method: { type: 'string' }, summary: { type: 'string', description: 'one sentence: what was wrong and what the change does' } }, verifyWithSystemOne),
+      tool('submit', 'Finish with the corrected method. Refused unless check_method and verify_with_system_one have both passed this exact source.', { method: { type: 'string' }, summary: { type: 'string' } }, submit),
+    ];
 
-      // 4. Commit on the current branch, with the model's summary as the message.
-      await place(patchedFile);
-      await git(['add', '--', node.path], root);
-      const patch = await git(['diff', '--cached', '--', node.path], root);
-      if (!patch) throw new Error(`Patch for ${node.path} could not be captured`);
-      await git(['commit', '-q', '-m', proposal.summary, '-m', `perch ${finding.id}`, '--', node.path], root);
-      placed = false;
-      const commit = await gitRevision(root);
-      ui.say(`${OK} committed ${commit.slice(0, 7)} on ${branch}: ${proposal.summary}`);
-      accepted = { proposal, record, patch, commit };
-    }
+    // The model drives: writes, checks, verifies, submits. Every step is shown and kept on the record.
+    const effort = model.effort ?? DEFAULT_EFFORT;
+    const running = ui.task(`${model.id} fixing ${node.qualified_name} with the verifiers as tools (effort ${effort})`);
+    let current = null;
+    const onEvent = event => {
+      if (event.type === 'tool_call') { running.update(`${model.id}: ${event.name}`); current = ui.task(`  ${event.name}${event.arguments?.summary ? ` — ${event.arguments.summary}` : ''}`); }
+      else if (event.type === 'tool_result' && current) { const r = event.result ?? {}; const detail = r.error ?? r.system_one ?? (r.file_metrics_before_after ? `risk ${r.file_metrics_before_after.risk.join(' -> ')}, complexity ${r.file_metrics_before_after.complexity.join(' -> ')}` : ''); (r.ok ? current.ok : current.fail)(detail); current = null; }
+      else if (event.type === 'response') running.update(`${model.id} thinking (turn ${event.turn}, ${Math.round(event.ms / 1000)}s)`);
+    };
+    const run = await model.run({ prompt: fixPrompt({ finding, reachable, state: step.state, method }), tools, effort, onEvent });
+    fix.trace = run.trace;
+    fix.usage = run.usage;
+    fix.turns = run.turns;
     if (!accepted) {
-      await rejectedEvent(fix.attempts.length, feedback);
-      return await finish('rejected', { error: feedback });
+      running.fail(`no accepted submit in ${run.turns} turns (${describeRun(run)})`);
+      const lastError = [...run.trace].reverse().find(event => event.type === 'tool_result' && event.result?.error)?.result.error ?? 'the model never submitted a verified fix';
+      await rejectedEvent(run.turns, lastError);
+      return await finish('rejected', { error: lastError });
     }
+    running.ok(`${accepted.summary} (${describeRun(run)})`);
+
+    // Commit on the current branch, with the model's summary as the message.
+    await place(splice(accepted.source).join('\n'));
+    await git(['add', '--', node.path], root);
+    const patch = await git(['diff', '--cached', '--', node.path], root);
+    if (!patch) throw new Error(`Patch for ${node.path} could not be captured`);
+    await git(['commit', '-q', '-m', accepted.summary, '-m', `perch ${finding.id}`, '--', node.path], root);
+    placed = false;
+    const commit = await gitRevision(root);
+    ui.say(`${OK} committed ${commit.slice(0, 7)} on ${branch}: ${accepted.summary}`);
 
     const patchPath = join(dir, 'fix.patch');
-    await writeFile(patchPath, accepted.patch);
-    const verification = { kind: finding.kind.kind, before: { has_bug: finding.has_bug, kind: finding.kind.probability ?? null, reachable }, after: accepted.record.verification };
-    await store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: id, method: finding.method, hash: finding.hash, revision, status: 'ready', summary: accepted.proposal.summary,
-      commit: accepted.commit, branch, patch_path: patchPath, verification });
-    return await finish('ready', { summary: accepted.proposal.summary, commit: accepted.commit, patch_path: patchPath, verification });
+    await writeFile(patchPath, patch);
+    const verification = { kind: finding.kind.kind, before: { has_bug: finding.has_bug, kind: finding.kind.probability ?? null, reachable }, after: accepted.verification };
+    await store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: id, method: finding.method, hash: finding.hash, revision, status: 'ready', summary: accepted.summary,
+      commit, branch, patch_path: patchPath, verification });
+    return await finish('ready', { summary: accepted.summary, commit, patch_path: patchPath, verification, metrics: accepted.metrics });
   } catch (error) {
     fix.status = 'failed';
     fix.error = error.message;

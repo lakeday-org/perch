@@ -59,19 +59,23 @@ describe('perch refactor', () => {
     expect(record.after.cyclomatic_complexity).toBe(2);
     expect(record.after.risk_score).toBeLessThan(record.before.risk_score);
     expect(record.checks).toEqual(['test/clamp.test.js']);
+    expect(record.proof).toEqual({ checks: ['test/clamp.test.js'] });
     expect(record.region).toEqual({ start: 1, end: 5 });
+    expect(record.turns).toBe(1);
     expect(record.branch).toBe('work');
     expect(record.commit).toBe(await revision(repo.root));
     expect((await git(['log', '-1', '--format=%s%n%n%b'], repo.root)).trim()).toBe(`Drop the branch that returns v unchanged.\n\nperch refactor src/clamp.js::clamp`);
     expect(await readFile(join(repo.root, 'src', 'clamp.js'), 'utf8')).toBe(leanerSource + '\n');
     expect((await git(['status', '--porcelain'], repo.root)).trim()).toBe('');
 
-    // The model saw the metrics, the region, and the neighborhood; System One compared the two versions with the same neighborhood.
-    expect(model.calls.map(call => call.id)).toEqual(['refactor-1']);
+    // The model ran as an agent over the region with the metrics and the neighborhood; it measured, ran the tests, verified, and submitted one source.
+    expect(model.calls.map(call => call.name)).toEqual(['measure', 'run_tests', 'verify_with_system_one', 'submit']);
+    expect(model.calls.every(call => call.arguments.source === leanerSource)).toBe(true);
+    expect(model.calls[0].prompt).toContain('using the tools: measure every version you write');
     expect(model.calls[0].prompt).toContain('cyclomatic complexity 3, max nesting 1, 5 lines');
     expect(model.calls[0].prompt).toContain('ORIGINAL, lines 1-5');
     expect(model.calls[0].prompt).toContain('"called_by"');
-    expect(record.attempts[0].effort).toBe('none');
+    expect(record.trace.find(event => event.type === 'tool_result' && event.name === 'measure').result).toMatchObject({ ok: true, method: expect.stringMatching(/^risk \d+ -> \d+, complexity 3 -> 2, nesting 1 -> 1$/) });
     const check = systemOne.calls.at(-1);
     expect(check.state.original_source).toBe(buggySource.trimEnd());
     expect(check.state.method.source).toContain('L0002| export function clamp(v, lo, hi) {');
@@ -80,8 +84,9 @@ describe('perch refactor', () => {
 
     // Each step was reported with a mark; the record prints its metrics and commit.
     expect(lines.some(line => /^✓ test\/clamp.test.js on the original — passes/.test(line))).toBe(true);
-    expect(lines.some(line => /^attempt 1 of 3: scripted-model simplifying clamp \(effort none\)/.test(line))).toBe(true);
-    expect(lines.some(line => /^✓ measures better: risk \d+ -> \d+, complexity 3 -> 2, nesting 1 -> 1/.test(line))).toBe(true);
+    expect(lines.some(line => /^scripted-model simplifying clamp with the verifiers as tools \(effort max\)/.test(line))).toBe(true);
+    expect(lines.some(line => /^✓ {3}measure — risk \d+ -> \d+, complexity 3 -> 2, nesting 1 -> 1/.test(line))).toBe(true);
+    expect(lines.some(line => /^✓ {3}run_tests — 1 pass/.test(line))).toBe(true);
     expect(lines.some(line => /^✓ committed [0-9a-f]{7} on work: Drop the branch/.test(line))).toBe(true);
     const text = formatFix(record);
     expect(text).toContain('perch refactor');
@@ -102,14 +107,16 @@ describe('perch refactor', () => {
 
     const unchanged = await attempt('unchanged', { model: scriptedModel({ refactor: () => ({ source: buggySource.trimEnd(), summary: 'nothing to do' }) }) });
     expect(unchanged.status).toBe('rejected');
-    expect(unchanged.error).toBe('the source was returned unchanged: nothing to do');
-    expect(unchanged.attempts.map(item => item.effort)).toEqual(['none', 'low', 'medium']);
+    expect(unchanged.error).toBe('the source is unchanged');
+    expect(unchanged.turns).toBe(3);
 
     const noBetter = await attempt('nobetter', { model: scriptedModel({ refactor: () => ({ source: documentedSource, summary: 'comment only' }) }) });
-    expect(noBetter.error).toMatch(/^the rewrite does not make clamp less risky without adding complexity or nesting \(risk \d+ -> \d+, complexity 3 -> 3, nesting 1 -> 1\)$/);
+    expect(noBetter.error).toBe('clamp must come out less risky with complexity and nesting no higher');
+    expect(noBetter.trace.at(-1).result.method).toMatch(/complexity 3 -> 3, nesting 1 -> 1$/);
 
     const broken = await attempt('broken', { model: scriptedModel({ refactor: () => ({ source: leanerSource.replace('if (v < lo) return lo;', 'if (v < lo) return v;'), summary: 'oops' }) }) });
-    expect(broken.error).toMatch(/^a test broke on the rewrite: test\/clamp.test.js/);
+    expect(broken.error).toBe('test/clamp.test.js fails on the rewrite');
+    expect(broken.trace.at(-1).result.output).toMatch(/not ok|AssertionError/);
 
     const renamed = await attempt('renamed', { model: scriptedModel({ refactor: () => ({ source: leanerSource.replace('function clamp', 'function clip'), summary: 'rename' }) }) });
     expect(renamed.error).toBe('the rewrite must keep a method named clamp in lines 1-5; found clip');

@@ -116,9 +116,9 @@ export function formatFinding(finding) {
   lines.push(`Status: ${issueStatus(finding)}`);
   if (finding.fix?.status === 'ready') lines.push(`Fixed: ${finding.fix.summary ?? ''} (defect ${percent(finding.fix.verification?.before?.has_bug ?? finding.has_bug)} -> ${percent(finding.fix.verification?.after?.has_bug ?? 0)})`.trimEnd(), `    commit ${finding.fix.commit?.slice(0, 7) ?? '?'}${finding.fix.branch ? ` on ${finding.fix.branch}` : ''}  ${finding.fix.patch_path}`);
   else if (finding.fix?.status === 'closed') lines.push(`Closed on ${finding.fix.at.slice(0, 10)}: ${finding.fix.reason}`);
-  else if (finding.fix) lines.push(`Fix discarded: no fix after ${finding.fix.attempts} attempts on ${finding.fix.at.slice(0, 10)}; last rejection: ${(finding.fix.error ?? '').split('\n')[0]}`);
+  else if (finding.fix) lines.push(`Fix discarded on ${finding.fix.at.slice(0, 10)} after ${finding.fix.attempts} model turns; last rejection: ${(finding.fix.error ?? '').split('\n')[0]}`);
   if (finding.refactored?.status === 'ready') lines.push(`Refactored: ${finding.refactored.summary ?? ''}${finding.refactored.before && finding.refactored.after ? ` (${metricShift(finding.refactored.before, finding.refactored.after)})` : ''}`.trimEnd(), `    commit ${finding.refactored.commit?.slice(0, 7) ?? '?'}${finding.refactored.branch ? ` on ${finding.refactored.branch}` : ''}  ${finding.refactored.patch_path}`);
-  else if (finding.refactored) lines.push(`Refactor discarded: after ${finding.refactored.attempts} attempts on ${finding.refactored.at.slice(0, 10)}; last rejection: ${(finding.refactored.error ?? '').split('\n')[0]}`);
+  else if (finding.refactored) lines.push(`Refactor discarded on ${finding.refactored.at.slice(0, 10)} after ${finding.refactored.attempts} model turns; last rejection: ${(finding.refactored.error ?? '').split('\n')[0]}`);
   return lines.join('\n');
 }
 
@@ -144,7 +144,7 @@ function formatRefactor(record) {
     lines.push(`  after:  ${metricShift(record.before, record.after)}`, `  checked by: ${(record.proof?.checks ?? []).join(', ') || 'nothing'}`,
       `  verified by ${record.verifier}: behavior change ${percent(record.verification?.collateral_change ?? 0)}, defect ${percent(record.verification?.has_bug ?? 0)}, does what it claims ${percent(record.verification?.does_what_it_claims ?? 0)}`,
       `  committed: ${record.commit?.slice(0, 7) ?? '?'} on ${record.branch ?? '?'}  (patch: ${record.patch_path})`);
-    if (record.attempts?.length > 1) lines.push(`  attempts: ${record.attempts.length}; ${record.attempts.slice(0, -1).map(attempt => `attempt ${attempt.attempt} rejected: ${attempt.rejected?.split('\n')[0]}`).join('; ')}`);
+    if (record.turns) lines.push(`  agent: ${record.turns} ${record.turns === 1 ? 'turn' : 'turns'}, ${(record.trace ?? []).filter(event => event.type === 'tool_call').length} tool calls`);
   }
   if (record.error) lines.push(`  error: ${record.error}`);
   lines.push(`  results: ${record.out}`);
@@ -160,7 +160,7 @@ export function formatFix(fix) {
     const shift = (from, to) => (from === null || from === undefined ? percent(to) : `${percent(from)} -> ${percent(to)}`);
     lines.push(`  verified by ${fix.verifier}: reachable ${percent(before.reachable ?? 1)}; defect ${shift(before.has_bug, after.has_bug)}${after.kind !== null ? `, ${words(kind)} ${shift(before.kind, after.kind)}` : ''}, collateral change ${percent(after.collateral_change)}`,
       `  committed: ${fix.commit?.slice(0, 7) ?? '?'} on ${fix.branch ?? '?'}  (patch: ${fix.patch_path})`);
-    if (fix.attempts.length > 1) lines.push(`  attempts: ${fix.attempts.length}; ${fix.attempts.slice(0, -1).map(attempt => `attempt ${attempt.attempt} rejected: ${attempt.rejected?.split('\n')[0]}`).join('; ')}`);
+    if (fix.turns) lines.push(`  agent: ${fix.turns} ${fix.turns === 1 ? 'turn' : 'turns'}, ${(fix.trace ?? []).filter(event => event.type === 'tool_call').length} tool calls`);
   }
   if (fix.error) lines.push(`  error: ${fix.error}`);
   lines.push(`  results: ${fix.out}`);

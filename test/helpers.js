@@ -69,11 +69,46 @@ export const defaultResponses = {
   refactor: () => ({ source: leanerSource, summary: 'Drop the branch that returns v unchanged.' }),
 };
 
-/** A scripted model: responses are chosen by the inference id prefix and may vary by attempt (the id is fix-1, fix-2, ...). */
+/**
+ * A scripted agent standing in for the generating model. `overrides.fix` / `overrides.refactor` return proposals by attempt id
+ * (fix-1, fix-2, ...); the agent runs the verifiers on each in the order a careful model would, submits the first that passes them
+ * all, and gives up after three proposals. Every tool call it makes is recorded in `calls`.
+ */
 export function scriptedModel(overrides = {}) {
   const calls = [];
   const responses = { ...defaultResponses, ...overrides };
-  return { id: 'scripted-model', calls, async ask(id, prompt) { calls.push({ id, prompt }); return responses[id.split('-')[0]](id, prompt); } };
+  const model = {
+    id: 'scripted-model', effort: null, calls,
+    async run({ prompt, tools, onEvent = () => {} }) {
+      const kind = tools.some(item => item.name === 'check_method') ? 'fix' : 'refactor';
+      const byName = new Map(tools.map(item => [item.name, item]));
+      const trace = [];
+      const call = async (name, args) => {
+        calls.push({ id: `${kind}-${turns}`, prompt, name, arguments: args });
+        const event = { at: new Date().toISOString(), type: 'tool_call', turn: turns, name, arguments: args };
+        trace.push(event); onEvent(event);
+        const result = await byName.get(name).handler(args);
+        const done = { at: new Date().toISOString(), type: 'tool_result', turn: turns, name, result };
+        trace.push(done); onEvent(done);
+        return result;
+      };
+      const order = kind === 'fix' ? ['check_method', 'verify_with_system_one', 'submit'] : ['measure', 'run_tests', 'verify_with_system_one', 'submit'];
+      let turns = 0, done = false;
+      for (let attempt = 1; attempt <= 3 && !done; attempt++) {
+        turns++;
+        const proposal = responses[kind](`${kind}-${attempt}`, prompt);
+        const source = kind === 'fix' ? { method: proposal.method } : { source: proposal.source };
+        for (const name of order) {
+          const args = name === 'submit' || name === 'verify_with_system_one' ? { ...source, summary: proposal.summary } : source;
+          const result = await call(name, args);
+          if (!result.ok) break;
+          if (result.done) { done = true; break; }
+        }
+      }
+      return { done, turns, usage: { input_tokens: 1000 * turns, cached_tokens: 900 * (turns - 1), output_tokens: 200 * turns, reasoning_tokens: 0 }, trace };
+    },
+  };
+  return model;
 }
 
 export const fixtureOptions = (repo, extra = {}) => ({ root: repo.root, revision: repo.revision, out: repo.out, paths: [], ...extra });

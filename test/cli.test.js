@@ -46,8 +46,8 @@ describe('cli', () => {
     expect(await main(['design'], io)).toBe(2);
     expect(await main(['fix', '--budget', '0'], io)).toBe(2);
     expect(err.at(-1)).toContain('--budget must be a positive integer');
-    expect(await main(['fix', '--effort', 'max'], io)).toBe(2);
-    expect(err.at(-1)).toContain('--effort must be one of none, low, medium, high');
+    expect(await main(['fix', '--effort', 'ultra'], io)).toBe(2);
+    expect(err.at(-1)).toContain('--effort must be one of none, low, medium, high, xhigh, max');
     expect(await main(['refactor', 'abcd1234'], io)).toBe(2);
     expect(err.at(-1)).toContain('refactor takes a path');
     expect(await main(['report', 'owner/repo'], io)).toBe(2);
