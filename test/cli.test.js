@@ -37,10 +37,10 @@ describe('cli', () => {
     for (const verb of ['scan [target]', 'issues [finding-id]', 'fix [finding-id | path]']) expect(out[0]).toContain(verb);
     for (const gone of ['hunt', 'refactor', 'report', 'publish', 'design']) expect(out[0]).not.toMatch(new RegExp(`^\\s*${gone} `, 'm'));
     expect(await main(['fix', '-h'], io)).toBe(0);
-    expect(out.at(-1)).toContain('perch fix: Work the open issues in this checkout');
+    expect(out.at(-1)).toContain('perch fix: Fix open issues, one commit each');
     expect(out.at(-1)).toContain('--budget');
     expect(await main(['scan', '-h'], io)).toBe(0);
-    expect(out.at(-1)).toContain('perch scan: Find the issues in a repository');
+    expect(out.at(-1)).toContain('perch scan: Find issues');
     for (const gone of ['hunt', 'refactor', 'report']) expect(await main([gone], io)).toBe(2);
     expect(await main(['fix', '--budget', '0'], io)).toBe(2);
     expect(err.at(-1)).toContain('--budget must be a positive integer');
