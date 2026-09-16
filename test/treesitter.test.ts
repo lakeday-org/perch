@@ -6,7 +6,7 @@ import {
   analyzeSource,
   createAnalyzer,
   languageForPath,
-} from "../src/index";
+} from "../src/treesitter/index";
 
 const require = createRequire(import.meta.url);
 

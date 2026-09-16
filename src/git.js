@@ -1,5 +1,5 @@
 /** Thin git wrapper; hooks are disabled so the operator's global hook path never runs. */
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync } from 'node:fs';
 import { appendFile, mkdir, readFile, rm } from 'node:fs/promises';
@@ -15,7 +15,9 @@ export async function git(args, cwd) {
     return stdout;
   } catch (error) {
     const detail = (error.stderr || error.message || '').toString().trim();
-    throw new Error(`git ${args.filter(arg => !arg.startsWith('-c') || arg.length > 2).join(' ')} failed: ${detail}`);
+    const failure = new Error(`git ${args.filter(arg => !arg.startsWith('-c') || arg.length > 2).join(' ')} failed: ${detail}`);
+    failure.stdout = error.stdout?.toString() ?? '';
+    throw failure;
   }
 }
 
@@ -46,13 +48,6 @@ export async function removeWorktree(root, dir) {
   await git(['worktree', 'prune'], root).catch(() => {});
 }
 
-/** Restore the workspace to the scanned revision, keeping dependency directories. */
-export async function resetWorkspace(dir, rev) {
-  await git(['reset', '-q'], dir).catch(() => {});
-  await git(['checkout', '--force', '--detach', rev], dir);
-  await git(['clean', '-fd', '-e', 'node_modules', '-e', '.venv', '-e', 'target'], dir);
-}
-
 /** Keep the results directory out of `git status` when it lives inside the repository. */
 export async function excludeFromStatus(root, pattern) {
   const gitDir = (await git(['rev-parse', '--git-common-dir'], root)).trim();
@@ -61,4 +56,32 @@ export async function excludeFromStatus(root, pattern) {
   if (current.split('\n').includes(pattern)) return;
   await mkdir(dirname(excludePath), { recursive: true });
   await appendFile(excludePath, `${current && !current.endsWith('\n') ? '\n' : ''}${pattern}\n`);
+}
+
+/** The content of one tracked blob, read without a checkout. */
+export const readBlob = (root, sha) => git(['cat-file', 'blob', sha], root);
+
+/** Many blobs through one `git cat-file --batch` process, delivered in order to `onBlob(index, text)`. */
+export function readBlobs(root, shas, onBlob) {
+  return new Promise((resolve, reject) => {
+    const child = spawn('git', ['-c', 'core.hooksPath=/dev/null', 'cat-file', '--batch'], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] });
+    let pending = Buffer.alloc(0), index = 0, stderr = '';
+    const drain = () => {
+      for (;;) {
+        const newline = pending.indexOf(10);
+        if (newline < 0) return;
+        const header = pending.subarray(0, newline).toString();
+        if (header.endsWith(' missing')) throw new Error(`git cat-file: ${header}`);
+        const size = Number(header.split(' ')[2]);
+        if (pending.length < newline + 1 + size + 1) return;
+        onBlob(index++, pending.subarray(newline + 1, newline + 1 + size).toString('utf8'));
+        pending = pending.subarray(newline + 1 + size + 1);
+      }
+    };
+    child.stdout.on('data', chunk => { pending = Buffer.concat([pending, chunk]); try { drain(); } catch (error) { child.kill(); reject(error); } });
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    child.on('error', reject);
+    child.on('close', code => (code === 0 && index === shas.length ? resolve() : reject(new Error(`git cat-file --batch failed: ${stderr.trim() || `read ${index} of ${shas.length} blobs`}`))));
+    child.stdin.end(shas.map(sha => `${sha}\n`).join(''));
+  });
 }

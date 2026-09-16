@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
 import { expect, it, vi } from "vitest";
-import { createAnalyzer } from "../src/index";
+import { createAnalyzer } from "../src/treesitter/index";
 
 const require = createRequire(import.meta.url);
 

@@ -17,16 +17,38 @@ export const fixedSource = `export function clamp(v, lo, hi) {
 }
 `;
 
-export const regressionSource = `import assert from 'node:assert/strict';
+/** The fixture's existing test file for clamp. */
+export const existingTestSource = `import assert from 'node:assert/strict';
 import test from 'node:test';
 import { clamp } from '../src/clamp.js';
 
+test('clamp enforces the lower bound', () => {
+  assert.strictEqual(clamp(-1, 0, 10), 0);
+  assert.strictEqual(clamp(5, 0, 10), 5);
+});
+`;
+
+/** The one new case a fix adds to the module's test file. */
+export const regressionCase = `
 test('clamp enforces the upper bound', () => {
   assert.strictEqual(clamp(11, 0, 10), 10);
 });
 `;
 
+/** The module's test file with the regression case added, as the fix contract asks for it. */
+export const regressionSource = existingTestSource + regressionCase;
+
 const author = ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com'];
+
+/** A fresh repository on `main` with a committed tree, then checked out on a feature branch, since fix and refactor commit to the current branch. */
+async function initRepo(root) {
+  await git(['init', '-q', '-b', 'main', '.'], root);
+  await git(['config', 'user.name', 'Fixture'], root);
+  await git(['config', 'user.email', 'fixture@example.com'], root);
+  await git([...author, 'add', '-A'], root);
+  await git([...author, 'commit', '-q', '-m', 'fixture'], root);
+  await git(['checkout', '-q', '-b', 'work'], root);
+}
 
 /** A git repository with a planted bug in src/clamp.js and a passing existing test. */
 export async function makeFixture() {
@@ -35,38 +57,109 @@ export async function makeFixture() {
   await mkdir(join(root, 'test'));
   await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'fixture', version: '1.0.0', type: 'module', scripts: { test: 'node --test' } }, null, 2) + '\n');
   await writeFile(join(root, 'src', 'clamp.js'), buggySource);
-  await writeFile(join(root, 'test', 'clamp.test.js'), `import assert from 'node:assert/strict';
-import test from 'node:test';
-import { clamp } from '../src/clamp.js';
-
-test('clamp enforces the lower bound', () => {
-  assert.strictEqual(clamp(-1, 0, 10), 0);
-  assert.strictEqual(clamp(5, 0, 10), 5);
-});
-`);
-  await git(['init', '-q', '-b', 'main', '.'], root);
-  await git([...author, 'add', '-A'], root);
-  await git([...author, 'commit', '-q', '-m', 'fixture'], root);
+  await writeFile(join(root, 'test', 'clamp.test.js'), existingTestSource);
+  await initRepo(root);
   return root;
 }
 
-export const defaultResponses = {
-  preparation: () => ({ setup: 'true', baseline: 'npm test' }),
-  triage: () => ({ found: true, title: 'clamp ignores the upper bound', reason: 'clamp returns v instead of hi when v exceeds hi.', priority: 'P2',
-    regression_path: 'test/clamp.regression.test.js', regression: regressionSource, command: 'node --test test/clamp.regression.test.js' }),
-  fix: () => ({ source: fixedSource, summary: 'Return hi when v exceeds the upper bound.' }),
-  review: () => ({ approved: true, reason: 'The regression reproduces the bug and the fix is narrow.' }),
+/** The corrected clamp method alone, as the fix contract asks for it. */
+export const fixedMethod = fixedSource.trimEnd();
+
+export const description = {
+  title: 'clamp returns values above the upper bound unchanged',
+  what_happens: 'When v is greater than hi, the second branch returns v instead of hi, so the caller gets an unclamped value.',
+  how_to_reproduce: 'clamp(11, 0, 10) returns 11.',
+  expected: 'clamp(11, 0, 10) returns 10.',
+  what_changed: 'The upper-bound branch now returns hi.',
 };
 
-/** A scripted model: responses are chosen by the inference id prefix. */
+/** A rewrite of clamp that documents it and keeps its behavior, bug included. */
+export const documentedSource = `/** Clamp v into [lo, hi]: values below lo become lo, values above hi become hi. */\n${buggySource.trimEnd()}`;
+
+export const defaultResponses = {
+  fix: () => ({ method: fixedMethod, test: regressionSource, test_path: 'test/clamp.test.js', summary: 'Return hi when v exceeds the upper bound.' }),
+  refactor: () => ({ source: documentedSource, summary: 'Document what clamp returns at each bound.' }),
+  describe: () => description,
+};
+
+/** A scripted model: responses are chosen by the inference id prefix and may vary by attempt (the id is fix-1, fix-2, ...). */
 export function scriptedModel(overrides = {}) {
   const calls = [];
   const responses = { ...defaultResponses, ...overrides };
   return { id: 'scripted-model', calls, async ask(id, prompt) { calls.push({ id, prompt }); return responses[id.split('-')[0]](id, prompt); } };
 }
 
-/** Counts executions while delegating to the real shell. */
-export function countingShell(real) {
-  const shell = { calls: [], run(script, options) { shell.calls.push(script); return real.run(script, options); } };
-  return shell;
+export const fixtureOptions = (repo, extra = {}) => ({ root: repo.root, revision: repo.revision, out: repo.out, paths: [], ...extra });
+
+/** A git repository with two source files whose methods call each other across an import, plus a test file. */
+export async function makeGraphFixture() {
+  const root = await mkdtemp(join(tmpdir(), 'perch-graph-'));
+  await mkdir(join(root, 'src'));
+  await mkdir(join(root, 'test'));
+  await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'graph', version: '1.0.0', type: 'module' }, null, 2) + '\n');
+  await writeFile(join(root, 'src', 'a.js'), `import { h } from './b.js';
+
+export function f(x) {
+  if (x > 10) return g(x) + h(x);
+  if (x < 0) return h(-x);
+  return g(x);
+}
+
+function g(x) {
+  if (x > 1) return x;
+  return 0;
+}
+`);
+  await writeFile(join(root, 'src', 'b.js'), `export function h(x) {
+  return k(x) * 2;
+}
+
+export function k(x) {
+  return x - 1;
+}
+`);
+  await writeFile(join(root, 'test', 'a.test.js'), `import test from 'node:test';
+import { f } from '../src/a.js';
+
+test('f', () => { f(1); });
+`);
+  await initRepo(root);
+  return root;
+}
+
+export async function commitAll(root, message) {
+  await git([...author, 'add', '-A'], root);
+  await git([...author, 'commit', '-q', '-m', message], root);
+}
+
+/** Questions whose plausible default answer is "yes". */
+const affirmative = new Set(['does_what_it_claims', 'imports_real_method', 'targets_defect', 'reachable_by_callers', 'asserts_behavior', 'reachable']);
+
+/**
+ * A scripted System One: answers every question plausibly, with overrides keyed by what the state is about.
+ * A hunt or patch-check state is keyed by method id (`src/a.js::f`), a test check by `test`, a project discovery by `project`.
+ */
+export function scriptedSystemOne(overrides = {}) {
+  const calls = [];
+  const keyOf = state => (state.test ? 'test' : state.method ? `${state.method.path}::${state.method.name}` : 'project');
+  return {
+    id: 'scripted-jev',
+    calls,
+    async ask(state, questions) {
+      const key = keyOf(state);
+      const own = overrides[key] ?? {};
+      calls.push({ method: key, state, questions });
+      const answers = {};
+      for (const [id, question] of Object.entries(questions)) {
+        if (question.type === 'noul') answers[id] = { type: 'noul', noul: own[id] ?? (affirmative.has(id) ? 0.9 : 0.2) };
+        else if (question.type === 'score') answers[id] = { type: 'score', score: own[id] ?? 1, confidence: 0.6, legend: {}, probabilities: {} };
+        else {
+          const keys = Object.keys(question.criteria);
+          const choice = own[id] && keys.includes(own[id]) ? own[id] : keys.at(-1);
+          answers[id] = { type: 'choice', choice, confidence: 0.8, probabilities: Object.fromEntries(keys.map(key => [key, key === choice ? 0.8 : 0.2 / Math.max(1, keys.length - 1)])) };
+        }
+      }
+      return { model: 'scripted-jev', answers, usage: { input_tokens: 100, output_tokens: 10 } };
+    },
+  };
 }
