@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { repoRoot, revision as gitRevision } from './git.js';
 import { resolveTarget } from './target.js';
 import { createModel, DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS } from './model.js';
-import { createSystemOne, DEFAULT_SYSTEM_ONE_MODEL } from './systemone.js';
+import { createSystemOne } from './systemone.js';
 import { createSourceAnalyzer } from './analysis.js';
 import { openStore, resolveOut } from './store.js';
 import { analyzeTree } from './scan.js';
@@ -21,18 +21,18 @@ const options = {
   force: ['--force', 'Read every method again, even ones unchanged since an earlier scan', ['scan']],
   all: ['--all', 'List every row instead of the top 10', ['scan', 'issues']],
   closed: ['--closed', 'Include closed issues (worked and given up on, or nothing left to do)', ['issues']],
-  min: ['--min P', 'Only list or work issues the model rates at P percent or more (default 50)', ['issues', 'fix']],
-  model: ['--model M', `OpenAI model id (default ${DEFAULT_MODEL}, or $OPENAI_MODEL)`, ['fix']],
-  effort: ['--effort E', `Reasoning effort for the OpenAI model's run: ${EFFORTS.join(', ')} (default ${DEFAULT_EFFORT})`, ['fix']],
-  out: ['--out DIR', 'Results directory (default .perch in the current repository)', ['scan', 'issues', 'fix']],
-  json: ['--json', 'Print the full record as JSON instead of a summary', ['scan', 'issues', 'fix']],
-  verbose: ['--verbose', 'Show every file analyzed, method read or skipped, model call, and command run', ['scan', 'fix']],
+  min: ['--min P', 'Only issues at P percent or more (default 50)', ['issues', 'fix']],
+  model: ['--model M', `OpenAI model (default ${DEFAULT_MODEL}, or $OPENAI_MODEL)`, ['fix']],
+  effort: ['--effort E', `Reasoning effort: ${EFFORTS.join(', ')} (default ${DEFAULT_EFFORT})`, ['fix']],
+  out: ['--out DIR', 'Results directory (default .perch)', ['scan', 'issues', 'fix']],
+  json: ['--json', 'Print JSON instead of a summary', ['scan', 'issues', 'fix']],
+  verbose: ['--verbose', 'Show every file, method, model call, and command', ['scan', 'fix']],
 };
 
 const commandHelp = {
-  scan: { args: '[target]', summary: 'Find the issues in a repository: defects, methods too big or too nested, misnamed, misdocumented, complex', detail: 'Analyzes every tracked source file with tree-sitter and records each method with its metrics and the calls and imports that link it to others. Then, starting at the riskiest method and walking its callers and callees, it sends one System One request per method with the method, the methods it calls, and its call sites, and asks: is there a reachable behavioral defect, on which line, of what kind, how severe; does any call misuse its callee; does the method do what its name and comment claim; is it documented; what refactor does it need; which neighbor to follow next. When a defect looks likely a second request asks whether the flagged line is actually executable. The first scan reads every method; later scans read only methods whose code changed since they were last read (--force reads everything again). Everything at 50% or more is an issue, and so is any method the metrics score at risk 70 or more, read or not. Prints the open issues. Needs TYPESAFE_API_KEY; always uses the jev-latest model.' },
-  issues: { args: '[finding-id]', summary: 'List open issues, or show everything known about one method', detail: 'Lists every open issue at --min or more: the method, where, each issue it carries (the defect kind, too big, too nested, tangled conditions, misnamed, does not do what it claims, misdocumented, complex) with its probability, the severity of a defect, whether it is open or closed, and the commit once worked. An issue is closed once the work on it was given up or there was nothing left to do; closed issues are omitted unless --closed. Methods that no longer exist are not listed. With a finding id it prints everything known about that method.' },
-  fix: { args: '[finding-id | path]', summary: 'Work the open issues in this checkout, most serious first, one commit each', detail: 'Works the open issues, most serious first, up to --budget of them; with a path, only those in that file or directory; with a finding id, that one. For a defect, System One first confirms a caller can reach the flagged line; if none can and nothing else is open on the method, the issue is closed with no model call. Then an OpenAI model runs as an agent. It is given every issue the scan raised on the method as an objective, everything System One answered, and the method with its callers and callees, and it has four tools: measure (splice the rewrite into the file and check with tree-sitter that it parses, keeps the method, and gets no deeper or more branching), rescan (run the same scan over the rewrite: every issue must be gone or lower, a defect gone outright, nothing new), run_tests (every test that reaches the method still passes; one already failing on the original is ignored), and submit, which refuses any source the other three have not passed. An accepted rewrite is committed on the current branch with the summary as its message; anything else leaves the checkout as it was. Refuses to run on main or master. Needs OPENAI_API_KEY and TYPESAFE_API_KEY.' },
+  scan: { args: '[target]', summary: 'Find issues', detail: 'Scores every method with tree-sitter, then reads them with System One (callers and callees in view). The first scan reads every method; later ones only what changed (--force rereads all). Needs TYPESAFE_API_KEY. target is a directory, owner/repo, or a GitHub URL.' },
+  issues: { args: '[finding-id]', summary: 'List open issues, or show one', detail: 'Lists open issues at --min or more. --closed includes closed ones. With a finding id, everything known about that method.' },
+  fix: { args: '[finding-id | path]', summary: 'Fix open issues, one commit each', detail: 'Works open issues, most serious first, up to --budget; with a path, only under that path; with a finding id, that one. An OpenAI agent rewrites each method and must pass measure, rescan, and run_tests before submit. Commits on the current branch; refuses main/master. Needs OPENAI_API_KEY and TYPESAFE_API_KEY.' },
 };
 
 /** Wrap prose at 80 columns. */
@@ -47,24 +47,16 @@ const column = (rows, indent = '  ') => {
   return rows.map(([left, right]) => `${indent}${left.padEnd(width)}  ${right}`).join('\n');
 };
 
-const usage = `perch finds the issues in a repository and fixes them, one verified commit at a time.
-
-Usage: perch <command> [arguments] [options]
+const usage = `Usage: perch <command> [options]
 
 Commands:
 ${column(Object.entries(commandHelp).map(([name, help]) => [`${name} ${help.args}`.trim(), help.summary]))}
 
-Arguments:
-${column([['target', 'A directory (default ".", resolved to its git root), or a GitHub repository as owner/repo or its URL'], ['path', 'A repository-relative file or directory; only issues under it are worked'], ['finding-id', 'The 8-character id printed next to every issue; a unique prefix is enough']])}
-
 Options:
-${column([...Object.values(options).filter(([, , verbs]) => verbs.length === Object.keys(commandHelp).length).map(([flag, text]) => [flag, text]), ['-h, --help', 'This help, or perch <command> --help for one command']])}
+${column([...Object.values(options).filter(([, , verbs]) => verbs.length === Object.keys(commandHelp).length).map(([flag, text]) => [flag, text]), ['-h, --help', 'This help; perch <command> --help for one command']])}
 
 Environment:
-${column([['TYPESAFE_API_KEY', `scan, fix (${DEFAULT_SYSTEM_ONE_MODEL})`], ['OPENAI_API_KEY', `fix (${DEFAULT_MODEL})`], ['OPENAI_MODEL', 'another OpenAI model for fix'], ['OPENAI_BASE_URL', 'another OpenAI-compatible endpoint']])}
-
-Examples:
-${column([['perch scan', 'Read every method the first time, only changed ones after; list the issues'], ['perch issues', 'The open issues'], ['perch issues 3f9c2a', 'Everything known about one method'], ['perch fix', 'Work the twenty most serious open issues, one commit each'], ['perch fix src/metrics.ts', 'Work the issues in one file'], ['perch fix 3f9c2a', 'Work one issue']])}`;
+${column([['TYPESAFE_API_KEY', 'scan, fix'], ['OPENAI_API_KEY', 'fix']])}`;
 
 function usageFor(name) {
   const help = commandHelp[name];
