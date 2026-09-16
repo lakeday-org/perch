@@ -111,7 +111,8 @@ describe('perch fix', () => {
     expect(model.calls.every(call => call.arguments.source === fixedMethod)).toBe(true);
     const prompt = model.calls[0].prompt;
     expect(prompt).toContain('OBJECTIVES:\n- wrong return value 90%: System One must no longer see this defect when it reads the rewrite');
-    expect(prompt).toContain('rescan runs the same scan that raised these issues over your rewrite');
+    expect(prompt).toContain('rescan runs the same scan over your rewrite');
+    expect(prompt).toContain('and any sibling helpers it needs in that range');
     expect(prompt).toContain('reachable behavioral defect: 90%; the flagged line is reachable by a real caller: 90%');
     expect(prompt).toContain('ORIGINAL, lines 1-5');
     expect(prompt).toContain('"called_by"');
@@ -178,7 +179,7 @@ describe('perch fix', () => {
     const fix = await fixMethod(options(other, design, { model: worker, systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { reachable: 0.1 } }) }));
     expect(fix.status).toBe('ready');
     expect(fix.before.map(issue => issue.text)).toEqual(['too big 80%', 'misdocumented 80%']);
-    expect(worker.calls[0].prompt).toContain("- too big 80%: System One must see this less when it reads the rewrite\n- misdocumented 80%: the comment above the method must say what a caller needs");
+    expect(worker.calls[0].prompt).toContain("- too big 80%: do the structural change this calls for (split, flatten, simplify, dedupe, rename, or delete); System One must see it less\n- misdocumented 80%: the comment above the method must say what a caller needs");
     expect(await readFile(join(other.root, 'src', 'clamp.js'), 'utf8')).toBe(leanerSource + '\n');
   });
 
@@ -222,16 +223,13 @@ describe('perch fix', () => {
     expect(await readFile(join(other.root, 'src', 'clamp.js'), 'utf8')).toBe(buggySource);
   });
 
-  it('rejects a reordering, a deeper rewrite, one the rescan does not see improved, one that adds an issue, and one that breaks a test; the checkout is left as it was', async () => {
+  it('rejects a reordering, a rewrite the rescan does not see improved, one that adds an issue, and one that breaks a test; the checkout is left as it was', async () => {
     const { repo, finding } = await scanned();
     const attempt = async (name, extra) => fixMethod(options(repo, finding, { ...extra, model: { ...(extra.model ?? scriptedModel()), id: name } }));
 
     const shuffled = await attempt('shuffled', { model: scriptedModel({ fix: () => proposal(buggySource.trimEnd().split('\n').reverse().join('\n'), 'Reorder') }) });
     expect(shuffled.status).toBe('rejected');
     expect(shuffled.error).toBe("the source is the original, or the original's lines in another order; nothing changed");
-
-    const nested = await attempt('nested', { model: scriptedModel({ fix: () => proposal(fixedMethod.replace('  if (v > hi) return hi;', '  if (v > hi) {\n    if (hi >= lo) return hi;\n  }')) }) });
-    expect(nested.error).toBe('the file got deeper or more branching; a fix adds at most one branch and no nesting');
 
     // The scan rated the defect at 90%; a rewrite System One still calls a defect, at any number, is not a fix.
     const stillThere = await attempt('still', { systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.55, kind_wrong_return: 0.5 } }) });
@@ -244,7 +242,7 @@ describe('perch fix', () => {
     expect(breaking.trace.at(-1).result.output).toMatch(/not ok|AssertionError/);
 
     const store = openStore(repo.out);
-    expect((await store.readEvents()).filter(event => event.type === 'fixed').map(event => event.status)).toEqual(Array(5).fill('rejected'));
+    expect((await store.readEvents()).filter(event => event.type === 'fixed').map(event => event.status)).toEqual(Array(4).fill('rejected'));
     const [discarded] = await store.issues();
     expect(discarded.fix).toMatchObject({ status: 'rejected', attempts: 3 });
     expect(formatIssues([discarded], 0.5)).toBe('No open issues. 1 closed (--closed).');
@@ -252,6 +250,17 @@ describe('perch fix', () => {
     expect((await git(['status', '--porcelain'], repo.root)).trim()).toBe('');
     expect(await readFile(join(repo.root, 'src', 'clamp.js'), 'utf8')).toBe(buggySource);
   }, 60_000);
+
+  it('lets measure pass a split that adds sibling helpers in the replacement region', async () => {
+    const { repo, finding } = await scanned({ has_bug: 0.9, where: 'L0003', kind_wrong_return: 0.9, refactor: 'split', severity: 2 });
+    const split = `function above(v, hi) {\n  return v > hi;\n}\n\nexport function clamp(v, lo, hi) {\n  if (v < lo) return lo;\n  if (above(v, hi)) return hi;\n  return v;\n}`;
+    const model = scriptedModel({ fix: () => proposal(split, 'Extract the upper-bound check') });
+    const fix = await fixMethod(options(repo, finding, { model }));
+    expect(fix.status).toBe('ready');
+    expect(model.calls.find(call => call.name === 'measure').arguments.source).toContain('function above');
+    expect(fix.trace.find(event => event.type === 'tool_result' && event.name === 'measure').result.helpers).toEqual(['above']);
+    expect(await readFile(join(repo.root, 'src', 'clamp.js'), 'utf8')).toContain('function above');
+  });
 
   it('refuses a protected branch and a dirty method file, and ignores a test that already fails on the original', async () => {
     const { repo, finding } = await scanned();

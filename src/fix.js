@@ -188,7 +188,7 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
 
     // The objectives, stated up front: each issue and what has to be true afterwards.
     ui.say(`${finding.id}  ${finding.name}  ${finding.path}:${finding.line}`);
-    const goal = issue => (issue.type === 'defect' ? `${systemOne.id} must no longer see it` : issue.type === 'complex' ? "the file's score must come down" : issue.type === 'misdocumented' ? 'the comment must say what a caller needs' : `${systemOne.id} must see it less`);
+    const goal = issue => (issue.type === 'defect' ? `${systemOne.id} must no longer see it` : issue.type === 'complex' ? "this method's risk must come down" : issue.type === 'misdocumented' ? 'the comment must say what a caller needs' : issue.type === 'refactor' ? 'do the structural change' : `${systemOne.id} must see it less`);
     for (const issue of before) ui.say(`  ${issue.text.padEnd(28)} → ${goal(issue)}`);
 
     // A defect the caller cannot reach is not one: System One says so before anything is generated.
@@ -241,9 +241,9 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
       const kept = inRegion.find(declaration => declaration.qualified_name === node.qualified_name);
       if (!kept) return { ok: false, error: `keep a method named ${node.qualified_name} in lines ${start}-${regionEnd}; found ${inRegion.map(declaration => declaration.qualified_name).join(', ') || 'none'}` };
       const fileMetrics = trim(after.metrics), metrics = trim(kept.metrics);
-      const detail = { file: shift(base, fileMetrics), method: shift(node.metrics ?? metrics, metrics) };
-      if ((fileMetrics.max_nesting ?? 0) > (base.max_nesting ?? 0) || (fileMetrics.cyclomatic_complexity ?? 0) > (base.cyclomatic_complexity ?? 0) + 1) return { ok: false, error: 'the file got deeper or more branching; a fix adds at most one branch and no nesting', ...detail };
-      passed.measure.set(source, { kept, metrics, fileMetrics, inRegion: inRegion.map(declaration => ({ line: declaration.line, end_line: declaration.end_line })), replacementLength: replacement.length });
+      const detail = { file: shift(base, fileMetrics), method: shift(node.metrics ?? metrics, metrics), helpers: inRegion.filter(declaration => declaration.qualified_name !== node.qualified_name).map(declaration => declaration.qualified_name) };
+      // measure only checks that the rewrite parses and keeps the method; rescan and the tests decide whether it improved.
+      passed.measure.set(source, { kept, metrics, fileMetrics, inRegion: inRegion.map(declaration => ({ line: declaration.line, end_line: declaration.end_line, qualified_name: declaration.qualified_name })), replacementLength: replacement.length });
       return { ok: true, ...detail };
     };
     const rescan = async ({ source }) => {
@@ -296,7 +296,7 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
       return { ok: true, done: true };
     };
     const tools = [
-      tool('measure', `Splice the rewrite over lines ${start}-${end} of ${node.path} and measure the file with tree-sitter: it must parse, keep a method named ${node.qualified_name}, and not get deeper or more than one branch more complex. Call this on every version you write.`, { source: { type: 'string', description: 'the complete replacement for the region: the comment above the method and the method' } }, measure),
+      tool('measure', `Splice the rewrite over lines ${start}-${end} of ${node.path} and measure with tree-sitter: it must parse and still contain ${node.qualified_name}. Sibling helpers in that range are fine. Returns the method and file metrics; improvement is judged by rescan, not here. Call this on every version you write.`, { source: { type: 'string', description: 'replacement for the region: comment, method, and any helpers it needs' } }, measure),
       tool('rescan', 'Run the scan again over the rewrite: the same System One questions with the same neighborhood, plus the metrics. Every issue the scan raised must be gone or lower, a defect gone outright, and nothing new. Requires measure to have passed this exact source.', { source: { type: 'string' }, summary: { type: 'string', description: 'the commit line, under 72 characters' } }, rescan),
       tool('run_tests', `Run the tests that reach ${node.qualified_name}${checks.length ? ` (${checks.map(check => check.name).join(', ')})` : ' (none found; passes trivially)'} against the rewrite. Requires measure to have passed this exact source.`, { source: { type: 'string' } }, runTests),
       tool('submit', 'Finish with the rewrite. Refused unless measure, rescan, and run_tests have all passed this exact source.', { source: { type: 'string' }, summary: { type: 'string' } }, submit),
