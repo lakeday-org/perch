@@ -57,7 +57,7 @@ describe('cli', () => {
     expect(await main(['fix', '--out', join(repo, '.perch')], io)).toBe(1);
     expect(err.at(-1)).toContain('OPENAI_API_KEY');
     expect(await main(['issues', '--out', join(repo, '.perch')], io)).toBe(0);
-    expect(out.at(-1)).toContain('No method has an issue');
+    expect(out.at(-1)).toBe('No open issues.');
   });
 
   it('lists the issues a scan found, from the results directory', async () => {
@@ -76,7 +76,7 @@ describe('cli', () => {
     expect(out.at(-1)).toContain('wrong return value 60%');
     expect(out.at(-1)).toContain('Metrics: risk');
     expect(await main(['issues', '--out', repo.out, '--min', '90'], io)).toBe(0);
-    expect(out.at(-1)).toContain('No method has an issue at 90%');
+    expect(out.at(-1)).toBe('No open issues at 90% or more.');
     expect(await main(['issues', '--out', repo.out, '--json'], io)).toBe(0);
     expect(JSON.parse(out.at(-1))[0].id).toBe(f.id);
   });

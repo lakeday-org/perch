@@ -37,7 +37,7 @@ function issueTable(findings, min = 0.5) {
   return table(['ID', 'Method', 'Location', 'Issues', 'Severity', 'Status', 'Commit'], rows, ['left', 'left', 'left', 'left', 'left', 'left', 'left']);
 }
 
-const footer = 'perch issues <id> for detail; perch fix [id | path] works them, most serious first.';
+const footer = 'perch fix works these in this order. perch fix <id> works one. perch issues <id> shows everything about one.';
 
 /** What one scan did, then the open issues as `perch issues` lists them. */
 export function formatScanRun(hunt, issues, shown = TOP) {
@@ -48,12 +48,15 @@ export function formatScanRun(hunt, issues, shown = TOP) {
   return lines.join('\n');
 }
 
-const listed = (open, closed, shown, noun, includeClosed) => {
+/** "115 open issues, 10 shown (--all for the rest). 6 closed (--closed)." */
+const listed = (open, closed, shown, includeClosed, min) => {
   const rows = includeClosed ? open + closed : open;
-  const more = rows > shown ? `; the ${shown} strongest are listed, --all for every one` : '';
-  if (includeClosed) return `${open} open, ${closed} closed ${noun}${more}.`;
-  if (!open) return closed ? `No open ${noun}. ${closed} closed; --closed to list them.` : `No open ${noun}.`;
-  return `${open} open ${noun}${more}.${closed ? ` ${closed} closed; --closed to list them.` : ''}`;
+  const threshold = min !== 0.5 ? ` at ${percent(min)} or more` : '';
+  const count = includeClosed ? `${open} open and ${closed} closed issues${threshold}` : `${open} open ${open === 1 ? 'issue' : 'issues'}${threshold}`;
+  const cut = rows > shown ? `, ${shown} shown (--all for the rest)` : '';
+  const hidden = !includeClosed && closed ? ` ${closed} closed (--closed).` : '';
+  if (!open && !includeClosed) return `No open issues${threshold}.${hidden}`;
+  return `${count}${cut}.${hidden}`;
 };
 
 /** Findings to print: closed ones stay off the list unless asked for. */
@@ -62,13 +65,12 @@ export function visibleFindings(findings, { closed = false } = {}) {
 }
 
 export function formatIssues(findings, min, shown = TOP, { closed = false, gone = 0 } = {}) {
-  const goneNote = gone ? ` ${gone} ${gone === 1 ? 'finding is' : 'findings are'} for methods that no longer exist and ${gone === 1 ? 'is' : 'are'} not listed.` : '';
-  if (!findings.length) return `No method has an issue at ${percent(min)} or more.${goneNote}`;
+  const goneNote = gone ? ` ${gone} ${gone === 1 ? 'is' : 'are'} for ${gone === 1 ? 'a method' : 'methods'} that no longer exist and ${gone === 1 ? 'is' : 'are'} not listed.` : '';
   const hidden = findings.filter(finding => issueStatus(finding) === 'closed').length;
   const rows = visibleFindings(findings, { closed });
-  const noun = `issues at ${percent(min)} or more`;
-  if (!rows.length) return listed(0, hidden, shown, noun, closed) + goneNote;
-  return [listed(findings.length - hidden, hidden, shown, noun, closed) + goneNote, '', ...issueTable(rows.slice(0, shown), min), '', footer].join('\n');
+  const head = listed(findings.length - hidden, hidden, shown, closed, min) + goneNote;
+  if (!rows.length) return head;
+  return [head, '', ...issueTable(rows.slice(0, shown), min), '', footer].join('\n');
 }
 
 /** Everything known about one method: System One's answers when it has read it, the metrics always, and the work done on it. */

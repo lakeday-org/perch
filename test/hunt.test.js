@@ -82,7 +82,7 @@ describe('perch hunt', () => {
     expect(f.where.text).toBe('if (x > 10) return g(x) + h(x);');
     const shown = formatScanRun(hunt, await openStore(repo.out).issues());
     expect(shown).toMatch(/^Scanned .* at commit [0-9a-f]{7}: 4 methods; System One read 4\./m);
-    expect(shown).toContain('1 open issues at 50% or more.');
+    expect(shown).toContain('1 open issue.');
     expect(shown).toMatch(new RegExp(`${f.id}  f +src/a.js:4 +off by one 90%, too big 80%, misdocumented 70% +major +open +-`));
 
     // A second hunt skips everything, without a single model call.

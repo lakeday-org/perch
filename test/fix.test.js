@@ -176,9 +176,9 @@ describe('perch fix', () => {
     const store = openStore(repo.out);
     const [closed] = await store.findings();
     expect(closed.fix).toMatchObject({ status: 'closed', reason: fix.reason });
-    expect(formatIssues([closed], 0.5)).toBe('No open issues at 50% or more. 1 closed; --closed to list them.');
+    expect(formatIssues([closed], 0.5)).toBe('No open issues. 1 closed (--closed).');
     expect(formatFinding(closed)).toContain('Closed on');
-    expect(formatIssues([], 0.5, 10, { gone: 2 })).toBe('No method has an issue at 50% or more. 2 findings are for methods that no longer exist and are not listed.');
+    expect(formatIssues([], 0.5, 10, { gone: 2 })).toBe('No open issues. 2 are for methods that no longer exist and are not listed.');
   });
 
   it('re-questions a method that changed since the hunt and goes on from the fresh answers, or drops it when no defect is left', async () => {
@@ -263,7 +263,7 @@ describe('perch fix', () => {
     await store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: worse.id, method: finding.method, hash: finding.hash, revision: finding.revision, status: 'rejected', attempts: 3, error: worse.error });
     const [discarded] = await store.findings();
     expect(discarded.fix).toMatchObject({ id: worse.id, status: 'rejected', attempts: 3, error: worse.error });
-    expect(formatIssues([discarded], 0.5)).toBe('No open issues at 50% or more. 1 closed; --closed to list them.');
+    expect(formatIssues([discarded], 0.5)).toBe('No open issues. 1 closed (--closed).');
     expect(formatIssues([discarded], 0.5, 10, { closed: true })).toMatch(/Status  Commit\n.*closed +-/);
     expect(formatFinding(discarded)).toContain('Status: closed');
     expect(formatFinding(discarded)).toContain('No fix on');
