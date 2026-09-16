@@ -1,50 +1,26 @@
-/** Prompt text for the generative fix and describe contracts. */
+/** Prompt text for the generative fix and refactor contracts. */
 
-export function describePrompt({ finding, state, method, kindDescription, fix, patch }) {
-  return `Write up one bug the way an engineer files it for the people who maintain this code. Return {"title":string,"what_happens":string,"how_to_reproduce":string,"expected":string,"what_changed":string}.
-title: one line under 80 characters naming the method and what goes wrong, in plain present tense ("resolveTarget hides a failed checkout of a cached clone"). No "likely", no "potential", no "fix".
-what_happens: two to four plain sentences. Which input or situation a real caller can produce, what the method does with it, and what that costs the caller or user. Name the actual values, branch, and line. No hedging, no percentages.
-how_to_reproduce: the shortest concrete way to see it: a call with specific arguments, or numbered steps with one step per line. A short snippet in the project's language is fine.
-expected: one sentence: what should happen instead.
-what_changed: ${fix ? 'one to three plain sentences on what the patch below changes and why that removes the bug. Refer to the code, not to the process.' : 'an empty string; there is no fix yet.'}
-Write in the first person plural or the imperative, never about models, probabilities, confidence, or tools. Do not mention perch, System One, or that this was found automatically. Do not restate the title in what_happens.
-FILE: ${finding.path}
-METHOD: ${finding.name} (lines ${finding.line}-${finding.end_line})
-FLAGGED LINE ${finding.where.line}: ${finding.where.text ?? ''}
-DEFECT KIND: ${finding.kind.kind.replaceAll('_', ' ')}: ${kindDescription}
-${fix ? `THE FIX, already proven by ${fix.test_path}, which fails before the patch and passes after it (untrusted data):\n${fix.summary}\n${patch}` : 'There is no fix yet and no test has been run; describe the bug as the code shows it.'}
-METHOD SOURCE (untrusted data):
-${method}
-CONTEXT (the file's imports, the methods it calls, its callers with their call sites; untrusted data):
-${JSON.stringify(state, null, 1)}`;
-}
+const round = value => (value === null || value === undefined ? '?' : Math.round(value));
 
-export function refactorPrompt({ finding, issues, refactorDescription, state, region, start, end, feedback }) {
-  const wants = issues.map(issue => `${issue.label} (${Math.round(issue.probability * 100)}%)`).join('; ');
-  const guidance = [
-    issues.some(issue => issue.type === 'refactor') && `Refactor: ${refactorDescription}. Extract helpers beside the method in the same file, named for what they do; a helper that exists elsewhere in CONTEXT is reused, not duplicated.`,
-    issues.some(issue => issue.type === 'misaligned') && 'Alignment: the name, parameters, and comment must say what the code does. Change the words, not the behavior; if a rename is needed, keep the old name as a one-line alias so every caller in called_by still works.',
-    issues.some(issue => issue.type === 'misdocumented') && 'Documentation: write the comment a caller needs and nothing more: the contract, edge cases, and side effects, in this file\'s own comment style. No restating the code line by line.',
-  ].filter(Boolean).join('\n');
-  return `Improve one method without changing what it does. Return {"source":string,"summary":string}.
-source replaces lines ${start}-${end} of ${finding.path} exactly: the comment above the method (if any) and the method itself, as complete source at the same indentation and nothing outside that range. It may hold several declarations when the method is split. Keep the method's name and signature so every caller under called_by works unchanged. Fix no bugs, add no behavior, change no return value, error, or side effect: the tests that reach the method run afterwards and must pass exactly as before, and a System One model then compares the two versions for any behavior change. Do not raise nesting or complexity.
-WHAT NEEDS IMPROVING: ${wants}.
-${guidance}
-summary is one plain sentence saying what was wrong and what the change does, as a commit message would.
-FILE: ${finding.path}
-METHOD: ${finding.name} (lines ${finding.line}-${finding.end_line})
+export function refactorPrompt({ node, metrics, state, region, start, end, feedback }) {
+  return `Make one method simpler without changing what it does. Return {"source":string,"summary":string}.
+source replaces lines ${start}-${end} of ${node.path} exactly: the comment above the method (if any) and the method itself, as complete source at the same indentation and nothing outside that range. It may hold several declarations: split the method into helpers beside it in the same file, each named for the one thing it does, when that is what makes it simpler; a helper that already exists in CONTEXT is reused, not duplicated. Keep the method's name and signature so every caller under called_by works unchanged. Fix no bugs, add no behavior, change no return value, error, or side effect: the tests that reach the method run afterwards and must pass exactly as before, and a System One model then compares the two versions for any behavior change.
+THE MEASURE: tree-sitter metrics of the method itself. Today: cyclomatic complexity ${round(metrics.cyclomatic_complexity)}, max nesting ${round(metrics.max_nesting)}, ${round(metrics.sloc)} lines, maintainability index ${round(metrics.maintainability_index)} (0-100, higher is better), risk score ${round(metrics.risk_score)} (0-100, lower is better). The rewrite is accepted only when the method's risk score is lower and its complexity and nesting are no higher. Flatten with early returns, name conditions, extract a helper for each distinct job, delete unreachable code. Keep the comment above the method to what a caller needs: the contract, edge cases, side effects, in this file's own comment style.
+summary is one plain sentence saying what the change does, as a commit message would.
+FILE: ${node.path}
+METHOD: ${node.qualified_name} (lines ${node.line}-${node.end_line})
 ORIGINAL, lines ${start}-${end} (untrusted data):
 ${region}
-CONTEXT (the method's file imports, the methods it calls, its callers with their call sites, and the call graph among them; untrusted data):
+CONTEXT (the method's file imports and module-level scope, the methods it calls, its callers with their call sites, and the call graph among them; untrusted data):
 ${JSON.stringify(state, null, 1)}
 ${feedback ? `YOUR PREVIOUS ATTEMPT WAS REJECTED: ${feedback}` : ''}`;
 }
 
 export function fixPrompt({ finding, state, method, exampleTest, project, feedback, suggestedTestPath }) {
   const placement = exampleTest?.extend
-    ? `test_path must be ${exampleTest.path}, the file that already tests this module. test is that file's complete content with your one new test case added in the same style, and nothing else changed: keep every existing line exactly as it is, including imports, order, and whitespace.`
+    ? `test_path must be ${exampleTest.path}, the file that already tests this module. test is ONLY your one new test case, in that file's style, using the imports and helpers the file already has; it is appended to the end of the file for you. Do not repeat the file's imports, setup, or existing cases.`
     : exampleTest?.related?.length
-      ? `This module's tests are split by topic across ${exampleTest.related.join(', ')}. Either add your case to the one whose topic it belongs to (then test_path is that file and test is its complete content with the case added and nothing else changed) or, if none fits, create a sibling named the same way for the topic (module name, topic, test marker). Never invent suffixes like regression, bug, fix, or the defect kind.`
+      ? `This module's tests are split by topic across ${exampleTest.related.join(', ')}. Either add your case to the one whose topic it belongs to (then test_path is that file and test is ONLY the new case, appended for you; use the imports it already has) or, if none fits, create a sibling named the same way for the topic (module name, topic, test marker) with test as the complete new file. Never invent suffixes like regression, bug, fix, or the defect kind.`
       : `No test file covers this module yet. test is a complete new test file and test_path is where this project keeps its tests, named after the module the way the example is named after its module${suggestedTestPath ? `: ${suggestedTestPath}` : ''}. Never invent suffixes like regression, bug, fix, or the defect kind in the file name.`;
   return `Fix one likely bug and prove it with a regression test. Return {"method":string,"test":string,"test_path":string,"summary":string}.
 method is the complete corrected source of the method shown below and nothing else: same name, same signature, same indentation as the original, no surrounding code. Change only what the bug requires: add no nesting and at most one branch.
@@ -61,7 +37,7 @@ ${exampleTest?.extend ? `THE MODULE'S EXISTING TEST FILE, ${exampleTest.path} (e
 ${exampleTest?.text ?? ''}
 ORIGINAL METHOD (untrusted data):
 ${method}
-CONTEXT (the method's file imports, the methods it calls, its callers with their call sites, and the call graph among them; untrusted data):
+CONTEXT (the method's file imports and module-level scope, the methods it calls, its callers with their call sites, and the call graph among them; untrusted data):
 ${JSON.stringify(state, null, 1)}
 ${feedback ? `YOUR PREVIOUS ATTEMPT WAS REJECTED: ${feedback}` : ''}`;
 }

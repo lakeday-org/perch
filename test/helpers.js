@@ -65,21 +65,18 @@ export async function makeFixture() {
 /** The corrected clamp method alone, as the fix contract asks for it. */
 export const fixedMethod = fixedSource.trimEnd();
 
-export const description = {
-  title: 'clamp returns values above the upper bound unchanged',
-  what_happens: 'When v is greater than hi, the second branch returns v instead of hi, so the caller gets an unclamped value.',
-  how_to_reproduce: 'clamp(11, 0, 10) returns 11.',
-  expected: 'clamp(11, 0, 10) returns 10.',
-  what_changed: 'The upper-bound branch now returns hi.',
-};
-
-/** A rewrite of clamp that documents it and keeps its behavior, bug included. */
+/** A rewrite of clamp that documents it and keeps its behavior, bug included; same metrics as the original. */
 export const documentedSource = `/** Clamp v into [lo, hi]: values below lo become lo, values above hi become hi. */\n${buggySource.trimEnd()}`;
+/** A rewrite that drops the branch which returns v unchanged: identical behavior, one branch less. */
+export const leanerSource = `/** Clamp v to at least lo; values above hi pass through unchanged. */
+export function clamp(v, lo, hi) {
+  if (v < lo) return lo;
+  return v;
+}`;
 
 export const defaultResponses = {
-  fix: () => ({ method: fixedMethod, test: regressionSource, test_path: 'test/clamp.test.js', summary: 'Return hi when v exceeds the upper bound.' }),
-  refactor: () => ({ source: documentedSource, summary: 'Document what clamp returns at each bound.' }),
-  describe: () => description,
+  fix: () => ({ method: fixedMethod, test: regressionCase, test_path: 'test/clamp.test.js', summary: 'Return hi when v exceeds the upper bound.' }),
+  refactor: () => ({ source: leanerSource, summary: 'Drop the branch that returns v unchanged.' }),
 };
 
 /** A scripted model: responses are chosen by the inference id prefix and may vary by attempt (the id is fix-1, fix-2, ...). */

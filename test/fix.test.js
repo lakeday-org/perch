@@ -5,11 +5,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { runHunt } from '../src/hunt.js';
-import { namedAfter, pendingFixes, removedLines, runFix, runFixQueue, suggestTestName, underPath } from '../src/fix.js';
+import { appendCase, namedAfter, pendingFixes, removedLines, repeatedLines, runFix, runFixQueue, splitStale, suggestTestName, underPath } from '../src/fix.js';
 import { createShell, runScript } from '../src/shell.js';
 import { openStore } from '../src/store.js';
 import { formatFinding, formatFix, formatFixes, formatIssues } from '../src/report.js';
-import { buggySource, commitAll, fixedMethod, fixedSource, fixtureOptions, makeFixture, regressionCase, regressionSource, scriptedModel, scriptedSystemOne } from './helpers.js';
+import { buggySource, commitAll, existingTestSource, fixedMethod, fixedSource, fixtureOptions, makeFixture, regressionCase, regressionSource, scriptedModel, scriptedSystemOne } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
 const shell = createShell();
@@ -26,29 +26,38 @@ async function huntedFixture() {
 }
 
 const fixOptions = (repo, finding, extra) => ({ finding, root: repo.root, out: repo.out, analyzer, shell, systemOne: scriptedSystemOne(), model: scriptedModel(), ...extra });
-const proposal = (method, test = regressionSource, test_path = 'test/clamp.test.js') => ({ method, test, test_path, summary: 'attempt' });
+const proposal = (method, test = regressionCase, test_path = 'test/clamp.test.js') => ({ method, test, test_path, summary: 'attempt' });
 
 describe('perch fix', () => {
-  it('queues open findings of one kind up to the budget, under a path when given', async () => {
+  it('queues open defects up to the budget, under a path when given, and sets stale findings aside', async () => {
     const defect = extra => ({ has_bug: 0.9, kind: { kind: 'boundary' }, ...extra });
     const design = extra => ({ has_bug: 0.1, refactor: { refactor: 'split', probabilities: { split: 0.8 } }, ...extra });
     const open = defect({ id: 'aaaa1111', path: 'src/a.js' });
     const ready = defect({ id: 'bbbb2222', path: 'src/b.js', fix: { status: 'ready' } });
     const rejected = defect({ id: 'cccc3333', path: 'src/c.js', fix: { status: 'rejected' } });
-    const closed = defect({ id: 'dddd4444', path: 'src/d.js', github_status: 'closed' });
     const messy = design({ id: 'ffff6666', path: 'lib/f.js' });
     const later = defect({ id: 'eeee5555', path: 'lib/e.js' });
-    expect(pendingFixes([open, ready, rejected, closed, messy, later], 1).map(finding => finding.id)).toEqual(['aaaa1111']);
+    expect(pendingFixes([open, ready, rejected, messy, later], 1).map(finding => finding.id)).toEqual(['aaaa1111']);
     expect(pendingFixes([open, ready, messy, later], 5).map(finding => finding.id)).toEqual(['aaaa1111', 'eeee5555']);
-    expect(pendingFixes([open, messy, design({ id: 'gggg7777', path: 'lib/g.js', refactored: { status: 'ready' } })], 5, 'refactor').map(finding => finding.id)).toEqual(['ffff6666']);
     expect(underPath([open, messy, later], 'lib').map(finding => finding.id)).toEqual(['ffff6666', 'eeee5555']);
     expect(underPath([open, messy, later], 'lib/e.js').map(finding => finding.id)).toEqual(['eeee5555']);
-    expect(formatFixes({ kind: 'fix', budget: 5, remaining: 3, fixes: [] })).toBe('No open defects to fix.');
-    expect(formatFixes({ kind: 'refactor', budget: 3, remaining: 0, fixes: [] })).toBe('No open design issues to refactor.');
+    const scan = { files: [{ path: 'src/a.js', methods: [{ id: 'src/a.js::f', hash: 'same' }] }] };
+    const { current, stale } = splitStale([{ method: 'src/a.js::f', hash: 'same' }, { method: 'src/a.js::f', hash: 'old' }, { method: 'gone.js::g', hash: 'x' }], scan);
+    expect(current).toHaveLength(1);
+    expect(stale).toHaveLength(2);
+    expect(formatFixes({ kind: 'fix', budget: 5, remaining: 3, stale: 2, fixes: [] })).toBe('No open defects to fix. 2 findings are for methods that changed since the hunt; hunt again to refresh them.');
+    expect(formatFixes({ kind: 'refactor', budget: 3, min: 70, open: 0, fixes: [] })).toBe('No methods at risk 70 or more left to refactor.');
     const queued = await runFixQueue({ findings: [defect({ id: 'a1', method: 'm', path: 'src/a.js', revision: 'r' }), defect({ id: 'b2', method: 'n', path: 'src/b.js', revision: 'r' })], budget: 1, root: null, out: '/tmp', model: { id: 'x' }, systemOne: { id: 'y' }, analyzer: {}, shell: {} });
     expect(queued.attempted).toBe(1);
     expect(queued.remaining).toBe(1);
     expect(queued.fixes[0]).toMatchObject({ finding_id: 'a1', status: 'failed', error: 'finding a1 has no repository recorded; hunt again' });
+  });
+
+  it('appends only the new case to an existing test file and spots a whole file sent back', () => {
+    expect(appendCase(existingTestSource, regressionCase)).toBe(regressionSource);
+    expect(appendCase('a();\n\n\n', '\n  b();\n')).toBe('a();\n\nb();\n');
+    expect(repeatedLines(existingTestSource, regressionCase)).toEqual([]);
+    expect(repeatedLines(existingTestSource, regressionSource).length).toBeGreaterThan(1);
   });
 
   it('refuses to commit on a protected branch', async () => {
@@ -88,9 +97,12 @@ describe('perch fix', () => {
     expect(model.calls[0].prompt).toContain('"call_graph"');
     expect(systemOne.calls.map(call => call.method)).toEqual(['src/clamp.js::clamp', 'test', 'src/clamp.js::clamp']);
     expect(systemOne.calls[0].questions.reachable).toBeDefined();
+    expect(systemOne.calls[0].state.module_scope).toBeNull();
     expect(fix.reach_check).toEqual({ reachable: 0.9 });
     expect(systemOne.calls[1].state.test.source).toBe(regressionSource);
     expect(systemOne.calls[1].state.called_by).toEqual([]);
+    expect(fix.attempts[0].effort).toBe('none');
+    expect(model.calls[0].prompt).toContain('test is ONLY your one new test case');
     expect(systemOne.calls[2].state.method.source).toContain('L0003|   if (v > hi) return hi;');
     expect(systemOne.calls[2].state.original_method).toBe(buggySource.trimEnd());
     expect(Object.keys(systemOne.calls[2].questions)).toEqual(expect.arrayContaining(['has_bug', 'kind_wrong_return', 'collateral_change']));
@@ -119,7 +131,7 @@ describe('perch fix', () => {
     expect(events.at(-1)).toMatchObject({ type: 'fixed', id: finding.id, fix_id: fix.id, method: 'src/clamp.js::clamp', status: 'ready', test_path: 'test/clamp.test.js', commit: fix.commit, branch: 'work' });
     const [listed] = await store.findings();
     expect(listed.fix).toMatchObject({ id: fix.id, test_path: 'test/clamp.test.js', commit: fix.commit, verification: fix.verification });
-    expect(formatIssues([listed], 0.5)).toMatch(/Status  PR\n.*open +-/);
+    expect(formatIssues([listed], 0.5)).toMatch(new RegExp(`Status  Commit\\n.*open +${fix.commit.slice(0, 7)}`));
     expect(formatIssues([listed], 0.5)).toContain('wrong return 90%');
     expect(formatFinding(listed)).toContain('Status: open');
     expect(formatFinding(listed)).toContain('Fixed: test/clamp.test.js fails on the original');
@@ -225,7 +237,7 @@ describe('perch fix', () => {
 
   it('feeds a rejected attempt back to the model and accepts the next one', async () => {
     const { repo, finding } = await huntedFixture();
-    const passing = regressionSource.replace('clamp(11, 0, 10), 10', 'clamp(5, 0, 10), 5');
+    const passing = regressionCase.replace('clamp(11, 0, 10), 10', 'clamp(5, 0, 10), 5');
     const model = scriptedModel({ fix: id => (id === 'fix-1' ? proposal(fixedMethod, passing) : proposal(fixedMethod)) });
     const fix = await runFix(fixOptions(repo, finding, { model }));
     expect(fix.status).toBe('ready');
@@ -233,6 +245,7 @@ describe('perch fix', () => {
     expect(fix.attempts[0].rejected).toMatch(/^the test passes on the original/);
     expect(fix.attempts[0].before.exit_code).toBe(0);
     expect(model.calls[1].prompt).toContain('YOUR PREVIOUS ATTEMPT WAS REJECTED: the test passes on the original');
+    expect(fix.attempts.map(attempt => attempt.effort)).toEqual(['none', 'low']);
     expect(formatFix(fix)).toContain('attempts: 2; attempt 1 rejected: the test passes on the original');
     expect(existsSync(join(repo.out, 'workspaces', fix.id))).toBe(false);
   });
@@ -260,12 +273,12 @@ describe('perch fix', () => {
     expect(shrug.error).toBe('the test does not clearly exercise the described defect (55%); the test may pass on the original (45%), so it does not clearly demonstrate the defect');
     expect(unsound.attempts.every(item => item.before === undefined)).toBe(true);
 
-    const edited = await attempt('edited', { model: scriptedModel({ fix: () => proposal(fixedMethod, regressionSource.replace('clamp(5, 0, 10), 5', 'clamp(5, 0, 10), 6')) }) });
+    const edited = await attempt('edited', { model: scriptedModel({ fix: () => proposal(fixedMethod, regressionSource) }) });
     expect(edited.status).toBe('rejected');
-    expect(edited.error).toBe('extending test/clamp.test.js may only add lines; these were changed or removed:\n  assert.strictEqual(clamp(5, 0, 10), 5);');
+    expect(edited.error).toMatch(/^test must be only the new test case, which is appended to test\/clamp.test.js; these lines are already in the file:/);
 
     const elsewhere = await attempt('elsewhere', { model: scriptedModel({ fix: () => proposal(fixedMethod, regressionSource, 'test/clamp.regression.test.js') }) });
-    expect(elsewhere.error).toBe('test/clamp.test.js already tests this module; add the new case to that file and return its complete content, rather than creating test/clamp.regression.test.js');
+    expect(elsewhere.error).toBe('test/clamp.test.js already tests this module; add the new case there rather than creating test/clamp.regression.test.js');
 
     const breaking = await attempt('breaking', { model: scriptedModel({ fix: () => proposal(fixedMethod.replace('  return v;', '  return hi;')) }) });
     expect(breaking.status).toBe('rejected');
@@ -291,7 +304,7 @@ describe('perch fix', () => {
     const [discarded] = await store.findings();
     expect(discarded.fix).toMatchObject({ id: worse.id, status: 'rejected', attempts: 3, error: worse.error });
     expect(formatIssues([discarded], 0.5)).toBe('No open issues at 50% or more. 1 closed; --closed to list them.');
-    expect(formatIssues([discarded], 0.5, 10, { closed: true })).toMatch(/Status  PR\n.*closed +-/);
+    expect(formatIssues([discarded], 0.5, 10, { closed: true })).toMatch(/Status  Commit\n.*closed +-/);
     expect(formatFinding(discarded)).toContain('Status: closed');
     expect(formatFinding(discarded)).toContain('Fix discarded: no fix after 3 attempts');
     expect((await git(['worktree', 'list'], repo.root)).trim().split('\n')).toHaveLength(1);

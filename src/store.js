@@ -48,6 +48,7 @@ export function openStore(out) {
     scanDir: id => join(out, 'scans', id),
     huntDir: id => join(out, 'hunts', id),
     fixDir: id => join(out, 'fixes', id),
+    refactorDir: id => join(out, 'refactors', id),
     /** Keep results out of `git status` when they live inside the repository. */
     async exclude(root) {
       if (out.startsWith(root + '/')) await excludeFromStatus(root, '/' + out.slice(root.length + 1).split('/')[0] + '/');
@@ -63,33 +64,26 @@ export function openStore(out) {
       return text.split('\n').filter(Boolean).map(line => JSON.parse(line));
     },
     /**
-     * The latest hunted event per method, carrying the most recent fix attempt at the same commit (proven or discarded) and what was published
-     * since: the issue, its status, and the pull request. Events from before findings had ids and per-kind answers are ignored.
+     * The latest hunted event per method, carrying the most recent fix and refactor made while the method still read as hunted.
+     * Events from before findings had ids and per-kind answers are ignored.
      */
     async latestFindings() {
-      const latest = new Map(), fixes = new Map(), refactors = new Map(), published = new Map();
+      const latest = new Map(), fixes = new Map(), refactors = new Map();
       for (const event of await store.readEvents()) {
         if (event.type === 'hunted' && event.id && event.kinds) latest.set(event.method, event);
         else if (event.type === 'fixed') fixes.set(event.method, event);
         else if (event.type === 'refactored') refactors.set(event.method, event);
-        else if (event.type === 'published') published.set(event.method, { ...published.get(event.method), ...Object.fromEntries(Object.entries(event).filter(([, value]) => value !== null && value !== undefined)) });
       }
       // A fix or refactor counts for a finding when the method read the same when it was made as when it was hunted.
       const applies = (work, finding) => work && (work.hash ? work.hash === finding.hash : work.revision === finding.revision || work.at >= finding.at);
       const summarize = (work, key) => (work.status === 'ready'
-        ? { id: work[key], status: 'ready', at: work.at, summary: work.summary, commit: work.commit ?? null, branch: work.branch ?? null, patch_path: work.patch_path, test_path: work.test_path ?? null, verification: work.verification, proof: work.proof }
+        ? { id: work[key], status: 'ready', at: work.at, summary: work.summary, commit: work.commit ?? null, branch: work.branch ?? null, patch_path: work.patch_path, test_path: work.test_path ?? null, before: work.before ?? null, after: work.after ?? null, verification: work.verification, proof: work.proof }
         : { id: work[key], status: 'rejected', at: work.at, attempts: work.attempts, error: work.error });
       return [...latest.values()].map(finding => {
-        const fix = fixes.get(finding.method), refactor = refactors.get(finding.method), issue = published.get(finding.method);
+        const fix = fixes.get(finding.method), refactor = refactors.get(finding.method);
         const merged = { ...finding };
         if (applies(fix, finding)) merged.fix = summarize(fix, 'fix_id');
         if (applies(refactor, finding)) merged.refactored = summarize(refactor, 'refactor_id');
-        if (issue && issue.at >= finding.at) {
-          if (issue.github_url) merged.github_url = issue.github_url;
-          if (issue.github_status) merged.github_status = issue.github_status;
-          if (issue.pr_url) merged.pr_url = issue.pr_url;
-          if (issue.description) merged.description = issue.description;
-        }
         return merged;
       });
     },
@@ -135,6 +129,7 @@ export function openStore(out) {
     },
     listHunts: () => records('hunts', 'hunt.json'),
     listFixes: () => records('fixes', 'fix.json'),
+    listRefactors: () => records('refactors', 'refactor.json'),
     async latestHunt() { return (await store.listHunts()).at(-1) ?? null; },
   };
   return store;

@@ -48,7 +48,7 @@ export const flagged = (answers, min = 0.5) => issuesOf(answers, min).some(issue
 export const needsDesign = (answers, min = 0.5) => issuesOf(answers, min).some(isDesign);
 export const hasIssue = (answers, min = 0.5) => issuesOf(answers, min).length > 0;
 
-export const MAX_CALLEES = 8, MAX_CALLERS = 8, STATE_BUDGET = 48 * 1024;
+export const MAX_CALLEES = 8, MAX_CALLERS = 8, STATE_BUDGET = 48 * 1024, MODULE_SCOPE_BUDGET = 6 * 1024;
 /** A Choice accepts at most 255 options; past that, pick a window then the line inside it. */
 export const MAX_CHOICES = 255;
 const lineId = line => `L${String(line).padStart(4, '0')}`;
@@ -105,15 +105,36 @@ export function leadingComment(lines, line) {
 }
 
 /**
- * The state and questions for one method.
- * `node` is the graph node and `lines` its file's lines. `imports` are the file's import records.
- * `callees` and `callers` are [{ node, lines, site, calls }] with the neighbor's file lines, the calling line (callers),
- * and the names of the neighbor's own callees (second hop). `edges` are ["a -> b"] strings for the neighborhood.
+ * The file's top-level code outside every method: constants, regexes, types, module state. What a method's identifiers mean when they
+ * are not callees or imports. Blank and comment-only lines are dropped; the result is cut at `budget` bytes.
  */
-export function huntStep({ node, lines, imports = [], callees, callers, edges = [] }) {
+export function moduleScope(lines, methods, budget = MODULE_SCOPE_BUDGET) {
+  const inside = new Set();
+  for (const method of methods) for (let line = method.line; line <= method.end_line; line++) inside.add(line);
+  const kept = [];
+  let size = 0;
+  for (let line = 1; line <= lines.length; line++) {
+    const text = lines[line - 1];
+    if (inside.has(line) || !text.trim() || commentLine.test(text) || /^\s*(import|from|use|package)\b/.test(text)) continue;
+    const entry = `${lineId(line)}| ${text}`;
+    if (size + entry.length > budget) { kept.push(`... (cut at ${budget} bytes)`); break; }
+    kept.push(entry);
+    size += entry.length + 1;
+  }
+  return kept.join('\n') || null;
+}
+
+/**
+ * The state and questions for one method.
+ * `node` is the graph node and `lines` its file's lines. `imports` are the file's import records; `methods` the file's method records,
+ * so the module scope around them can be shown. `callees` and `callers` are [{ node, lines, site, calls }] with the neighbor's file
+ * lines, the calling line (callers), and the names of the neighbor's own callees (second hop). `edges` are ["a -> b"] strings.
+ */
+export function huntStep({ node, lines, imports = [], methods = [node], callees, callers, edges = [] }) {
   const build = limit => ({
     method: { path: node.path, name: node.qualified_name, leading_comment: leadingComment(lines, node.line) || null, metrics: node.metrics ?? null, source: tagged(lines.slice(node.line - 1, node.end_line), node.line) },
     imports: imports.map(item => `${item.name}${item.alias !== item.name ? ` as ${item.alias}` : ''} from ${item.module}`),
+    module_scope: moduleScope(lines, methods),
     calls: callees.slice(0, MAX_CALLEES).map(({ node: callee, lines: calleeLines, calls = [] }) =>
       ({ id: callee.id, name: callee.qualified_name, path: callee.path, source: excerpt(calleeLines, callee.line, callee.end_line, limit), calls: calls.map(short) })),
     called_by: callers.slice(0, MAX_CALLERS).map(({ node: caller, lines: callerLines, site }) =>
@@ -227,25 +248,25 @@ export const testObjections = answers => [
   answers.passes_on_original.noul > UNSURE && `the test may pass on the original (${percent(answers.passes_on_original.noul)}), so it does not clearly demonstrate the defect`,
 ].filter(Boolean).join('; ');
 
-/** The design questions again over a rewritten method, plus one about behavior: a refactor must read better and do the same thing. */
+/**
+ * Behavior questions over a rewritten method, asked with the same neighborhood the hunt uses. The metrics already said the rewrite is
+ * simpler; this asks whether it still does the same thing, still does what its name says, and did not pick up a defect on the way.
+ */
 export function refactorCheck({ step, original, summary }) {
-  const { has_bug, refactor, does_what_it_claims, misdocumented } = step.questions;
-  return { state: { ...step.state, original_source: original, refactor_summary: summary }, questions: { has_bug, refactor, does_what_it_claims, misdocumented,
+  const { has_bug, does_what_it_claims } = step.questions;
+  return { state: { ...step.state, original_source: original, refactor_summary: summary }, questions: { has_bug, does_what_it_claims,
     collateral_change: noul('Comparing `original_source` with `method.source` and any helpers now beside it, does the rewrite change what callers observe: return values, thrown errors, or side effects, for any input the callers in `called_by` can pass?',
       'Some input now behaves differently', 'Behavior is preserved; only structure, names, or documentation changed') } };
 }
 
-/** What the refactor-check answers say: each design issue the hunt raised must look less likely, the method no more defective, behavior unchanged. */
-export function readRefactorCheck({ finding, issues, answers }) {
-  const verification = { has_bug: answers.has_bug.noul, refactor: answers.refactor.choice, refactor_probabilities: answers.refactor.probabilities ?? {}, does_what_it_claims: answers.does_what_it_claims.noul, misdocumented: answers.misdocumented.noul, collateral_change: answers.collateral_change.noul };
-  const objections = [];
-  for (const issue of issues) {
-    if (issue.type === 'refactor') { const now = verification.refactor_probabilities[finding.refactor.refactor] ?? 0; if (now >= issue.probability) objections.push(`the method still looks like it needs ${issue.label} (${percent(issue.probability)} -> ${percent(now)})`); }
-    if (issue.type === 'misaligned' && verification.does_what_it_claims <= finding.does_what_it_claims) objections.push(`the method looks no more like it does what it claims (${percent(finding.does_what_it_claims)} -> ${percent(verification.does_what_it_claims)})`);
-    if (issue.type === 'misdocumented' && verification.misdocumented >= finding.misdocumented) objections.push(`the method looks no better documented (${percent(finding.misdocumented)} -> ${percent(verification.misdocumented)})`);
-  }
-  if (verification.has_bug > Math.max(finding.has_bug, UNSURE)) objections.push(`the rewrite looks more defective than the original (${percent(finding.has_bug)} -> ${percent(verification.has_bug)})`);
-  if (verification.collateral_change > UNSURE) objections.push(`the rewrite may change behavior (${percent(verification.collateral_change)})`);
+/** What the refactor-check answers say, and why they would reject the rewrite. */
+export function readRefactorCheck({ answers }) {
+  const verification = { has_bug: answers.has_bug.noul, does_what_it_claims: answers.does_what_it_claims.noul, collateral_change: answers.collateral_change.noul };
+  const objections = [
+    verification.collateral_change > UNSURE && `the rewrite may change behavior (${percent(verification.collateral_change)})`,
+    verification.has_bug > SURE && `the rewrite looks defective (${percent(verification.has_bug)})`,
+    verification.does_what_it_claims < UNSURE && `the rewrite no longer looks like it does what its name and comment say (${percent(verification.does_what_it_claims)})`,
+  ].filter(Boolean);
   return { verification, objections };
 }
 

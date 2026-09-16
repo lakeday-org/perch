@@ -24,9 +24,14 @@ describe('model', () => {
     const [{ url, headers, body }] = requests;
     expect(url).toBe('https://api.openai.com/v1/responses');
     expect(headers.authorization).toBe('Bearer sk-test');
-    expect(body).toMatchObject({ model: 'test-model', input: 'please fix', store: false, max_output_tokens: 4096, reasoning: { effort: 'high' },
+    expect(body).toMatchObject({ model: 'test-model', input: 'please fix', store: false, max_output_tokens: 4096, reasoning: { effort: 'none' },
       text: { format: { type: 'json_schema', name: 'fix', strict: true, schema: { additionalProperties: false, required: ['method', 'test', 'test_path', 'summary'] } } } });
     expect(body.background).toBeUndefined();
+    expect(model.last).toMatchObject({ effort: 'none' });
+    await model.ask('fix-2', 'again', { effort: 'medium' });
+    expect(requests.at(-1).body.reasoning).toEqual({ effort: 'medium' });
+    expect(createModel({ ...options, effort: 'low', fetchImpl }).effort).toBe('low');
+    expect(() => createModel({ ...options, effort: 'max', fetchImpl })).toThrow('--effort must be one of');
   });
 
   it('rejects responses that violate the schema', async () => {

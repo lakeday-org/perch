@@ -39,36 +39,21 @@ const shortId = id => id.split('::').at(-1);
 export const TOP = 10;
 
 
-/**
- * A finding is closed once its GitHub issue is closed, or once everything it raised has been worked and discarded: the defect by a
- * rejected fix, the design issues by a rejected refactor. A pull request that has not closed the issue stays open.
- */
-export function issueStatus(finding) {
-  if (finding.github_status === 'closed' || finding.github_status === 'discarded') return 'closed';
-  const issues = issuesOf(finding);
-  if (!issues.length) return 'open';
-  const openDefect = issues.some(issue => !isDesign(issue)) && finding.fix?.status !== 'rejected';
-  const openDesign = issues.some(isDesign) && finding.refactored?.status !== 'rejected';
-  return openDefect || openDesign ? 'open' : 'closed';
-}
-
-/** `#12` from a GitHub pull-request URL, or `-`. */
-export function prRef(finding) {
-  const match = /\/pull\/(\d+)/.exec(finding.pr_url ?? '');
-  return match ? `#${match[1]}` : '-';
-}
-
-const statusRow = finding => [issueStatus(finding), prRef(finding)];
+/** A finding is closed once every attempt to fix its defect was rejected. */
+export const issueStatus = finding => (finding.fix?.status === 'rejected' ? 'closed' : 'open');
+/** What a fix did to a finding, for the table: the commit, or `-`. */
+const fixRef = finding => (finding.fix?.status === 'ready' ? finding.fix.commit?.slice(0, 7) ?? 'fixed' : '-');
+const statusRow = finding => [issueStatus(finding), fixRef(finding)];
 const issueCell = (finding, min) => issuesOf(finding, min).map(issue => `${issue.label} ${percent(issue.probability)}`).join(', ');
 const locationOf = (finding, min) => `${finding.path}:${issuesOf(finding, min)[0]?.type === 'defect' ? finding.where.line : finding.line}`;
 
 /** Aligned rows of methods with issues: defects and design issues in one list, each row naming everything the hunt raised. */
 function issueTable(findings, min = 0.5) {
   const rows = findings.map(finding => [finding.id, finding.name, locationOf(finding, min), issueCell(finding, min), issuesOf(finding, min).some(issue => !isDesign(issue)) ? finding.severity.level : '-', ...statusRow(finding)]);
-  return table(['ID', 'Method', 'Location', 'Issues', 'Severity', 'Status', 'PR'], rows, ['left', 'left', 'left', 'left', 'left', 'left', 'left']);
+  return table(['ID', 'Method', 'Location', 'Issues', 'Severity', 'Status', 'Commit'], rows, ['left', 'left', 'left', 'left', 'left', 'left', 'left']);
 }
 
-const footer = 'perch issues <id> for detail; perch fix works the defects, perch refactor the design issues.';
+const footer = 'perch issues <id> for detail, perch fix to work the defects.';
 
 export function formatHunt(hunt, shown = TOP) {
   const hunted = (hunt.visited ?? []).filter(visit => visit.status === 'hunted');
@@ -127,44 +112,35 @@ export function formatFinding(finding) {
   lines.push(`Follow next: ${finding.follow.method ? `${shortId(finding.follow.method)} (${percent(finding.follow.confidence)})` : 'none'}`);
   if (finding.callees?.length) lines.push(`Calls: ${finding.callees.map(shortId).join(', ')}`);
   if (finding.callers?.length) lines.push(`Called by: ${finding.callers.map(shortId).join(', ')}`);
-  lines.push(`Status: ${issueStatus(finding)}${finding.pr_url ? `  PR: ${finding.pr_url}` : ''}`);
+  lines.push(`Status: ${issueStatus(finding)}`);
   if (finding.fix?.status === 'ready') lines.push(`Fixed: ${finding.fix.test_path} fails on the original and passes on the change${finding.fix.summary ? ` — ${finding.fix.summary}` : ''}`, `    commit ${finding.fix.commit?.slice(0, 7) ?? '?'}${finding.fix.branch ? ` on ${finding.fix.branch}` : ''}  ${finding.fix.patch_path}`);
   else if (finding.fix) lines.push(`Fix discarded: no fix after ${finding.fix.attempts} attempts on ${finding.fix.at.slice(0, 10)}; last rejection: ${(finding.fix.error ?? '').split('\n')[0]}`);
-  if (finding.refactored?.status === 'ready') lines.push(`Refactored: ${finding.refactored.summary ?? ''}`.trimEnd(), `    commit ${finding.refactored.commit?.slice(0, 7) ?? '?'}${finding.refactored.branch ? ` on ${finding.refactored.branch}` : ''}  ${finding.refactored.patch_path}`);
+  if (finding.refactored?.status === 'ready') lines.push(`Refactored: ${finding.refactored.summary ?? ''}${finding.refactored.before && finding.refactored.after ? ` (${metricShift(finding.refactored.before, finding.refactored.after)})` : ''}`.trimEnd(), `    commit ${finding.refactored.commit?.slice(0, 7) ?? '?'}${finding.refactored.branch ? ` on ${finding.refactored.branch}` : ''}  ${finding.refactored.patch_path}`);
   else if (finding.refactored) lines.push(`Refactor discarded: after ${finding.refactored.attempts} attempts on ${finding.refactored.at.slice(0, 10)}; last rejection: ${(finding.refactored.error ?? '').split('\n')[0]}`);
-  if (finding.description) lines.push(`Filed as: ${finding.description.title}`);
-  if (finding.github_url) lines.push(`GitHub: ${finding.github_url}${finding.github_status ? ` (${finding.github_status})` : ''}`);
-  return lines.join('\n');
-}
-
-/** What publish did for one finding. */
-export function formatPublished(finding) {
-  const lines = [];
-  if (finding.github_status === 'discarded') lines.push(`${finding.id}  discarded: no fix could be proven, and no issue was open to close`);
-  else if (finding.github_status === 'closed') lines.push(`${finding.id}  discarded: no fix could be proven; closed ${finding.github_url}`);
-  else if (finding.github_url) lines.push(`${finding.id}  ${finding.description?.title ?? ''}`.trimEnd(), `${finding.id}  issue: ${finding.github_url}  (${finding.github_status ?? 'existing'})`);
-  if (finding.pr_url) lines.push(`${finding.id}  pull request: ${finding.pr_url}  (${finding.pr_status ?? 'existing'})`);
   return lines.join('\n');
 }
 
 export function formatFixes(batch) {
   const refactor = batch.kind === 'refactor';
-  const noun = refactor ? 'design issues' : 'defects';
-  if (!batch.fixes.length) return `No open ${noun} to ${refactor ? 'refactor' : 'fix'}.`;
+  const noun = refactor ? 'methods' : 'defects';
+  const stale = batch.stale ? ` ${batch.stale} ${batch.stale === 1 ? 'finding is' : 'findings are'} for methods that changed since the hunt; hunt again to refresh them.` : '';
+  if (!batch.fixes.length) return refactor ? `No methods at risk ${batch.min ?? '?'} or more left to refactor${batch.open === 0 ? '' : ' in that path'}.` : `No open defects to fix.${stale}`;
   const left = batch.remaining ? `, ${batch.remaining} left` : '';
   const committed = batch.fixes.filter(fix => fix.status === 'ready').length;
-  return [`Investigated ${batch.fixes.length} ${noun} (budget ${batch.budget}${left}); ${committed} committed.`, ...batch.fixes.flatMap(fix => ['', formatFix(fix)])].join('\n');
+  return [`${refactor ? 'Simplified' : 'Investigated'} ${batch.fixes.length} ${noun} (budget ${batch.budget}${left}); ${committed} committed.${stale}`, ...batch.fixes.flatMap(fix => ['', formatFix(fix)])].join('\n');
 }
 
-/** One refactor record: what changed, what checked it, and the commit. */
+/** "risk 91 -> 74, maintainability 12 -> 30, complexity 48 -> 20, nesting 4 -> 3, lines 180 -> 120". */
+const metricShift = (before, after) => [['risk', 'risk_score'], ['maintainability', 'maintainability_index'], ['complexity', 'cyclomatic_complexity'], ['nesting', 'max_nesting'], ['lines', 'sloc']]
+  .map(([label, key]) => `${label} ${number(before?.[key])} -> ${number(after?.[key])}`).join(', ');
+
+/** One refactor record: the method's metrics before and after, what checked it, and the commit. */
 function formatRefactor(record) {
-  const lines = [`perch refactor ${record.id ?? record.finding_id} (${record.status})${record.summary ? ` — ${record.summary}` : ''}`, `  finding: ${record.finding_id}  ${record.method}  ${record.path} @ ${short(record.revision)}`];
-  if (record.issues?.length) lines.push(`  issues: ${record.issues.map(issue => `${issue.label} ${percent(issue.probability)}`).join(', ')}`);
+  const lines = [`perch refactor ${record.id ?? record.method} (${record.status})${record.summary ? ` — ${record.summary}` : ''}`, `  method: ${record.name ?? record.method}  ${record.path} @ ${short(record.revision)}`];
+  if (record.before) lines.push(`  before: risk ${number(record.before.risk_score)}, maintainability ${number(record.before.maintainability_index)}, complexity ${number(record.before.cyclomatic_complexity)}, nesting ${number(record.before.max_nesting)}, ${number(record.before.sloc)} lines`);
   if (record.status === 'ready') {
-    const after = record.verification?.after ?? {};
-    const shifts = (record.issues ?? []).map(issue => issue.type === 'refactor' ? `${issue.label} ${percent(issue.probability)} -> ${percent(after.refactor_probabilities?.[issue.label.replaceAll(' ', '_')] ?? 0)}`
-      : issue.type === 'misaligned' ? `does what it claims -> ${percent(after.does_what_it_claims ?? 0)}` : `misdocumented ${percent(issue.probability)} -> ${percent(after.misdocumented ?? 0)}`);
-    lines.push(`  checked by: ${(record.proof?.checks ?? []).join(', ') || 'nothing'}`, `  verified by ${record.verifier}: ${shifts.join(', ')}; behavior change ${percent(after.collateral_change ?? 0)}`,
+    lines.push(`  after:  ${metricShift(record.before, record.after)}`, `  checked by: ${(record.proof?.checks ?? []).join(', ') || 'nothing'}`,
+      `  verified by ${record.verifier}: behavior change ${percent(record.verification?.collateral_change ?? 0)}, defect ${percent(record.verification?.has_bug ?? 0)}, does what it claims ${percent(record.verification?.does_what_it_claims ?? 0)}`,
       `  committed: ${record.commit?.slice(0, 7) ?? '?'} on ${record.branch ?? '?'}  (patch: ${record.patch_path})`);
     if (record.attempts?.length > 1) lines.push(`  attempts: ${record.attempts.length}; ${record.attempts.slice(0, -1).map(attempt => `attempt ${attempt.attempt} rejected: ${attempt.rejected?.split('\n')[0]}`).join('; ')}`);
   }

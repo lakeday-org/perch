@@ -1,113 +1,163 @@
-import { readFile, rm } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
-import { runHunt } from '../src/hunt.js';
-import { regionStart, runRefactor, withinRefactorGate } from '../src/refactor.js';
+import { runScan } from '../src/scan.js';
+import { improves, refactorCandidates, regionStart, runRefactor, runRefactorQueue, withinRefactorGate } from '../src/refactor.js';
+import { moduleScope } from '../src/questions.js';
 import { createShell } from '../src/shell.js';
 import { openStore } from '../src/store.js';
-import { formatFinding, formatFix, formatIssues } from '../src/report.js';
-import { buggySource, documentedSource, fixtureOptions, makeFixture, scriptedModel, scriptedSystemOne } from './helpers.js';
+import { formatFix, formatFixes } from '../src/report.js';
+import { createUi } from '../src/ui.js';
+import { buggySource, commitAll, documentedSource, fixtureOptions, leanerSource, makeFixture, scriptedModel, scriptedSystemOne } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
 const shell = createShell();
 const cleanups = [];
 afterEach(async () => { for (const dir of cleanups.splice(0)) await rm(dir, { recursive: true, force: true }); });
 
-/** The clamp fixture hunted once with no defect but a documentation and a refactor issue. */
-async function hunted() {
+/** The clamp fixture scanned, with clamp as the method to work on. */
+async function scanned() {
   const root = await makeFixture();
   cleanups.push(root);
   const repo = { root, revision: await revision(root), out: join(root, '.perch') };
-  const hunt = await runHunt(fixtureOptions(repo, { analyzer, systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.2, misdocumented: 0.8, refactor: 'simplify_conditions' } }) }));
-  return { repo, finding: hunt.visited[0] };
+  const scan = await runScan(fixtureOptions(repo, { analyzer }));
+  const [method] = refactorCandidates(scan, { min: 0 });
+  expect(method.id).toBe('src/clamp.js::clamp');
+  return { repo, scan, method };
 }
-const options = (repo, finding, extra) => ({ finding, root: repo.root, out: repo.out, analyzer, shell, systemOne: scriptedSystemOne(), model: scriptedModel(), ...extra });
+const options = (repo, method, extra) => ({ method, root: repo.root, out: repo.out, analyzer, shell, systemOne: scriptedSystemOne(), model: scriptedModel(), ...extra });
 
 describe('perch refactor', () => {
-  it('finds the comment block above a method and gates on file metrics', () => {
+  it('finds the comment block above a method, picks candidates by risk, and gates on metrics', async () => {
     expect(regionStart(['// a', '// b', 'function f() {}'], 3)).toBe(1);
     expect(regionStart(['x', '', 'function f() {}'], 3)).toBe(3);
+    expect(improves({ risk_score: 50, cyclomatic_complexity: 3, max_nesting: 1 }, { risk_score: 40, cyclomatic_complexity: 3, max_nesting: 1 })).toBe(true);
+    expect(improves({ risk_score: 50, cyclomatic_complexity: 3, max_nesting: 1 }, { risk_score: 50, cyclomatic_complexity: 2, max_nesting: 1 })).toBe(false);
+    expect(improves({ risk_score: 50, cyclomatic_complexity: 3, max_nesting: 1 }, { risk_score: 40, cyclomatic_complexity: 4, max_nesting: 1 })).toBe(false);
     expect(withinRefactorGate({ risk_score: 50, cyclomatic_complexity: 10, max_nesting: 3 }, { risk_score: 50.5, cyclomatic_complexity: 10, max_nesting: 2 })).toBe(true);
     expect(withinRefactorGate({ risk_score: 50, cyclomatic_complexity: 10, max_nesting: 3 }, { risk_score: 50, cyclomatic_complexity: 11, max_nesting: 3 })).toBe(false);
+    const { scan } = await scanned();
+    expect(refactorCandidates(scan, { min: 99 })).toEqual([]);
+    expect(refactorCandidates(scan, { min: 0, path: 'test' })).toEqual([]);
+    expect(refactorCandidates(scan, { min: 0, path: 'src' }).map(method => method.id)).toEqual(['src/clamp.js::clamp']);
+    // Module scope is the file outside its methods: constants and the like, never imports, blanks, or comments.
+    expect(moduleScope(['import x from "y";', 'const LIMIT = 3;', '// note', '', 'function f() {', '  return LIMIT;', '}'], [{ line: 5, end_line: 7 }])).toBe('L0002| const LIMIT = 3;');
+    expect(moduleScope(['function f() {}'], [{ line: 1, end_line: 1 }])).toBeNull();
   });
 
-  it('lists design issues alongside defects, rewrites the method region, keeps its tests green, and commits on the current branch', async () => {
-    const { repo, finding } = await hunted();
-    const store = openStore(repo.out);
-    expect(await store.findings()).toEqual([]);
-    const [issue] = await store.issues();
-    expect(issue.id).toBe(finding.id);
-    expect(formatIssues([issue], 0.5)).toContain('simplify conditions 80%, misdocumented 80%');
-    expect(formatIssues([issue], 0.5)).toMatch(/src\/clamp.js:1 .*- +open/);
-
+  it('simplifies a method by its metrics, keeps its tests green, has System One confirm behavior, and commits on the current branch', async () => {
+    const { repo, method } = await scanned();
     const model = scriptedModel(), systemOne = scriptedSystemOne();
-    const record = await runRefactor(options(repo, finding, { model, systemOne }));
+    const lines = [];
+    const ui = createUi({ live: false, log: text => lines.push(text) });
+    const record = await runRefactor(options(repo, method, { model, systemOne, ui }));
     expect(record.status).toBe('ready');
     expect(record.kind).toBe('refactor');
-    expect(record.issues.map(item => item.type).sort()).toEqual(['misdocumented', 'refactor']);
+    expect(record.before.cyclomatic_complexity).toBe(3);
+    expect(record.after.cyclomatic_complexity).toBe(2);
+    expect(record.after.risk_score).toBeLessThan(record.before.risk_score);
     expect(record.checks).toEqual(['test/clamp.test.js']);
     expect(record.region).toEqual({ start: 1, end: 5 });
     expect(record.branch).toBe('work');
     expect(record.commit).toBe(await revision(repo.root));
-    expect((await git(['log', '-1', '--format=%s%n%n%b'], repo.root)).trim()).toBe(`Document what clamp returns at each bound.\n\nperch ${finding.id}`);
-    expect(await readFile(join(repo.root, 'src', 'clamp.js'), 'utf8')).toBe(documentedSource + '\n');
+    expect((await git(['log', '-1', '--format=%s%n%n%b'], repo.root)).trim()).toBe(`Drop the branch that returns v unchanged.\n\nperch refactor src/clamp.js::clamp`);
+    expect(await readFile(join(repo.root, 'src', 'clamp.js'), 'utf8')).toBe(leanerSource + '\n');
     expect((await git(['status', '--porcelain'], repo.root)).trim()).toBe('');
 
-    // The model saw the issues, the region, and the neighborhood; System One compared the two versions with the same neighborhood.
+    // The model saw the metrics, the region, and the neighborhood; System One compared the two versions with the same neighborhood.
     expect(model.calls.map(call => call.id)).toEqual(['refactor-1']);
-    expect(model.calls[0].prompt).toContain('WHAT NEEDS IMPROVING: simplify conditions (80%); misdocumented (80%)');
+    expect(model.calls[0].prompt).toContain('cyclomatic complexity 3, max nesting 1, 5 lines');
     expect(model.calls[0].prompt).toContain('ORIGINAL, lines 1-5');
     expect(model.calls[0].prompt).toContain('"called_by"');
+    expect(record.attempts[0].effort).toBe('none');
     const check = systemOne.calls.at(-1);
     expect(check.state.original_source).toBe(buggySource.trimEnd());
     expect(check.state.method.source).toContain('L0002| export function clamp(v, lo, hi) {');
-    expect(check.state.method.leading_comment).toContain('Clamp v into [lo, hi]');
-    expect(Object.keys(check.questions).sort()).toEqual(['collateral_change', 'does_what_it_claims', 'has_bug', 'misdocumented', 'refactor']);
+    expect(check.state.method.leading_comment).toContain('Clamp v to at least lo');
+    expect(Object.keys(check.questions).sort()).toEqual(['collateral_change', 'does_what_it_claims', 'has_bug']);
 
-    const [listed] = await store.issues();
-    expect(listed.refactored).toMatchObject({ id: record.id, status: 'ready', commit: record.commit });
-    expect(formatFinding(listed)).toContain('Refactored: Document what clamp returns at each bound.');
-    expect(formatFix(record)).toContain(`committed: ${record.commit.slice(0, 7)} on work`);
-    expect(formatFix(record)).toContain('checked by: test/clamp.test.js');
-    expect((await runRefactor(options(repo, finding, { model: scriptedModel() }))).id).toBe(record.id);
+    // Each step was reported with a mark; the record prints its metrics and commit.
+    expect(lines.some(line => /^✓ test\/clamp.test.js on the original — passes/.test(line))).toBe(true);
+    expect(lines.some(line => /^attempt 1 of 3: scripted-model simplifying clamp \(effort none\)/.test(line))).toBe(true);
+    expect(lines.some(line => /^✓ measures better: risk \d+ -> \d+, complexity 3 -> 2, nesting 1 -> 1/.test(line))).toBe(true);
+    expect(lines.some(line => /^✓ committed [0-9a-f]{7} on work: Drop the branch/.test(line))).toBe(true);
+    const text = formatFix(record);
+    expect(text).toContain('perch refactor');
+    expect(text).toContain('after:  risk');
+    expect(text).toContain('complexity 3 -> 2');
+    expect(text).toContain(`committed: ${record.commit.slice(0, 7)} on work`);
+
+    // The store knows the method was refactored, and a rerun reuses the record.
+    expect((await openStore(repo.out).listRefactors()).map(item => item.status)).toEqual(['ready']);
+    const again = scriptedModel();
+    expect((await runRefactor(options(repo, method, { model: again }))).id).toBe(record.id);
+    expect(again.calls).toHaveLength(0);
   });
 
-  it('rejects an unchanged region, a rewrite that breaks a test, and one System One says changes behavior or reads no better, leaving the checkout as it was', async () => {
-    const { repo, finding } = await hunted();
-    const attempt = (name, extra) => runRefactor(options(repo, finding, { ...extra, model: { ...(extra.model ?? scriptedModel()), id: name } }));
+  it('rejects an unchanged region, a rewrite that does not measure better, one that breaks a test, one that drops the method, and one System One says changes behavior; the checkout is left as it was', async () => {
+    const { repo, method } = await scanned();
+    const attempt = (name, extra) => runRefactor(options(repo, method, { ...extra, model: { ...(extra.model ?? scriptedModel()), id: name } }));
 
     const unchanged = await attempt('unchanged', { model: scriptedModel({ refactor: () => ({ source: buggySource.trimEnd(), summary: 'nothing to do' }) }) });
     expect(unchanged.status).toBe('rejected');
     expect(unchanged.error).toBe('the source was returned unchanged: nothing to do');
+    expect(unchanged.attempts.map(item => item.effort)).toEqual(['none', 'low', 'medium']);
 
-    const broken = await attempt('broken', { model: scriptedModel({ refactor: () => ({ source: documentedSource.replace('if (v < lo) return lo;', 'if (v < lo) return v;'), summary: 'oops' }) }) });
+    const noBetter = await attempt('nobetter', { model: scriptedModel({ refactor: () => ({ source: documentedSource, summary: 'comment only' }) }) });
+    expect(noBetter.error).toMatch(/^the rewrite does not make clamp less risky without adding complexity or nesting \(risk \d+ -> \d+, complexity 3 -> 3, nesting 1 -> 1\)$/);
+
+    const broken = await attempt('broken', { model: scriptedModel({ refactor: () => ({ source: leanerSource.replace('if (v < lo) return lo;', 'if (v < lo) return v;'), summary: 'oops' }) }) });
     expect(broken.error).toMatch(/^a test broke on the rewrite: test\/clamp.test.js/);
 
-    const renamed = await attempt('renamed', { model: scriptedModel({ refactor: () => ({ source: documentedSource.replace('function clamp', 'function clip'), summary: 'rename' }) }) });
-    expect(renamed.error).toBe('the rewrite must keep a method named clamp in lines 1-6; found clip');
+    const renamed = await attempt('renamed', { model: scriptedModel({ refactor: () => ({ source: leanerSource.replace('function clamp', 'function clip'), summary: 'rename' }) }) });
+    expect(renamed.error).toBe('the rewrite must keep a method named clamp in lines 1-5; found clip');
 
     const behavior = await attempt('behavior', { systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { collateral_change: 0.8 } }) });
     expect(behavior.error).toBe('the rewrite may change behavior (80%)');
-    const noBetter = await attempt('nobetter', { systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { misdocumented: 0.85, refactor: 'simplify_conditions' } }) });
-    expect(noBetter.error).toBe('the method still looks like it needs simplify conditions (80% -> 80%); the method looks no better documented (80% -> 85%)');
+    const buggy = await attempt('buggy', { systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.7 } }) });
+    expect(buggy.error).toBe('the rewrite looks defective (70%)');
 
-    const store = openStore(repo.out);
-    expect((await store.readEvents()).filter(event => event.type === 'refactored').map(event => event.status)).toEqual(Array(5).fill('rejected'));
-    const [discarded] = await store.issues();
-    expect(discarded.refactored).toMatchObject({ status: 'rejected', attempts: 3 });
-    expect(formatIssues([discarded], 0.5)).toBe('No open issues at 50% or more. 1 closed; --closed to list them.');
-    expect(formatFinding(discarded)).toContain('Refactor discarded: after 3 attempts');
+    expect((await openStore(repo.out).readEvents()).filter(event => event.type === 'refactored').map(event => event.status)).toEqual(Array(6).fill('rejected'));
     expect(await readFile(join(repo.root, 'src', 'clamp.js'), 'utf8')).toBe(buggySource);
     expect((await git(['status', '--porcelain'], repo.root)).trim()).toBe('');
   }, 60_000);
 
-  it('refuses a protected branch and a method with no design issue', async () => {
-    const { repo, finding } = await hunted();
+  it('works the riskiest methods from the scan, up to the budget and under a path, skipping ones already done', async () => {
+    const { repo } = await scanned();
+    const shared = { root: repo.root, out: repo.out, analyzer, shell, systemOne: scriptedSystemOne(), model: scriptedModel() };
+    const none = await runRefactorQueue({ ...shared, min: 99 });
+    expect(none).toMatchObject({ kind: 'refactor', open: 0, attempted: 0, fixes: [] });
+    expect(formatFixes(none)).toBe('No methods at risk 99 or more left to refactor.');
+    const elsewhere = await runRefactorQueue({ ...shared, min: 0, path: 'test' });
+    expect(elsewhere.attempted).toBe(0);
+    // A model that cannot improve it leaves a rejected record, and the same method under the same model is not retried.
+    const stubborn = scriptedModel({ refactor: () => ({ source: buggySource.trimEnd(), summary: 'no' }) });
+    const rejected = await runRefactorQueue({ ...shared, min: 0, path: 'src', budget: 5, model: stubborn });
+    expect(rejected.attempted).toBe(1);
+    expect(rejected.fixes[0].status).toBe('rejected');
+    expect((await runRefactorQueue({ ...shared, min: 0, path: 'src', budget: 5, model: stubborn })).attempted).toBe(0);
+    // Another model gets its turn; once the method is committed simpler, its new shape is a new candidate.
+    const batch = await runRefactorQueue({ ...shared, min: 0, path: 'src', budget: 5, model: { ...scriptedModel(), id: 'better-model' } });
+    expect(batch.attempted).toBe(1);
+    expect(batch.fixes[0].status).toBe('ready');
+    expect(formatFixes(batch)).toMatch(/^Simplified 1 methods \(budget 5\); 1 committed\./);
+  }, 60_000);
+
+  it('refuses a protected branch, a dirty file, and a method with no passing test to check against', async () => {
+    const { repo, method } = await scanned();
     await git(['checkout', '-q', 'main'], repo.root);
-    await expect(runRefactor(options(repo, finding, {}))).rejects.toThrow('main is protected');
+    await expect(runRefactor(options(repo, method, {}))).rejects.toThrow('main is protected');
     await git(['checkout', '-q', 'work'], repo.root);
-    await expect(runRefactor(options(repo, { ...finding, misdocumented: 0.1, refactor: { refactor: 'none', probabilities: {} } }, {}))).rejects.toThrow('no design issue');
+    await writeFile(join(repo.root, 'src', 'clamp.js'), buggySource + '\n');
+    await expect(runRefactor(options(repo, method, { model: { ...scriptedModel(), id: 'dirty' } }))).rejects.toThrow('uncommitted changes');
+    await git(['checkout', '--', 'src/clamp.js'], repo.root);
+    await rm(join(repo.root, 'test', 'clamp.test.js'));
+    await writeFile(join(repo.root, 'package.json'), JSON.stringify({ name: 'fixture', version: '1.0.0', type: 'module' }) + '\n');
+    await commitAll(repo.root, 'no tests');
+    const rescan = await runScan(fixtureOptions({ ...repo, revision: await revision(repo.root) }, { analyzer }));
+    const [bare] = refactorCandidates(rescan, { min: 0 });
+    await expect(runRefactor(options(repo, bare, { model: { ...scriptedModel(), id: 'untested' } }))).rejects.toThrow('No passing test reaches clamp and no suite command');
   });
 });

@@ -52,7 +52,8 @@ export async function runHunt({ root, revision, out, analyzer, systemOne, label 
     const members = new Set([nodeId, ...calleeIds, ...callerIds, ...calleeIds.flatMap(calleeId => graph.callees(calleeId))]);
     const edges = [];
     for (const member of members) for (const target of graph.callees(member)) if (members.has(target)) edges.push(`${member.split('::').at(-1)} -> ${target.split('::').at(-1)}`);
-    return { node, calleeIds, callerIds, step: huntStep({ node, lines: await linesOf(node), imports: graph.files.get(node.path).file.imports, callees, callers, edges }) };
+    const file = graph.files.get(node.path).file;
+    return { node, calleeIds, callerIds, step: huntStep({ node, lines: await linesOf(node), imports: file.imports, methods: file.methods, callees, callers, edges }) };
   };
 
   const ask = async nodeId => {

@@ -24,7 +24,7 @@ describe('cli', () => {
   it('parses flags and positionals', () => {
     expect(parseArgs(['hunt', 'owner/repo', '--paths', 'src,lib', '--budget=2', '--parallel', '3', '--force', '--json'])).toEqual({
       flags: { paths: 'src,lib', budget: '2', parallel: '3', force: true, json: true }, positional: ['hunt', 'owner/repo'] });
-    expect(parseArgs(['refactor', 'src/metrics.ts', '--budget', '5'])).toEqual({ flags: { budget: '5' }, positional: ['refactor', 'src/metrics.ts'] });
+    expect(parseArgs(['refactor', 'src/metrics.ts', '--budget', '5', '--effort', 'low'])).toEqual({ flags: { budget: '5', effort: 'low' }, positional: ['refactor', 'src/metrics.ts'] });
     expect(parseArgs(['issues', '--closed', '--all']).flags).toEqual({ closed: true, all: true });
     expect(() => parseArgs(['scan', '--bogus'])).toThrow('unknown option --bogus');
     expect(() => parseArgs(['hunt', '--candidates', '2'])).toThrow('unknown option --candidates');
@@ -34,21 +34,26 @@ describe('cli', () => {
   it('prints usage and rejects bad invocations', async () => {
     const { out, err, io } = capture();
     expect(await main(['--help'], io)).toBe(0);
-    for (const verb of ['scan [target]', 'hunt [target]', 'issues [finding-id]', 'fix [path]', 'refactor [path]', 'publish <finding-id>', 'report ']) expect(out[0]).toContain(verb);
+    for (const verb of ['scan [target]', 'hunt [target]', 'issues [finding-id]', 'fix [path]', 'refactor [path]', 'report ']) expect(out[0]).toContain(verb);
+    expect(out[0]).not.toContain('publish');
     expect(out[0]).not.toMatch(/^\s*design /m);
     expect(await main(['fix', '-h'], io)).toBe(0);
     expect(out.at(-1)).toContain('perch fix: Fix open defects in this checkout');
     expect(out.at(-1)).toContain('--budget');
     expect(await main(['refactor', '-h'], io)).toBe(0);
-    expect(out.at(-1)).toContain('perch refactor: Improve methods with open design issues');
+    expect(out.at(-1)).toContain('perch refactor: Simplify the riskiest methods the scan sees');
     expect(await main(['bogus'], io)).toBe(2);
     expect(await main(['design'], io)).toBe(2);
     expect(await main(['fix', '--budget', '0'], io)).toBe(2);
     expect(err.at(-1)).toContain('--budget must be a positive integer');
+    expect(await main(['fix', '--effort', 'max'], io)).toBe(2);
+    expect(err.at(-1)).toContain('--effort must be one of none, low, medium, high');
+    expect(await main(['refactor', 'abcd1234'], io)).toBe(2);
+    expect(err.at(-1)).toContain('refactor takes a path');
     expect(await main(['report', 'owner/repo'], io)).toBe(2);
   });
 
-  it('needs a TypeSafe key for hunt and an OpenAI key for fix, but none for scan, issues, or report', async () => {
+  it('needs a TypeSafe key for hunt and an OpenAI key for fix and refactor, but none for scan, issues, or report', async () => {
     const repo = await makeFixture();
     cleanups.push(repo);
     const { out, err, io } = capture();
@@ -84,9 +89,6 @@ describe('cli', () => {
     expect(out.at(-1)).toContain('wrong return 60%');
     expect(await main(['issues', '--out', repo.out, '--min', '90'], io)).toBe(0);
     expect(out.at(-1)).toContain('No hunted method has an issue at 90%');
-    expect(await main(['publish', 'zzz', '--out', repo.out], io)).toBe(1);
-    expect(await main(['publish', f.id, '--out', repo.out], io)).toBe(1);
-    expect(err.at(-1)).toContain('no GitHub repository');
   });
 
   it('bundles with esbuild into a loadable module', async () => {

@@ -61,6 +61,7 @@ describe('perch hunt', () => {
     expect(first.state.method.source).toContain('L0003| export function f(x) {');
     expect(first.state.calls.map(call => call.id).sort()).toEqual(['src/a.js::g', 'src/b.js::h']);
     expect(first.state.imports).toEqual(['h from ./b.js']);
+    expect(first.state.module_scope).toBeNull();
     expect(first.state.calls.find(call => call.id === 'src/b.js::h').calls).toEqual(['k']);
     expect(first.state.call_graph).toEqual(expect.arrayContaining(['f -> g', 'f -> h', 'h -> k']));
     expect(first.state.method.metrics.risk_score).toBeTypeOf('number');

@@ -24,8 +24,8 @@ npx perch --help
 
 Requires Node 22+ and `git`. `hunt` needs a `TYPESAFE_API_KEY`; `fix` and
 `refactor` need that and an `OPENAI_API_KEY` (`OPENAI_BASE_URL` overrides the
-endpoint); `publish` needs the GitHub CLI (`gh`) logged in. Variables are read
-from the shell, then from a `.env` file in the repository root.
+endpoint). Variables are read from the shell, then from a `.env` file in the
+repository root.
 
 ## Usage
 
@@ -33,9 +33,8 @@ from the shell, then from a `.env` file in the repository root.
 perch scan     [<target>] [--paths a,b] [--all] [--out DIR] [--json] [--verbose]
 perch hunt     [<target>] [--paths a,b] [--budget N] [--parallel N] [--force] [--out DIR] [--json] [--verbose]
 perch issues   [<finding-id>] [--min P] [--all] [--closed] [--out DIR] [--json]
-perch fix      [<path>|<finding-id>] [--budget N] [--min P] [--model M] [--out DIR] [--json] [--verbose]
-perch refactor [<path>|<finding-id>] [--budget N] [--min P] [--model M] [--out DIR] [--json] [--verbose]
-perch publish  <finding-id> [--out DIR] [--json]
+perch fix      [<path>|<finding-id>] [--budget N] [--min P] [--model M] [--effort E] [--out DIR] [--json] [--verbose]
+perch refactor [<path>] [--budget N] [--min R] [--model M] [--effort E] [--out DIR] [--json] [--verbose]
 perch report   [--out DIR] [--json]
 ```
 
@@ -43,10 +42,9 @@ perch report   [--out DIR] [--json]
 | --- | --- | --- |
 | `scan` | Analyzes every tracked source file at `HEAD`, records each file and method with its metrics, calls, and imports, and ranks the files by risk. Reads blobs straight from git: no worktree, no commands, no model. | `git` |
 | `hunt` | Walks the method graph from riskiest down within a budget, asking the System One model about each method once, several at a time. Runs `scan` first if needed. | `TYPESAFE_API_KEY` |
-| `issues` | Lists every open issue from every hunt so far: the method, each issue it carries with its probability (the defect kind, the refactor it needs, does not do what it claims, misdocumented), the severity of a defect, status, and the pull request if one exists. Closed findings are omitted unless `--closed`. With a finding id, prints every answer for that method. | nothing |
-| `fix` | Works the open defects, most likely first, up to `--budget`; under a path, only those in that file or directory. System One first confirms the flagged line is reachable; then an OpenAI model returns the corrected method and one regression test; System One reads the test; the test must fail on the original and pass on the patch in your checkout, and the tests that reach the method must still pass; System One confirms the defect looks less likely than the hunt found it. Each proven fix is one commit on your current branch. | `OPENAI_API_KEY`, `TYPESAFE_API_KEY` |
-| `refactor` | Works the open design issues, strongest first, up to `--budget`; under a path, only those in that file or directory. An OpenAI model rewrites the method and its comment (splitting helpers out beside it when asked); the rewrite may not make the file deeper, more complex, or riskier; every test that reaches the method (or the suite, when none does) must still pass; System One confirms each issue looks less likely and, comparing the two versions, that behavior is unchanged. Each accepted rewrite is one commit on your current branch. | `OPENAI_API_KEY`, `TYPESAFE_API_KEY` |
-| `publish` | Has the OpenAI model write the finding up as a bug report, then files it on GitHub: an issue; once `fix` has proven a patch, a pull request on branch `perch/fix-<id>` carrying the patch and its regression test, closing the issue; once every fix attempt has failed, closes the issue as not reproduced. An issue already carrying the finding's marker is updated, not duplicated. | `gh` logged in, `OPENAI_API_KEY` |
+| `issues` | Lists every open issue from every hunt so far: the method, each issue it carries with its probability (the defect kind, the refactor it needs, does not do what it claims, misdocumented), the severity of a defect, status, and the commit once fixed. Closed findings are omitted unless `--closed`. With a finding id, prints every answer for that method. | nothing |
+| `fix` | Works the open defects, most likely first, up to `--budget`; under a path, only those in that file or directory. System One first confirms the flagged line is reachable; then an OpenAI model returns the corrected method and one regression test; System One reads the test; the test must fail on the original and pass on the patch in your checkout, and the tests that reach the method must still pass; System One confirms the defect looks less likely than the hunt found it. Each proven fix is one commit on your current branch. Findings for methods that changed since the hunt are set aside. | `OPENAI_API_KEY`, `TYPESAFE_API_KEY` |
+| `refactor` | Independent of the hunt. Takes the methods the scan scores at risk `--min` or more, riskiest first, up to `--budget`; under a path, only those in that file or directory. An OpenAI model rewrites the method and its comment, splitting helpers out beside it; the method must come out less risky with complexity and nesting no higher, and the file no deeper, no more complex, no more than a point riskier; every test that reaches the method (or the suite, when none does) must still pass; System One compares the two versions and confirms behavior is unchanged. Each accepted rewrite is one commit on your current branch. | `OPENAI_API_KEY`, `TYPESAFE_API_KEY` |
 | `report` | Prints the latest hunt. | nothing |
 
 `<target>` is a local directory (default `.`, resolved to its git root) or a
@@ -65,10 +63,11 @@ changes; a rejected attempt leaves the checkout exactly as it was.
 | `--budget N` | Stop after N methods questioned (`hunt`) or N findings worked (`fix`, `refactor`) (default 20). |
 | `--parallel N` | How many methods to question at once (default 8). |
 | `--force` | Question every method again, even ones unchanged since an earlier hunt. |
-| `--min P` | Only list or work methods the model rates at P percent or more (default 50). |
+| `--min N` | `issues` and `fix`: only methods the model rates at N percent or more (default 50). `refactor`: only methods with a risk score of N or more (default 70). |
 | `--all` | List every row instead of the top 10 (`scan`, `hunt`, `issues`, `report`). |
-| `--closed` | Include closed findings on `issues` (worked and discarded, or their GitHub issue closed). |
+| `--closed` | Include closed findings on `issues` (every attempt to fix them was rejected). |
 | `--model M` | OpenAI model for `fix` and `refactor` (default `gpt-5.6-luna`, or `OPENAI_MODEL`). Code is always questioned with `jev-latest`. |
+| `--effort E` | Reasoning effort for every OpenAI call: `none`, `low`, `medium`, `high`. By default attempt 1 gets `none` and each rejected attempt buys one step more; System One does the judging, so the model does not need to. |
 | `--out DIR` | Results directory, default `<repo root>/.perch` (`./.perch` for GitHub targets). |
 | `--json` | Print the record instead of the summary. |
 | `--verbose` | Show every file analyzed, method questioned or skipped, model call, and command run. |
@@ -82,8 +81,7 @@ perch issues                          # everything open: defects, refactors, mis
 perch issues 780f586a                 # every answer about one method
 git checkout -b perch/sweep           # fix and refactor commit to the current branch
 perch fix --budget 5                  # fix five open defects, one commit each
-perch refactor src/treesitter/metrics.ts  # improve the methods with design issues in one file
-perch publish 780f586a                # file the issue and open the pull request (or close the issue if no fix could be proven)
+perch refactor src/treesitter/metrics.ts  # simplify the riskiest methods in one file, one commit each
 perch hunt --budget 40                # continues where the last hunt stopped
 perch hunt --force                    # start over, ignoring earlier hunts
 ```
@@ -155,7 +153,8 @@ an opinion with a probability on it. `fix` makes the proof part of the record.
    test belongs at, and a one-line summary.
 3. **Splice and gate.** The method is spliced into the file by line range. The
    result must parse and must not raise cyclomatic complexity, nesting, or risk
-   score. The test path must be a new file inside the repository.
+   score by more than a branch and a point. The test lands in the module's own
+   test file, or in a new file named after the module inside the repository.
 4. **System One reads the test** before a run is spent on it: does it import
    the real method rather than a copy, does it exercise the flagged defect,
    does it assert on behavior rather than internals, would it pass on the
@@ -175,7 +174,7 @@ an opinion with a probability on it. `fix` makes the proof part of the record.
    branch with the summary as the message and `perch <finding-id>` in the body.
    The diff is kept at `<out>/fixes/<fix-id>/fix.patch` and a `fixed` event with
    the commit, the before and after probabilities, and the test path goes to
-   `events.jsonl`, so `issues` shows the finding with its commit and pull request.
+   `events.jsonl`, so `issues` shows the finding with its commit.
 
 Three attempts, each fed the previous rejection. When all three fail, the
 finding is recorded as discarded and `issues` says so. Existing tests are run
@@ -186,54 +185,42 @@ wrote from `HEAD`; nothing else in the checkout is touched.
 
 ## How a refactor is checked
 
-A refactor has no failing test to prove it, so it is held to a different bar:
-it must read better and do the same thing.
+`refactor` does not use the hunt. It works from the scan: the methods whose
+tree-sitter metrics say they are hard to maintain, riskiest first. A refactor
+has no failing test to prove it, so the bar is that it measures better and does
+the same thing.
 
 1. **One generative call.** The OpenAI model sees the method with the comment
-   above it, the context the hunt used, and what the hunt found wrong (the
-   refactor it recommends, that the method does not do what its name and
-   comment claim, that it is misdocumented). It returns a replacement for that
-   region: the comment, the method, and any helpers split out beside it, plus a
-   one-line summary.
-2. **Splice and gate.** The region is replaced by line range. The file must
-   parse, must still contain a method of the same name, and may not get deeper,
-   more complex, or more than a point riskier.
+   above it, its metrics (risk score, maintainability index, complexity,
+   nesting, lines), and the same neighborhood the hunt would show. It returns a
+   replacement for that region: the comment, the method, and any helpers split
+   out beside it, plus a one-line summary.
+2. **Splice and measure.** The region is replaced by line range. The file must
+   parse and still contain a method of the same name. That method's risk score
+   must be lower than before with complexity and nesting no higher; the file as
+   a whole may not get deeper, more complex, or more than a point riskier.
 3. **The tests still pass.** Every test that reaches the method and passed on
    the original must pass on the rewrite; when none reaches it, the whole suite
    runs instead. No passing test and no suite command means no refactor.
-4. **System One reads the rewrite** with the same neighborhood: each issue the
-   hunt raised must look less likely than before, the method no more defective,
-   and, comparing the two versions, behavior unchanged for any input the
-   callers can pass.
+4. **System One compares the two versions** with the same neighborhood:
+   behavior unchanged for any input the callers can pass, no defect picked up,
+   the name still true.
 5. **Commit and record.** The file is committed on the current branch with the
    summary as the message; the diff is kept at
    `<out>/refactors/<id>/refactor.patch` and a `refactored` event goes to
    `events.jsonl`.
 
 Three attempts, each fed the previous rejection; a rejected attempt restores
-the file from `HEAD`.
+the file from `HEAD`. A method already worked by the same model is not retried
+until it changes.
 
 The regression test goes where the project keeps its tests. When the module
 already has a test file (one that imports it, or whose name is the module's
-name plus `test`/`spec`), the new case is added to that file: the model returns
-the whole file and only additions are accepted. Otherwise a new file is created
+name plus `test`/`spec`), the model returns only the new case and perch appends
+it to that file; a whole file sent back is rejected. Otherwise a new file is created
 and must be named after the module the way the project's other tests are
 (`test/target.test.js`, `tests/test_target.py`, `target_test.go`); names with
 invented suffixes are rejected.
-
-**publish** turns the record into GitHub state. First the OpenAI model writes
-the finding up from the code the way an engineer files a bug: a title, what
-happens and for which input, how to reproduce it, what should happen, and,
-once fixed, what the change does. No probabilities and no model talk; a
-`perch <finding-id>` footer marks the issue so a later publish updates it
-instead of filing again. A finding without a fix becomes an issue. A finding
-with a proven fix becomes an issue plus a pull request: a branch
-`perch/fix-<id>` is built in a worktree from the finding's commit, the patch
-(method and test) committed on it, pushed to `origin`, and a pull request
-opened against the default branch with `Closes #N`. A finding whose fix was
-discarded gets its issue closed with the last rejection as the reason. Every
-publish is appended to `events.jsonl`, so `issues` shows the write-up, the
-issue, its status, and the pull request next to the finding.
 
 How the project runs its tests is discovered from the tree at `HEAD`: candidate
 commands from `package.json` and its lockfile, `pyproject.toml`, `Cargo.toml`,
