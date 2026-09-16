@@ -162,6 +162,9 @@ describe('perch fix', () => {
     expect(namedAfter('test/cli-null.test.js', 'src/cli.js')).toBe(false);
     expect(namedAfter('test/other.test.js', 'src/clamp.js')).toBe(false);
     expect(namedAfter('test/target.js', 'src/target.js', 'test/cli.test.js')).toBe(false);
+    expect(namedAfter('tests/command.name.test.js', 'lib/command.js', 'tests/command.action.test.js')).toBe(true);
+    expect(namedAfter('tests/name.command.test.js', 'lib/command.js')).toBe(false);
+    expect(namedAfter('tests/command.regression.test.js', 'lib/command.js')).toBe(false);
     expect(namedAfter('test/target.js', 'src/target.js', null)).toBe(true);
     expect(namedAfter('tests/target.rs', 'src/target.rs', 'tests/other.rs')).toBe(true);
     expect(suggestTestName('src/target.js', 'test/cli.test.js')).toBe('test/target.test.js');

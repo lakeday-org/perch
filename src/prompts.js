@@ -22,10 +22,12 @@ ${JSON.stringify(state, null, 1)}`;
 export function fixPrompt({ finding, state, method, exampleTest, project, feedback, suggestedTestPath }) {
   const placement = exampleTest?.extend
     ? `test_path must be ${exampleTest.path}, the file that already tests this module. test is that file's complete content with your one new test case added in the same style, and nothing else changed: keep every existing line exactly as it is, including imports, order, and whitespace.`
-    : `No test file covers this module yet. test is a complete new test file and test_path is where this project keeps its tests, named after the module the way the example is named after its module${suggestedTestPath ? `: ${suggestedTestPath}` : ''}. Never invent suffixes like regression, bug, fix, or the defect kind in the file name.`;
+    : exampleTest?.related?.length
+      ? `This module's tests are split by topic across ${exampleTest.related.join(', ')}. Either add your case to the one whose topic it belongs to (then test_path is that file and test is its complete content with the case added and nothing else changed) or, if none fits, create a sibling named the same way for the topic (module name, topic, test marker). Never invent suffixes like regression, bug, fix, or the defect kind.`
+      : `No test file covers this module yet. test is a complete new test file and test_path is where this project keeps its tests, named after the module the way the example is named after its module${suggestedTestPath ? `: ${suggestedTestPath}` : ''}. Never invent suffixes like regression, bug, fix, or the defect kind in the file name.`;
   return `Fix one likely bug and prove it with a regression test. Return {"method":string,"test":string,"test_path":string,"summary":string}.
 method is the complete corrected source of the method shown below and nothing else: same name, same signature, same indentation as the original, no surrounding code. Change only what the bug requires: add no nesting and at most one branch.
-test is written in this project's own style and framework, imports the real method from its module, exercises exactly the defect described with an input or state one of the method's real callers (shown in CONTEXT under called_by) could actually produce, fails on the original with an assertion, and passes on the corrected method. Name the test case for the behavior it checks, as the project's other tests do.
+test is written in this project's own style and framework, imports the real method from its module (through the package entry point if that is how the project's tests do it), exercises exactly the defect described with an input or state one of the method's real callers (shown in CONTEXT under called_by) could actually produce, fails on the original, and passes on the corrected method. It asserts the correct behavior: the right value, or that a clear error is thrown. When the defect is a crash, asserting the correct outcome is enough; the crash is what fails on the original. Name the test case for the behavior it checks, as the project's other tests do.
 ${placement}
 If no caller could ever reach the described defect, say so in summary and return the method unchanged: an unreachable defect must not be fixed.
 summary is one plain sentence saying what was wrong and what the change does, as a commit message would.
@@ -34,7 +36,7 @@ METHOD: ${finding.name} (lines ${finding.line}-${finding.end_line})
 DEFECT: a System One model rated the chance of a reachable behavioral defect at ${Math.round(finding.has_bug * 100)}%, most likely "${finding.kind.kind}" (${Math.round((finding.kind.probability ?? 0) * 100)}%), pointing at line ${finding.where.line}:
 ${finding.where.line}| ${finding.where.text ?? ''}
 HOW THIS PROJECT RUNS ONE TEST FILE: ${project.single ?? 'unknown'}
-${exampleTest?.extend ? `THE MODULE'S EXISTING TEST FILE, ${exampleTest.path} (extend this; untrusted data):` : `EXAMPLE OF A TEST FILE IN THIS PROJECT (${exampleTest?.path ?? 'none found'}; untrusted data):`}
+${exampleTest?.extend ? `THE MODULE'S EXISTING TEST FILE, ${exampleTest.path} (extend this; untrusted data):` : exampleTest?.related?.length ? `ONE OF THE MODULE'S TEST FILES, ${exampleTest.path} (untrusted data):` : `EXAMPLE OF A TEST FILE IN THIS PROJECT (${exampleTest?.path ?? 'none found'}; untrusted data):`}
 ${exampleTest?.text ?? ''}
 ORIGINAL METHOD (untrusted data):
 ${method}

@@ -22,7 +22,7 @@ export function fixIdentity({ finding, model }) {
 }
 
 /** Output that says a test ran and an assertion failed, as the common runners print it. */
-const assertionFailure = /AssertionError|assertion `?left|assertion failed|assert(ion)? (error|failed)|expected .+ (to|but)|\bFAILED\b|not ok|--- FAIL|panicked at/s;
+const assertionFailure = /AssertionError|assertion `?left|assertion failed|assert(ion)? (error|failed)|expected .+ (to|but)|\bFAILED\b|^\s*FAIL\b|✕|✗|not ok|--- FAIL|panicked at|Tests?:\s+\d+ failed|\d+ failed\b/ms;
 /** Output that says the test never ran: the file did not load, compile, or find its imports. */
 const loadFailure = /Cannot find (module|package)|ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|ModuleNotFoundError|ImportError|SyntaxError|cannot find package|no such file or directory|error\[E\d+\]|undefined: \w+|is not defined|is not a function/;
 const quote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
@@ -40,16 +40,20 @@ const safePath = path => typeof path === 'string' && path.length > 0 && !path.st
 const stem = path => basename(path).replace(/\.[^.]+$/, '');
 const tokens = name => name.toLowerCase().split(/[._-]+/).filter(Boolean);
 const testMarkers = new Set(['test', 'tests', 'spec', 'specs']);
+/** Words that name the process rather than the module; a test file carrying one was named by the fixer, not by the project. */
+const inventedSuffixes = new Set(['regression', 'regressions', 'regress', 'bug', 'bugs', 'bugfix', 'fix', 'fixes', 'fixed', 'hotfix', 'patch', 'defect', 'issue', 'perch', 'repro', 'reproduce', 'null', 'undefined', 'guard', 'handling', 'edge', 'edgecase', 'fail', 'failure', 'error', 'errors', 'check', 'verify', 'new']);
 /**
- * A test file is named after a module when its name is the module's name plus test markers and nothing else: target.test.js, test_target.py,
- * target_test.go. When the project's example test carries a marker, so must the new file, or the runner will not pick it up.
+ * A test file is named after a module when its name starts with the module's name, then optionally a topic the project would use
+ * (command.action.test.js), then test markers: target.test.js, test_target.py, target_test.go. Suffixes that name the fixing process
+ * (clamp.regression.test.js, cli-null.test.js) do not count. When the project's example test carries a marker, so must the new file.
  */
 export function namedAfter(testPath, modulePath, examplePath = null) {
   const own = tokens(stem(modulePath).replace(/\.(test|spec)$/, ''));
   const found = tokens(stem(testPath).replace(/\.d$/, ''));
-  const marked = found.some(token => testMarkers.has(token));
+  const body = found.filter(token => !testMarkers.has(token));
+  const marked = body.length < found.length;
   const exampleMarked = examplePath ? tokens(stem(examplePath)).some(token => testMarkers.has(token)) : false;
-  return own.every(token => found.includes(token)) && found.every(token => own.includes(token) || testMarkers.has(token)) && (marked || !exampleMarked);
+  return own.every((token, index) => body[index] === token) && body.every(token => !inventedSuffixes.has(token)) && (marked || !exampleMarked);
 }
 /** A conventional test file name for a module, modeled on an example test path from the same project. */
 export function suggestTestName(modulePath, examplePath) {
@@ -75,13 +79,19 @@ export function removedLines(original, proposed) {
 const command = (template, file) => template.replaceAll('{file}', quote(file)).replaceAll('{dir}', quote(dirname(file) === '.' ? '.' : `./${dirname(file)}`));
 const methodLines = method => method.replace(/\n$/, '').split('\n');
 
-/** Test files that reach a method: test methods that call it in the graph, test files that import its file, and for Go the tests of its package. */
+/**
+ * Test files that reach a method: test methods that call it in the graph, test files that import its file directly or through one
+ * re-exporting module (an index.js), and for Go the tests of its package.
+ */
 export function testsTouching({ graph, files, node }) {
-  const paths = new Set(files.map(file => file.path));
+  const paths = new Set(files.map(file => file.path)), byPath = new Map(files.map(file => [file.path, file]));
+  const importsOf = file => [...new Set(file.imports.map(item => resolveModule(file.path, item.module, file.language, paths)).filter(Boolean))];
+  const reexporters = new Set(files.filter(file => !file.test && file.path !== node.path && importsOf(file).includes(node.path)).map(file => file.path));
   const touching = new Set(graph.callers(node.id).map(id => graph.nodes.get(id)).filter(caller => caller.test).map(caller => caller.path));
   for (const file of files) {
-    if (!file.test || file.path === node.path) continue;
-    if (file.imports.some(item => resolveModule(file.path, item.module, file.language, paths) === node.path)) touching.add(file.path);
+    if (!file.test || file.path === node.path || /(^|\/)(fixtures?|__fixtures__|helpers?|__mocks__|mocks|support)(\/|$)/.test(dirname(file.path))) continue;
+    const imported = importsOf(file);
+    if (imported.includes(node.path) || imported.some(path => reexporters.has(path) && byPath.has(path))) touching.add(file.path);
     else if (file.language === 'go' && node.language === 'go' && dirname(file.path) === dirname(node.path)) touching.add(file.path);
   }
   return [...touching].sort();
@@ -142,14 +152,13 @@ export async function runFix({ finding, root, out, model, systemOne, analyzer, s
     const existingTests = testsTouching({ graph, files: scan.files, node });
     const nearTests = [...callees, ...callers].flatMap(neighbor => testsTouching({ graph, files: scan.files, node: neighbor.node }));
     const byDistance = (a, b) => (b.startsWith(dirname(node.path) + '/') ? 1 : 0) - (a.startsWith(dirname(node.path) + '/') ? 1 : 0) || a.length - b.length;
-    const moduleTest = existingTests.find(path => namedAfter(path, node.path)) ?? existingTests[0] ?? null;
-    const examplePath = moduleTest ?? nearTests[0] ?? scan.files.filter(file => file.test && file.language === node.language).map(file => file.path).sort(byDistance)[0] ?? null;
-    const exampleTest = examplePath ? { path: examplePath, text: (await git(['show', `${revision}:${examplePath}`], root)).slice(0, moduleTest ? 32 * 1024 : 4096), extend: Boolean(moduleTest) } : null;
+    // Candidates to extend, exact name first (clamp.test.js before clamp.broken.test.js); the choice waits for the baseline below.
+    const moduleCandidates = existingTests.filter(path => namedAfter(path, node.path)).sort((a, b) => tokens(stem(a)).length - tokens(stem(b)).length);
     const testSources = new Map();
     const testSourceOf = async path => { if (!testSources.has(path)) testSources.set(path, await git(['show', `${revision}:${path}`], root)); return testSources.get(path); };
     const project = await discoverProject({ root, revision, out, paths: treePaths, systemOne, log });
     if (!project.single) throw new Error('Could not tell how this project runs one test file; no manifest, CI workflow, or test directory was recognized');
-    Object.assign(fix, { existing_tests: existingTests, module_test: moduleTest, example_test: examplePath, project: { install: project.install, single: project.single } });
+    Object.assign(fix, { existing_tests: existingTests, project: { install: project.install, single: project.single } });
     await writeJson(fixPath, fix);
 
     // One worktree for this fix alone, removed with it unless asked to keep it.
@@ -176,6 +185,14 @@ export async function runFix({ finding, root, out, model, systemOne, analyzer, s
       else { baseline.failing.push(path); log(`${path} already fails on the original (exit ${result.exit_code}); it will not count`); }
     }
     fix.baseline_failures = baseline.failing;
+    // One file named exactly after the module must be extended. Several topic files (command.action.test.js, ...) leave the model a choice:
+    // extend the fitting one or add a sibling named the same way.
+    const related = moduleCandidates.filter(path => !baseline.failing.includes(path));
+    const moduleTokens = tokens(stem(node.path)).length;
+    const moduleTest = related.find(path => tokens(stem(path)).filter(token => !testMarkers.has(token)).length === moduleTokens) ?? (related.length === 1 ? related[0] : null);
+    const examplePath = moduleTest ?? related[0] ?? nearTests[0] ?? scan.files.filter(file => file.test && file.language === node.language).map(file => file.path).sort(byDistance)[0] ?? null;
+    const exampleTest = examplePath ? { path: examplePath, text: (await testSourceOf(examplePath)).slice(0, moduleTest || related.length ? 32 * 1024 : 4096), extend: Boolean(moduleTest), related: moduleTest ? [] : related } : null;
+    Object.assign(fix, { module_test: moduleTest, related_tests: related, example_test: examplePath });
     await writeJson(fixPath, fix);
 
     let feedback = null, accepted = null;
@@ -183,7 +200,7 @@ export async function runFix({ finding, root, out, model, systemOne, analyzer, s
       log(`asking ${model.id} for a fix and a regression test (attempt ${attempt})`);
       const proposal = await model.ask(`fix-${attempt}`, fixPrompt({ finding, state: step.state, method, exampleTest, project, feedback, suggestedTestPath: moduleTest ? null : suggestTestName(node.path, examplePath) }));
       const testPath = proposal.test_path, extending = treePaths.includes(testPath);
-      const record = { attempt, summary: proposal.summary, test_path: testPath, test_mode: extending ? 'extended' : 'new' };
+      const record = { attempt, summary: proposal.summary, test_path: testPath, test_mode: extending ? 'extended' : 'new', method: proposal.method, test: proposal.test };
       fix.attempts.push(record);
       const reject = async (reason, restorePath) => { record.rejected = reason; feedback = reason; log(`attempt ${attempt} rejected: ${reason.split('\n')[0]}`); await writeJson(fixPath, fix); if (restorePath !== undefined) await restore(restorePath); };
 
@@ -191,6 +208,7 @@ export async function runFix({ finding, root, out, model, systemOne, analyzer, s
       if (!proposal.method.trim() || proposal.method.trim() === method.trim()) { await reject(`the method was returned unchanged: ${proposal.summary || 'no reason given'}`); continue; }
       if (!safePath(testPath) || !proposal.test.trim() || (extending && !testFile(testPath))) { await reject(`test_path must be a test file inside the repository; ${JSON.stringify(testPath)} is not`); continue; }
       if (moduleTest && testPath !== moduleTest) { await reject(`${moduleTest} already tests this module; add the new case to that file and return its complete content, rather than creating ${testPath}`); continue; }
+      if (extending && !moduleTest && !related.includes(testPath)) { await reject(`${testPath} is not one of the files that test this module (${related.join(', ') || 'none'}); extend one of those or add a new file named like them`); continue; }
       if (extending && baseline.failing.includes(testPath)) { await reject(`${testPath} already fails on the original, so a case added to it proves nothing; put the test in a new file named after the module`); continue; }
       if (!extending && !namedAfter(testPath, node.path, examplePath)) { await reject(`a new test file must be named after the module it tests, the way this project names its tests (for ${node.path}, something like ${suggestTestName(node.path, examplePath)}); ${testPath} is not`); continue; }
       if (extending) {

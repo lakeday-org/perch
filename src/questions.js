@@ -116,11 +116,13 @@ export function readAnswers(answers, { calls, calledBy, neighbors }) {
 
 /** Questions about a proposed regression test, asked before it is run. `callers` are the hunt's `called_by` records, so reachability is judged against real call sites. */
 export function testCheck({ finding, method, test, testPath, callers = [] }) {
-  const state = { defect: { kind: finding.kind.kind, line: finding.where.line, code: finding.where.text ?? '', method: finding.name, path: finding.path }, original_method: method, called_by: callers, test: { path: testPath, source: test } };
+  const state = { defect: { kind: finding.kind.kind, description: DEFECT_KINDS[finding.kind.kind] ?? '', line: finding.where.line, code: finding.where.text ?? '', method: finding.name, path: finding.path }, original_method: method, called_by: callers, test: { path: testPath, source: test } };
   const noul = (instructions, yes, no) => ({ type: 'noul', instructions, criteria: { true: yes, false: no } });
   return { state, questions: {
-    imports_real_method: noul('Does `test` import and call the real method from its module in the repository, rather than a copy or a stub?', 'It imports the module at `defect.path` and calls the method', 'It defines its own copy, mocks the method, or never calls it'),
-    targets_defect: noul('Does `test` exercise the input or state that triggers the described defect?', 'Its inputs reach the defective line and the assertion checks the behavior that is wrong', 'It tests something else, or would not reach the defect'),
+    imports_real_method: noul('Does `test` import and call the real method from its module in the repository, directly or through the package\'s entry point, rather than a copy or a stub?', 'It reaches the real method at `defect.path` and calls it', 'It defines its own copy, mocks the method, or never calls it'),
+    targets_defect: noul('Does `test` drive the method with the input or state that triggers the described defect, and assert the outcome that input should have?',
+      'Its input reaches the defective line, and its assertion states the correct result for that input: a value, a resulting state, or a clear error. When the defect is a crash or a wrong result, asserting the correct outcome is exactly the check; the original fails it',
+      'Its input would not reach the defect, or its assertion is about something the defect does not affect'),
     reachable_by_callers: noul('Could the input or state `test` gives the method arise from its real callers in `called_by` (or from outside the program, if it is an entry point), rather than being a value no caller could ever pass?',
       'A caller shown, or external input it forwards, can produce this input or state in practice', 'No caller could pass this; the test constructs a value or state the method never receives, such as a type its callers never produce'),
     asserts_behavior: noul('Does `test` assert on observable behavior rather than on implementation details or on the test\'s own values?', 'It asserts a return value, thrown error, or resulting state that callers can observe', 'It asserts on internals, on constants it defined itself, or on nothing'),
