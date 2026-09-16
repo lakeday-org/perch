@@ -8,7 +8,7 @@ import { createSourceAnalyzer } from './analysis.js';
 import { openStore, resolveOut } from './store.js';
 import { runScan } from './scan.js';
 import { DEFAULT_BUDGET, DEFAULT_PARALLEL, runHunt } from './hunt.js';
-import { runFix, runFixQueue, underPath } from './fix.js';
+import { runFix, runFixQueue, splitStale, underPath } from './fix.js';
 import { DEFAULT_MIN_RISK, runRefactorQueue } from './refactor.js';
 import { createShell } from './shell.js';
 import { createUi } from './ui.js';
@@ -196,9 +196,15 @@ const commands = {
       return;
     }
     const min = threshold(io.flags.min);
-    const findings = await store.issues(min / 100);
+    let findings = await store.issues(min / 100), gone = 0;
+    // A finding for a method that no longer exists at HEAD is history, not an issue.
+    const root = (await store.latestHunt())?.root;
+    if (root && findings.length) {
+      const scan = await runScan({ root, revision: await gitRevision(root), out: store.out, analyzer: createSourceAnalyzer(), log: io.debug, debug: io.debug }).catch(() => null);
+      if (scan) { const { current, stale } = splitStale(findings, scan); findings = current; gone = stale.length; }
+    }
     const closed = Boolean(io.flags.closed);
-    print(io, visibleFindings(findings, { closed }), formatIssues(findings, min / 100, shown(io), { closed }));
+    print(io, visibleFindings(findings, { closed }), formatIssues(findings, min / 100, shown(io), { closed, gone }));
   },
   async report(io) {
     noTarget('report', io.argument);

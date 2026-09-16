@@ -142,11 +142,19 @@ describe('perch fix', () => {
     const model = scriptedModel();
     const systemOne = scriptedSystemOne({ 'src/clamp.js::clamp': { reachable: 0.15 } });
     const fix = await runFix(fixOptions(repo, finding, { model, systemOne }));
-    expect(fix.status).toBe('rejected');
+    expect(fix.status).toBe('closed');
     expect(fix.reach_check).toEqual({ reachable: 0.15 });
-    expect(fix.error).toContain('not clearly reachable (15%)');
+    expect(fix.reason).toBe('no caller can reach the flagged line (15%); an earlier guard excludes it');
+    expect(fix.error).toBeUndefined();
     expect(model.calls).toHaveLength(0);
     expect(systemOne.calls).toHaveLength(1);
+    expect(formatFix(fix)).toBe(`${finding.id}  src/clamp.js::clamp  closed: no caller can reach the flagged line (15%); an earlier guard excludes it`);
+    const store = openStore(repo.out);
+    const [closed] = await store.findings();
+    expect(closed.fix).toMatchObject({ status: 'closed', reason: fix.reason });
+    expect(formatIssues([closed], 0.5)).toBe('No open issues at 50% or more. 1 closed; --closed to list them.');
+    expect(formatFinding(closed)).toContain('Closed on');
+    expect(formatIssues([], 0.5, 10, { gone: 2 })).toBe('No hunted method has an issue at 50% or more. 2 findings are for methods that no longer exist and are not listed.');
   });
 
   it('re-questions a method that changed since the hunt and goes on from the fresh answers, or drops it when no defect is left', async () => {
@@ -174,8 +182,8 @@ describe('perch fix', () => {
     await commitAll(repo.root, 'touch clamp again');
     const model = scriptedModel();
     const gone = await runFix(fixOptions(repo, { ...finding, hash: 'stale' }, { model, systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.1 } }) }));
-    expect(gone.status).toBe('rejected');
-    expect(gone.error).toContain('no longer sees a reachable defect (defect 10%)');
+    expect(gone.status).toBe('closed');
+    expect(gone.reason).toBe('no reachable defect in the method as it reads now (defect 10%)');
     expect(model.calls).toHaveLength(0);
     expect(await store.findings()).toEqual([]);
   });

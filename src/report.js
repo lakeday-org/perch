@@ -39,8 +39,8 @@ const shortId = id => id.split('::').at(-1);
 export const TOP = 10;
 
 
-/** A finding is closed once every attempt to fix its defect was rejected. */
-export const issueStatus = finding => (finding.fix?.status === 'rejected' ? 'closed' : 'open');
+/** A finding is closed once its defect was closed (nothing reachable to fix) or every attempt to fix it was rejected. */
+export const issueStatus = finding => (finding.fix?.status === 'rejected' || finding.fix?.status === 'closed' ? 'closed' : 'open');
 /** What a fix did to a finding, for the table: the commit, or `-`. */
 const fixRef = finding => (finding.fix?.status === 'ready' ? finding.fix.commit?.slice(0, 7) ?? 'fixed' : '-');
 const statusRow = finding => [issueStatus(finding), fixRef(finding)];
@@ -86,13 +86,14 @@ export function visibleFindings(findings, { closed = false } = {}) {
   return closed ? findings : findings.filter(finding => issueStatus(finding) === 'open');
 }
 
-export function formatIssues(findings, min, shown = TOP, { closed = false } = {}) {
-  if (!findings.length) return `No hunted method has an issue at ${percent(min)} or more.`;
+export function formatIssues(findings, min, shown = TOP, { closed = false, gone = 0 } = {}) {
+  const goneNote = gone ? ` ${gone} ${gone === 1 ? 'finding is' : 'findings are'} for methods that no longer exist and ${gone === 1 ? 'is' : 'are'} not listed.` : '';
+  if (!findings.length) return `No hunted method has an issue at ${percent(min)} or more.${goneNote}`;
   const hidden = findings.filter(finding => issueStatus(finding) === 'closed').length;
   const rows = visibleFindings(findings, { closed });
   const noun = `issues at ${percent(min)} or more`;
-  if (!rows.length) return listed(0, hidden, shown, noun, closed);
-  return [listed(findings.length - hidden, hidden, shown, noun, closed), '', ...issueTable(rows.slice(0, shown), min), '', footer].join('\n');
+  if (!rows.length) return listed(0, hidden, shown, noun, closed) + goneNote;
+  return [listed(findings.length - hidden, hidden, shown, noun, closed) + goneNote, '', ...issueTable(rows.slice(0, shown), min), '', footer].join('\n');
 }
 
 /** Everything the model answered about one method. */
@@ -114,6 +115,7 @@ export function formatFinding(finding) {
   if (finding.callers?.length) lines.push(`Called by: ${finding.callers.map(shortId).join(', ')}`);
   lines.push(`Status: ${issueStatus(finding)}`);
   if (finding.fix?.status === 'ready') lines.push(`Fixed: ${finding.fix.summary ?? ''} (defect ${percent(finding.fix.verification?.before?.has_bug ?? finding.has_bug)} -> ${percent(finding.fix.verification?.after?.has_bug ?? 0)})`.trimEnd(), `    commit ${finding.fix.commit?.slice(0, 7) ?? '?'}${finding.fix.branch ? ` on ${finding.fix.branch}` : ''}  ${finding.fix.patch_path}`);
+  else if (finding.fix?.status === 'closed') lines.push(`Closed on ${finding.fix.at.slice(0, 10)}: ${finding.fix.reason}`);
   else if (finding.fix) lines.push(`Fix discarded: no fix after ${finding.fix.attempts} attempts on ${finding.fix.at.slice(0, 10)}; last rejection: ${(finding.fix.error ?? '').split('\n')[0]}`);
   if (finding.refactored?.status === 'ready') lines.push(`Refactored: ${finding.refactored.summary ?? ''}${finding.refactored.before && finding.refactored.after ? ` (${metricShift(finding.refactored.before, finding.refactored.after)})` : ''}`.trimEnd(), `    commit ${finding.refactored.commit?.slice(0, 7) ?? '?'}${finding.refactored.branch ? ` on ${finding.refactored.branch}` : ''}  ${finding.refactored.patch_path}`);
   else if (finding.refactored) lines.push(`Refactor discarded: after ${finding.refactored.attempts} attempts on ${finding.refactored.at.slice(0, 10)}; last rejection: ${(finding.refactored.error ?? '').split('\n')[0]}`);
@@ -151,6 +153,7 @@ function formatRefactor(record) {
 
 export function formatFix(fix) {
   if (fix.kind === 'refactor') return formatRefactor(fix);
+  if (fix.status === 'closed') return `${fix.finding_id}  ${fix.method}  closed: ${fix.reason}`;
   const lines = [`perch fix ${fix.id ?? fix.finding_id} (${fix.status})${fix.summary ? ` — ${fix.summary}` : ''}`, `  finding: ${fix.finding_id}  ${fix.method}  ${fix.path} @ ${short(fix.revision)}`];
   if (fix.status === 'ready') {
     const { kind, before, after } = fix.verification;

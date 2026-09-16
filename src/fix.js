@@ -16,7 +16,7 @@ import { flagged, huntStep, patchCheck, reachCheck, readPatchCheck, SURE } from 
 import { identity, openStore, readJson, writeJson } from './store.js';
 import { fixPrompt } from './prompts.js';
 import { describeCall, effortForAttempt } from './model.js';
-import { FAIL, OK, plainUi } from './ui.js';
+import { FAIL, NOTE, OK, plainUi } from './ui.js';
 
 export const PROTECTED_BRANCHES = ['main', 'master'];
 /** Paths with uncommitted changes, untracked files included. */
@@ -128,8 +128,14 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
   const finish = async (status, extra) => {
     Object.assign(fix, { status, completed_at: new Date().toISOString(), ...extra });
     await writeJson(fixPath, fix);
-    ui.say(`${status === 'ready' ? OK : FAIL} ${hunted.name}: fix ${status}${fix.error ? ` — ${fix.error.split('\n')[0]}` : ''}`);
+    const mark = status === 'ready' ? OK : status === 'closed' ? NOTE : FAIL;
+    ui.say(`${mark} ${hunted.name}: ${status === 'closed' ? `closed — ${fix.reason}` : `fix ${status}${fix.error ? ` — ${fix.error.split('\n')[0]}` : ''}`}`);
     return fix;
+  };
+  /** The finding is closed without a fix: System One no longer sees a reachable defect. Recorded so issues drops it. */
+  const close = async reason => {
+    await store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: id, method: finding.method, hash: finding.hash, revision, status: 'closed', attempts: 0, reason });
+    return finish('closed', { reason });
   };
   const pct = value => `${Math.round(value * 100)}%`;
   // The finding being fixed: the hunted one, or the fresh answers when the method changed since. Events carry its hash so the store attaches them to it.
@@ -149,8 +155,8 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
       await store.appendEvent(event);
       finding = event;
       if (!flagged(finding)) {
-        asking.note(`defect ${pct(finding.has_bug)}${finding.reachable !== undefined ? `, reachable ${pct(finding.reachable)}` : ''}; no longer an open defect`);
-        return await finish('rejected', { error: `after the change, ${systemOne.id} no longer sees a reachable defect (defect ${pct(finding.has_bug)}${finding.reachable !== undefined ? `, reachable ${pct(finding.reachable)}` : ''})` });
+        asking.note(`defect ${pct(finding.has_bug)}${finding.reachable !== undefined ? `, reachable ${pct(finding.reachable)}` : ''}`);
+        return await close(`no reachable defect in the method as it reads now (defect ${pct(finding.has_bug)}${finding.reachable !== undefined ? `, reachable ${pct(finding.reachable)}` : ''})`);
       }
       asking.ok(`still looks defective: ${finding.kind.kind.replaceAll('_', ' ')} ${pct(finding.has_bug)} at line ${finding.where.line}`);
       ui.say(`${finding.id}  ${finding.name}  ${finding.path}:${finding.where.line}  ${finding.kind.kind.replaceAll('_', ' ')} ${pct(finding.has_bug)}`);
@@ -165,10 +171,8 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
     const reachable = reachAnswers.reachable.noul;
     fix.reach_check = { reachable };
     if (reachable < SURE) {
-      const error = `the flagged defect is not clearly reachable (${pct(reachable)}); an earlier guard likely excludes it`;
-      reaching.fail(`reachable ${pct(reachable)}; discarding`);
-      await rejectedEvent(0, error);
-      return await finish('rejected', { error });
+      reaching.note(`reachable ${pct(reachable)}`);
+      return await close(`no caller can reach the flagged line (${pct(reachable)}); an earlier guard excludes it`);
     }
     reaching.ok(`reachable ${pct(reachable)}`);
     const language = languageOf(node.path);

@@ -78,6 +78,7 @@ export function openStore(out) {
       const applies = (work, finding) => work && (work.hash ? work.hash === finding.hash : work.revision === finding.revision || work.at >= finding.at);
       const summarize = (work, key) => (work.status === 'ready'
         ? { id: work[key], status: 'ready', at: work.at, summary: work.summary, commit: work.commit ?? null, branch: work.branch ?? null, patch_path: work.patch_path, before: work.before ?? null, after: work.after ?? null, verification: work.verification, proof: work.proof ?? null }
+        : work.status === 'closed' ? { id: work[key], status: 'closed', at: work.at, reason: work.reason }
         : { id: work[key], status: 'rejected', at: work.at, attempts: work.attempts, error: work.error });
       return [...latest.values()].map(finding => {
         const fix = fixes.get(finding.method), refactor = refactors.get(finding.method);
