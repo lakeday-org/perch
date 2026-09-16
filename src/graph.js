@@ -6,30 +6,36 @@ const normalize = path => posix.normalize(path).replace(/^\.\//, '');
 const parentDir = dir => (dir === '.' ? null : (dirname(dir) === '.' ? '.' : dirname(dir)));
 const ancestors = path => { const dirs = []; for (let dir = dirname(path); dir; dir = parentDir(dir)) dirs.push(dir); return dirs; };
 
-/** Resolve an import module specifier from one scanned file to another scanned path, or null. */
+/** Resolve a module specifier from a scanned file to the first existing normalized path, or null. Relative imports use the containing directory; unsupported or invalid specifiers return null without mutating paths. */
+const firstExisting = (paths, candidates) => candidates.map(normalize).find(path => paths.has(path)) ?? null;
+const resolvePython = (fromPath, module, paths) => {
+  const dots = module.length - module.replace(/^\.+/, '').length;
+  const rest = module.slice(dots).split('.').filter(Boolean).join('/');
+  const dirs = ancestors(fromPath), starts = dots ? [dirs[dots - 1]] : ['.', ...dirs];
+  if (dots && !starts[0]) return null;
+  return firstExisting(paths, starts.flatMap(start => rest ? [`${start}/${rest}.py`, `${start}/${rest}/__init__.py`] : [`${start}/__init__.py`]));
+};
+const resolveRust = (fromPath, module, paths) => {
+  const has = path => paths.has(normalize(path)), dir = dirname(fromPath), parts = module.split('::');
+  if (parts[0] === 'self') return fromPath;
+  if (parts[0] === 'super') { const parent = parentDir(dir) ?? '.'; return firstExisting(paths, [`${parent}/${parts.slice(1).join('/')}.rs`, `${parent}/${parts.slice(1).join('/')}/mod.rs`, `${parent}.rs`]); }
+  if (parts[0] === 'crate') {
+    const dirs = ancestors(fromPath), root = dirs.find(dir => has(`${dir}/src/lib.rs`) || has(`${dir}/src/main.rs`)) ?? ((dir => dir && parentDir(dir))(dirs.find(dir => dir.endsWith('/src') || dir === 'src')));
+    if (!root) return null;
+    const rest = parts.slice(1).join('/');
+    return firstExisting(paths, [`${root}/src/${rest}.rs`, `${root}/src/${rest}/mod.rs`, `${root}/${rest}.rs`, `${root}/${rest}/mod.rs`]);
+  }
+  const rest = parts.join('/');
+  return firstExisting(paths, [`${dir}/${rest}.rs`, `${dir}/${rest}/mod.rs`]);
+};
+/** Resolve a module specifier from a scanned file to the first existing normalized path, or null. Relative imports use the containing directory; unsupported or invalid specifiers return null without mutating paths. */
 export function resolveModule(fromPath, module, language, paths) {
-  const has = path => paths.has(normalize(path));
-  const first = list => list.map(normalize).find(path => paths.has(path)) ?? null;
-  const dir = dirname(fromPath);
-  if (language === 'python') {
-    const dots = module.match(/^\.*/)[0].length, rest = module.slice(dots).split('.').filter(Boolean).join('/');
-    const starts = dots ? [ancestors(fromPath)[dots - 1] ?? '.'] : ['.', ...ancestors(fromPath)];
-    return first(starts.flatMap(start => rest ? [`${start}/${rest}.py`, `${start}/${rest}/__init__.py`] : [`${start}/__init__.py`]));
-  }
-  if (language === 'rust') {
-    const segments = module.split('::');
-    if (segments[0] === 'self') return fromPath;
-    if (segments[0] === 'super') { const parent = parentDir(dir) ?? '.'; return first([`${parent}/${segments.slice(1).join('/')}.rs`, `${parent}/${segments.slice(1).join('/')}/mod.rs`, `${parent}.rs`]); }
-    if (segments[0] === 'crate') {
-      const root = ancestors(fromPath).find(dir => has(`${dir}/src/lib.rs`) || has(`${dir}/src/main.rs`)) ?? ancestors(fromPath).find(dir => dir.endsWith('/src') || dir === 'src');
-      const rest = segments.slice(1).join('/');
-      return root === undefined ? null : first([`${root}/src/${rest}.rs`, `${root}/src/${rest}/mod.rs`, `${root}/${rest}.rs`, `${root}/${rest}/mod.rs`]);
-    }
-    return first([`${dir}/${segments.join('/')}.rs`, `${dir}/${segments.join('/')}/mod.rs`]);
-  }
+  if (typeof module !== 'string') return null;
+  if (language === 'python') return resolvePython(fromPath, module, paths);
+  if (language === 'rust') return resolveRust(fromPath, module, paths);
   if (!module.startsWith('.')) return null;
-  const base = normalize(posix.join(dir, module)), stem = base.replace(/\.(js|mjs|cjs|jsx)$/, '');
-  return first([base, ...extensions.map(ext => `${stem}.${ext}`), ...extensions.map(ext => `${base}/index.${ext}`)]);
+  const base = normalize(posix.join(dirname(fromPath), module)), stem = base.replace(/\.(js|mjs|cjs|jsx)$/, '');
+  return firstExisting(paths, [base, ...extensions.map(ext => `${stem}.${ext}`), ...extensions.map(ext => `${base}/index.${ext}`)]);
 }
 
 export function buildGraph(files) {
