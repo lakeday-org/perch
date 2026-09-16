@@ -208,7 +208,7 @@ export async function runRefactorQueue({ root, out, path = null, budget = DEFAUL
   const candidates = refactorCandidates(scan, { path, min }).filter(method => !done.has(refactorIdentity({ method, model: model.id })));
   const selected = candidates.slice(0, budget);
   const fixes = [];
-  ui.say(`${candidates.length} ${candidates.length === 1 ? 'method' : 'methods'} at risk ${min} or more${path ? ` under ${path}` : ''}; working ${selected.length}`);
+  ui.say(`${candidates.length} ${candidates.length === 1 ? 'method' : 'methods'}${min ? ` at risk ${min} or more` : ''}${path ? ` under ${path}` : ''}, riskiest first; working ${selected.length}`);
   for (const [index, method] of selected.entries()) {
     ui.say(`\n[${index + 1}/${selected.length}]`);
     try { fixes.push(await runRefactor({ method, root, out, model, systemOne, analyzer, shell, ui, log, debug })); }

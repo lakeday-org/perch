@@ -64,7 +64,7 @@ changes; a rejected attempt leaves the checkout exactly as it was.
 | `--budget N` | Stop after N methods questioned (`hunt`) or N findings worked (`fix`, `refactor`) (default 20). |
 | `--parallel N` | How many methods to question at once (default 8). |
 | `--force` | Question every method again, even ones unchanged since an earlier hunt. |
-| `--min N` | `issues` and `fix`: only methods the model rates at N percent or more (default 50). `refactor`: only methods with a risk score of N or more (default 70). |
+| `--min N` | `issues` and `fix`: only methods the model rates at N percent or more (default 50). `refactor`: only methods with a risk score of N or more; default 70 for the whole repository, while a named path takes every method in it, riskiest first. |
 | `--all` | List every row instead of the top 10 (`scan`, `hunt`, `issues`, `report`). |
 | `--closed` | Include closed findings on `issues` (every attempt to fix them was rejected). |
 | `--model M` | OpenAI model for `fix` and `refactor` (default `gpt-5.6-luna`, or `OPENAI_MODEL`). Code is always questioned with `jev-latest`. |

@@ -21,7 +21,7 @@ const options = {
   force: ['--force', 'Question every method again, even ones unchanged since an earlier hunt', ['hunt']],
   all: ['--all', 'List every row instead of the top 10', ['scan', 'hunt', 'issues', 'report']],
   closed: ['--closed', 'Include closed findings (every attempt to fix them was rejected)', ['issues']],
-  min: ['--min N', `Only list or fix methods the model rates at N percent or more (default 50); for refactor, only methods with a risk score of N or more (default ${DEFAULT_MIN_RISK})`, ['issues', 'fix', 'refactor']],
+  min: ['--min N', `Only list or fix methods the model rates at N percent or more (default 50); for refactor, only methods with a risk score of N or more (default ${DEFAULT_MIN_RISK} for the whole repository; a named path takes every method in it)`, ['issues', 'fix', 'refactor']],
   model: ['--model M', `OpenAI model id (default ${DEFAULT_MODEL}, or $OPENAI_MODEL)`, ['fix', 'refactor']],
   effort: ['--effort E', `Reasoning effort for every OpenAI call: ${EFFORTS.join(', ')} (default ${DEFAULT_EFFORT}); System One does the judging, so the generator rarely needs to think`, ['fix', 'refactor']],
   out: ['--out DIR', 'Results directory (default .perch in the current repository)', ['scan', 'hunt', 'fix', 'refactor', 'issues', 'report']],
@@ -180,11 +180,12 @@ const commands = {
   async refactor(io) {
     if (io.argument && looksLikeId(io.argument)) throw new UsageError('refactor takes a path, not a finding id; it works from the scan, not the hunt');
     const budget = positiveInteger('--budget', io.flags.budget, DEFAULT_BUDGET);
-    const min = threshold(io.flags.min, DEFAULT_MIN_RISK);
+    // A named path means "improve this": every method in it, riskiest first, unless --min says otherwise. The repo-wide sweep keeps the threshold.
+    const min = io.flags.min !== undefined ? threshold(io.flags.min) : io.argument ? 0 : DEFAULT_MIN_RISK;
     const { shared } = await workers(io);
     const root = await repoRoot(process.cwd());
     const batch = await runRefactorQueue({ root, path: io.argument ?? null, budget, min, ...shared });
-    if (io.argument && !batch.open && !batch.fixes.length) throw new Error(`no methods at risk ${min} or more under ${io.argument}; perch scan --all shows the scores`);
+    if (io.argument && !batch.open && !batch.fixes.length) throw new Error(`no methods under ${io.argument}${min ? ` at risk ${min} or more` : ''}; perch scan --all shows the files`);
     print(io, batch, formatFixes(batch));
   },
   async issues(io) {

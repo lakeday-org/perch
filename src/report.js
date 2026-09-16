@@ -126,7 +126,7 @@ export function formatFixes(batch) {
   const refactor = batch.kind === 'refactor';
   const noun = refactor ? 'methods' : 'defects';
   const stale = batch.stale ? ` ${batch.stale} ${batch.stale === 1 ? 'finding is' : 'findings are'} for methods that no longer exist under that name; hunt again to see what replaced them.` : '';
-  if (!batch.fixes.length) return refactor ? `No methods at risk ${batch.min ?? '?'} or more left to refactor${batch.open === 0 ? '' : ' in that path'}.` : `No open defects to fix.${stale}`;
+  if (!batch.fixes.length) return refactor ? `No methods${batch.min ? ` at risk ${batch.min} or more` : ''} left to refactor.` : `No open defects to fix.${stale}`;
   const left = batch.remaining ? `, ${batch.remaining} left` : '';
   const committed = batch.fixes.filter(fix => fix.status === 'ready').length;
   return [`${refactor ? 'Simplified' : 'Investigated'} ${batch.fixes.length} ${noun} (budget ${batch.budget}${left}); ${committed} committed.${stale}`, ...batch.fixes.flatMap(fix => ['', formatFix(fix)])].join('\n');
