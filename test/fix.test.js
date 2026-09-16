@@ -155,7 +155,10 @@ describe('perch fix', () => {
     await writeFile(join(repo.root, 'src', 'clamp.js'), buggySource.replace('  if (v > hi) return v;', '  // upper bound\n  if (v > hi) return v;'));
     await commitAll(repo.root, 'touch clamp');
     const lines = [];
-    const systemOne = scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.85, where: 'L0004', kind_wrong_return: 0.8 } });
+    // The re-question (questions, then reachability) answers with the fresh finding; the patch check afterwards answers with the defaults.
+    const fresh = scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.85, where: 'L0004', kind_wrong_return: 0.8 } }), plain = scriptedSystemOne();
+    let calls = 0;
+    const systemOne = { id: 'scripted-jev', calls: fresh.calls, ask: (state, questions) => (++calls <= 2 ? fresh : plain).ask(state, questions) };
     const fix = await runFix(fixOptions(repo, finding, { systemOne, ui: createUi({ live: false, log: text => lines.push(text) }) }));
     expect(fix.status).toBe('ready');
     expect(lines.some(line => /^✓ scripted-jev re-reading clamp, changed since the hunt — still looks defective: wrong return 85% at line 4/.test(line))).toBe(true);
