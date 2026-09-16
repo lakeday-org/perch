@@ -229,6 +229,88 @@ interface MutableHotspot extends StructureHotspot {
   index: number;
 }
 
+function effectiveAncestorsFor(
+  node: Node,
+  ancestors: number[],
+  branches: MutableHotspot[],
+): number[] {
+  const previous = ancestors.at(-1);
+  const isConditional =
+    node.type === "if_statement" || node.type === "if_expression" || node.type === "elif_clause";
+  const previousIsConditional =
+    previous !== undefined &&
+    branches[previous]?.node_type !== undefined &&
+    ["if_statement", "if_expression", "elif_clause"].includes(branches[previous].node_type);
+
+  return previousIsConditional && isConditional && isElseIf(node)
+    ? ancestors.slice(0, -1)
+    : ancestors;
+}
+
+function addBranch(
+  node: Node,
+  ancestors: number[],
+  branches: MutableHotspot[],
+): { ancestors: number[]; decisions: number; nesting: number } {
+  if (!CONTROL_NODE_TYPES.has(node.type)) {
+    return { ancestors, decisions: 0, nesting: 0 };
+  }
+
+  const index = branches.length;
+  const nesting = ancestors.length + 1;
+  const counts = countsAsDecision(node);
+  const guard = hasMatchGuard(node) ? 1 : 0;
+  const decisions = (counts ? 1 : 0) + guard;
+  const hotspot: MutableHotspot = {
+    index,
+    type: BRANCH_LABELS[node.type] ?? node.type,
+    node_type: node.type,
+    line: node.startPosition.row + 1,
+    end_line: Math.max(
+      node.startPosition.row + 1,
+      node.endPosition.row + (node.endPosition.column > 0 ? 1 : 0),
+    ),
+    nesting,
+    counts_toward_cyclomatic: counts,
+    guard_branches: guard,
+    subtree_branches: decisions,
+    subtree_control_nodes: 1,
+    subtree_logical_branches: 0,
+    subtree_max_nesting: nesting,
+  };
+  branches.push(hotspot);
+
+  for (const parent of ancestors) {
+    branches[parent].subtree_branches += decisions;
+    branches[parent].subtree_control_nodes += 1;
+    branches[parent].subtree_max_nesting = Math.max(
+      branches[parent].subtree_max_nesting,
+      nesting,
+    );
+  }
+
+  return { ancestors: [...ancestors, index], decisions, nesting };
+}
+
+function addLogicalBranch(node: Node, ancestors: number[], branches: MutableHotspot[]): number {
+  if (!isLogical(node)) return 0;
+  for (const parent of ancestors) {
+    branches[parent].subtree_logical_branches += 1;
+  }
+  return 1;
+}
+
+function hotspotComparator(left: MutableHotspot, right: MutableHotspot): number {
+  return (
+    right.subtree_branches - left.subtree_branches ||
+    right.subtree_logical_branches - left.subtree_logical_branches ||
+    right.subtree_control_nodes - left.subtree_control_nodes ||
+    right.nesting - left.nesting ||
+    left.line - right.line ||
+    left.end_line - right.end_line
+  );
+}
+
 export function measureComplexity(
   root: Node,
   language: string,
@@ -241,83 +323,26 @@ export function measureComplexity(
   let decisionCount = 0;
   let maxNesting = 0;
   const stack: Array<{ node: Node; ancestors: number[] }> = [{ node: root, ancestors: [] }];
+
   while (stack.length > 0) {
     const item = stack.pop();
     if (!item) continue;
     const { node, ancestors } = item;
     if (node !== root && excludeNested && isFunction(node)) continue;
 
-    let effectiveAncestors = ancestors;
-    const previous = ancestors.at(-1);
-    if (
-      previous !== undefined &&
-      (node.type === "if_statement" || node.type === "if_expression" || node.type === "elif_clause") &&
-      isElseIf(node) &&
-      branches[previous]?.node_type !== undefined &&
-      ["if_statement", "if_expression", "elif_clause"].includes(branches[previous].node_type)
-    ) {
-      effectiveAncestors = ancestors.slice(0, -1);
-    }
+    const effectiveAncestors = effectiveAncestorsFor(node, ancestors, branches);
+    const branch = addBranch(node, effectiveAncestors, branches);
+    decisionCount += branch.decisions;
+    maxNesting = Math.max(maxNesting, branch.nesting);
+    logicalCount += addLogicalBranch(node, effectiveAncestors, branches);
 
-    let branchAncestors = effectiveAncestors;
-    if (CONTROL_NODE_TYPES.has(node.type)) {
-      const index = branches.length;
-      const nesting = effectiveAncestors.length + 1;
-      const counts = countsAsDecision(node);
-      const guard = hasMatchGuard(node) ? 1 : 0;
-      const branchDecisions = (counts ? 1 : 0) + guard;
-      decisionCount += branchDecisions;
-      const hotspot: MutableHotspot = {
-        index,
-        type: BRANCH_LABELS[node.type] ?? node.type,
-        node_type: node.type,
-        line: node.startPosition.row + 1,
-        end_line: Math.max(
-          node.startPosition.row + 1,
-          node.endPosition.row + (node.endPosition.column > 0 ? 1 : 0),
-        ),
-        nesting,
-        counts_toward_cyclomatic: counts,
-        guard_branches: guard,
-        subtree_branches: branchDecisions,
-        subtree_control_nodes: 1,
-        subtree_logical_branches: 0,
-        subtree_max_nesting: nesting,
-      };
-      branches.push(hotspot);
-      for (const parent of effectiveAncestors) {
-        branches[parent].subtree_branches += branchDecisions;
-        branches[parent].subtree_control_nodes += 1;
-        branches[parent].subtree_max_nesting = Math.max(
-          branches[parent].subtree_max_nesting,
-          nesting,
-        );
-      }
-      maxNesting = Math.max(maxNesting, nesting);
-      branchAncestors = [...effectiveAncestors, index];
-    }
-
-    if (isLogical(node)) {
-      logicalCount += 1;
-      for (const parent of effectiveAncestors) {
-        branches[parent].subtree_logical_branches += 1;
-      }
-    }
     for (const child of children(node)) {
-      stack.push({ node: child, ancestors: branchAncestors });
+      stack.push({ node: child, ancestors: branch.ancestors });
     }
   }
 
   const structure_hotspots = branches
-    .sort(
-      (left, right) =>
-        right.subtree_branches - left.subtree_branches ||
-        right.subtree_logical_branches - left.subtree_logical_branches ||
-        right.subtree_control_nodes - left.subtree_control_nodes ||
-        right.nesting - left.nesting ||
-        left.line - right.line ||
-        left.end_line - right.end_line,
-    )
+    .sort(hotspotComparator)
     .slice(0, 24)
     .map(({ index: _index, ...hotspot }) => hotspot);
 
