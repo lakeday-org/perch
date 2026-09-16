@@ -48,6 +48,18 @@ describe('cli', () => {
     expect(err.at(-1)).toContain('--effort must be one of none, low, medium, high, xhigh, max');
   });
 
+  it('refuses a flag the command does not take, and names the command that does', async () => {
+    const { err, io } = capture();
+    expect(await main(['scan', '--filter', 'type=security'], io)).toBe(2);
+    expect(err.at(-1)).toContain('perch scan does not take --filter; it belongs to findings, fix');
+    expect(err.at(-1)).toContain('perch scan: Find issues');
+    expect(await main(['scan', '--budget', '5'], io)).toBe(2);
+    expect(err.at(-1)).toContain('perch scan does not take --budget; it belongs to fix');
+    // An alias is checked against the command it resolves to, and a flag both commands take is fine.
+    expect(await main(['issues', '--force'], io)).toBe(2);
+    expect(err.at(-1)).toContain('perch findings does not take --force; it belongs to scan');
+  });
+
   it('needs a TypeSafe key for scan and an OpenAI key for fix, but none for issues', async () => {
     const repo = await makeFixture();
     cleanups.push(repo);
@@ -88,6 +100,14 @@ describe('cli', () => {
     expect(out.at(-1)).toContain('perch findings: List what the scan found');
     expect(await main(['findings', '--types'], io)).toBe(0);
     expect(out.at(-1)).toContain('severity\n  P3\n  P2\n  P1\n  P0');
+    // fix filters on the same vocabulary, so it lists the same values, and reads a bad clause the same way.
+    expect(await main(['fix', '--types'], io)).toBe(0);
+    expect(out.at(-1)).toContain('severity\n  P3\n  P2\n  P1\n  P0');
+    expect(await main(['fix', '--filter', 'issue=p1'], io)).toBe(2);
+    expect(err.at(-1)).toContain('unknown filter "issue"; filter on type, kind, severity');
+    // fix filters on the same vocabulary, so it lists the same values without needing a key.
+    expect(await main(['fix', '--types'], io)).toBe(0);
+    expect(out.at(-1)).toContain('severity\n  P3\n  P2\n  P1\n  P0');
   });
 
   it('lists the issues a scan found, from the results directory', async () => {
@@ -116,6 +136,30 @@ describe('cli', () => {
     expect(out.at(-1)).toBe('Nothing matches.');
     expect(await main(['issues', '--out', repo.out, '--json'], io)).toBe(0);
     expect(JSON.parse(out.at(-1))[0].id).toBe(f.id);
+  });
+
+  it('ranks a filtered list by the problem that was filtered for', async () => {
+    const repoRoot = await makeGraphFixture();
+    cleanups.push(repoRoot);
+    const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
+    // f is the heavier method overall; h is the one that is probably injectable.
+    const hunt = await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne({
+      'src/a.js::f': { has_bug: 0.9, exposed: 0.9, security_injection: 0.1 },
+      'src/b.js::h': { has_bug: 0.1, exposed: 0.9, security_injection: 0.95 },
+    }) }));
+    const f = hunt.visited.find(visit => visit.method === 'src/a.js::f').id;
+    const h = hunt.visited.find(visit => visit.method === 'src/b.js::h').id;
+    const { out, io } = capture();
+    const idsOf = text => text.split('\n').slice(1).map(row => row.slice(0, 8));
+
+    expect(await main(['findings', '--out', repo.out], io)).toBe(0);
+    expect(idsOf(out.at(-1))[0]).toBe(f);
+    // Filtering for injection puts the likeliest injection first, not the method carrying the most of everything else.
+    expect(await main(['findings', '--filter', 'kind=injection', '--out', repo.out], io)).toBe(0);
+    expect(idsOf(out.at(-1))[0]).toBe(h);
+    // Filtering on what f leads with puts f back on top.
+    expect(await main(['findings', '--filter', 'type=defect', '--out', repo.out], io)).toBe(0);
+    expect(idsOf(out.at(-1))[0]).toBe(f);
   });
 
   it('bundles with esbuild into a loadable module', async () => {

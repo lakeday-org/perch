@@ -170,6 +170,26 @@ export function matchesFilters(finding, filters, min = 0.5) {
   return true;
 }
 
+/**
+ * How sure the filter is about a finding it kept: clauses on one key are alternatives, so the likeliest of them speaks for the
+ * key, and clauses on different keys must all hold, so they multiply. `--filter type=security` then ranks by the chance the
+ * method really is vulnerable rather than by whatever else it happens to be carrying. Unfiltered, there is nothing to rank by.
+ */
+export function filterStrength(finding, filters) {
+  if (!filters.length) return null;
+  const issues = issuesOf(finding);
+  const byKey = new Map();
+  for (const { key, value } of filters) byKey.set(key, [...(byKey.get(key) ?? []), value]);
+  let joint = 1;
+  for (const [key, values] of byKey) {
+    const likeliest = key === 'severity'
+      ? (values.includes(canon(severityName(finding.severity))) ? (severityOf(finding.severity)?.probability ?? 1) * (finding.has_bug ?? 0) : 0)
+      : issues.filter(issue => values.includes(key === 'type' ? issue.type : canon(issue.label))).reduce((top, issue) => Math.max(top, issue.probability), 0);
+    joint *= likeliest;
+  }
+  return joint;
+}
+
 export const isDesign = issue => issue.type !== 'defect' && issue.type !== 'security';
 /** A hunted method is flagged when it carries a reachable defect at `min`. */
 export const flagged = (answers, min = 0) => issuesOf(answers, min).some(issue => !isDesign(issue));

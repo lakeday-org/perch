@@ -8,7 +8,7 @@ import { createSourceAnalyzer } from './analysis.js';
 import { openStore, resolveOut } from './store.js';
 import { analyzeTree } from './scan.js';
 import { DEFAULT_FIX_BUDGET, DEFAULT_PARALLEL, scanRepository } from './hunt.js';
-import { matchesFilters, parseFilters } from './questions.js';
+import { filterStrength, matchesFilters, parseFilters } from './questions.js';
 import { fixIssues, fixMethod, splitStale, underPath } from './fix.js';
 import { createMeter, metered } from './meter.js';
 import { createShell } from './shell.js';
@@ -24,12 +24,12 @@ const options = {
   closed: ['--closed', 'Include closed issues (worked and given up on, or nothing left to do)', ['findings']],
   min: ['--min P', 'Only methods expected to have more than P problems, on a scale where one certain issue is 100 (default 0: everything, ranked)', ['findings', 'fix']],
   filter: ['--filter k=v', 'Only issues matching, e.g. type=security, kind=too big, severity=P1 (comma-separated)', ['findings', 'fix']],
-  types: ['--types', 'Print everything --filter accepts and stop', ['findings']],
+  types: ['--types', 'Print everything --filter accepts and stop', ['findings', 'fix']],
   model: ['--model M', `OpenAI model (default ${DEFAULT_MODEL}, or $OPENAI_MODEL)`, ['fix']],
   effort: ['--effort E', `Reasoning effort: ${EFFORTS.join(', ')} (default ${DEFAULT_EFFORT})`, ['fix']],
   out: ['--out DIR', 'Results directory (default .perch)', ['scan', 'findings', 'fix']],
   json: ['--json', 'Print JSON instead of a summary', ['scan', 'findings', 'fix']],
-  verbose: ['--verbose', 'Show every file, method, model call, and command', ['scan', 'fix']],
+  verbose: ['--verbose', 'Show every file, method, model call, and command', ['scan', 'findings', 'fix']],
 };
 
 /** Older names that still work. */
@@ -38,7 +38,7 @@ const ALIASES = { issues: 'findings' };
 const commandHelp = {
   scan: { args: '[target]', summary: 'Find issues', detail: 'Scores every method with tree-sitter, then reads them with System One (callers and callees in view). The first scan reads every method; later ones only what changed (--force rereads all). Needs TYPESAFE_API_KEY. target is a directory, owner/repo, or a GitHub URL.' },
   findings: { args: '[finding-id]', summary: 'List what the scan found, or show one', detail: 'Lists open findings at --min or more, strongest first. --filter narrows them (--types prints what it accepts), --closed includes closed ones, --all lists every row. With a finding id, everything known about that method. perch issues is an older name for this command.' },
-  fix: { args: '[finding-id | path]', summary: 'Fix open issues, one commit each', detail: 'Works open issues, most serious first, up to --budget; with a path, only under that path; with a finding id, that one; --filter narrows which ones. An OpenAI agent rewrites each method and must pass measure, rescan, and run_tests before submit. Commits on the current branch; refuses main/master. Needs OPENAI_API_KEY and TYPESAFE_API_KEY.' },
+  fix: { args: '[finding-id | path]', summary: 'Fix open issues, one commit each', detail: 'Works open issues, most serious first, up to --budget; with a path, only under that path; with a finding id, that one; --filter narrows which ones and works the surest match first (--types prints what it accepts). An OpenAI agent rewrites each method and must pass measure, rescan, and run_tests before submit. Commits on the current branch; refuses main/master. Needs OPENAI_API_KEY and TYPESAFE_API_KEY.' },
 };
 
 /** Wrap prose at 80 columns. */
@@ -101,11 +101,23 @@ export function parseArgs(argv) {
 
 class UsageError extends Error {}
 
+/** A flag the command does not take is a mistake, not something to ignore: the parser accepts every flag, so this is where they are checked. */
+function checkFlags(flags, commandName) {
+  for (const key of Object.keys(flags)) {
+    if (key === 'help') continue;
+    const verbs = options[key]?.[2];
+    if (!verbs?.includes(commandName)) throw new UsageError(`perch ${commandName} does not take --${key}${verbs ? `; it belongs to ${verbs.join(', ')}` : ''}`);
+  }
+}
+
 const parsePaths = flags => flags.paths ? flags.paths.split(',').map(path => path.trim()).filter(Boolean) : [];
 const modelFrom = ({ flags, env, log }) => { if (flags.effort !== undefined && !EFFORTS.includes(flags.effort)) throw new UsageError(`--effort must be one of ${EFFORTS.join(', ')}`); return createModel({ apiKey: env.OPENAI_API_KEY, model: flags.model || env.OPENAI_MODEL || DEFAULT_MODEL, effort: flags.effort ?? null, baseUrl: env.OPENAI_BASE_URL || undefined, log }); };
 const storeFrom = async flags => openStore(await resolveOut(flags.out));
 /** `--filter type=security,severity=P1` as tests a finding must pass; a bad clause is a usage error naming the real values. */
 const filtersFrom = flags => { try { return parseFilters(flags.filter ?? ''); } catch (error) { throw new UsageError(error.message); } };
+/** The findings a filter keeps, the surest match first: filtering for one kind of problem should rank by that problem, not by whatever else the method carries. With no filter the scan's own ranking stands. */
+const narrow = (findings, filters, min) => findings.filter(finding => matchesFilters(finding, filters, min))
+  .sort((a, b) => filters.length ? filterStrength(b, filters) - filterStrength(a, filters) : 0);
 const threshold = (value, fallback = 0) => { const min = value === undefined ? fallback : Number(value); if (!(min >= 0)) throw new UsageError('--min must be a number of expected problems, 0 or more, where one certain issue is 100'); return min; };
 const positiveInteger = (flag, value, fallback) => { const number = value === undefined ? fallback : Number(value); if (!Number.isInteger(number) || number < 1) throw new UsageError(`${flag} must be a positive integer`); return number; };
 const print = (io, record, text) => io.stdout(io.flags.json ? JSON.stringify(record, null, 2) : text);
@@ -161,14 +173,17 @@ const commands = {
     const min = threshold(io.flags.min);
     const filters = filtersFrom(io.flags);
     const { findings: all } = await openIssues(store, min, io);
-    const findings = all.filter(finding => matchesFilters(finding, filters, min / 100));
+    const findings = narrow(all, filters, min / 100);
     const closed = Boolean(io.flags.closed);
     print(io, visibleFindings(findings, { closed }), formatIssues(findings, min / 100, shown(io), { closed }));
   },
   /** Work the open issues in the checkout the scan ran in; a path narrows them, a finding id names one. */
   async fix(io) {
+    if (io.flags.types) { io.stdout(formatFilterKeys()); return; }
     const budget = positiveInteger('--budget', io.flags.budget, DEFAULT_FIX_BUDGET);
     const min = threshold(io.flags.min);
+    // Read the filter before anything is built: a clause that names nothing is a mistake to correct, not a missing API key.
+    const filters = filtersFrom(io.flags);
     const model = modelFrom(io);
     const systemOne = createSystemOne({ apiKey: io.env.TYPESAFE_API_KEY, log: io.debug });
     const store = await storeFrom(io.flags);
@@ -180,9 +195,8 @@ const commands = {
       print(io, record, formatFix(record));
       return;
     }
-    const filters = filtersFrom(io.flags);
     const { findings: all, root } = await openIssues(store, min, io);
-    const findings = underPath(all, io.argument).filter(finding => matchesFilters(finding, filters, min / 100));
+    const findings = narrow(underPath(all, io.argument), filters, min / 100);
     if (!findings.length) throw new Error(`nothing to fix${io.argument ? ` under ${io.argument}` : ''}${filters.length ? ' matching that filter' : ''}; perch findings lists what is open`);
     const batch = await fixIssues({ findings, budget, root: root ?? await repoRoot(process.cwd()), ...shared });
     print(io, batch, formatFixes(batch));
@@ -206,6 +220,8 @@ export async function main(argv, { stdout = text => process.stdout.write(text + 
   const command = commands[commandName];
   if (flags.help || commandName === 'help') { stdout(command ? usageFor(commandName) : usage); return 0; }
   if (!command) { stderr(`perch: unknown command ${typed}\n${usage}`); return 2; }
+  try { checkFlags(flags, commandName); }
+  catch (error) { stderr(`perch: ${error.message}\n${usageFor(commandName)}`); return 2; }
   const verbose = Boolean(flags.verbose);
   const log = message => { if (verbose || !flags.json) stderr(`[perch] ${message}`); };
   const debug = message => { if (verbose) stderr(`[perch] ${message}`); };
