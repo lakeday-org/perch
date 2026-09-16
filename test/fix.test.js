@@ -10,6 +10,7 @@ import { huntAnswers } from '../src/prompts.js';
 import { createMeter, money } from '../src/meter.js';
 import { createShell } from '../src/shell.js';
 import { openStore } from '../src/store.js';
+import { ANSWERS_VERSION } from '../src/questions.js';
 import { formatFinding, formatFix, formatFixes, formatIssues } from '../src/report.js';
 import { createUi } from '../src/ui.js';
 import { buggySource, commitAll, documentedSource, fixedMethod, fixedSource, fixtureOptions, leanerSource, makeFixture, scriptedModel, scriptedSystemOne } from './helpers.js';
@@ -82,17 +83,26 @@ describe('perch fix', () => {
     expect(total).toMatch(/^total +\$0\.07$/);
   });
 
+  it('clears an issue below 40% and only counts a new one above 60%', () => {
+    const at = (type, probability) => ({ type, label: type, probability, text: `${type} ${Math.round(probability * 100)}%` });
+    // Read at CLEARED, so anything still listed here is still standing.
+    expect(improvement([at('refactor', 0.63)], [at('refactor', 0.45)])).toEqual(['refactor is still open (refactor 63% -> refactor 45%)']);
+    expect(improvement([at('refactor', 0.63)], [])).toEqual([]);
+    // A reading that wanders just over the listing threshold is the same reading, not a regression the rewrite caused.
+    expect(improvement([at('refactor', 0.8)], [at('defect', 0.54)])).toEqual([]);
+    expect(improvement([at('refactor', 0.8)], [at('defect', 0.61)])).toEqual(['new issue: defect 61%']);
+  });
+
   it('lets a split cost a few lines but refuses a rewrite that inflates the file', () => {
     const base = { risk_score: 100, cyclomatic_complexity: 139, max_nesting: 7, sloc: 319 };
-    expect(fileBudget(base)).toEqual({ risk_score: 105, cyclomatic_complexity: 146, sloc: 351 });
+    expect(fileBudget(base)).toEqual({ cyclomatic_complexity: 146, sloc: 351 });
     expect(fileObjections(base, { ...base, sloc: 340, cyclomatic_complexity: 142 })).toEqual([]);
     // The run that started this: the method's own score improved while the file grew by a third.
     expect(fileObjections(base, { ...base, cyclomatic_complexity: 142, sloc: 436 })).toEqual(['the file grows too much, 319 -> 436 lines, and 351 is the most this fix may leave']);
     expect(fileObjections(base, { ...base, cyclomatic_complexity: 160 })).toEqual(['the file\'s complexity goes up too far, 139 -> 160, and 146 is the most this fix may leave']);
-    // A real split of a small method costs a signature and a return, and that is allowed.
+    // Extracting a helper raises a small file's risk on its own, and that must not block the split "too big" asks for.
     const small = { risk_score: 26.47, cyclomatic_complexity: 3, max_nesting: 1, sloc: 5 };
-    expect(fileObjections(small, { risk_score: 30.2, cyclomatic_complexity: 3, max_nesting: 1, sloc: 8 })).toEqual([]);
-    expect(fileObjections(small, { ...small, risk_score: 40 })).toEqual(["the file's risk goes up too far, 26 -> 40, and 31 is the most this fix may leave"]);
+    expect(fileObjections(small, { risk_score: 40, cyclomatic_complexity: 3, max_nesting: 1, sloc: 12 })).toEqual([]);
   });
 
   it('insists the note is prose a reviewer can read', () => {
@@ -231,6 +241,21 @@ describe('perch fix', () => {
     const model = scriptedModel({ fix: () => proposal(fixedMethod, 'Return hi above the range') });
     const worked = await fixMethod(options(repo, { ...unread, hash: undefined }, { model, systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.7, where: 'L0003', kind_wrong_return: 0.7 } }) }));
     expect(['ready', 'rejected']).toContain(worked.status);
+  });
+
+  it('reads a method again when its answers predate the question set', async () => {
+    // Answers from an older set cannot hold a kind that did not exist yet, so every rewrite would look as though it
+    // introduced one and nothing the model wrote could pass. The finding is read again before it is worked.
+    const { repo, finding } = await scanned();
+    const { lines, ui } = captured();
+    // The re-reading and the reachability check see the defect; the rescan over the rewrite sees it gone.
+    const fresh = scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.9, where: 'L0003', kind_wrong_return: 0.9, severe_normal_use: 0.8 } }), clean = scriptedSystemOne();
+    let asked = 0;
+    const systemOne = { id: 'scripted-jev', calls: fresh.calls, ask: (state, questions) => (++asked <= 2 ? fresh : clean).ask(state, questions) };
+    const fix = await fixMethod(options(repo, { ...finding, answers_version: 1 }, { ui, systemOne }));
+    expect(lines.some(line => /^✓ scripted-jev reading clamp, answered before the questions changed/.test(line))).toBe(true);
+    if (fix.status !== 'ready') throw new Error(`${fix.status}: ${fix.error ?? fix.reason}`);
+    expect((await openStore(repo.out).readEvents()).filter(event => event.type === 'hunted').at(-1).answers_version).toBe(ANSWERS_VERSION);
   });
 
   it('refuses submit for source the verifiers have not passed, and lets the model recover from a rejection in the same run', async () => {

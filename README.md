@@ -67,7 +67,7 @@ while a run is in progress aborts the run.
 | `--all` | List every row instead of the top 10. |
 | `--closed` | Include closed issues. |
 | `--model M` | OpenAI model for `fix` (default `gpt-5.6-luna`, or `OPENAI_MODEL`). Code is always read and judged with `jev-latest`. |
-| `--effort E` | Reasoning effort for the OpenAI model's run: `none`, `low`, `medium`, `high`, `xhigh`, `max` (default `max`). |
+| `--effort E` | Reasoning effort for the OpenAI model's run: `none`, `low`, `medium`, `high`, `xhigh`, `max` (default `medium`). |
 | `--out DIR` | Results directory, default `<repo root>/.perch` (`./.perch` for GitHub targets). |
 | `--json` | Print the record instead of the summary. |
 | `--verbose` | Show every file analyzed, method read or skipped, model call, and command run. |
@@ -209,11 +209,11 @@ as a trace, with the tokens each model used and what they cost.
    wrong, the model's notes, the metrics that actually moved, the tests that
    passed, and the cost.
 
-Reasoning effort is `max` by default (`--effort` lowers it) and held constant
-through the run, since the prompt cache is keyed on it. Tools are called one per
-turn and a single verified attempt already costs five, so a run is given forty
-turns before it is cut off: enough to correct itself several times rather than
-stop mid-fix. A rejected run leaves the checkout as it was, and a method
+Reasoning effort is `medium` by default (`--effort` raises or lowers it) and held constant
+through the run, since the prompt cache is keyed on it. Several tools may be
+called in one turn and they run in the order given, so one attempt need not cost
+five turns. Forty turns is the backstop; a run ends itself once the rescans or
+the test runs are spent with nothing passing. A rejected run leaves the checkout as it was, and a method
 already worked by the same model is not retried until it changes.
 
 How the project runs its tests is discovered from the tree at `HEAD`: candidate

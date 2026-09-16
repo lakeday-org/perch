@@ -56,7 +56,7 @@ describe('model', () => {
     expect(run.trace.filter(event => event.type === 'message')).toHaveLength(2);
   });
 
-  it('retries 429 and 5xx responses with backoff, then fails, and uses max effort by default', async () => {
+  it('retries 429 and 5xx responses with backoff, then fails, and reasons at medium by default', async () => {
     const tools = [tool('submit', 'Finish.', { source: { type: 'string' } }, async () => ({ ok: true, done: true }))];
     const slept = [];
     const { fetchImpl, requests } = fakeFetch((body, n) => n === 1 ? json({ error: 'slow down' }, 429, { 'retry-after': '1' }) : n === 2 ? json({ error: 'oops' }, 503) : json(completed([call(1, 'submit', { source: 's' })])));
@@ -64,7 +64,9 @@ describe('model', () => {
     expect(run.done).toBe(true);
     expect(requests).toHaveLength(3);
     expect(slept).toEqual([1000, 2]);
-    expect(requests[2].body.reasoning).toEqual({ effort: 'max' });
+    expect(requests[2].body.reasoning).toEqual({ effort: 'medium' });
+    // Several checks of the same source belong in one turn; the handlers run in the order the model gives them.
+    expect(requests[2].body.parallel_tool_calls).toBe(true);
     const always = fakeFetch(() => json({ error: 'busy' }, 429));
     await expect(createModel({ ...options, fetchImpl: always.fetchImpl }).run({ prompt: 'x', tools })).rejects.toThrow('HTTP 429');
     expect(always.requests).toHaveLength(4);

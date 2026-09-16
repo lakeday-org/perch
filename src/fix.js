@@ -13,7 +13,7 @@ import { formatFix, visibleFindings } from './report.js';
 import { languageOf } from './analysis.js';
 import { analyzeTree } from './scan.js';
 import { buildGraph, resolveModule } from './graph.js';
-import { huntStep, isDesign, issuesOf, reachCheck, SURE } from './questions.js';
+import { ANSWERS_VERSION, huntStep, isDesign, issuesOf, reachCheck, SURE } from './questions.js';
 import { identity, openStore, readJson, sha256, writeJson } from './store.js';
 import { fixPrompt, goalOf } from './prompts.js';
 import { Abort, DEFAULT_EFFORT, tool } from './model.js';
@@ -62,8 +62,6 @@ export function plainNotes(notes) {
  */
 export function fileBudget(base) {
   return {
-    // Risk climbs with size, so the line cap already holds it down; this catches a rewrite that trades lines for density.
-    risk_score: base.risk_score + 5,
     // A split moves decisions, it does not create them; the slack is for a real error path the fix adds.
     cyclomatic_complexity: base.cyclomatic_complexity + Math.max(2, Math.round(base.cyclomatic_complexity * 0.05)),
     sloc: base.sloc + Math.max(25, Math.round(base.sloc * 0.1)),
@@ -72,7 +70,6 @@ export function fileBudget(base) {
 /** Why a rewrite that helps one method still leaves the file worse off. */
 export function fileObjections(base, after) {
   const limit = fileBudget(base), objections = [];
-  if (after.risk_score > limit.risk_score) objections.push(`the file's risk goes up too far, ${Math.round(base.risk_score)} -> ${Math.round(after.risk_score)}, and ${Math.round(limit.risk_score)} is the most this fix may leave`);
   if (after.cyclomatic_complexity > limit.cyclomatic_complexity) objections.push(`the file's complexity goes up too far, ${base.cyclomatic_complexity} -> ${after.cyclomatic_complexity}, and ${limit.cyclomatic_complexity} is the most this fix may leave`);
   if (after.sloc > limit.sloc) objections.push(`the file grows too much, ${base.sloc} -> ${after.sloc} lines, and ${limit.sloc} is the most this fix may leave`);
   return objections;
@@ -82,9 +79,9 @@ export function fileObjections(base, after) {
 export const underPath = (findings, path) => (path ? findings.filter(finding => finding.path === path || finding.path.startsWith(path.replace(/\/$/, '') + '/')) : findings);
 
 /** Rescans and test runs one fix may spend. */
-export const MAX_RESCANS = 6, MAX_TEST_RUNS = 6;
+export const MAX_RESCANS = 12, MAX_TEST_RUNS = 6;
 /** Bumped whenever how a fix is made or judged changes, so a rejection recorded by an older pipeline is never reused. */
-export const FIX_VERSION = 5;
+export const FIX_VERSION = 6;
 
 export function fixIdentity({ finding, model }) {
   return identity('fix', FIX_VERSION, finding.id, finding.hash, model);
@@ -127,6 +124,14 @@ const trim = metrics => (metrics ? { risk_score: metrics.risk_score, maintainabi
  * (below the listing threshold), a defect is gone even if a weaker signal remains, and nothing new appeared.
  * A 1% nudge on "too big" does not count.
  */
+/**
+ * An issue is cleared when it falls below CLEARED, and something counts as newly introduced only above APPEARED. The two
+ * thresholds sit either side of the 50% used for listing on purpose: a probability that wanders between 45% and 55% is the
+ * same reading twice, and judging both directions at the same cliff makes a rewrite fail for noise it did not cause.
+ */
+export const CLEARED = 0.4, APPEARED = 0.6;
+
+/** Why a rewrite did not resolve a method's issues: one still stands, or it brought a new one. `after` is read at CLEARED. */
 export function improvement(before, after) {
   const objections = [];
   for (const issue of before) {
@@ -135,7 +140,7 @@ export function improvement(before, after) {
     if (issue.type === 'defect') objections.push(`${issue.label} is still a defect (${issue.text} -> ${now.text})`);
     else objections.push(`${issue.label} is still open (${issue.text} -> ${now.text})`);
   }
-  for (const issue of after) if (!before.some(item => item.type === issue.type)) objections.push(`new issue: ${issue.text}`);
+  for (const issue of after) if (issue.probability >= APPEARED && !before.some(item => item.type === issue.type)) objections.push(`new issue: ${issue.text}`);
   return objections;
 }
 
@@ -213,8 +218,10 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
     const { scan, graph, node, fileLines, callees, callers, calleeIds, callerIds, imports, methods, step, changed } = await methodContext({ finding: hunted, root, out, analyzer, revision, log: debug });
     const fileOf = () => scan.files.find(file => file.path === node.path);
     finding = { ...hunted, line: node.line, end_line: node.end_line, metrics: node.metrics, file: fileOf()?.metrics ?? null, where: hunted.where ? { ...hunted.where, line: hunted.where.line + node.line - hunted.line } : hunted.where };
-    if (changed || finding.has_bug === undefined) {
-      const reading = ui.task(`${systemOne.id} reading ${node.qualified_name}${changed ? ', changed since the scan' : ' for the first time'}`);
+    const stale = finding.has_bug !== undefined && (finding.answers_version ?? 1) !== ANSWERS_VERSION;
+    if (changed || stale || finding.has_bug === undefined) {
+      const why = changed ? ', changed since the scan' : stale ? ', answered before the questions changed' : ' for the first time';
+      const reading = ui.task(`${systemOne.id} reading ${node.qualified_name}${why}`);
       const { response, answers } = await questionMethod({ systemOne, node, step, lines: fileLines, debug });
       const event = huntedEvent({ node, answers, response, root, github: hunted.github ?? null, revision, calleeIds, callerIds });
       await store.appendEvent(event);
@@ -293,7 +300,10 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
     };
     const rescan = async ({ source }) => {
       if (!passed.measure.has(source)) return { ok: false, error: 'run measure on this exact source first' };
-      if (++rescans > MAX_RESCANS) return { ok: false, error: `no more than ${MAX_RESCANS} rescans per fix; submit your best passing source or stop` };
+      // Out of rescans with nothing that passed means there is no way left to finish, so the run ends here rather than turning over.
+      if (++rescans > MAX_RESCANS) return passed.rescan.size
+        ? { ok: false, error: `no more than ${MAX_RESCANS} rescans per fix; submit the source that already passed` }
+        : { ok: false, done: true, error: `no rewrite cleared the issues in ${MAX_RESCANS} rescans` };
       const { kept, metrics, fileMetrics, inRegion, replacementLength } = passed.measure.get(source);
       const patchedLines = splice(source);
       const shifted = replacementLength - (end - start + 1);
@@ -301,8 +311,9 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
       const patchedNode = { ...node, line: kept.line, end_line: kept.end_line, metrics };
       const patchedStep = huntStep({ node: patchedNode, lines: patchedLines, imports, methods: patchedMethods, callees, callers });
       const { answers } = await questionMethod({ systemOne, node: patchedNode, step: patchedStep, lines: patchedLines, debug });
-      const after = issuesOf({ ...answers, metrics, file: fileMetrics });
-      const objections = improvement(before, after);
+      const reading = { ...answers, metrics, file: fileMetrics };
+      const objections = improvement(before, issuesOf(reading, CLEARED));
+      const after = issuesOf(reading);
       const result = { before: before.map(issue => issue.text), after: after.map(issue => issue.text) };
       if (objections.length) return { ok: false, error: objections.join('; '), ...result };
       passed.rescan.set(source, { answers, after });
@@ -311,7 +322,9 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
     const runTests = async ({ source }) => {
       if (!passed.measure.has(source)) return { ok: false, error: 'run measure on this exact source first' };
       if (!checks.length) { passed.tests.set(source, []); return { ok: true, checks: [], note: 'no test reaches this method and no suite command was found' }; }
-      if (++testRuns > MAX_TEST_RUNS) return { ok: false, error: `no more than ${MAX_TEST_RUNS} test runs per fix` };
+      if (++testRuns > MAX_TEST_RUNS) return passed.tests.size
+        ? { ok: false, error: `no more than ${MAX_TEST_RUNS} test runs per fix; submit the source that already passed` }
+        : { ok: false, done: true, error: `no rewrite passed the tests in ${MAX_TEST_RUNS} runs` };
       const patched = splice(source).join('\n');
       await place(patched);
       try {

@@ -89,6 +89,12 @@ export function issuesOf(answers, min = 0.5) {
   if (risk !== undefined && risk !== null && risk >= COMPLEX_RISK) issues.push({ type: 'complex', label: 'complex', probability: risk / 100, text: `complex, risk ${Math.round(risk)}` });
   return issues.sort((a, b) => b.probability - a.probability);
 }
+/**
+ * Bumped whenever the question set changes. A finding answered by an older set is read again before it is worked: its answers
+ * cannot contain a kind that did not exist yet, so every rewrite would look like it introduced one.
+ */
+export const ANSWERS_VERSION = 2;
+
 /** Everything `--filter` understands, so `perch findings --types` can print it and a typo can be answered with the real list. */
 export const filterKeys = () => ({
   type: ['defect', 'security', 'refactor', 'misdocumented', 'misaligned', 'complex'],
@@ -283,6 +289,7 @@ export function readAnswers(answers, { calls, calledBy, neighbors }) {
   const securityKinds = Object.fromEntries(Object.keys(SECURITY_KINDS).map(kind => [kind, answers[`security_${kind}`].noul]));
   const [topSecurity, topSecurityProbability] = Object.entries(securityKinds).sort((a, b) => b[1] - a[1])[0];
   return {
+    answers_version: ANSWERS_VERSION,
     has_bug: answers.has_bug.noul,
     where: { line: Number(answers.where.choice.slice(1)), confidence: answers.where.confidence },
     kind: { kind: topKind, probability: topProbability },
