@@ -44,8 +44,8 @@ perch report   [--out DIR] [--json]
 | `scan` | Analyzes every tracked source file at `HEAD`, records each file and method with its metrics, calls, and imports, and ranks the files by risk. Reads blobs straight from git: no worktree, no commands, no model. | `git` |
 | `hunt` | Walks the method graph from riskiest down within a budget, asking the System One model about each method once, several at a time. Runs `scan` first if needed. | `TYPESAFE_API_KEY` |
 | `issues` | Lists every open issue from every hunt so far: the method, each issue it carries with its probability (the defect kind, the refactor it needs, does not do what it claims, misdocumented), the severity of a defect, status, and the commit once fixed. Closed findings are omitted unless `--closed`. With a finding id, prints every answer for that method. | nothing |
-| `fix` | Works the open defects, most likely first, up to `--budget`; under a path, only those in that file or directory. System One first confirms the flagged line is reachable; then an OpenAI model runs as an agent with the verifiers as tools (`check_method`: the patch parses and does not grow; `verify_with_system_one`: the defect looks less likely and nothing else changed) and finishes with `submit`, which refuses source the verifiers have not passed. Each accepted fix is one commit on your current branch. A method that changed since the hunt is re-questioned first. | `OPENAI_API_KEY`, `TYPESAFE_API_KEY` |
-| `refactor` | Independent of the hunt. Takes the methods the scan scores at risk `--min` or more, riskiest first, up to `--budget`; under a path, only those in that file or directory. An OpenAI model runs as an agent with the verifiers as tools (`measure`: the method comes out less risky and no more complex; `run_tests`: the tests that reach it still pass; `verify_with_system_one`: behavior unchanged) and finishes with `submit`, which refuses source the three have not passed. Each accepted rewrite is one commit on your current branch. | `OPENAI_API_KEY`, `TYPESAFE_API_KEY` |
+| `fix` | Works the open defects, most likely first, up to `--budget`; under a path, only those in that file or directory. System One first confirms the flagged line is reachable; then an OpenAI model runs as an agent with the verifiers as tools (`check_method`: the patch parses and does not grow; `verify_with_system_one`: the defect looks less likely and no caller is newly misused) and finishes with `submit`, which refuses source the verifiers have not passed. Each accepted fix is one commit on your current branch. A method that changed since the hunt is re-questioned first. | `OPENAI_API_KEY`, `TYPESAFE_API_KEY` |
+| `refactor` | Independent of the hunt. Takes the methods the scan scores at risk `--min` or more, riskiest first, up to `--budget`; under a path, only those in that file or directory. An OpenAI model runs as an agent with the verifiers as tools (`measure`: the method comes out less risky and no more complex; `run_tests`: the tests that reach it still pass) and finishes with `submit`, which refuses source both have not passed. Each accepted rewrite is one commit on your current branch. | `OPENAI_API_KEY`, `TYPESAFE_API_KEY` |
 | `report` | Prints the latest hunt. | nothing |
 
 `<target>` is a local directory (default `.`, resolved to its git root) or a
@@ -159,12 +159,11 @@ is kept on the fix record as a trace.
 3. **The tools.**
    - `check_method(method)`: splice by line range; it must parse and may not
      add nesting, more than one branch, or more than a point of risk.
-   - `verify_with_system_one(method, summary)`: the hunt's questions again
-     over the patched method, with the same neighborhood, plus one about
-     collateral change. The defect and its kind must look less likely than the
-     hunt found them, no caller newly misused, nothing changed beyond the
-     defect. Requires `check_method` to have passed that exact source; at most
-     six per fix.
+   - `verify_with_system_one(method, summary)`: the hunt's defect questions
+     again over the patched method, with the same neighborhood. The defect and
+     its kind must look less likely than the hunt found them, and no caller
+     newly misused. Requires `check_method` to have passed that exact source; at
+     most six per fix.
    - `submit(method, summary)`: refused unless both verifiers passed that exact
      source.
 4. **Commit and record.** The method is committed on the current branch with
@@ -182,9 +181,10 @@ was.
 
 `refactor` does not use the hunt. It works from the scan: the methods whose
 tree-sitter metrics say they are hard to maintain, riskiest first. The model
-runs as the same kind of agent, with one more tool, because a refactor has no
-failing test to prove it: it must measure better, keep the tests green, and do
-the same thing.
+runs as the same kind of agent; a rewrite must measure better and keep the
+tests green. System One is not asked about it: whether a rewrite "changes
+behavior" turned out to be a question it answers with a shrug, and the tests
+are the better judge.
 
 1. **The prompt.** The method with the comment above it, its metrics (risk
    score, maintainability index, complexity, nesting, lines), and the same
@@ -194,14 +194,12 @@ the same thing.
      parse and still contain a method of the same name; that method's risk
      score must be lower with complexity and nesting no higher; the file may not
      get deeper, more complex, or more than a point riskier.
-   - `run_tests(source)`: every test that reaches the method and passed on the
-     original (or the whole suite, when none does) must pass on the rewrite. No
-     passing test and no suite command means no refactor. At most six runs.
-   - `verify_with_system_one(source, summary)`: the two versions compared with
-     the same neighborhood: behavior unchanged for any input the callers can
-     pass, no defect picked up, the name still true. At most six.
-   - `submit(source, summary)`: refused unless all three passed that exact
-     source.
+   - `run_tests(source)`: every test that reaches the method (or the whole
+     suite, when none does) must pass on the rewrite. Nothing runs before the
+     model asks; a test that fails on the rewrite is run once on the original,
+     and one that already fails there is ignored rather than blamed. No test
+     and no suite command means no refactor. At most six runs.
+   - `submit(source, summary)`: refused unless both passed that exact source.
 3. **Commit and record.** The file is committed on the current branch with the
    summary as the message; the diff is kept at
    `<out>/refactors/<id>/refactor.patch`, the trace on `refactor.json`, and a

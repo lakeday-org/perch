@@ -83,7 +83,7 @@ describe('perch fix', () => {
     expect(fix.status).toBe('ready');
     expect(fix.finding_id).toBe(finding.id);
     expect(fix.reach_check).toEqual({ reachable: 0.9 });
-    expect(fix.verification).toEqual({ kind: 'wrong_return', before: { has_bug: 0.9, kind: 0.9, reachable: 0.9 }, after: { has_bug: 0.2, kind: 0.2, severity: 1, collateral_change: 0.2, misused_by: [] } });
+    expect(fix.verification).toEqual({ kind: 'wrong_return', before: { has_bug: 0.9, kind: 0.9, reachable: 0.9 }, after: { has_bug: 0.2, kind: 0.2, severity: 1, misused_by: [] } });
     expect(fix.metrics).toMatchObject({ complexity: [3, 3], nesting: [1, 1] });
     expect(fix.turns).toBe(1);
     expect(fix.usage).toMatchObject({ input_tokens: 1000, cached_tokens: 0 });
@@ -96,13 +96,14 @@ describe('perch fix', () => {
     expect(model.calls[0].prompt).toContain('defect kinds, most likely first: wrong return 90%');
     expect(model.calls[0].prompt).toContain('"called_by"');
     expect(fix.trace.filter(event => event.type === 'tool_result').map(event => event.result.ok)).toEqual([true, true, true]);
-    expect(fix.trace.find(event => event.name === 'verify_with_system_one' && event.type === 'tool_result').result.system_one).toBe('defect 90% -> 20%, wrong return 90% -> 20%, collateral change 20%');
+    expect(fix.trace.find(event => event.name === 'verify_with_system_one' && event.type === 'tool_result').result.system_one).toBe('defect 90% -> 20%, wrong return 90% -> 20%');
     expect(systemOne.calls.map(call => call.method)).toEqual(['src/clamp.js::clamp', 'src/clamp.js::clamp']);
     expect(systemOne.calls[0].questions.reachable).toBeDefined();
     expect(systemOne.calls[0].state.module_scope).toBeNull();
     expect(systemOne.calls[1].state.method.source).toContain('L0003|   if (v > hi) return hi;');
     expect(systemOne.calls[1].state.original_method).toBe(buggySource.trimEnd());
-    expect(Object.keys(systemOne.calls[1].questions)).toEqual(expect.arrayContaining(['has_bug', 'kind_wrong_return', 'collateral_change']));
+    expect(Object.keys(systemOne.calls[1].questions)).toEqual(expect.arrayContaining(['has_bug', 'kind_wrong_return']));
+    expect(Object.keys(systemOne.calls[1].questions)).not.toContain('collateral_change');
     expect(Object.keys(systemOne.calls[1].questions)).not.toEqual(expect.arrayContaining(['where', 'follow', 'refactor']));
 
     // One commit on the current branch carrying the method; the checkout is clean, no worktree was made.
@@ -118,10 +119,10 @@ describe('perch fix', () => {
 
     // Every step was reported with a mark: the reach check, each tool call, the run, the commit.
     expect(lines.some(line => /^✓ scripted-jev: can a caller reach src\/clamp.js:3\? — reachable 90%/.test(line))).toBe(true);
-    expect(lines.some(line => /^scripted-model fixing clamp with the verifiers as tools \(effort max\)/.test(line))).toBe(true);
-    expect(lines.some(line => /^✓ {3}check_method — risk \d+ -> \d+, complexity 3 -> 3/.test(line))).toBe(true);
-    expect(lines.some(line => /^✓ {3}verify_with_system_one — Return hi when v exceeds the upper bound\. — defect 90% -> 20%/.test(line))).toBe(true);
-    expect(lines.some(line => /^✓ {3}submit/.test(line))).toBe(true);
+    expect(lines.some(line => /^scripted-model fixing clamp: thinking \(effort max\)/.test(line))).toBe(true);
+    expect(lines.some(line => /^✓ scripted-model ▸ check_method — risk \d+ -> \d+, complexity 3 -> 3/.test(line))).toBe(true);
+    expect(lines.some(line => /^✓ scripted-model ▸ verify_with_system_one — Return hi when v exceeds the upper bound\. — defect 90% -> 20%/.test(line))).toBe(true);
+    expect(lines.some(line => /^✓ scripted-model ▸ submit/.test(line))).toBe(true);
     expect(lines.some(line => /^✓ committed [0-9a-f]{7} on work: Return hi/.test(line))).toBe(true);
 
     // The record is in the events log, so issues shows the finding as fixed.
@@ -132,7 +133,7 @@ describe('perch fix', () => {
     expect(formatIssues([listed], 0.5)).toMatch(new RegExp(`Status  Commit\\n.*open +${fix.commit.slice(0, 7)}`));
     expect(formatFinding(listed)).toContain('Fixed: Return hi when v exceeds the upper bound. (defect 90% -> 20%)');
     const text = formatFix(fix);
-    expect(text).toContain('verified by scripted-jev: reachable 90%; defect 90% -> 20%, wrong return 90% -> 20%, collateral change 20%');
+    expect(text).toContain('verified by scripted-jev: reachable 90%; defect 90% -> 20%, wrong return 90% -> 20%');
     expect(text).toContain(`committed: ${fix.commit.slice(0, 7)} on work`);
     expect(text).toContain('agent: 1 turn, 3 tool calls');
 
@@ -227,10 +228,10 @@ describe('perch fix', () => {
     expect(nested.error).toBe('the patch adds nesting, more than one branch, or more than one point of risk; change only what the defect requires');
     expect(nested.trace.at(-1).result.file_metrics_before_after.nesting).toEqual([1, 2]);
 
-    // The hunt rated the defect at 90%; a patch the model does not think lowered that, or that changes other behavior, is not a fix.
-    const gamed = await attempt('gamed', { systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.9, collateral_change: 0.7 } }) });
+    // The hunt rated the defect at 90%; a patch the model does not think lowered that is not a fix.
+    const gamed = await attempt('gamed', { systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.9 } }) });
     expect(gamed.status).toBe('rejected');
-    expect(gamed.error).toBe('the patch did not lower the defect probability (90% -> 90%); the patch may change behavior beyond the defect (70%)');
+    expect(gamed.error).toBe('the patch did not lower the defect probability (90% -> 90%)');
     const worse = await attempt('worse', { systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.95, kind_wrong_return: 0.9 } }) });
     expect(worse.error).toBe('the patch did not lower the defect probability (90% -> 95%); the wrong return defect looks no less likely (90% -> 90%)');
     // A patch that lowers it, even to a number the model is unsure of, is one.

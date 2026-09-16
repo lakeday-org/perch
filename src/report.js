@@ -142,7 +142,6 @@ function formatRefactor(record) {
   if (record.before) lines.push(`  before: risk ${number(record.before.risk_score)}, maintainability ${number(record.before.maintainability_index)}, complexity ${number(record.before.cyclomatic_complexity)}, nesting ${number(record.before.max_nesting)}, ${number(record.before.sloc)} lines`);
   if (record.status === 'ready') {
     lines.push(`  after:  ${metricShift(record.before, record.after)}`, `  checked by: ${(record.proof?.checks ?? []).join(', ') || 'nothing'}`,
-      `  verified by ${record.verifier}: behavior change ${percent(record.verification?.collateral_change ?? 0)}, defect ${percent(record.verification?.has_bug ?? 0)}, does what it claims ${percent(record.verification?.does_what_it_claims ?? 0)}`,
       `  committed: ${record.commit?.slice(0, 7) ?? '?'} on ${record.branch ?? '?'}  (patch: ${record.patch_path})`);
     if (record.turns) lines.push(`  agent: ${record.turns} ${record.turns === 1 ? 'turn' : 'turns'}, ${(record.trace ?? []).filter(event => event.type === 'tool_call').length} tool calls`);
   }
@@ -158,7 +157,7 @@ export function formatFix(fix) {
   if (fix.status === 'ready') {
     const { kind, before, after } = fix.verification;
     const shift = (from, to) => (from === null || from === undefined ? percent(to) : `${percent(from)} -> ${percent(to)}`);
-    lines.push(`  verified by ${fix.verifier}: reachable ${percent(before.reachable ?? 1)}; defect ${shift(before.has_bug, after.has_bug)}${after.kind !== null ? `, ${words(kind)} ${shift(before.kind, after.kind)}` : ''}, collateral change ${percent(after.collateral_change)}`,
+    lines.push(`  verified by ${fix.verifier}: reachable ${percent(before.reachable ?? 1)}; defect ${shift(before.has_bug, after.has_bug)}${after.kind !== null ? `, ${words(kind)} ${shift(before.kind, after.kind)}` : ''}`,
       `  committed: ${fix.commit?.slice(0, 7) ?? '?'} on ${fix.branch ?? '?'}  (patch: ${fix.patch_path})`);
     if (fix.turns) lines.push(`  agent: ${fix.turns} ${fix.turns === 1 ? 'turn' : 'turns'}, ${(fix.trace ?? []).filter(event => event.type === 'tool_call').length} tool calls`);
   }

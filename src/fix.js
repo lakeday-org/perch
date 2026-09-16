@@ -204,7 +204,7 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
       const verify = patchCheck({ step: patchedStep, original: method, summary });
       const { answers } = await systemOne.ask(verify.state, verify.questions);
       const { verification, objections } = readPatchCheck({ finding, answers, calledBy: patchedStep.calledBy });
-      const summaryLine = `defect ${pct(finding.has_bug)} -> ${pct(verification.has_bug)}, ${finding.kind.kind.replaceAll('_', ' ')} ${pct(finding.kind.probability ?? 0)} -> ${pct(verification.kind ?? 0)}, collateral change ${pct(verification.collateral_change)}`;
+      const summaryLine = `defect ${pct(finding.has_bug)} -> ${pct(verification.has_bug)}, ${finding.kind.kind.replaceAll('_', ' ')} ${pct(finding.kind.probability ?? 0)} -> ${pct(verification.kind ?? 0)}`;
       if (objections.length) return { ok: false, error: objections.join('; '), system_one: summaryLine };
       passed.verify.set(source, verification);
       return { ok: true, system_one: summaryLine };
@@ -219,18 +219,17 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
     };
     const tools = [
       tool('check_method', 'Splice the corrected method into the file and measure it with tree-sitter: it must parse and may not add nesting, more than one branch, or more than a point of risk. Call this on every version you write.', { method: { type: 'string', description: 'the complete corrected method' } }, checkMethod),
-      tool('verify_with_system_one', 'Ask the System One model that found the defect to judge the patched method with the same context: the defect and its kind must look less likely than before, no caller newly misused, nothing changed beyond the defect. Requires check_method to have passed this exact source.', { method: { type: 'string' }, summary: { type: 'string', description: 'one sentence: what was wrong and what the change does' } }, verifyWithSystemOne),
+      tool('verify_with_system_one', 'Ask the System One model that found the defect to judge the patched method with the same context: the defect and its kind must look less likely than before, and no caller newly misused. Requires check_method to have passed this exact source.', { method: { type: 'string' }, summary: { type: 'string', description: 'one sentence: what was wrong and what the change does' } }, verifyWithSystemOne),
       tool('submit', 'Finish with the corrected method. Refused unless check_method and verify_with_system_one have both passed this exact source.', { method: { type: 'string' }, summary: { type: 'string' } }, submit),
     ];
 
     // The model drives: writes, checks, verifies, submits. Every step is shown and kept on the record.
     const effort = model.effort ?? DEFAULT_EFFORT;
-    const running = ui.task(`${model.id} fixing ${node.qualified_name} with the verifiers as tools (effort ${effort})`);
+    const running = ui.task(`${model.id} fixing ${node.qualified_name}: thinking (effort ${effort})`);
     let current = null;
     const onEvent = event => {
-      if (event.type === 'tool_call') { running.update(`${model.id}: ${event.name}`); current = ui.task(`  ${event.name}${event.arguments?.summary ? ` — ${event.arguments.summary}` : ''}`); }
-      else if (event.type === 'tool_result' && current) { const r = event.result ?? {}; const detail = r.error ?? r.system_one ?? (r.file_metrics_before_after ? `risk ${r.file_metrics_before_after.risk.join(' -> ')}, complexity ${r.file_metrics_before_after.complexity.join(' -> ')}` : ''); (r.ok ? current.ok : current.fail)(detail); current = null; }
-      else if (event.type === 'response') running.update(`${model.id} thinking (turn ${event.turn}, ${Math.round(event.ms / 1000)}s)`);
+      if (event.type === 'tool_call') current = ui.task(`${model.id} ▸ ${event.name}${event.arguments?.summary ? ` — ${event.arguments.summary}` : ''}`);
+      else if (event.type === 'tool_result' && current) { const r = event.result ?? {}; const detail = r.error ?? r.system_one ?? (r.file_metrics_before_after ? `risk ${r.file_metrics_before_after.risk.join(' -> ')}, complexity ${r.file_metrics_before_after.complexity.join(' -> ')}` : ''); (r.ok ? current.ok : current.fail)(detail); current = null; running.update(`${model.id} fixing ${node.qualified_name}: thinking (turn ${event.turn}, effort ${effort})`); }
     };
     const run = await model.run({ prompt: fixPrompt({ finding, reachable, state: step.state, method }), tools, effort, onEvent });
     fix.trace = run.trace;

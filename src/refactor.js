@@ -9,7 +9,6 @@ import { dirname, join } from 'node:path';
 import { git, listTree, revision as gitRevision } from './git.js';
 import { languageOf } from './analysis.js';
 import { runScan } from './scan.js';
-import { huntStep, readRefactorCheck, refactorCheck } from './questions.js';
 import { discoverProject } from './project.js';
 import { COMMAND_MS, workspaceEnv } from './workspace.js';
 import { identity, openStore, readJson, writeJson } from './store.js';
@@ -84,23 +83,17 @@ export async function runRefactor({ method: target, root, out, model, systemOne,
     const start = regionStart(fileLines, node.line), end = node.end_line;
     const region = fileLines.slice(start - 1, end).join('\n');
 
-    // The safety net: every test that reaches the method, or the whole suite when none does.
+    // The safety net: every test that reaches the method, or the whole suite when none does. Nothing runs until the model asks; a test
+    // that fails on the rewrite is then run on the original once, and one that already fails there is ignored rather than blamed.
     const treePaths = (await listTree(root, revision)).map(item => item.path);
     const existingTests = testsTouching({ graph, files: scan.files, node });
     const project = await discoverProject({ root, revision, out, paths: treePaths, systemOne, log: debug });
     const runFile = file => shell.run(command(project.single, file), { cwd: root, timeoutMs: COMMAND_MS, env: workspaceEnv() });
     const runSuite = () => shell.run(project.suite, { cwd: root, timeoutMs: 4 * COMMAND_MS, env: workspaceEnv() });
-    const checks = [];
-    for (const path of existingTests) {
-      if (!project.single) break;
-      const running = ui.task(`${path} on the original`);
-      if ((await runFile(path)).exit_code === 0) { checks.push({ name: path, run: () => runFile(path) }); running.ok('passes'); } else running.note('already fails; will not count');
-    }
-    if (!checks.length && project.suite) {
-      const running = ui.task(`no passing test reaches ${node.qualified_name}; the suite (${project.suite}) on the original`);
-      if ((await runSuite()).exit_code === 0) { checks.push({ name: project.suite, run: runSuite }); running.ok('passes'); } else { running.fail('already fails'); throw new Error(`The test suite (${project.suite}) already fails on the original, so a refactor cannot be checked against it`); }
-    }
-    if (!checks.length) throw new Error(`No passing test reaches ${node.qualified_name} and no suite command was found, so a refactor cannot be checked`);
+    const checks = project.single ? existingTests.map(path => ({ name: path, run: () => runFile(path) })) : [];
+    if (!checks.length && project.suite) checks.push({ name: project.suite, run: runSuite });
+    if (!checks.length) throw new Error(`No test reaches ${node.qualified_name} and no suite command was found, so a refactor cannot be checked`);
+    const ignored = new Set();
     Object.assign(record, { existing_tests: existingTests, checks: checks.map(check => check.name), region: { start, end } });
     await writeJson(recordPath, record);
 
@@ -110,8 +103,8 @@ export async function runRefactor({ method: target, root, out, model, systemOne,
     const splice = source => [...fileLines.slice(0, start - 1), ...methodLines(source), ...fileLines.slice(end)];
 
     // The verifiers, as tools. Each remembers what it passed, keyed by the exact source, so submit can insist on all three.
-    const passed = { measure: new Map(), tests: new Map(), verify: new Map() };
-    let verifications = 0, testRuns = 0;
+    const passed = { measure: new Map(), tests: new Map() };
+    let testRuns = 0;
     const measure = async ({ source }) => {
       if (!source.trim() || source.trim() === region.trim()) return { ok: false, error: 'the source is unchanged' };
       const replacement = methodLines(source);
@@ -132,52 +125,47 @@ export async function runRefactor({ method: target, root, out, model, systemOne,
     const runTests = async ({ source }) => {
       if (!passed.measure.has(source)) return { ok: false, error: 'run measure on this exact source first' };
       if (++testRuns > MAX_TEST_RUNS) return { ok: false, error: `no more than ${MAX_TEST_RUNS} test runs per refactor` };
-      await place(splice(source).join('\n'));
+      const patched = splice(source).join('\n');
+      await place(patched);
       try {
-        for (const check of checks) { const result = await check.run(); if (result.exit_code !== 0) return { ok: false, error: `${check.name} fails on the rewrite`, output: tail(result) }; }
+        for (const check of checks) {
+          if (ignored.has(check.name)) continue;
+          const result = await check.run();
+          if (result.exit_code === 0) continue;
+          // Before the rewrite takes the blame: does this test pass on the original at all?
+          await restore();
+          const control = await check.run();
+          await place(patched);
+          if (control.exit_code !== 0) { ignored.add(check.name); continue; }
+          return { ok: false, error: `${check.name} fails on the rewrite and passes on the original`, output: tail(result) };
+        }
         const changed = (await dirtyPaths(root)).filter(path => !dirtyBefore.includes(path));
         if (changed.join('\n') !== node.path) throw new Error(`The test run changed files other than ${node.path}: ${changed.join(', ') || 'none'}`);
       } finally { await restore(); }
-      passed.tests.set(source, checks.map(check => check.name));
-      return { ok: true, checks: checks.map(check => check.name) };
-    };
-    const verifyWithSystemOne = async ({ source, summary }) => {
-      if (!passed.measure.has(source)) return { ok: false, error: 'run measure on this exact source first' };
-      if (++verifications > MAX_VERIFICATIONS) return { ok: false, error: `no more than ${MAX_VERIFICATIONS} System One verifications per refactor; submit your best passing source or stop` };
-      const { kept, metrics, inRegion, replacementLength } = passed.measure.get(source);
-      const patchedLines = splice(source);
-      const shifted = replacementLength - (end - start + 1);
-      const patchedMethods = methods.filter(other => other.id !== node.id).map(other => (other.line > end ? { ...other, line: other.line + shifted, end_line: other.end_line + shifted } : other)).concat(inRegion);
-      const patchedStep = huntStep({ node: { ...node, line: kept.line, end_line: kept.end_line, metrics }, lines: patchedLines, imports, methods: patchedMethods, callees, callers });
-      const verify = refactorCheck({ step: patchedStep, original: region, summary });
-      const { answers } = await systemOne.ask(verify.state, verify.questions);
-      const { verification, objections } = readRefactorCheck({ answers });
-      const summaryLine = `behavior change ${Math.round(verification.collateral_change * 100)}%, defect ${Math.round(verification.has_bug * 100)}%, does what it claims ${Math.round(verification.does_what_it_claims * 100)}%`;
-      if (objections.length) return { ok: false, error: objections.join('; '), system_one: summaryLine };
-      passed.verify.set(source, verification);
-      return { ok: true, system_one: summaryLine };
+      const ran = checks.map(check => check.name).filter(name => !ignored.has(name));
+      if (!ran.length) return { ok: false, error: 'every test that reaches the method already fails on the original, so nothing can check the rewrite' };
+      passed.tests.set(source, ran);
+      return { ok: true, checks: ran, ...(ignored.size ? { ignored_already_failing: [...ignored] } : {}) };
     };
     let accepted = null;
     const submit = async ({ source, summary }) => {
-      for (const [name, map] of [['measure', passed.measure], ['run_tests', passed.tests], ['verify_with_system_one', passed.verify]]) if (!map.has(source)) return { ok: false, error: `${name} has not passed this exact source` };
+      for (const [name, map] of [['measure', passed.measure], ['run_tests', passed.tests]]) if (!map.has(source)) return { ok: false, error: `${name} has not passed this exact source` };
       if (!summary.trim()) return { ok: false, error: 'summary is required: one sentence, as a commit message' };
-      accepted = { source, summary, metrics: passed.measure.get(source).metrics, verification: passed.verify.get(source), checks: passed.tests.get(source) };
+      accepted = { source, summary, metrics: passed.measure.get(source).metrics, checks: passed.tests.get(source) };
       return { ok: true, done: true };
     };
     const tools = [
       tool('measure', `Splice the rewrite over lines ${start}-${end} and measure it with tree-sitter: it must parse, keep a method named ${node.qualified_name}, make that method less risky with complexity and nesting no higher, and not make the file deeper, more complex, or more than a point riskier. Call this on every version you write.`, { source: { type: 'string', description: 'the complete replacement for the region: comment, method, any helpers' } }, measure),
       tool('run_tests', `Run the tests that reach ${node.qualified_name} (${checks.map(check => check.name).join(', ')}) against the rewrite. Requires measure to have passed this exact source.`, { source: { type: 'string' } }, runTests),
-      tool('verify_with_system_one', 'Ask the System One model to compare the original and the rewrite with the same neighborhood: behavior unchanged, no defect picked up, the name still true. Requires measure to have passed this exact source.', { source: { type: 'string' }, summary: { type: 'string', description: 'one sentence: what the change does' } }, verifyWithSystemOne),
-      tool('submit', 'Finish with the rewrite. Refused unless measure, run_tests, and verify_with_system_one have all passed this exact source.', { source: { type: 'string' }, summary: { type: 'string' } }, submit),
+      tool('submit', 'Finish with the rewrite. Refused unless measure and run_tests have both passed this exact source.', { source: { type: 'string' }, summary: { type: 'string', description: 'one sentence: what the change does, as a commit message' } }, submit),
     ];
 
     const effort = model.effort ?? DEFAULT_EFFORT;
-    const running = ui.task(`${model.id} simplifying ${node.qualified_name} with the verifiers as tools (effort ${effort})`);
+    const running = ui.task(`${model.id} simplifying ${node.qualified_name}: thinking (effort ${effort})`);
     let current = null;
     const onEvent = event => {
-      if (event.type === 'tool_call') { running.update(`${model.id}: ${event.name}`); current = ui.task(`  ${event.name}${event.arguments?.summary ? ` — ${event.arguments.summary}` : ''}`); }
-      else if (event.type === 'tool_result' && current) { const r = event.result ?? {}; const detail = r.error ?? r.system_one ?? r.method ?? (r.checks ? `${r.checks.length} pass` : ''); (r.ok ? current.ok : current.fail)(detail); current = null; }
-      else if (event.type === 'response') running.update(`${model.id} thinking (turn ${event.turn}, ${Math.round(event.ms / 1000)}s)`);
+      if (event.type === 'tool_call') current = ui.task(`${model.id} ▸ ${event.name}${event.arguments?.summary ? ` — ${event.arguments.summary}` : ''}`);
+      else if (event.type === 'tool_result' && current) { const r = event.result ?? {}; const detail = r.error ?? r.method ?? (r.checks ? `${r.checks.length} pass${r.ignored_already_failing ? ` (${r.ignored_already_failing.join(', ')} already failing on the original, ignored)` : ''}` : ''); (r.ok ? current.ok : current.fail)(detail); current = null; running.update(`${model.id} simplifying ${node.qualified_name}: thinking (turn ${event.turn}, effort ${effort})`); }
     };
     const run = await model.run({ prompt: refactorPrompt({ node, metrics: before, state: step.state, region, start, end }), tools, effort, onEvent });
     Object.assign(record, { trace: run.trace, usage: run.usage, turns: run.turns });
@@ -198,7 +186,7 @@ export async function runRefactor({ method: target, root, out, model, systemOne,
     ui.say(`${OK} committed ${commit.slice(0, 7)} on ${branch}: ${accepted.summary} (${shift(before, accepted.metrics)})`);
     const patchPath = join(dir, 'refactor.patch');
     await writeFile(patchPath, patch);
-    const result = { summary: accepted.summary, commit, patch_path: patchPath, after: accepted.metrics, verification: accepted.verification, proof: { checks: accepted.checks } };
+    const result = { summary: accepted.summary, commit, patch_path: patchPath, after: accepted.metrics, proof: { checks: accepted.checks } };
     await event({ status: 'ready', branch, before, ...result });
     return await finish('ready', result);
   } catch (error) {

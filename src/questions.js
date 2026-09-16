@@ -224,52 +224,26 @@ export function reachCheck({ finding, state }) {
 export const SURE = 0.6, UNSURE = 0.4;
 const percent = value => `${Math.round(value * 100)}%`;
 
-/**
- * Behavior questions over a rewritten method, asked with the same neighborhood the hunt uses. The metrics already said the rewrite is
- * simpler; this asks whether it still does the same thing, still does what its name says, and did not pick up a defect on the way.
- */
-export function refactorCheck({ step, original, summary }) {
-  const { has_bug, does_what_it_claims } = step.questions;
-  return { state: { ...step.state, original_source: original, refactor_summary: summary }, questions: { has_bug, does_what_it_claims,
-    collateral_change: noul('Comparing `original_source` with `method.source` and any helpers now beside it, does the rewrite change what callers observe: return values, thrown errors, or side effects, for any input the callers in `called_by` can pass?',
-      'Some input now behaves differently', 'Behavior is preserved; only structure, names, or documentation changed') } };
-}
-
-/** What the refactor-check answers say, and why they would reject the rewrite. */
-export function readRefactorCheck({ answers }) {
-  const verification = { has_bug: answers.has_bug.noul, does_what_it_claims: answers.does_what_it_claims.noul, collateral_change: answers.collateral_change.noul };
-  const objections = [
-    verification.collateral_change > UNSURE && `the rewrite may change behavior (${percent(verification.collateral_change)})`,
-    verification.has_bug > SURE && `the rewrite looks defective (${percent(verification.has_bug)})`,
-    verification.does_what_it_claims < UNSURE && `the rewrite no longer looks like it does what its name and comment say (${percent(verification.does_what_it_claims)})`,
-  ].filter(Boolean);
-  return { verification, objections };
-}
-
-/** The hunt's questions again over a patched method, plus one about collateral change. */
+/** The hunt's defect questions again over a patched method, with the original beside it. */
 export function patchCheck({ step, original, summary }) {
   const questions = { ...step.questions };
   delete questions.where; delete questions.where_window; delete questions.follow; delete questions.refactor; delete questions.does_what_it_claims; delete questions.misdocumented;
   for (const key of Object.keys(questions)) if (key.startsWith('misuse_')) delete questions[key];
-  questions.collateral_change = { type: 'noul', instructions: 'Comparing `original_method` with `method`, does the change alter any behavior other than fixing the described defect (`fix_summary`)?',
-    criteria: { true: 'Some input that was handled correctly before now behaves differently', false: 'Only the defective behavior changed' } };
   return { state: { ...step.state, original_method: original, fix_summary: summary }, questions };
 }
 
 /**
- * What the patch-check answers say about the patched method, and why they would reject it. The test already proved the fix; this asks
- * whether the model agrees it improved: the defect probability and the flagged kind must be lower than the hunt found them, nothing
- * else may have changed, and no caller may be newly misused.
+ * What the patch-check answers say about the patched method, and why they would reject it: the defect probability and the flagged
+ * kind must be lower than the hunt found them, and no caller may be newly misused.
  */
 export function readPatchCheck({ finding, answers, calledBy }) {
   const kind = answers[`kind_${finding.kind.kind}`]?.noul ?? null;
   const kindBefore = finding.kind.probability ?? null;
   const misusedBy = calledBy.map((caller, index) => ({ caller: caller.id, before: finding.misused_by?.find(item => item.caller === caller.id)?.probability ?? 0, after: answers[`misused_by_${index}`].noul }));
-  const verification = { has_bug: answers.has_bug.noul, kind, severity: answers.severity?.score ?? null, collateral_change: answers.collateral_change.noul, misused_by: misusedBy };
+  const verification = { has_bug: answers.has_bug.noul, kind, severity: answers.severity?.score ?? null, misused_by: misusedBy };
   const objections = [
     verification.has_bug >= finding.has_bug && `the patch did not lower the defect probability (${percent(finding.has_bug)} -> ${percent(verification.has_bug)})`,
     kind !== null && kindBefore !== null && kind >= kindBefore && `the ${finding.kind.kind.replaceAll('_', ' ')} defect looks no less likely (${percent(kindBefore)} -> ${percent(kind)})`,
-    verification.collateral_change > UNSURE && `the patch may change behavior beyond the defect (${percent(verification.collateral_change)})`,
     ...misusedBy.filter(item => item.after >= SURE && item.before < SURE).map(item => `${item.caller.split('::').at(-1)} now misuses the patched method (${percent(item.after)})`),
   ].filter(Boolean);
   return { verification, objections };

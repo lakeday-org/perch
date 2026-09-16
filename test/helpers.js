@@ -92,7 +92,7 @@ export function scriptedModel(overrides = {}) {
         trace.push(done); onEvent(done);
         return result;
       };
-      const order = kind === 'fix' ? ['check_method', 'verify_with_system_one', 'submit'] : ['measure', 'run_tests', 'verify_with_system_one', 'submit'];
+      const order = kind === 'fix' ? ['check_method', 'verify_with_system_one', 'submit'] : ['measure', 'run_tests', 'submit'];
       let turns = 0, done = false;
       for (let attempt = 1; attempt <= 3 && !done; attempt++) {
         turns++;
