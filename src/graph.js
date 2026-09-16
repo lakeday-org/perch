@@ -6,30 +6,36 @@ const normalize = path => posix.normalize(path).replace(/^\.\//, '');
 const parentDir = dir => (dir === '.' ? null : (dirname(dir) === '.' ? '.' : dirname(dir)));
 const ancestors = path => { const dirs = []; for (let dir = dirname(path); dir; dir = parentDir(dir)) dirs.push(dir); return dirs; };
 
-/** Resolve an import module specifier from one scanned file to another scanned path, or null. */
+/** Resolve a module specifier from a scanned file to the first existing normalized path, or null. Relative imports use the containing directory; unsupported or invalid specifiers return null without mutating paths. */
+const firstExisting = (paths, candidates) => candidates.map(normalize).find(path => paths.has(path)) ?? null;
+const resolvePython = (fromPath, module, paths) => {
+  const dots = module.length - module.replace(/^\.+/, '').length;
+  const rest = module.slice(dots).split('.').filter(Boolean).join('/');
+  const dirs = ancestors(fromPath), starts = dots ? [dirs[dots - 1]] : ['.', ...dirs];
+  if (dots && !starts[0]) return null;
+  return firstExisting(paths, starts.flatMap(start => rest ? [`${start}/${rest}.py`, `${start}/${rest}/__init__.py`] : [`${start}/__init__.py`]));
+};
+const resolveRust = (fromPath, module, paths) => {
+  const has = path => paths.has(normalize(path)), dir = dirname(fromPath), parts = module.split('::');
+  if (parts[0] === 'self') return fromPath;
+  if (parts[0] === 'super') { const parent = parentDir(dir) ?? '.'; return firstExisting(paths, [`${parent}/${parts.slice(1).join('/')}.rs`, `${parent}/${parts.slice(1).join('/')}/mod.rs`, `${parent}.rs`]); }
+  if (parts[0] === 'crate') {
+    const dirs = ancestors(fromPath), root = dirs.find(dir => has(`${dir}/src/lib.rs`) || has(`${dir}/src/main.rs`)) ?? ((dir => dir && parentDir(dir))(dirs.find(dir => dir.endsWith('/src') || dir === 'src')));
+    if (!root) return null;
+    const rest = parts.slice(1).join('/');
+    return firstExisting(paths, [`${root}/src/${rest}.rs`, `${root}/src/${rest}/mod.rs`, `${root}/${rest}.rs`, `${root}/${rest}/mod.rs`]);
+  }
+  const rest = parts.join('/');
+  return firstExisting(paths, [`${dir}/${rest}.rs`, `${dir}/${rest}/mod.rs`]);
+};
+/** Resolve a module specifier from a scanned file to the first existing normalized path, or null. Relative imports use the containing directory; unsupported or invalid specifiers return null without mutating paths. */
 export function resolveModule(fromPath, module, language, paths) {
-  const has = path => paths.has(normalize(path));
-  const first = list => list.map(normalize).find(path => paths.has(path)) ?? null;
-  const dir = dirname(fromPath);
-  if (language === 'python') {
-    const dots = module.match(/^\.*/)[0].length, rest = module.slice(dots).split('.').filter(Boolean).join('/');
-    const starts = dots ? [ancestors(fromPath)[dots - 1] ?? '.'] : ['.', ...ancestors(fromPath)];
-    return first(starts.flatMap(start => rest ? [`${start}/${rest}.py`, `${start}/${rest}/__init__.py`] : [`${start}/__init__.py`]));
-  }
-  if (language === 'rust') {
-    const segments = module.split('::');
-    if (segments[0] === 'self') return fromPath;
-    if (segments[0] === 'super') { const parent = parentDir(dir) ?? '.'; return first([`${parent}/${segments.slice(1).join('/')}.rs`, `${parent}/${segments.slice(1).join('/')}/mod.rs`, `${parent}.rs`]); }
-    if (segments[0] === 'crate') {
-      const root = ancestors(fromPath).find(dir => has(`${dir}/src/lib.rs`) || has(`${dir}/src/main.rs`)) ?? ancestors(fromPath).find(dir => dir.endsWith('/src') || dir === 'src');
-      const rest = segments.slice(1).join('/');
-      return root === undefined ? null : first([`${root}/src/${rest}.rs`, `${root}/src/${rest}/mod.rs`, `${root}/${rest}.rs`, `${root}/${rest}/mod.rs`]);
-    }
-    return first([`${dir}/${segments.join('/')}.rs`, `${dir}/${segments.join('/')}/mod.rs`]);
-  }
+  if (typeof module !== 'string') return null;
+  if (language === 'python') return resolvePython(fromPath, module, paths);
+  if (language === 'rust') return resolveRust(fromPath, module, paths);
   if (!module.startsWith('.')) return null;
-  const base = normalize(posix.join(dir, module)), stem = base.replace(/\.(js|mjs|cjs|jsx)$/, '');
-  return first([base, ...extensions.map(ext => `${stem}.${ext}`), ...extensions.map(ext => `${base}/index.${ext}`)]);
+  const base = normalize(posix.join(dirname(fromPath), module)), stem = base.replace(/\.(js|mjs|cjs|jsx)$/, '');
+  return firstExisting(paths, [base, ...extensions.map(ext => `${stem}.${ext}`), ...extensions.map(ext => `${base}/index.${ext}`)]);
 }
 
 export function buildGraph(files) {
@@ -67,7 +73,14 @@ export function buildGraph(files) {
     return viaImport(file, head, tail) ?? lookup(file.path, `${head}.${tail}`) ?? lookup(file.path, tail);
   };
 
-  const callees = new Map(), callers = new Map(), sites = new Map();
+  // A name that belongs to exactly one method in the repository can be resolved wherever it appears; anything more common is guesswork.
+  const unique = new Map();
+  for (const [id, node] of nodes) {
+    const key = node.name;
+    unique.set(key, unique.has(key) ? null : id);
+  }
+
+  const callees = new Map(), callers = new Map(), sites = new Map(), dynamic = new Set();
   const link = (map, from, to) => { if (!map.has(from)) map.set(from, new Set()); map.get(from).add(to); };
   for (const file of files) {
     for (const call of file.calls) {
@@ -79,13 +92,35 @@ export function buildGraph(files) {
       if (!sites.has(key)) sites.set(key, call.line);
     }
   }
+  // Functions passed as values: the dispatcher that eventually calls them has no name for them, so the edge comes from the handover.
+  for (const file of files) {
+    for (const value of file.values ?? []) {
+      const to = resolve(file, value.name) ?? unique.get(value.name.split(/::|\./).at(-1)) ?? null;
+      if (!to || to === value.from || !nodes.has(to)) continue;
+      if (callees.get(value.from)?.has(to)) continue;
+      link(callees, value.from, to);
+      link(callers, to, value.from);
+      dynamic.add(`${value.from}->${to}`);
+      if (!sites.has(`${value.from}->${to}`)) sites.set(`${value.from}->${to}`, value.line);
+    }
+  }
+
   return {
     nodes,
+    /** Whether an edge was inferred from a handover rather than seen as a call. */
+    isDynamic: (from, to) => dynamic.has(`${from}->${to}`),
     files: byPath,
     callees: id => [...(callees.get(id) ?? [])],
     callers: id => [...(callers.get(id) ?? [])],
-    /** The line in the caller where it first calls the callee. */
-    site: (from, to) => sites.get(`${from}->${to}`) ?? null,
+    /**
+     * Return the first recorded source line for the directed edge from `from` to `to`.
+     * The line may identify a call or a function-value handover. Return null when no
+     * such edge was recorded; this lookup does not change the graph.
+     */
+    site: (from, to) => {
+      const edge = `${from}->${to}`;
+      return sites.get(edge) ?? null;
+    },
     edgeCount: () => [...callees.values()].reduce((sum, set) => sum + set.size, 0),
   };
 }

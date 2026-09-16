@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { appendFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { excludeFromStatus, git, repoRoot } from './git.js';
-import { flagged, hasIssue, issuesOf } from './questions.js';
+import { flagged, issueWeight } from './questions.js';
 
 export const sha256 = text => createHash('sha256').update(text).digest('hex');
 /** A stable 16-hex-character id derived from everything that determines a record's result. */
@@ -35,8 +35,16 @@ async function entries(dir) {
 }
 
 /** A fix counts for a finding when the method read the same when it was made as when it was read by System One. */
-const fixApplies = (fix, finding) => Boolean(fix) && (fix.hash ? fix.hash === finding.hash : fix.revision === finding.revision || fix.at >= finding.at);
-const summarizeFix = work => ({ id: work.fix_id, status: work.status, at: work.at, summary: work.summary ?? null, commit: work.commit ?? null, branch: work.branch ?? null, patch_path: work.patch_path ?? null, before: work.before ?? null, after: work.after ?? null, reason: work.reason ?? null, error: work.error ?? null, attempts: work.attempts ?? 0 });
+/**
+ * Whether a recorded fix still describes this method: the code it was about, or, for one that landed, the code it produced.
+ * Anything else means the method has moved on since, and it is workable again.
+ */
+const fixApplies = (fix, finding) => {
+  if (!fix) return false;
+  if (fix.status === 'ready' && fix.hash_after === finding.hash) return true;
+  return fix.hash ? fix.hash === finding.hash : fix.revision === finding.revision || fix.at >= finding.at;
+};
+const summarizeFix = work => ({ id: work.fix_id, status: work.status, notes: work.notes ?? null, at: work.at, summary: work.summary ?? null, commit: work.commit ?? null, branch: work.branch ?? null, patch_path: work.patch_path ?? null, before: work.before ?? null, after: work.after ?? null, reason: work.reason ?? null, error: work.error ?? null, attempts: work.attempts ?? 0 });
 
 const byCreation = (a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '') || a.id.localeCompare(b.id);
 
@@ -109,17 +117,17 @@ export function openStore(out) {
             const base = { metrics: method.metrics, file: file.metrics };
             // Answers about a method that has since changed are stale; the metrics are always about the code as it is.
             const fix = fixes.get(method.id);
-            every.push(hunted && hunted.hash === method.hash ? { ...hunted, ...base } : { id: findingId(method.id), method: method.id, path: file.path, name: method.qualified_name, line: method.line, end_line: method.end_line, hash: method.hash, revision: scan.revision, root: scan.root, at: scan.created_at, unread: true, ...base, ...(fix && fix.hash === method.hash ? { fix: summarizeFix(fix) } : {}) });
+            every.push(hunted && hunted.hash === method.hash ? { ...hunted, ...base, ...(fixApplies(fix, method) ? { fix: summarizeFix(fix) } : {}) } : { id: findingId(method.id), method: method.id, path: file.path, name: method.qualified_name, line: method.line, end_line: method.end_line, hash: method.hash, revision: scan.revision, root: scan.root, at: scan.created_at, unread: true, ...base, ...(fixApplies(fix, method) ? { fix: summarizeFix(fix) } : {}) });
           }
         }
         for (const finding of findings) if (!seen.has(finding.method)) every.push(finding);
       } else every.push(...findings);
-      const strength = event => issuesOf(event, min)[0]?.probability ?? 0;
-      return every.filter(event => all || hasIssue(event, min)).sort((a, b) => strength(b) - strength(a) || (b.severity?.score ?? 0) - (a.severity?.score ?? 0));
+      // Ranked by how many problems each method is expected to have, correctness first; nothing is cut, the tail just sorts last.
+      return every.filter(event => all || issueWeight(event) > min).sort((a, b) => issueWeight(b) - issueWeight(a));
     },
     /** Flagged methods at probability `min` or more, most likely first. */
-    async findings(min = 0.5) {
-      return (await store.issues(min)).filter(event => flagged(event, min)).sort((a, b) => b.has_bug - a.has_bug || (b.severity?.score ?? 0) - (a.severity?.score ?? 0));
+    async findings(min = 0) {
+      return (await store.issues(min)).filter(event => flagged(event)).sort((a, b) => issueWeight(b) - issueWeight(a));
     },
     /** The finding with this id or unique id prefix. */
     async findFinding(ref) {

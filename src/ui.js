@@ -11,14 +11,17 @@ export function createUi({ stream = process.stderr, live = Boolean(stream.isTTY)
   // Running tasks nest: a tool call inside a model run. The innermost is drawn; when it ends, the one around it is drawn again.
   const stack = [];
   const top = () => stack.at(-1) ?? null;
-  const draw = () => { const current = top(); if (current) stream.write(`\r\x1b[K${frames[current.frame++ % frames.length]} ${current.label}  ${seconds(Date.now() - current.started)}`); };
+  const drawn = entry => (entry.width ? entry.label.padEnd(entry.width) : entry.label);
+  const draw = () => { const current = top(); if (current) stream.write(`\r\x1b[K${current.indent}${frames[current.frame++ % frames.length]} ${drawn(current)}  ${seconds(Date.now() - current.started)}`); };
   let timer = null;
-  const finishLine = (mark, label, detail, ms) => `${mark} ${label}${detail ? ` — ${detail}` : ''}  ${seconds(ms)}`;
+  // A step given a width is one line of a column: every label is padded to the same place, so every detail starts there too.
+  // Without one it is a sentence, and the detail reads as a clause of it.
+  const finishLine = (mark, entry, detail, ms) => `${entry.indent}${mark} ${drawn(entry)}${entry.width ? (detail ? `  ${detail}` : '') : detail ? ` — ${detail}` : ''}  ${seconds(ms)}`;
   return {
     live,
     /** Start one step; returns handles that end it with a mark and a detail. */
-    task(label) {
-      const entry = { label, started: Date.now(), frame: 0, open: true };
+    task(label, { width = 0, indent = '' } = {}) {
+      const entry = { label, width, indent, started: Date.now(), frame: 0, open: true };
       if (!live) log(label);
       else { stack.push(entry); draw(); if (!timer) timer = setInterval(draw, 100); }
       const end = (mark, detail = '') => {
@@ -29,9 +32,9 @@ export function createUi({ stream = process.stderr, live = Boolean(stream.isTTY)
           const at = stack.indexOf(entry);
           if (at >= 0) stack.splice(at, 1);
           if (!stack.length && timer) { clearInterval(timer); timer = null; }
-          stream.write(`\r\x1b[K${finishLine(mark, entry.label, detail, ms)}\n`);
+          stream.write(`\r\x1b[K${finishLine(mark, entry, detail, ms)}\n`);
           draw();
-        } else log(`${mark} ${entry.label}${detail ? ` — ${detail}` : ''} (${seconds(ms)})`);
+        } else log(finishLine(mark, entry, detail, ms));
         return detail;
       };
       return { ok: detail => end(OK, detail), fail: detail => end(FAIL, detail), note: detail => end(NOTE, detail), update: label2 => { entry.label = label2; } };

@@ -6,7 +6,19 @@ import { sha256 } from './store.js';
 
 const resolveModule = makeRequire(import.meta.url);
 
-const languages = { js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'tsx', rs: 'rust', py: 'python', go: 'go' };
+/**
+ * Extensions perch reads, and the grammar each one is parsed with. Every language here was checked against the analyzer: the parser
+ * loads, named methods come back with the right names, and the metrics are computed. Languages whose grammar splits a signature from
+ * its body (Dart), or whose functions are macro calls (Elixir), are left out because a method cannot be spliced back as one region.
+ */
+const languages = {
+  js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript', ts: 'typescript', mts: 'typescript', cts: 'typescript', tsx: 'tsx',
+  py: 'python', pyi: 'python', rs: 'rust', go: 'go',
+  java: 'java', kt: 'kotlin', kts: 'kotlin', scala: 'scala', sc: 'scala', groovy: 'groovy', gradle: 'groovy',
+  c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', cxx: 'cpp', hpp: 'cpp', hh: 'cpp', hxx: 'cpp', cs: 'c_sharp',
+  rb: 'ruby', rake: 'ruby', php: 'php', phtml: 'php', lua: 'lua', swift: 'swift', zig: 'zig', sol: 'solidity',
+  sh: 'bash', bash: 'bash',
+};
 export const languageOf = path => languages[path.split('.').at(-1)];
 
 function assetPath(name) {
@@ -72,11 +84,14 @@ export async function analyzeFiles(files, { analyzer, readSource, progress = () 
     const byNode = new Map(methods.map(method => [method.node, method.id]));
     const calls = analysis.references.filter(reference => reference.kind === 'call' && reference.name !== '<dynamic>')
       .map(reference => ({ name: reference.name, from: byNode.get(reference.source) ?? ownerAt(methods, reference.line), line: reference.line })).filter(call => call.from);
+    // A function handed to something else to call later: the edge no call site would show.
+    const values = analysis.references.filter(reference => reference.kind === 'value')
+      .map(reference => ({ name: reference.name, from: byNode.get(reference.source) ?? ownerAt(methods, reference.line), line: reference.line })).filter(value => value.from);
     const imports = analysis.references.filter(reference => reference.kind === 'import' && reference.imported_name)
       .map(reference => ({ module: reference.module, name: reference.imported_name, alias: reference.alias ?? reference.imported_name }));
     const test = testFile(file.path);
     debug(`analyzed ${file.path} (risk ${analysis.metrics?.risk_score?.toFixed?.(1) ?? '?'}, ${methods.length} methods)`);
-    analyzed.push({ path: file.path, blob: file.sha, language: languageOf(file.path), test, metrics: trim(analysis.metrics), methods, calls, imports });
+    analyzed.push({ path: file.path, blob: file.sha, language: languageOf(file.path), test, metrics: trim(analysis.metrics), methods, calls, values, imports });
     if (!test) for (const method of methods) candidates.push({ id: method.id, score: method.metrics?.risk_score ?? 0 });
   }
   candidates.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));

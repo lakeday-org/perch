@@ -65,7 +65,8 @@ export function clamp(v, lo, hi) {
 }`;
 
 export const defaultResponses = {
-  fix: () => ({ source: fixedMethod, summary: 'Return hi when v exceeds the upper bound.' }),
+  fix: () => ({ source: fixedMethod, summary: 'Return hi when v exceeds the upper bound.',
+    notes: 'The upper bound was returned as the caller\'s own value, so clamp(11, 0, 10) gave back 11 instead of 10. The branch now returns hi. Callers that rely on the result staying inside the range get that again.' }),
 };
 
 /**
@@ -95,7 +96,7 @@ export function scriptedModel(overrides = {}) {
         turns++;
         const proposal = responses.fix(`fix-${attempt}`, prompt);
         for (const name of ['measure', 'rescan', 'run_tests', 'submit']) {
-          const result = await call(name, name === 'measure' || name === 'run_tests' ? { source: proposal.source } : { source: proposal.source, summary: proposal.summary });
+          const result = await call(name, name === 'submit' ? { source: proposal.source, summary: proposal.summary, notes: proposal.notes } : { source: proposal.source });
           if (!result.ok) break;
           if (result.done) { done = true; break; }
         }
@@ -168,7 +169,12 @@ export function scriptedSystemOne(overrides = {}) {
       const answers = {};
       for (const [id, question] of Object.entries(questions)) {
         if (question.type === 'noul') answers[id] = { type: 'noul', noul: own[id] ?? (affirmative.has(id) ? 0.9 : 0.2) };
-        else if (question.type === 'score') answers[id] = { type: 'score', score: own[id] ?? 1, confidence: 0.6, legend: {}, probabilities: {} };
+        else if (question.type === 'score') {
+          // A score carries its whole distribution, so the double gives one: most of the weight on the chosen level.
+          const level = own[id] ?? 1, levels = question.criteria.length;
+          const probabilities = Object.fromEntries(Array.from({ length: levels }, (_, index) => [index, index === level ? 0.7 : 0.3 / (levels - 1)]));
+          answers[id] = { type: 'score', score: Object.entries(probabilities).reduce((total, [index, p]) => total + Number(index) * p, 0), confidence: 0.6, legend: {}, probabilities };
+        }
         else {
           const keys = Object.keys(question.criteria);
           const choice = own[id] && keys.includes(own[id]) ? own[id] : keys.at(-1);

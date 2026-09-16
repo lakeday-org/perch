@@ -1,5 +1,5 @@
 import type { Node } from "web-tree-sitter";
-import type { Reference, SourceLocation } from "./types";
+import type { Reference, ReferenceKind, SourceLocation } from "./types";
 import { isComment, isFunction, location, walkNodes } from "./metrics";
 
 const IMPORT_TYPES = new Set([
@@ -103,7 +103,7 @@ function validReference(value: string): string {
 }
 
 function makeReference(
-  kind: "call" | "import",
+  kind: ReferenceKind,
   node: Node,
   values: {
     name?: string;
@@ -268,6 +268,36 @@ function callReferenceRecord(node: Node): Reference {
   });
 }
 
+/** Identifiers that can name a function where one is used as a value rather than called. */
+const IDENTIFIER_TYPES = new Set([
+  "identifier",
+  "property_identifier",
+  "shorthand_property_identifier",
+  "field_identifier",
+  "simple_identifier",
+]);
+
+/**
+ * Positions where naming a function hands it to something else to call later: an argument, the value of a key, or the
+ * right-hand side of an assignment. This is how a handler reaches a dispatcher, and the call it eventually makes has no
+ * name in the source, so nothing else in the graph would connect the two.
+ */
+function isPassedAsValue(node: Node): boolean {
+  const parent = node.parent;
+  if (!parent) return false;
+  if (parent.type === "arguments" || parent.type === "argument_list" || parent.type === "expression_list") return true;
+  for (const field of ["value", "right"]) {
+    const held = parent.childForFieldName(field);
+    if (held && held.startIndex === node.startIndex && held.endIndex === node.endIndex) return true;
+  }
+  return false;
+}
+
+function valueReference(node: Node): Reference {
+  const name = text(node, 128);
+  return makeReference("value", node, { name, reference: name });
+}
+
 export function collectReferences(root: Node, language: string): Reference[] {
   const references: Reference[] = [];
   for (const node of walkNodes(root)) {
@@ -276,6 +306,8 @@ export function collectReferences(root: Node, language: string): Reference[] {
       references.push(...importReferences(node, language));
     } else if (CALL_TYPES.has(node.type)) {
       references.push(callReferenceRecord(node));
+    } else if (IDENTIFIER_TYPES.has(node.type) && isPassedAsValue(node) && validReference(text(node, 128))) {
+      references.push(valueReference(node));
     }
   }
   return references;

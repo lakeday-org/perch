@@ -3,10 +3,31 @@
   "version": "0.1.0",
   "description": "Finds real bugs in a repository, proves each one with a failing regression test, and optionally fixes it.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lakeday-org/perch.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lakeday-org/perch/issues"
+  },
+  "homepage": "https://github.com/lakeday-org/perch#readme",
   "type": "module",
-  "bin": { "perch": "bin/perch.mjs" },
-  "files": ["bin", "dist", "README.md", "LICENSE"],
-  "engines": { "node": ">=22" },
+  "bin": {
+    "perch": "bin/perch.mjs"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "restricted",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "node build.mjs",
     "prepare": "node build.mjs",
