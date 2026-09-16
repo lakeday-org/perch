@@ -144,6 +144,7 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
     if (status !== 'ready') ui.say(`${mark} ${hunted.name}: ${status === 'closed' ? `closed — ${fix.reason}` : `no fix — ${(fix.error ?? '').split('\n')[0]}`}`);
     return fix;
   };
+  let finding = hunted;
   /** The finding is closed without a fix: System One no longer sees a reachable defect. Recorded so issues drops it. */
   const close = async reason => {
     await store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: id, method: finding.method, hash: finding.hash, revision, status: 'closed', attempts: 0, reason });
@@ -151,7 +152,6 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
   };
   const pct = value => `${Math.round(value * 100)}%`;
   // The finding being fixed: the hunted one, or the fresh answers when the method changed since. Events carry its hash so the store attaches them to it.
-  let finding = hunted;
   const rejectedEvent = (attempts, error) => store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: id, method: finding.method, hash: finding.hash, revision, status: 'rejected', attempts, error });
 
   let placed = false;
