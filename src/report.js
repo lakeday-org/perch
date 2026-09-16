@@ -154,12 +154,8 @@ export function formatFix(fix) {
   const lines = [`perch fix ${fix.id ?? fix.finding_id} (${fix.status})${fix.summary ? ` — ${fix.summary}` : ''}`, `  finding: ${fix.finding_id}  ${fix.method}  ${fix.path} @ ${short(fix.revision)}`];
   if (fix.status === 'ready') {
     const { kind, before, after } = fix.verification;
-    const failing = fix.proof.baseline_failures ?? [];
-    const existing = (fix.proof.existing_tests.length ? `${fix.proof.existing_tests.length} existing ${fix.proof.existing_tests.length === 1 ? 'test' : 'tests'} still pass` : 'no existing test reaches the method')
-      + (failing.length ? ` (${failing.join(', ')} already failed on the original and did not count)` : '');
     const shift = (from, to) => (from === null || from === undefined ? percent(to) : `${percent(from)} -> ${percent(to)}`);
-    lines.push(`  checked: ${existing}; reachable ${percent(before.reachable ?? 1)} before the fix`,
-      `  verified by ${fix.verifier}: defect ${shift(before.has_bug, after.has_bug)}${after.kind !== null ? `, ${words(kind)} ${shift(before.kind, after.kind)}` : ''}, collateral change ${percent(after.collateral_change)}`,
+    lines.push(`  verified by ${fix.verifier}: reachable ${percent(before.reachable ?? 1)}; defect ${shift(before.has_bug, after.has_bug)}${after.kind !== null ? `, ${words(kind)} ${shift(before.kind, after.kind)}` : ''}, collateral change ${percent(after.collateral_change)}`,
       `  committed: ${fix.commit?.slice(0, 7) ?? '?'} on ${fix.branch ?? '?'}  (patch: ${fix.patch_path})`);
     if (fix.attempts.length > 1) lines.push(`  attempts: ${fix.attempts.length}; ${fix.attempts.slice(0, -1).map(attempt => `attempt ${attempt.attempt} rejected: ${attempt.rejected?.split('\n')[0]}`).join('; ')}`);
   }

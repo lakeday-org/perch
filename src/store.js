@@ -77,7 +77,7 @@ export function openStore(out) {
       // A fix or refactor counts for a finding when the method read the same when it was made as when it was hunted.
       const applies = (work, finding) => work && (work.hash ? work.hash === finding.hash : work.revision === finding.revision || work.at >= finding.at);
       const summarize = (work, key) => (work.status === 'ready'
-        ? { id: work[key], status: 'ready', at: work.at, summary: work.summary, commit: work.commit ?? null, branch: work.branch ?? null, patch_path: work.patch_path, before: work.before ?? null, after: work.after ?? null, verification: work.verification, proof: work.proof }
+        ? { id: work[key], status: 'ready', at: work.at, summary: work.summary, commit: work.commit ?? null, branch: work.branch ?? null, patch_path: work.patch_path, before: work.before ?? null, after: work.after ?? null, verification: work.verification, proof: work.proof ?? null }
         : { id: work[key], status: 'rejected', at: work.at, attempts: work.attempts, error: work.error });
       return [...latest.values()].map(finding => {
         const fix = fixes.get(finding.method), refactor = refactors.get(finding.method);

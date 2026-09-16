@@ -1,24 +1,22 @@
 /**
  * `perch fix`: for each open defect, System One first confirms a caller can reach the flagged line; a generative model then returns
- * the corrected method (and only the method); the patch must parse without growing, the tests that already reach the method must
- * still pass, and System One, asked the hunt's questions again, must find the defect less likely and nothing else changed. Each
+ * the corrected method (and only the method); the patch must parse without growing; and System One, asked the hunt's questions
+ * again, must find the defect less likely and nothing else changed. No test is run: the judge is System One and the metrics. Each
  * accepted fix is one commit on the current branch. A rejected attempt leaves the checkout as it was.
  */
 import { DEFAULT_BUDGET } from './hunt.js';
 import { visibleFindings } from './report.js';
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { git, listTree, revision as gitRevision } from './git.js';
+import { git, revision as gitRevision } from './git.js';
 import { languageOf } from './analysis.js';
 import { runScan } from './scan.js';
 import { buildGraph, resolveModule } from './graph.js';
 import { flagged, huntStep, patchCheck, reachCheck, readPatchCheck, SURE } from './questions.js';
-import { discoverProject } from './project.js';
-import { COMMAND_MS, workspaceEnv } from './workspace.js';
 import { identity, openStore, readJson, writeJson } from './store.js';
 import { fixPrompt } from './prompts.js';
 import { describeCall, effortForAttempt } from './model.js';
-import { FAIL, NOTE, OK, plainUi } from './ui.js';
+import { FAIL, OK, plainUi } from './ui.js';
 
 export const PROTECTED_BRANCHES = ['main', 'master'];
 /** Paths with uncommitted changes, untracked files included. */
@@ -143,9 +141,6 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
     const finding = { ...hunted, line: node.line, end_line: node.end_line, where: { ...hunted.where, line: hunted.where.line + node.line - hunted.line } };
     const dirtyBefore = await dirtyPaths(root);
     if (dirtyBefore.includes(node.path)) throw new Error(`${node.path} has uncommitted changes; commit or stash them before perch fix touches it`);
-    const existingTests = testsTouching({ graph, files: scan.files, node });
-    const dirtyTests = existingTests.filter(path => dirtyBefore.includes(path));
-    if (dirtyTests.length) throw new Error(`${dirtyTests.join(', ')} ${dirtyTests.length === 1 ? 'has' : 'have'} uncommitted changes; the tests that reach ${node.qualified_name} must be committed before perch fix runs them`);
 
     // 1. Before anything is generated: can a real caller execute the flagged line at all?
     const reaching = ui.task(`${systemOne.id}: can a caller reach ${finding.path}:${finding.where.line}?`);
@@ -164,21 +159,6 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
     const base = (await analyzer.analyzeSource(fileLines.join('\n'), language)).metrics;
     if (!base) throw new Error(`${node.path} does not parse at ${revision.slice(0, 12)}`);
 
-    // 2. The safety net: the tests that reach the method, run on the original first so one that already fails is never blamed on the patch.
-    const project = await discoverProject({ root, revision, out, paths: (await listTree(root, revision)).map(item => item.path), systemOne, log: debug });
-    const run = file => shell.run(command(project.single, file), { cwd: root, timeoutMs: COMMAND_MS, env: workspaceEnv() });
-    const baseline = { passing: [], failing: [] };
-    for (const path of existingTests) {
-      if (!project.single) break;
-      const running = ui.task(`${path} on the original`);
-      const result = await run(path);
-      if (result.exit_code === 0) { baseline.passing.push(path); running.ok('passes'); }
-      else { baseline.failing.push(path); running.note(`already fails (exit ${result.exit_code}); will not count`); }
-    }
-    if (!baseline.passing.length) ui.say(`${NOTE} no passing test reaches ${node.qualified_name}; the patch is checked by its metrics and ${systemOne.id} alone`);
-    Object.assign(fix, { existing_tests: existingTests, baseline_failures: baseline.failing, project: { single: project.single } });
-    await writeJson(fixPath, fix);
-
     const place = async text => { await writeFile(join(root, node.path), text); placed = true; };
     const restore = async () => { await git(['checkout', '--', node.path], root); placed = false; };
 
@@ -192,7 +172,7 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
       fix.attempts.push(record);
       const reject = async (reason, undo = false) => { record.rejected = reason; feedback = reason; ui.say(`${FAIL} attempt ${attempt} rejected: ${reason.split('\n')[0]}`); await writeJson(fixPath, fix); if (undo) await restore(); };
 
-      // 3. Splice by line range and gate on the AST.
+      // 2. Splice by line range and gate on the AST.
       if (!proposal.method.trim() || proposal.method.trim() === method.trim()) { await reject(`the method was returned unchanged: ${proposal.summary || 'no reason given'}`); continue; }
       const patchedLines = [...fileLines.slice(0, node.line - 1), ...methodLines(proposal.method), ...fileLines.slice(node.end_line)];
       const patchedFile = patchedLines.join('\n');
@@ -200,30 +180,7 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
       if (after.parser_status !== 'parsed') { await reject(`the patched file does not parse: ${after.parser_message ?? 'syntax error'}`); continue; }
       if (!withinQualityGate(base, after.metrics)) { await reject(`the patch adds nesting, more than one branch, or more than one point of risk (risk ${base.risk_score.toFixed(1)} -> ${after.metrics.risk_score.toFixed(1)}, complexity ${base.cyclomatic_complexity} -> ${after.metrics.cyclomatic_complexity}, nesting ${base.max_nesting} -> ${after.metrics.max_nesting})`); continue; }
 
-      // 4. The tests that reach the method still pass on the patch. One that fails is re-run on the original first: a checkout that changed under us is not a regression.
-      await place(patchedFile);
-      let regression = null;
-      if (baseline.passing.length) {
-        const testing = ui.task(`${baseline.passing.length} ${baseline.passing.length === 1 ? 'test' : 'tests'} on the patch`);
-        for (const path of baseline.passing) {
-          testing.update(`${path} on the patch`);
-          const result = await run(path);
-          if (result.exit_code === 0) continue;
-          await restore();
-          const control = await run(path);
-          if (control.exit_code !== 0) { testing.fail(`${path} now fails on the original too`); throw new Error(`${path} passed on the original before the attempt and fails on it now; the checkout changed while perch fix was running. Commit or stash your work and run it again`); }
-          await place(patchedFile);
-          regression = `${path}:\n${tail(result)}`;
-          break;
-        }
-        if (regression) testing.fail(regression.split('\n')[0]); else testing.ok('all pass');
-      }
-      record.existing_tests = regression ? 'failed' : `${baseline.passing.length} passed`;
-      if (regression) { await reject(`an existing test broke on the patch: ${regression}`, true); continue; }
-      const changed = (await dirtyPaths(root)).filter(path => !dirtyBefore.includes(path));
-      if (changed.join('\n') !== node.path) throw new Error(`The test run changed files other than ${node.path}: ${changed.join(', ') || 'none'}`);
-
-      // 5. The hunt's questions again over the patched method: the defect must look less likely, nothing else changed, no caller newly misused.
+      // 3. The hunt's questions again over the patched method: the defect must look less likely, nothing else changed, no caller newly misused.
       const patchedNode = { ...node, end_line: node.line + methodLines(proposal.method).length - 1 };
       const patchedStep = huntStep({ node: patchedNode, lines: patchedLines, imports, methods, callees, callers });
       const verify = patchCheck({ step: patchedStep, original: method, summary: proposal.summary });
@@ -234,7 +191,8 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
       if (objections.length) { verifying.fail(objections.join('; ')); await reject(objections.join('; '), true); continue; }
       verifying.ok(`defect ${pct(finding.has_bug)} -> ${pct(verification.has_bug)}, ${finding.kind.kind.replaceAll('_', ' ')} ${pct(finding.kind.probability ?? 0)} -> ${pct(verification.kind ?? 0)}, collateral ${pct(verification.collateral_change)}`);
 
-      // 6. Commit on the current branch, with the model's summary as the message.
+      // 4. Commit on the current branch, with the model's summary as the message.
+      await place(patchedFile);
       await git(['add', '--', node.path], root);
       const patch = await git(['diff', '--cached', '--', node.path], root);
       if (!patch) throw new Error(`Patch for ${node.path} could not be captured`);
@@ -252,10 +210,9 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
     const patchPath = join(dir, 'fix.patch');
     await writeFile(patchPath, accepted.patch);
     const verification = { kind: finding.kind.kind, before: { has_bug: finding.has_bug, kind: finding.kind.probability ?? null, reachable }, after: accepted.record.verification };
-    const proof = { existing_tests: baseline.passing, baseline_failures: baseline.failing, command: project.single };
     await store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: id, method: finding.method, hash: hunted.hash, revision, status: 'ready', summary: accepted.proposal.summary,
-      commit: accepted.commit, branch, patch_path: patchPath, verification, proof });
-    return await finish('ready', { summary: accepted.proposal.summary, commit: accepted.commit, patch_path: patchPath, verification, proof });
+      commit: accepted.commit, branch, patch_path: patchPath, verification });
+    return await finish('ready', { summary: accepted.proposal.summary, commit: accepted.commit, patch_path: patchPath, verification });
   } catch (error) {
     fix.status = 'failed';
     fix.error = error.message;
