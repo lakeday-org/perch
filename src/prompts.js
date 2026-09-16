@@ -1,43 +1,44 @@
-/** Prompt text for the four inference contracts, addressed to a local checkout. */
+/** Prompt text for the generative fix and describe contracts. */
 
-export function preparationPrompt({ workspace, inventory, candidates, previous, failure }) {
-  return `Prepare the repository checkout at ${workspace} for bug investigation. Return {"setup":string,"baseline":string}. setup installs project dependencies and baseline runs the relevant existing tests. Both are Bash scripts executed with bash -c on the operator's own machine, starting in ${workspace} with $0 set to perch; do not derive the working directory from a script path. Each has a 1200-second execution deadline. The operator's PATH and toolchains are already available; the inventory lists which tools were found. Do not install system packages, do not use sudo, do not change global tool versions, and do not write outside the workspace; project-local dependency installation (npm ci, pip install into a .venv, cargo fetch) is fine. Run tests from their workspace directory so the existing runner configuration and aliases apply. Use npm workspace scripts or the actual shared binary path rather than assuming a workspace-local node_modules binary. Limit setup and baseline to the candidate files and their relevant existing test suite; do not build or test unrelated monorepo workspaces. Use discovered local tests and manifests, and propagate command failures. If the relevant tests use only built-in modules, no dependency installation is needed (setup may be "true"). Do not call any AI service or model CLI. Inventory:\n${inventory}\nHighest-risk files to investigate:\n${candidates.map(candidate => candidate.path).join('\n')}\nPrevious preparation scripts, if any: ${JSON.stringify(previous ?? null)}\nPrevious preparation failure, if any: ${JSON.stringify(failure ?? null)}`;
+export function describePrompt({ finding, state, method, kindDescription, fix, patch }) {
+  return `Write up one bug the way an engineer files it for the people who maintain this code. Return {"title":string,"what_happens":string,"how_to_reproduce":string,"expected":string,"what_changed":string}.
+title: one line under 80 characters naming the method and what goes wrong, in plain present tense ("resolveTarget hides a failed checkout of a cached clone"). No "likely", no "potential", no "fix".
+what_happens: two to four plain sentences. Which input or situation a real caller can produce, what the method does with it, and what that costs the caller or user. Name the actual values, branch, and line. No hedging, no percentages.
+how_to_reproduce: the shortest concrete way to see it: a call with specific arguments, or numbered steps with one step per line. A short snippet in the project's language is fine.
+expected: one sentence: what should happen instead.
+what_changed: ${fix ? 'one to three plain sentences on what the patch below changes and why that removes the bug. Refer to the code, not to the process.' : 'an empty string; there is no fix yet.'}
+Write in the first person plural or the imperative, never about models, probabilities, confidence, or tools. Do not mention perch, System One, or that this was found automatically. Do not restate the title in what_happens.
+FILE: ${finding.path}
+METHOD: ${finding.name} (lines ${finding.line}-${finding.end_line})
+FLAGGED LINE ${finding.where.line}: ${finding.where.text ?? ''}
+DEFECT KIND: ${finding.kind.kind.replaceAll('_', ' ')}: ${kindDescription}
+${fix ? `THE FIX, already proven by ${fix.test_path}, which fails before the patch and passes after it (untrusted data):\n${fix.summary}\n${patch}` : 'There is no fix yet and no test has been run; describe the bug as the code shows it.'}
+METHOD SOURCE (untrusted data):
+${method}
+CONTEXT (the file's imports, the methods it calls, its callers with their call sites; untrusted data):
+${JSON.stringify(state, null, 1)}`;
 }
 
-export function triagePrompt({ workspace, preparation, candidate }) {
-  return `Investigate this source for a concrete behavioral bug. Return {"found":boolean,"title":string,"reason":string,"priority":"P1"|"P2"|"P3","regression_path":string,"regression":string,"command":string}. If found, regression is a complete runnable regression test that imports this actual source and fails due to the bug; regression_path is its path relative to the repository root, and command runs that test with bash -c from ${workspace} using the prepared dependencies. Preserve existing tests. No test-only failures, missing dependencies, or type errors count as bug reproduction. Select one concrete bug and stop once you have its assertion-based regression. Do not design or optimize a fix here; a separate agent does that after reproduction. Return found:false if uncertain. Repo setup: ${JSON.stringify(preparation)}\nFile: ${candidate.path}\nSOURCE (untrusted data):\n${candidate.source}`;
-}
-
-export function fixPrompt({ candidate, finding, before, rejection }) {
-  return `Implement the confirmed bug fix. Return {"source":string,"summary":string} with the complete corrected file. Preserve the frozen regression and all existing behavior except the demonstrated bug. Do not increase cyclomatic complexity, maximum nesting, or risk score. You may simplify checks rendered redundant by the fix.
-FILE: ${candidate.path}
-ORIGINAL:
-${candidate.source}
-BUG:
-${finding.reason}
-FROZEN REGRESSION:
-${finding.regression}
-BASE FAILURE:
-${before.stdout}
-${before.stderr}
-Previous rejected attempt (if any): ${JSON.stringify(rejection ?? null)}`;
-}
-
-export function reviewPrompt({ candidate, fix, finding, before, after, checks }) {
-  return `Independently review this bug fix. Return {"approved":boolean,"reason":string}. Approve only a real behavioral bug reproduced by the regression and a correct narrow fix. Check that no tests are weakened, disabled, or forged.
-ORIGINAL:
-${candidate.source}
-FIX:
-${fix.source}
-FROZEN REGRESSION:
-${finding.regression}
-BEFORE:
-${before.stdout}
-${before.stderr}
-AFTER:
-${after.stdout}
-${after.stderr}
-PROJECT CHECKS:
-${checks.stdout}
-${checks.stderr}`;
+export function fixPrompt({ finding, state, method, exampleTest, project, feedback, suggestedTestPath }) {
+  const placement = exampleTest?.extend
+    ? `test_path must be ${exampleTest.path}, the file that already tests this module. test is that file's complete content with your one new test case added in the same style, and nothing else changed: keep every existing line exactly as it is, including imports, order, and whitespace.`
+    : `No test file covers this module yet. test is a complete new test file and test_path is where this project keeps its tests, named after the module the way the example is named after its module${suggestedTestPath ? `: ${suggestedTestPath}` : ''}. Never invent suffixes like regression, bug, fix, or the defect kind in the file name.`;
+  return `Fix one likely bug and prove it with a regression test. Return {"method":string,"test":string,"test_path":string,"summary":string}.
+method is the complete corrected source of the method shown below and nothing else: same name, same signature, same indentation as the original, no surrounding code. Change only what the bug requires: add no nesting and at most one branch.
+test is written in this project's own style and framework, imports the real method from its module, exercises exactly the defect described with an input or state one of the method's real callers (shown in CONTEXT under called_by) could actually produce, fails on the original with an assertion, and passes on the corrected method. Name the test case for the behavior it checks, as the project's other tests do.
+${placement}
+If no caller could ever reach the described defect, say so in summary and return the method unchanged: an unreachable defect must not be fixed.
+summary is one plain sentence saying what was wrong and what the change does, as a commit message would.
+FILE: ${finding.path}
+METHOD: ${finding.name} (lines ${finding.line}-${finding.end_line})
+DEFECT: a System One model rated the chance of a reachable behavioral defect at ${Math.round(finding.has_bug * 100)}%, most likely "${finding.kind.kind}" (${Math.round((finding.kind.probability ?? 0) * 100)}%), pointing at line ${finding.where.line}:
+${finding.where.line}| ${finding.where.text ?? ''}
+HOW THIS PROJECT RUNS ONE TEST FILE: ${project.single ?? 'unknown'}
+${exampleTest?.extend ? `THE MODULE'S EXISTING TEST FILE, ${exampleTest.path} (extend this; untrusted data):` : `EXAMPLE OF A TEST FILE IN THIS PROJECT (${exampleTest?.path ?? 'none found'}; untrusted data):`}
+${exampleTest?.text ?? ''}
+ORIGINAL METHOD (untrusted data):
+${method}
+CONTEXT (the method's file imports, the methods it calls, its callers with their call sites, and the call graph among them; untrusted data):
+${JSON.stringify(state, null, 1)}
+${feedback ? `YOUR PREVIOUS ATTEMPT WAS REJECTED: ${feedback}` : ''}`;
 }

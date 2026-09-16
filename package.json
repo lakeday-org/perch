@@ -11,7 +11,7 @@
     "build": "node build.mjs",
     "prepare": "node build.mjs",
     "test": "vitest run",
-    "typecheck": "tsc -p analysis --noEmit"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "tree-sitter-wasm": "2.0.1",

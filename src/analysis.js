@@ -1,7 +1,8 @@
-/** Tree-sitter analysis of tracked source files through the in-tree analyzer package. */
+/** Tree-sitter analysis of tracked source files: per-method metrics plus the calls and imports that link them. */
 import { createRequire as makeRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
-import { createAnalyzer } from '../analysis/src/index.ts';
+import { createAnalyzer } from './treesitter/index.ts';
+import { sha256 } from './store.js';
 
 const resolveModule = makeRequire(import.meta.url);
 
@@ -23,14 +24,41 @@ export const sourceFile = item => item.type === 'blob' && Boolean(languageOf(ite
 
 export const testFile = path => /(^|\/)(tests?|__tests__)(\/|\.)|\.test\.|\.spec\./.test(path);
 
-/** Analyze every file, returning coverage counts and the ranked candidate list. */
-export async function analyzeFiles(files, { analyzer, readSource, limit = 4, log = () => {} }) {
+/** The handful of metrics worth persisting per file and per method. */
+const trim = metrics => metrics ? { risk_score: metrics.risk_score, maintainability_index: metrics.maintainability_index, cyclomatic_complexity: metrics.cyclomatic_complexity, max_nesting: metrics.max_nesting, sloc: metrics.sloc } : null;
+
+/** Named methods of one file, each with a stable id and a hash of its own source. */
+function methodsOf(path, declarations, lines) {
+  const seen = new Map(), methods = [];
+  for (const declaration of declarations) {
+    if (declaration.name === '<anonymous>') continue;
+    const base = `${path}::${declaration.qualified_name}`;
+    const count = (seen.get(base) ?? 0) + 1;
+    seen.set(base, count);
+    methods.push({ id: count > 1 ? `${base}#${count}` : base, node: declaration.id, name: declaration.name, qualified_name: declaration.qualified_name, line: declaration.line, end_line: declaration.end_line,
+      hash: sha256(lines.slice(declaration.line - 1, declaration.end_line).join('\n')), metrics: trim(declaration.metrics) });
+  }
+  return methods;
+}
+
+/** The named method whose range contains a line, innermost first; anonymous functions attribute to their enclosing method. */
+function ownerAt(methods, line) {
+  let owner = null;
+  for (const method of methods) {
+    if (method.line <= line && line <= method.end_line && (!owner || method.end_line - method.line < owner.end_line - owner.line)) owner = method;
+  }
+  return owner?.id ?? null;
+}
+
+/** Analyze every file, returning coverage counts, per-file method and reference records, and every method ranked by risk. */
+export async function analyzeFiles(files, { analyzer, readSource, progress = () => {}, debug = () => {} }) {
   const coverage = { supported: files.length, parsed: 0, parse_failures: 0, parser_diagnostics: [] };
   let functions = 0;
-  const candidates = [];
-  for (const file of files) {
-    const source = await readSource(file);
-    const analysis = await analyzer.analyzeSummary(source, languageOf(file.path));
+  const analyzed = [], candidates = [];
+  for (const [index, file] of files.entries()) {
+    const source = await readSource(file, index);
+    progress(index + 1, files.length);
+    const analysis = await analyzer.analyzeSource(source, languageOf(file.path));
     if (!['parsed', 'parse-error'].includes(analysis.parser_status)) throw new Error(`Parser unavailable for ${file.path}: ${analysis.parser_message}`);
     if (analysis.parser_status !== 'parsed') {
       coverage.parse_failures++;
@@ -39,11 +67,18 @@ export async function analyzeFiles(files, { analyzer, readSource, limit = 4, log
       continue;
     }
     coverage.parsed++;
-    functions += analysis.declaration_count;
-    log(`analyzed ${file.path} (risk ${analysis.metrics?.risk_score?.toFixed?.(3) ?? '?'}, ${analysis.declaration_count} functions)`);
-    if (analysis.declaration_count && source.length <= 32 * 1024 && !testFile(file.path))
-      candidates.push({ path: file.path, blob: file.sha, score: analysis.metrics?.risk_score ?? 0, source, analysis: { metrics: analysis.metrics } });
+    functions += analysis.declarations.length;
+    const methods = methodsOf(file.path, analysis.declarations, source.split('\n'));
+    const byNode = new Map(methods.map(method => [method.node, method.id]));
+    const calls = analysis.references.filter(reference => reference.kind === 'call' && reference.name !== '<dynamic>')
+      .map(reference => ({ name: reference.name, from: byNode.get(reference.source) ?? ownerAt(methods, reference.line), line: reference.line })).filter(call => call.from);
+    const imports = analysis.references.filter(reference => reference.kind === 'import' && reference.imported_name)
+      .map(reference => ({ module: reference.module, name: reference.imported_name, alias: reference.alias ?? reference.imported_name }));
+    const test = testFile(file.path);
+    debug(`analyzed ${file.path} (risk ${analysis.metrics?.risk_score?.toFixed?.(1) ?? '?'}, ${methods.length} methods)`);
+    analyzed.push({ path: file.path, blob: file.sha, language: languageOf(file.path), test, metrics: trim(analysis.metrics), methods, calls, imports });
+    if (!test) for (const method of methods) candidates.push({ id: method.id, score: method.metrics?.risk_score ?? 0 });
   }
-  candidates.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
-  return { coverage, functions, candidates: candidates.slice(0, limit) };
+  candidates.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id));
+  return { coverage, functions, files: analyzed, candidates };
 }
