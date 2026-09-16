@@ -131,14 +131,16 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
     ui.say(`${status === 'ready' ? OK : FAIL} ${hunted.name}: fix ${status}${fix.error ? ` — ${fix.error.split('\n')[0]}` : ''}`);
     return fix;
   };
-  const rejectedEvent = (attempts, error) => store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: hunted.id, fix_id: id, method: hunted.method, hash: hunted.hash, revision, status: 'rejected', attempts, error });
   const pct = value => `${Math.round(value * 100)}%`;
+  // The finding being fixed: the hunted one, or the fresh answers when the method changed since. Events carry its hash so the store attaches them to it.
+  let finding = hunted;
+  const rejectedEvent = (attempts, error) => store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: id, method: finding.method, hash: finding.hash, revision, status: 'rejected', attempts, error });
 
   let placed = false;
   try {
     // The same context the hunt showed System One, rebuilt from a scan of HEAD. The method may have moved; the finding's line moves with it.
     const { node, fileLines, method, callees, callers, calleeIds, callerIds, imports, methods, step, changed } = await methodContext({ finding: hunted, root, out, analyzer, revision, log: debug });
-    let finding = { ...hunted, line: node.line, end_line: node.end_line, where: { ...hunted.where, line: hunted.where.line + node.line - hunted.line } };
+    finding = { ...hunted, line: node.line, end_line: node.end_line, where: { ...hunted.where, line: hunted.where.line + node.line - hunted.line } };
     if (changed) {
       // The method reads differently than when it was hunted, so its answers are about code that is gone: ask again, now, and go on from the fresh ones.
       const asking = ui.task(`${systemOne.id} re-reading ${node.qualified_name}, changed since the hunt`);
@@ -224,7 +226,7 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
     const patchPath = join(dir, 'fix.patch');
     await writeFile(patchPath, accepted.patch);
     const verification = { kind: finding.kind.kind, before: { has_bug: finding.has_bug, kind: finding.kind.probability ?? null, reachable }, after: accepted.record.verification };
-    await store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: id, method: finding.method, hash: hunted.hash, revision, status: 'ready', summary: accepted.proposal.summary,
+    await store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: id, method: finding.method, hash: finding.hash, revision, status: 'ready', summary: accepted.proposal.summary,
       commit: accepted.commit, branch, patch_path: patchPath, verification });
     return await finish('ready', { summary: accepted.proposal.summary, commit: accepted.commit, patch_path: patchPath, verification });
   } catch (error) {

@@ -170,8 +170,8 @@ describe('perch fix', () => {
     expect((await store.findings())[0].fix).toMatchObject({ id: fix.id, status: 'ready' });
 
     // Changed again, and this time System One sees nothing: the finding leaves the list without a generative call.
-    await writeFile(join(repo.root, 'src', 'clamp.js'), fixedSource);
-    await commitAll(repo.root, 'fix by hand');
+    await writeFile(join(repo.root, 'src', 'clamp.js'), fixedSource.replace('  return v;', '  return v; // in range'));
+    await commitAll(repo.root, 'touch clamp again');
     const model = scriptedModel();
     const gone = await runFix(fixOptions(repo, { ...finding, hash: 'stale' }, { model, systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.1 } }) }));
     expect(gone.status).toBe('rejected');
