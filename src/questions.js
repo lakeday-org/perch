@@ -122,8 +122,16 @@ export function expectedIssues(answers, issues = issuesOf(answers)) {
   return { correctness: sum(issues.filter(issue => !isDesign(issue))), design: sum(issues.filter(isDesign)) };
 }
 
-/** What a method is ranked by: how many problems it is expected to have, correctness weighing double. */
-export const issueWeight = answers => { const { correctness, design } = expectedIssues(answers); return correctness * 2 + design; };
+/**
+ * What a method is ranked by: how much trouble it is expected to cause, not how many things are wrong with it. A correctness
+ * problem weighs what the severity rubric measured for this method, taken from the whole distribution rather than the band it
+ * landed on, so a method that would lose data outranks one that would return a wrong number however many notes it also carries.
+ * Design problems weigh as themselves: they are the ones the rubric's own bottom level describes, the ones no caller notices.
+ */
+export const issueWeight = answers => {
+  const { correctness, design } = expectedIssues(answers);
+  return correctness * (severityOf(answers.severity)?.expected ?? 1) + design;
+};
 /**
  * Bumped whenever the question set changes. A finding answered by an older set is read again before it is worked: its answers
  * cannot contain a kind that did not exist yet, so every rewrite would look like it introduced one.

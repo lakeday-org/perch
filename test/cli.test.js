@@ -119,7 +119,8 @@ describe('cli', () => {
     const [f] = hunt.visited;
     expect(await main(['issues', '--out', repo.out], io)).toBe(0);
     expect(out.at(-1)).toMatch(new RegExp(`^${f.id}  f +src/a.js:\\d+ +wrong_return_value \\d+%.* +P2 +open +-`, 'm'));
-    expect(out.at(-1)).toMatch(/^ID +Method +Location +Issues +Severity +Status +Commit$/m);
+    // Every column a filter reads is named after it: kind, severity.
+    expect(out.at(-1)).toMatch(/^ID +Method +Location +Kind +Severity +Status +Commit$/m);
     // A filter that matches keeps the row; one that does not leaves nothing.
     expect(await main(['findings', '--filter', 'type=defect,severity=P2', '--out', repo.out], io)).toBe(0);
     expect(out.at(-1)).toContain(f.id);

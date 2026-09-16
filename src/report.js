@@ -56,7 +56,8 @@ function issueTable(findings, min = 0) {
   // Severity is asked about a behavioral defect, so a method whose issues are all design or security has none to show.
   const rows = findings.map(finding => [finding.id, finding.name, locationOf(finding, min), issueCell(finding, min),
     issuesOf(finding, min).some(issue => issue.type === 'defect') ? severityName(finding.severity) : '-', ...statusRow(finding)]);
-  return table(['ID', 'Method', 'Location', 'Issues', 'Severity', 'Status', 'Commit'], rows, ['left', 'left', 'left', 'left', 'left', 'left', 'left']);
+  // A column is named after the filter that reads it: the cell holds kinds, and `--filter kind=too_big` is how you narrow to one.
+  return table(['ID', 'Method', 'Location', 'Kind', 'Severity', 'Status', 'Commit'], rows, ['left', 'left', 'left', 'left', 'left', 'left', 'left']);
 }
 
 
