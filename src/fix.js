@@ -260,7 +260,22 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
     const ignored = new Set();
     fix.checks = checks.map(check => check.name);
 
-    const place = async text => { await writeFile(join(root, node.path), text); placed = true; };
+    /**
+     * Replace the tracked method's file with candidate source for a test run.
+     * The path must be in the revision being fixed; a successful write sets `placed`
+     * so the caller's cleanup restores it, and a failed write leaves the checkout flag clear.
+     */
+    const place = async text => {
+      if (!tracked.has(node.path)) throw new Abort(`refusing to write an untracked path: ${node.path}`);
+      const target = join(root, node.path);
+      try {
+        await writeFile(target, text);
+        placed = true;
+      } catch (error) {
+        placed = false;
+        throw error;
+      }
+    };
     const restore = async () => { await git(['checkout', '--', node.path], root); placed = false; };
     // Only what moved: "risk 84 -> 62, complexity 55 -> 40". A number that did not change is not news.
     const shift = (from, to) => [['risk', 'risk_score'], ['complexity', 'cyclomatic_complexity'], ['nesting', 'max_nesting'], ['lines', 'sloc']]
