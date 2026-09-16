@@ -7,8 +7,8 @@ import { huntStep, locateWhere, reachCheck, readAnswers } from './questions.js';
 import { findingId, identity, openStore, writeJson } from './store.js';
 export { findingId };
 
-/** By default a scan reads every method it has not read before, or whose code changed since; `budget` caps that. `perch fix` works twenty issues by default. */
-export const DEFAULT_BUDGET = Infinity, DEFAULT_FIX_BUDGET = 20, DEFAULT_PARALLEL = 8;
+/** A scan reads every method it has not read before, or whose code changed since. `perch fix` works twenty issues by default. */
+export const DEFAULT_FIX_BUDGET = 20, DEFAULT_PARALLEL = 8;
 
 /** One System One pass over a method: the hunt's questions, the line, and, when a defect looks likely, whether that line is reachable. */
 export async function questionMethod({ systemOne, node, step, lines, debug = () => {} }) {
@@ -31,7 +31,7 @@ export const huntedEvent = ({ node, answers, response, huntId = null, root, gith
   type: 'hunted', at: new Date().toISOString(), id: findingId(node.id), hunt_id: huntId, root, github, revision, method: node.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line,
   hash: node.hash, risk: node.metrics?.risk_score ?? null, model: response.model, ...answers, callees: calleeIds, callers: callerIds });
 
-export async function runHunt({ root, revision, out, analyzer, systemOne, label = root, github = null, paths = [], budget = DEFAULT_BUDGET, parallel = DEFAULT_PARALLEL, force = false,
+export async function runHunt({ root, revision, out, analyzer, systemOne, label = root, github = null, paths = [], budget = Infinity, parallel = DEFAULT_PARALLEL, force = false,
   progress = () => {}, scanProgress = () => {}, log = () => {}, debug = () => {} }) {
   const store = openStore(out);
   const scan = await runScan({ root, revision, out, analyzer, label, github, paths, progress: scanProgress, log, debug });

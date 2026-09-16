@@ -22,8 +22,8 @@ function capture() {
 
 describe('cli', () => {
   it('parses flags and positionals', () => {
-    expect(parseArgs(['scan', 'owner/repo', '--paths', 'src,lib', '--budget=2', '--parallel', '3', '--force', '--json'])).toEqual({
-      flags: { paths: 'src,lib', budget: '2', parallel: '3', force: true, json: true }, positional: ['scan', 'owner/repo'] });
+    expect(parseArgs(['scan', 'owner/repo', '--paths', 'src,lib', '--parallel', '3', '--force', '--json'])).toEqual({
+      flags: { paths: 'src,lib', parallel: '3', force: true, json: true }, positional: ['scan', 'owner/repo'] });
     expect(parseArgs(['fix', 'src/metrics.ts', '--budget', '5', '--effort', 'low'])).toEqual({ flags: { budget: '5', effort: 'low' }, positional: ['fix', 'src/metrics.ts'] });
     expect(parseArgs(['issues', '--closed', '--all']).flags).toEqual({ closed: true, all: true });
     expect(() => parseArgs(['scan', '--bogus'])).toThrow('unknown option --bogus');

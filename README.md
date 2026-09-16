@@ -36,14 +36,14 @@ root.
 ## Usage
 
 ```
-perch scan   [<target>] [--paths a,b] [--budget N] [--parallel N] [--force] [--all] [--out DIR] [--json] [--verbose]
+perch scan   [<target>] [--paths a,b] [--parallel N] [--force] [--all] [--out DIR] [--json] [--verbose]
 perch issues [<finding-id>] [--min P] [--all] [--closed] [--out DIR] [--json]
 perch fix    [<finding-id> | <path>] [--budget N] [--min P] [--model M] [--effort E] [--out DIR] [--json] [--verbose]
 ```
 
 | Verb | What it does | Needs |
 | --- | --- | --- |
-| `scan` | Analyzes every tracked source file at `HEAD` with tree-sitter, then reads methods with System One, walking from the riskiest through callers and callees. The first scan reads every method; later scans read only methods whose code changed since they were last read. `--budget N` caps a run. Prints the open issues. | `TYPESAFE_API_KEY` |
+| `scan` | Analyzes every tracked source file at `HEAD` with tree-sitter, then reads methods with System One, walking from the riskiest through callers and callees. The first scan reads every method; later scans read only methods whose code changed since they were last read. Prints the open issues. | `TYPESAFE_API_KEY` |
 | `issues` | Lists every open issue: the method, where, each issue it carries with its probability, the severity of a defect, status, and the commit once worked. Closed issues are omitted unless `--closed`; methods that no longer exist are not listed. With a finding id, everything known about that method. | nothing |
 | `fix` | Works the open issues, strongest first, up to `--budget`; under a path, only those in that file or directory; with a finding id, that one. Each accepted result is one commit on your current branch. | `OPENAI_API_KEY`, `TYPESAFE_API_KEY` |
 
@@ -61,7 +61,7 @@ while a run is in progress aborts the run.
 | Flag | Meaning |
 | --- | --- |
 | `--paths a,b` | Only consider files under these repository-relative paths. |
-| `--budget N` | `scan`: read at most N methods this run (by default, every method not yet read or changed since). `fix`: work at most N issues (default 20). |
+| `--budget N` | Work at most N issues (default 20). |
 | `--parallel N` | How many methods to read at once (default 8). |
 | `--force` | Read every method again, even ones unchanged since the last scan. |
 | `--min P` | Only list or work issues the model rates at P percent or more (default 50). |
@@ -78,7 +78,6 @@ A typical session:
 ```
 perch scan                   # the first time: read every method; the open issues
 perch scan                   # later: read only what changed since
-perch scan --budget 50       # cap a run at fifty methods
 perch issues                 # the open issues
 perch issues 780f586a        # everything known about one method
 git checkout -b perch/sweep  # fix commits to the current branch

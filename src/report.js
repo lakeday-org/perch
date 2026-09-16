@@ -43,7 +43,7 @@ const footer = 'perch fix works these in this order. perch fix <id> works one. p
 export function formatScanRun(hunt, issues, shown = TOP) {
   const hunted = (hunt.visited ?? []).filter(visit => visit.status === 'hunted');
   const changed = hunted.length && hunt.skipped ? `${hunted.length} new or changed` : `${hunted.length}`;
-  const lines = [`Scanned ${relative(hunt.target)} at commit ${hunt.revision?.slice(0, 7) ?? '?'}: ${hunt.methods} methods. Read ${changed}${hunt.skipped ? `, ${hunt.skipped} unchanged since the last scan` : ''}${hunt.remaining ? `, ${hunt.remaining} left unread (--budget ${hunt.budget})` : ''}.${hunt.status === 'complete' ? '' : ` (${hunt.status})`}`];
+  const lines = [`Scanned ${relative(hunt.target)} at commit ${hunt.revision?.slice(0, 7) ?? '?'}: ${hunt.methods} methods. Read ${changed}${hunt.skipped ? `, ${hunt.skipped} unchanged since the last scan` : ''}${hunt.remaining ? `, ${hunt.remaining} left unread` : ''}.${hunt.status === 'complete' ? '' : ` (${hunt.status})`}`];
   if (hunt.error) lines.push(`Error: ${hunt.error}`);
   lines.push('', formatIssues(issues, 0.5, shown));
   return lines.join('\n');

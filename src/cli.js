@@ -7,7 +7,7 @@ import { createSystemOne, DEFAULT_SYSTEM_ONE_MODEL } from './systemone.js';
 import { createSourceAnalyzer } from './analysis.js';
 import { openStore, resolveOut } from './store.js';
 import { runScan } from './scan.js';
-import { DEFAULT_BUDGET, DEFAULT_FIX_BUDGET, DEFAULT_PARALLEL, runHunt } from './hunt.js';
+import { DEFAULT_FIX_BUDGET, DEFAULT_PARALLEL, runHunt } from './hunt.js';
 import { runFixQueue, runOne, splitStale, underPath } from './fix.js';
 import { runRefactor } from './refactor.js';
 import { createShell } from './shell.js';
@@ -16,7 +16,7 @@ import { formatFinding, formatFix, formatFixes, formatIssues, formatScanRun, vis
 
 const options = {
   paths: ['--paths a,b', 'Only consider files under these repository paths', ['scan']],
-  budget: ['--budget N', `scan: read at most N methods this run (by default every method not read before, or changed since); fix: work at most N issues (default ${DEFAULT_FIX_BUDGET})`, ['scan', 'fix']],
+  budget: ['--budget N', `Work at most N issues (default ${DEFAULT_FIX_BUDGET})`, ['fix']],
   parallel: ['--parallel N', `How many methods to read at once (default ${DEFAULT_PARALLEL})`, ['scan']],
   force: ['--force', 'Read every method again, even ones unchanged since an earlier scan', ['scan']],
   all: ['--all', 'List every row instead of the top 10', ['scan', 'issues']],
@@ -30,7 +30,7 @@ const options = {
 };
 
 const commandHelp = {
-  scan: { args: '[target]', summary: 'Find the issues in a repository: defects, methods too big or too nested, misnamed, misdocumented, complex', detail: 'Analyzes every tracked source file with tree-sitter and records each method with its metrics and the calls and imports that link it to others. Then, starting at the riskiest method and walking its callers and callees, it sends one System One request per method with the method, the methods it calls, and its call sites, and asks: is there a reachable behavioral defect, on which line, of what kind, how severe; does any call misuse its callee; does the method do what its name and comment claim; is it documented; what refactor does it need; which neighbor to follow next. When a defect looks likely a second request asks whether the flagged line is actually executable. The first scan reads every method; later scans read only methods whose code changed since they were last read (--force reads everything again, --budget N caps a run at N methods). Everything at 50% or more is an issue, and so is any method the metrics score at risk 70 or more, read or not. Prints the open issues. Needs TYPESAFE_API_KEY; always uses the jev-latest model.' },
+  scan: { args: '[target]', summary: 'Find the issues in a repository: defects, methods too big or too nested, misnamed, misdocumented, complex', detail: 'Analyzes every tracked source file with tree-sitter and records each method with its metrics and the calls and imports that link it to others. Then, starting at the riskiest method and walking its callers and callees, it sends one System One request per method with the method, the methods it calls, and its call sites, and asks: is there a reachable behavioral defect, on which line, of what kind, how severe; does any call misuse its callee; does the method do what its name and comment claim; is it documented; what refactor does it need; which neighbor to follow next. When a defect looks likely a second request asks whether the flagged line is actually executable. The first scan reads every method; later scans read only methods whose code changed since they were last read (--force reads everything again). Everything at 50% or more is an issue, and so is any method the metrics score at risk 70 or more, read or not. Prints the open issues. Needs TYPESAFE_API_KEY; always uses the jev-latest model.' },
   issues: { args: '[finding-id]', summary: 'List open issues, or show everything known about one method', detail: 'Lists every open issue at --min or more: the method, where, each issue it carries (the defect kind, too big, too nested, tangled conditions, misnamed, does not do what it claims, misdocumented, complex) with its probability, the severity of a defect, whether it is open or closed, and the commit once worked. An issue is closed once the work on it was given up or there was nothing left to do; closed issues are omitted unless --closed. Methods that no longer exist are not listed. With a finding id it prints everything known about that method.' },
   fix: { args: '[finding-id | path]', summary: 'Work the open issues in this checkout, most serious first, one commit each', detail: 'Works the open issues, strongest first, up to --budget of them; with a path, only those in that file or directory; with a finding id, that one. A defect: System One first confirms a caller can reach the flagged line (if not, the issue is closed with no model call); then an OpenAI model runs as an agent with the verifiers as tools, sees everything System One answered with the method\'s neighborhood, and must pass check_method (the patch parses and does not grow) and verify_with_system_one (the defect looks less likely, no caller newly misused) on the exact source it submits. Anything else (too big, too nested, tangled, misnamed, misdocumented, complex): the same kind of agent rewrites the method and its comment and must pass measure (the file\'s risk score comes down with complexity and nesting no higher) and run_tests (every test that reaches the method still passes; one already failing on the original is ignored) on the exact source it submits. An accepted result is committed on the current branch with the summary as its message; a rejected run leaves the checkout as it was. Refuses to run on main or master. Needs OPENAI_API_KEY and TYPESAFE_API_KEY.' },
 };
@@ -66,7 +66,7 @@ Read from the shell, then from a .env file in the repository root.
 ${column([['TYPESAFE_API_KEY', `Required by scan and fix, which use the ${DEFAULT_SYSTEM_ONE_MODEL} model to read and judge code`], ['OPENAI_API_KEY', 'Required by fix, which uses an OpenAI model to write the code'], ['OPENAI_BASE_URL', 'OpenAI-compatible endpoint. Defaults to https://api.openai.com/v1'], ['OPENAI_MODEL', `OpenAI model for fix. Defaults to ${DEFAULT_MODEL}`]])}
 
 Examples:
-${column([['perch scan', 'Read every method the first time, only changed ones after; list the issues'], ['perch scan --budget 50', 'Read at most fifty this run'], ['perch issues', 'The open issues'], ['perch issues 3f9c2a', 'Everything known about one method'], ['perch fix', 'Work the twenty most serious open issues, one commit each'], ['perch fix src/metrics.ts', 'Work the issues in one file'], ['perch fix 3f9c2a', 'Work one issue']])}`;
+${column([['perch scan', 'Read every method the first time, only changed ones after; list the issues'], ['perch issues', 'The open issues'], ['perch issues 3f9c2a', 'Everything known about one method'], ['perch fix', 'Work the twenty most serious open issues, one commit each'], ['perch fix src/metrics.ts', 'Work the issues in one file'], ['perch fix 3f9c2a', 'Work one issue']])}`;
 
 function usageFor(name) {
   const help = commandHelp[name];
@@ -134,13 +134,13 @@ async function openIssues(store, min, io) {
 const commands = {
   async scan(io) {
     const systemOne = createSystemOne({ apiKey: io.env.TYPESAFE_API_KEY, log: io.debug });
-    const budget = io.flags.budget === undefined ? DEFAULT_BUDGET : positiveInteger('--budget', io.flags.budget, DEFAULT_BUDGET), parallel = positiveInteger('--parallel', io.flags.parallel, DEFAULT_PARALLEL);
+    const parallel = positiveInteger('--parallel', io.flags.parallel, DEFAULT_PARALLEL);
     const resolved = await resolveTarget(io.argument ?? '.', { out: io.flags.out, log: io.log });
     const files = counter(io, 'analyzed files'), methods = counter(io, 'read methods');
     let hunt;
     try {
       hunt = await runHunt({ root: resolved.root, revision: await gitRevision(resolved.root), label: resolved.label, github: resolved.github, out: resolved.out,
-        systemOne, analyzer: createSourceAnalyzer(), paths: parsePaths(io.flags), budget, parallel, force: Boolean(io.flags.force), progress: methods.update, scanProgress: files.update, log: io.debug, debug: io.debug });
+        systemOne, analyzer: createSourceAnalyzer(), paths: parsePaths(io.flags), parallel, force: Boolean(io.flags.force), progress: methods.update, scanProgress: files.update, log: io.debug, debug: io.debug });
     } finally { files.clear(); methods.clear(); }
     const store = openStore(resolved.out);
     const scan = await store.latestScan();
