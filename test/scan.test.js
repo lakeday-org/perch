@@ -4,8 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
-import { runScan } from '../src/scan.js';
-import { formatScan } from '../src/report.js';
+import { analyzeTree } from '../src/scan.js';
 import { fixtureOptions, makeFixture, makeGraphFixture } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
@@ -21,7 +20,7 @@ async function fixture(make = makeFixture) {
 describe('perch scan', () => {
   it('ranks methods at the revision without a worktree or a model', async () => {
     const repo = await fixture();
-    const scan = await runScan(fixtureOptions(repo, { analyzer }));
+    const scan = await analyzeTree(fixtureOptions(repo, { analyzer }));
     expect(scan.status).toBe('complete');
     expect(scan.coverage).toMatchObject({ parsed: 2, parse_failures: 0, excluded: 1 });
     expect(scan.candidates.map(candidate => candidate.id)).toEqual(['src/clamp.js::clamp']);
@@ -32,17 +31,15 @@ describe('perch scan', () => {
     expect(existsSync(join(repo.out, 'workspaces'))).toBe(false);
     expect((await git(['status', '--porcelain'], repo.root)).trim()).toBe('');
     expect((await git(['worktree', 'list', '--porcelain'], repo.root)).match(/^worktree /gm)).toHaveLength(1);
-    expect(formatScan(scan)).toContain('src/clamp.js');
-    expect(formatScan(scan)).toMatch(/File +Risk +Maintainability/);
 
-    const again = await runScan(fixtureOptions(repo, { analyzer }));
+    const again = await analyzeTree(fixtureOptions(repo, { analyzer }));
     expect(again.id).toBe(scan.id);
     expect(again.created_at).toBe(scan.created_at);
   });
 
   it('records calls and imports per file and keeps test methods out of the ranking', async () => {
     const repo = await fixture(makeGraphFixture);
-    const scan = await runScan(fixtureOptions(repo, { analyzer }));
+    const scan = await analyzeTree(fixtureOptions(repo, { analyzer }));
     const a = scan.files.find(file => file.path === 'src/a.js');
     expect(a.imports).toEqual([{ module: './b.js', name: 'h', alias: 'h' }]);
     expect(a.calls.map(call => `${call.from}>${call.name}`).sort()).toEqual(['src/a.js::f>g', 'src/a.js::f>g', 'src/a.js::f>h', 'src/a.js::f>h']);
@@ -53,9 +50,9 @@ describe('perch scan', () => {
 
   it('limits analysis to --paths', async () => {
     const repo = await fixture();
-    const scan = await runScan(fixtureOptions(repo, { analyzer, paths: ['test'] }));
+    const scan = await analyzeTree(fixtureOptions(repo, { analyzer, paths: ['test'] }));
     expect(scan.coverage.parsed).toBe(1);
     expect(scan.candidates).toEqual([]);
-    await expect(runScan(fixtureOptions(repo, { analyzer, paths: ['nowhere'] }))).rejects.toThrow('No supported source files');
+    await expect(analyzeTree(fixtureOptions(repo, { analyzer, paths: ['nowhere'] }))).rejects.toThrow('No supported source files');
   });
 });

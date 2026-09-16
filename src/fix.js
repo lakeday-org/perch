@@ -1,22 +1,26 @@
 /**
- * `perch fix issues` / `perch fix design`: for each selected finding, get a corrected method and a regression test from a generative
- * model, check the test with System One, prove it in the operator's checkout (fails on the original with an assertion, passes on the
- * patch, the existing tests that touch the method still pass), question the patched method again, and commit it on the current
- * branch. A rejected attempt leaves the checkout as it was. The proof is recorded in the events log so issues shows it.
+ * `perch fix`: one agent per method, every issue the scan raised about it as an objective. The generating model rewrites the method
+ * (and the comment above it) with the verifiers as tools, and the decisive verifier is the scan itself run again over the rewrite:
+ * tree-sitter and the full System One question set, with the same neighborhood. The rewrite is accepted only when every issue is
+ * gone or lower and nothing new appeared, the tests that reach the method still pass, and the model submits that exact source.
+ * Each accepted result is one commit on the current branch; a rejected run leaves the checkout as it was.
  */
-import { DEFAULT_BUDGET } from './hunt.js';
-import { visibleFindings } from './report.js';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { basename, dirname, extname, join } from 'node:path';
+import { writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { git, listTree, revision as gitRevision } from './git.js';
-import { languageOf, testFile } from './analysis.js';
-import { runScan } from './scan.js';
+import { DEFAULT_FIX_BUDGET, huntedEvent, questionMethod } from './hunt.js';
+import { visibleFindings } from './report.js';
+import { languageOf } from './analysis.js';
+import { analyzeTree } from './scan.js';
 import { buildGraph, resolveModule } from './graph.js';
-import { flagged, huntStep, needsDesign, patchCheck, reachCheck, readPatchCheck, soundTest, SURE, testCheck, testObjections } from './questions.js';
-import { discoverProject } from './project.js';
-import { COMMAND_MS, workspaceEnv } from './workspace.js';
+import { huntStep, isDesign, issuesOf, reachCheck, SURE } from './questions.js';
 import { identity, openStore, readJson, writeJson } from './store.js';
 import { fixPrompt } from './prompts.js';
+import { Abort, DEFAULT_EFFORT, tool } from './model.js';
+import { createMeter, metered } from './meter.js';
+import { discoverProject } from './project.js';
+import { COMMAND_MS, workspaceEnv } from './workspace.js';
+import { FAIL, NOTE, OK, plainUi } from './ui.js';
 
 export const PROTECTED_BRANCHES = ['main', 'master'];
 /** Paths with uncommitted changes, untracked files included. */
@@ -27,76 +31,73 @@ export async function workingBranch(root, verb) {
   if (PROTECTED_BRANCHES.includes(branch)) throw new Error(`perch ${verb} commits to the current branch, and ${branch} is protected; check out a feature branch first`);
   return branch;
 }
+/** A commit line: one line, under 72 characters, starting with a word (no ticket-speak); trailing period dropped. */
+export function plainSummary(summary) {
+  const text = String(summary ?? '').trim().split('\n')[0].replace(/\.$/, '');
+  if (!text) return { error: 'summary is required: the commit line, under 72 characters, imperative, plain words' };
+  if (text.length > 72) return { error: `summary is ${text.length} characters; the commit line must be under 72, imperative, plain words` };
+  return { text };
+}
 /** Findings under a repository-relative path (a file or a directory). */
 export const underPath = (findings, path) => (path ? findings.filter(finding => finding.path === path || finding.path.startsWith(path.replace(/\/$/, '') + '/')) : findings);
 
-export const MAX_ATTEMPTS = 3;
+/** Rescans and test runs one fix may spend. */
+export const MAX_RESCANS = 6, MAX_TEST_RUNS = 6;
+/** Bumped whenever how a fix is made or judged changes, so a rejection recorded by an older pipeline is never reused. */
+export const FIX_VERSION = 5;
 
 export function fixIdentity({ finding, model }) {
-  return identity('fix', finding.id, finding.hash, model);
+  return identity('fix', FIX_VERSION, finding.id, finding.hash, model);
 }
 
-/** Open findings that carry the issue `kind` works (defects for fix, design issues for refactor) and have no record of it yet, strongest first, capped at `budget`. */
-export function pendingFixes(findings, budget = DEFAULT_BUDGET, kind = 'fix') {
-  const wanted = kind === 'refactor' ? finding => needsDesign(finding) && !finding.refactored : finding => flagged(finding) && !finding.fix;
-  return visibleFindings(findings).filter(wanted).slice(0, budget);
+/** Open issues nothing has worked yet, strongest first, capped at `budget`. */
+export function pendingFixes(findings, budget = DEFAULT_FIX_BUDGET) {
+  return visibleFindings(findings).filter(finding => !finding.fix).slice(0, budget);
 }
 
-/** Output that says a test ran and an assertion failed, as the common runners print it. */
-const assertionFailure = /AssertionError|assertion `?left|assertion failed|assert(ion)? (error|failed)|expected .+ (to|but)|\bFAILED\b|^\s*FAIL\b|✕|✗|not ok|--- FAIL|panicked at|Tests?:\s+\d+ failed|\d+ failed\b/ms;
-/** Output that says the test never ran: the file did not load, compile, or find its imports. */
-const loadFailure = /Cannot find (module|package)|ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|ModuleNotFoundError|ImportError|SyntaxError|cannot find package|no such file or directory|error\[E\d+\]|undefined: \w+|is not defined|is not a function/;
+/**
+ * Findings whose method still exists at HEAD, and the rest. A changed method is re-questioned when its turn comes; one that is gone
+ * (removed, renamed, or moved to another file) has nothing left to fix under that name.
+ */
+export function splitStale(findings, scan) {
+  const live = new Set((scan.files ?? []).flatMap(file => file.methods.map(method => method.id)));
+  const current = [], stale = [];
+  for (const finding of findings) (live.has(finding.method) ? current : stale).push(finding);
+  return { current, stale };
+}
+
 const quote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
 export const tail = result => (result.stdout + result.stderr).trim().slice(-1500);
 
-/**
- * A patched file passes when it parses, adds no nesting, adds at most one branch (a missing guard is one branch), and moves the file's risk
- * score by at most one point. Enough room for a fix; not enough for a rewrite.
- */
-export const MAX_EXTRA_BRANCHES = 1, MAX_EXTRA_RISK = 1;
-export const withinQualityGate = (base, changed) => Boolean(changed) && changed.risk_score <= base.risk_score + MAX_EXTRA_RISK &&
-  (changed.cyclomatic_complexity ?? 0) <= (base.cyclomatic_complexity ?? 0) + MAX_EXTRA_BRANCHES && (changed.max_nesting ?? 0) <= (base.max_nesting ?? 0);
-
-const safePath = path => typeof path === 'string' && path.length > 0 && !path.startsWith('/') && !path.split('/').some(part => ['..', '.', '.git', ''].includes(part));
-const stem = path => basename(path).replace(/\.[^.]+$/, '');
-const tokens = name => name.toLowerCase().split(/[._-]+/).filter(Boolean);
-const testMarkers = new Set(['test', 'tests', 'spec', 'specs']);
-/** Words that name the process rather than the module; a test file carrying one was named by the fixer, not by the project. */
-const inventedSuffixes = new Set(['regression', 'regressions', 'regress', 'bug', 'bugs', 'bugfix', 'fix', 'fixes', 'fixed', 'hotfix', 'patch', 'defect', 'issue', 'perch', 'repro', 'reproduce', 'null', 'undefined', 'guard', 'handling', 'edge', 'edgecase', 'fail', 'failure', 'error', 'errors', 'check', 'verify', 'new']);
-/**
- * A test file is named after a module when its name starts with the module's name, then optionally a topic the project would use
- * (command.action.test.js), then test markers: target.test.js, test_target.py, target_test.go. Suffixes that name the fixing process
- * (clamp.regression.test.js, cli-null.test.js) do not count. When the project's example test carries a marker, so must the new file.
- */
-export function namedAfter(testPath, modulePath, examplePath = null) {
-  const own = tokens(stem(modulePath).replace(/\.(test|spec)$/, ''));
-  const found = tokens(stem(testPath).replace(/\.d$/, ''));
-  const body = found.filter(token => !testMarkers.has(token));
-  const marked = body.length < found.length;
-  const exampleMarked = examplePath ? tokens(stem(examplePath)).some(token => testMarkers.has(token)) : false;
-  return own.every((token, index) => body[index] === token) && body.every(token => !inventedSuffixes.has(token)) && (marked || !exampleMarked);
+const commentLine = /^\s*(\/\/|\/\*|\*|#|"""|''')/;
+/** The first line of the comment block sitting directly above a method, or the method's own line when there is none. */
+export function regionStart(lines, line) {
+  let start = line;
+  while (start > 1 && commentLine.test(lines[start - 2])) start--;
+  return start;
 }
-/** A conventional test file name for a module, modeled on an example test path from the same project. */
-export function suggestTestName(modulePath, examplePath) {
-  const name = stem(modulePath), ext = extname(modulePath);
-  if (!examplePath) return `test/${name}.test${ext}`;
-  const exampleStem = stem(examplePath);
-  const marker = tokens(exampleStem).find(token => testMarkers.has(token));
-  const exampleName = tokens(exampleStem).filter(token => !testMarkers.has(token)).join('-') || exampleStem;
-  const replaced = marker ? exampleStem.replace(exampleName, name) : name;
-  return `${dirname(examplePath)}/${replaced}${extname(examplePath)}`;
-}
-/** Lines of the original file that the proposed file no longer contains in order. */
-export function removedLines(original, proposed) {
-  const wanted = proposed.split('\n');
-  let cursor = 0;
-  const missing = [];
-  for (const line of original.replace(/\n$/, '').split('\n')) {
-    const at = wanted.indexOf(line, cursor);
-    if (at < 0) missing.push(line); else cursor = at + 1;
+/** The same lines in a different order, or the same text: a rewrite that changes nothing. */
+export const sameLines = (before, after) => {
+  const bag = text => text.split('\n').map(line => line.trim()).filter(Boolean).sort().join('\n');
+  return bag(before) === bag(after);
+};
+const trim = metrics => (metrics ? { risk_score: metrics.risk_score, maintainability_index: metrics.maintainability_index, cyclomatic_complexity: metrics.cyclomatic_complexity, max_nesting: metrics.max_nesting, sloc: metrics.sloc } : null);
+/**
+ * Whether a rewrite improved a method: every issue it had is gone or lower, a defect is gone outright, and nothing new appeared.
+ * Returns the objections, empty when it did.
+ */
+export function improvement(before, after) {
+  const objections = [];
+  for (const issue of before) {
+    const now = after.find(item => item.type === issue.type);
+    if (!now) continue;
+    if (issue.type === 'defect') objections.push(`${issue.label} is still a defect (${issue.text} -> ${now.text})`);
+    else if (now.probability >= issue.probability) objections.push(`${issue.label} did not improve (${issue.text} -> ${now.text})`);
   }
-  return missing;
+  for (const issue of after) if (!before.some(item => item.type === issue.type)) objections.push(`new issue: ${issue.text}`);
+  return objections;
 }
+
 export const command = (template, file) => template.replaceAll('{file}', quote(file)).replaceAll('{dir}', quote(dirname(file) === '.' ? '.' : `./${dirname(file)}`));
 export const methodLines = method => method.replace(/\n$/, '').split('\n');
 
@@ -120,232 +121,261 @@ export function testsTouching({ graph, files, node }) {
 
 /**
  * The finding's method at `revision` (the checkout's HEAD by default) with the same neighborhood the hunt showed: file lines, callees,
- * callers, imports, and the hunt step built from them. The method must still read as it did when hunted; its line may have moved.
+ * callers, imports, and the hunt step built from them. `changed` says whether the method reads differently than when it was hunted.
  */
 export async function methodContext({ finding, root, out, analyzer, revision = finding.revision, log = () => {} }) {
-  const scan = await runScan({ root, revision, out, analyzer, log });
+  const scan = await analyzeTree({ root, revision, out, analyzer, log });
   const graph = buildGraph(scan.files);
   const node = graph.nodes.get(finding.method);
   if (!node) throw new Error(`${finding.method} no longer exists at ${revision.slice(0, 12)}; hunt again`);
-  if (finding.hash && node.hash !== finding.hash) throw new Error(`${finding.method} has changed since it was hunted at ${finding.revision.slice(0, 12)}; hunt again`);
   const sources = new Map();
   const linesOf = async member => { if (!sources.has(member.path)) sources.set(member.path, (await git(['show', `${revision}:${member.path}`], root)).split('\n')); return sources.get(member.path); };
   const callees = [], callers = [];
-  for (const calleeId of graph.callees(node.id)) { const callee = graph.nodes.get(calleeId); callees.push({ node: callee, lines: await linesOf(callee), calls: graph.callees(calleeId) }); }
-  for (const callerId of graph.callers(node.id)) { const caller = graph.nodes.get(callerId); callers.push({ node: caller, lines: await linesOf(caller), site: graph.site(callerId, node.id) }); }
-  const imports = graph.files.get(node.path).file.imports;
+  const calleeIds = graph.callees(node.id), callerIds = graph.callers(node.id);
+  for (const calleeId of calleeIds) { const callee = graph.nodes.get(calleeId); callees.push({ node: callee, lines: await linesOf(callee), calls: graph.callees(calleeId) }); }
+  for (const callerId of callerIds) { const caller = graph.nodes.get(callerId); callers.push({ node: caller, lines: await linesOf(caller), site: graph.site(callerId, node.id) }); }
+  const { imports, methods } = graph.files.get(node.path).file;
   const fileLines = await linesOf(node);
-  const step = huntStep({ node, lines: fileLines, imports, callees, callers });
+  const step = huntStep({ node, lines: fileLines, imports, methods, callees, callers });
   const method = fileLines.slice(node.line - 1, node.end_line).join('\n');
-  return { scan, graph, node, fileLines, method, callees, callers, imports, step };
+  return { scan, graph, node, fileLines, method, callees, callers, calleeIds, callerIds, imports, methods, step, changed: Boolean(finding.hash) && node.hash !== finding.hash };
 }
 
-export async function runFix({ finding: hunted, root, out, model, systemOne, analyzer, shell, log = () => {} }) {
+export async function fixMethod({ finding: hunted, root, out, model, systemOne: rawSystemOne, analyzer, shell, ui = plainUi(), meter = createMeter(), log = () => {}, debug = () => {} }) {
   const store = openStore(out);
+  const systemOne = metered(rawSystemOne, meter);
   const id = fixIdentity({ finding: hunted, model: model.id });
   const dir = store.fixDir(id), fixPath = join(dir, 'fix.json');
   const existing = await readJson(fixPath, null);
-  if (existing && ['ready', 'rejected'].includes(existing.status)) {
-    log(`fix ${id} already ${existing.status}; reusing ${fixPath}`);
+  if (existing && ['ready', 'rejected', 'closed'].includes(existing.status)) {
+    ui.say(`${hunted.id}  ${hunted.name}  ${hunted.path}: already ${existing.status} by ${model.id}; reusing`);
     return existing;
   }
   await store.exclude(root);
-  // The fix is made and committed in the operator's checkout, on whatever branch is checked out; never on a protected one.
   const branch = await workingBranch(root, 'fix');
   const revision = await gitRevision(root);
-  const fix = { id, finding_id: hunted.id, method: hunted.method, path: hunted.path, root, branch, revision, hunted_at: hunted.revision, model: model.id, verifier: systemOne.id, out: dir,
-    status: 'running', attempts: [], created_at: new Date().toISOString() };
+  const fix = { id, finding_id: hunted.id, method: hunted.method, path: hunted.path, root, branch, revision, hunted_at: hunted.revision, model: model.id, verifier: systemOne.id, out: dir, status: 'running', created_at: new Date().toISOString() };
   await writeJson(fixPath, fix);
+  const pct = value => `${Math.round(value * 100)}%`;
+  let finding = hunted;
   const finish = async (status, extra) => {
-    Object.assign(fix, { status, completed_at: new Date().toISOString(), ...extra });
+    Object.assign(fix, { status, completed_at: new Date().toISOString(), ...extra, usage: meter.toJSON() });
     await writeJson(fixPath, fix);
-    log(`${hunted.path}: fix ${status}${fix.error ? `: ${fix.error}` : ''}`);
+    await store.appendEvent({ type: 'fixed', at: fix.completed_at, id: finding.id, fix_id: id, method: finding.method, hash: finding.hash, revision, status, summary: fix.summary ?? null, commit: fix.commit ?? null, branch, patch_path: fix.patch_path ?? null, before: fix.before ?? null, after: fix.after ?? null, reason: fix.reason ?? null, error: fix.error ?? null, attempts: fix.turns ?? 0 });
+    if (status !== 'ready') ui.say(`${status === 'closed' ? NOTE : FAIL} ${hunted.name}: ${status === 'closed' ? `closed — ${fix.reason}` : `no fix — ${(fix.error ?? '').split('\n')[0]}`}`);
+    ui.say(...meter.lines().map(line => `  ${line}`));
     return fix;
   };
 
-  let placed = null;
+  let placed = false;
   try {
-    // The same context the hunt showed the System One model, rebuilt from a scan of HEAD. The method may have moved; the finding's line moves with it.
-    const { scan, graph, node, fileLines, method, callees, callers, imports, step } = await methodContext({ finding: hunted, root, out, analyzer, revision, log });
-    const finding = { ...hunted, line: node.line, end_line: node.end_line, where: { ...hunted.where, line: hunted.where.line + node.line - hunted.line } };
+    // The method as it reads at HEAD, with the neighborhood the scan showed System One. If it changed since, System One reads it again first.
+    const { scan, graph, node, fileLines, callees, callers, calleeIds, callerIds, imports, methods, step, changed } = await methodContext({ finding: hunted, root, out, analyzer, revision, log: debug });
+    const fileOf = () => scan.files.find(file => file.path === node.path);
+    finding = { ...hunted, line: node.line, end_line: node.end_line, metrics: node.metrics, file: fileOf()?.metrics ?? null, where: hunted.where ? { ...hunted.where, line: hunted.where.line + node.line - hunted.line } : hunted.where };
+    if (changed || finding.has_bug === undefined) {
+      const reading = ui.task(`${systemOne.id} reading ${node.qualified_name}${changed ? ', changed since the scan' : ' for the first time'}`);
+      const { response, answers } = await questionMethod({ systemOne, node, step, lines: fileLines, debug });
+      const event = huntedEvent({ node, answers, response, root, github: hunted.github ?? null, revision, calleeIds, callerIds });
+      await store.appendEvent(event);
+      finding = { ...event, metrics: node.metrics, file: finding.file };
+      reading.ok(issuesOf(finding).map(issue => issue.text).join(', ') || 'no issues');
+    }
+    let before = issuesOf(finding);
+    if (!before.length) return await finish('closed', { reason: 'no open issue on the method as it reads now' });
     const dirtyBefore = await dirtyPaths(root);
     if (dirtyBefore.includes(node.path)) throw new Error(`${node.path} has uncommitted changes; commit or stash them before perch fix touches it`);
 
-    log(`asking ${systemOne.id} whether the defect at ${finding.path}:${finding.where.line} is reachable`);
-    const reach = reachCheck({ finding, state: step.state });
-    const { answers: reachAnswers } = await systemOne.ask(reach.state, reach.questions);
-    fix.reach_check = { reachable: reachAnswers.reachable.noul };
-    if (reachAnswers.reachable.noul < SURE) {
-      const error = `the flagged defect is not clearly reachable (${Math.round(reachAnswers.reachable.noul * 100)}%); an earlier guard likely excludes it`;
-      await store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: id, method: finding.method, hash: hunted.hash, revision, status: 'rejected', attempts: 0, error });
-      return await finish('rejected', { error });
+    // The objectives, stated up front: each issue and what has to be true afterwards.
+    ui.say(`${finding.id}  ${finding.name}  ${finding.path}:${finding.line}`);
+    const goal = issue => (issue.type === 'defect' ? `${systemOne.id} must no longer see it` : issue.type === 'complex' ? "the file's score must come down" : issue.type === 'misdocumented' ? 'the comment must say what a caller needs' : `${systemOne.id} must see it less`);
+    for (const issue of before) ui.say(`  ${issue.text.padEnd(28)} → ${goal(issue)}`);
+
+    // A defect the caller cannot reach is not one: System One says so before anything is generated.
+    let reachable = null;
+    const defect = before.find(issue => issue.type === 'defect');
+    if (defect) {
+      const reaching = ui.task(`${systemOne.id}: can a caller reach ${finding.path}:${finding.where.line}?`);
+      const { answers } = await systemOne.ask(reachCheck({ finding, state: step.state }).state, reachCheck({ finding, state: step.state }).questions);
+      reachable = answers.reachable.noul;
+      if (reachable < SURE) {
+        reaching.note(`reachable ${pct(reachable)}; not a defect`);
+        before = before.filter(issue => issue.type !== 'defect');
+        finding = { ...finding, reachable };
+        if (!before.length) return await finish('closed', { reason: `no caller can reach the flagged line (${pct(reachable)}); nothing else is open` });
+      } else reaching.ok(`reachable ${pct(reachable)}`);
     }
+    fix.before = before;
+
     const language = languageOf(node.path);
     const base = (await analyzer.analyzeSource(fileLines.join('\n'), language)).metrics;
     if (!base) throw new Error(`${node.path} does not parse at ${revision.slice(0, 12)}`);
+    const start = regionStart(fileLines, node.line), end = node.end_line;
+    const region = fileLines.slice(start - 1, end).join('\n');
+    const splice = source => [...fileLines.slice(0, start - 1), ...methodLines(source), ...fileLines.slice(end)];
 
-    // The existing tests are the ones the graph says reach this method. The new case goes into the module's own test file when it has one;
-    // otherwise into a new file named the way the project names its tests, with the nearest test file as the example.
-    const treePaths = (await listTree(root, revision)).map(item => item.path);
-    const existingTests = testsTouching({ graph, files: scan.files, node });
-    const nearTests = [...callees, ...callers].flatMap(neighbor => testsTouching({ graph, files: scan.files, node: neighbor.node }));
-    const byDistance = (a, b) => (b.startsWith(dirname(node.path) + '/') ? 1 : 0) - (a.startsWith(dirname(node.path) + '/') ? 1 : 0) || a.length - b.length;
-    // Candidates to extend, exact name first (clamp.test.js before clamp.broken.test.js); the choice waits for the baseline below.
-    const moduleCandidates = existingTests.filter(path => namedAfter(path, node.path)).sort((a, b) => tokens(stem(a)).length - tokens(stem(b)).length);
-    const testSources = new Map();
-    const testSourceOf = async path => { if (!testSources.has(path)) testSources.set(path, await git(['show', `${revision}:${path}`], root)); return testSources.get(path); };
-    const project = await discoverProject({ root, revision, out, paths: treePaths, systemOne, log });
-    if (!project.single) throw new Error('Could not tell how this project runs one test file; no manifest, CI workflow, or test directory was recognized');
-    Object.assign(fix, { existing_tests: existingTests, project: { install: project.install, single: project.single } });
-    await writeJson(fixPath, fix);
+    // The tests that reach the method, run only when the model asks; one already failing on the original is ignored, not blamed.
+    const project = await discoverProject({ root, revision, out, paths: (await listTree(root, revision)).map(item => item.path), systemOne, log: debug });
+    const reaching = testsTouching({ graph, files: scan.files, node });
+    const runFile = file => shell.run(command(project.single, file), { cwd: root, timeoutMs: COMMAND_MS, env: workspaceEnv() });
+    const checks = project.single ? reaching.map(path => ({ name: path, run: () => runFile(path) })) : [];
+    if (!checks.length && project.suite) checks.push({ name: project.suite, run: () => shell.run(project.suite, { cwd: root, timeoutMs: 4 * COMMAND_MS, env: workspaceEnv() }) });
+    const ignored = new Set();
+    fix.checks = checks.map(check => check.name);
 
-    // Tests run in the checkout itself, with perch's own keys withheld. Files a rejected attempt wrote are put back from HEAD.
-    const run = file => shell.run(command(project.single, file), { cwd: root, timeoutMs: COMMAND_MS, env: workspaceEnv() });
-    const place = async (path, text) => { await mkdir(dirname(join(root, path)), { recursive: true }); await writeFile(join(root, path), text); placed = { testPath: path === node.path ? placed?.testPath ?? null : path }; };
-    const restore = async testPath => {
-      await git(['checkout', '--', node.path], root);
-      if (testPath && treePaths.includes(testPath)) await git(['checkout', '--', testPath], root);
-      else if (testPath) await rm(join(root, testPath), { force: true });
-      placed = null;
+    const place = async text => { await writeFile(join(root, node.path), text); placed = true; };
+    const restore = async () => { await git(['checkout', '--', node.path], root); placed = false; };
+    const shift = (from, to) => `risk ${Math.round(from.risk_score)} -> ${Math.round(to.risk_score)}, complexity ${from.cyclomatic_complexity} -> ${to.cyclomatic_complexity}, nesting ${from.max_nesting} -> ${to.max_nesting}`;
+
+    // The verifiers, as tools. Each remembers the exact source it passed; submit insists on all that apply.
+    const passed = { measure: new Map(), rescan: new Map(), tests: new Map() };
+    let rescans = 0, testRuns = 0;
+    const measure = async ({ source }) => {
+      if (!source.trim() || sameLines(region, source)) return { ok: false, error: 'the source is the original, or the original\'s lines in another order; nothing changed' };
+      const replacement = methodLines(source);
+      const patchedLines = splice(source);
+      const after = await analyzer.analyzeSource(patchedLines.join('\n'), language);
+      if (after.parser_status !== 'parsed') return { ok: false, error: `the file does not parse: ${after.parser_message ?? 'syntax error'}` };
+      const regionEnd = start + replacement.length - 1;
+      const inRegion = after.declarations.filter(declaration => declaration.line >= start && declaration.line <= regionEnd && declaration.name !== '<anonymous>');
+      const kept = inRegion.find(declaration => declaration.qualified_name === node.qualified_name);
+      if (!kept) return { ok: false, error: `keep a method named ${node.qualified_name} in lines ${start}-${regionEnd}; found ${inRegion.map(declaration => declaration.qualified_name).join(', ') || 'none'}` };
+      const fileMetrics = trim(after.metrics), metrics = trim(kept.metrics);
+      const detail = { file: shift(base, fileMetrics), method: shift(node.metrics ?? metrics, metrics) };
+      if ((fileMetrics.max_nesting ?? 0) > (base.max_nesting ?? 0) || (fileMetrics.cyclomatic_complexity ?? 0) > (base.cyclomatic_complexity ?? 0) + 1) return { ok: false, error: 'the file got deeper or more branching; a fix adds at most one branch and no nesting', ...detail };
+      passed.measure.set(source, { kept, metrics, fileMetrics, inRegion: inRegion.map(declaration => ({ line: declaration.line, end_line: declaration.end_line })), replacementLength: replacement.length });
+      return { ok: true, ...detail };
     };
+    const rescan = async ({ source }) => {
+      if (!passed.measure.has(source)) return { ok: false, error: 'run measure on this exact source first' };
+      if (++rescans > MAX_RESCANS) return { ok: false, error: `no more than ${MAX_RESCANS} rescans per fix; submit your best passing source or stop` };
+      const { kept, metrics, fileMetrics, inRegion, replacementLength } = passed.measure.get(source);
+      const patchedLines = splice(source);
+      const shifted = replacementLength - (end - start + 1);
+      const patchedMethods = methods.filter(other => other.id !== node.id).map(other => (other.line > end ? { ...other, line: other.line + shifted, end_line: other.end_line + shifted } : other)).concat(inRegion);
+      const patchedNode = { ...node, line: kept.line, end_line: kept.end_line, metrics };
+      const patchedStep = huntStep({ node: patchedNode, lines: patchedLines, imports, methods: patchedMethods, callees, callers });
+      const { answers } = await questionMethod({ systemOne, node: patchedNode, step: patchedStep, lines: patchedLines, debug });
+      const after = issuesOf({ ...answers, metrics, file: fileMetrics });
+      const objections = improvement(before, after);
+      const result = { before: before.map(issue => issue.text), after: after.map(issue => issue.text) };
+      if (objections.length) return { ok: false, error: objections.join('; '), ...result };
+      passed.rescan.set(source, { answers, after });
+      return { ok: true, ...result };
+    };
+    const runTests = async ({ source }) => {
+      if (!passed.measure.has(source)) return { ok: false, error: 'run measure on this exact source first' };
+      if (!checks.length) { passed.tests.set(source, []); return { ok: true, checks: [], note: 'no test reaches this method and no suite command was found' }; }
+      if (++testRuns > MAX_TEST_RUNS) return { ok: false, error: `no more than ${MAX_TEST_RUNS} test runs per fix` };
+      const patched = splice(source).join('\n');
+      await place(patched);
+      try {
+        for (const check of checks) {
+          if (ignored.has(check.name)) continue;
+          const result = await check.run();
+          if (result.exit_code === 0) continue;
+          await restore();
+          const control = await check.run();
+          await place(patched);
+          if (control.exit_code !== 0) { ignored.add(check.name); continue; }
+          return { ok: false, error: `${check.name} fails on the rewrite and passes on the original`, output: tail(result) };
+        }
+        const changedPaths = (await dirtyPaths(root)).filter(path => !dirtyBefore.includes(path));
+        if (changedPaths.join('\n') !== node.path) throw new Abort(`the checkout changed while perch fix was running (${changedPaths.filter(path => path !== node.path).join(', ') || 'unknown'}); commit or stash your work and run it again`);
+      } finally { await restore(); }
+      const ran = checks.map(check => check.name).filter(name => !ignored.has(name));
+      passed.tests.set(source, ran);
+      return { ok: true, checks: ran, ...(ignored.size ? { ignored_already_failing: [...ignored] } : {}) };
+    };
+    let accepted = null;
+    const submit = async ({ source, summary }) => {
+      for (const [name, map] of [['measure', passed.measure], ['rescan', passed.rescan], ['run_tests', passed.tests]]) if (!map.has(source)) return { ok: false, error: `${name} has not passed this exact source` };
+      const line = plainSummary(summary);
+      if (line.error) return { ok: false, error: line.error };
+      accepted = { source, summary: line.text, ...passed.measure.get(source), ...passed.rescan.get(source), checks: passed.tests.get(source) };
+      return { ok: true, done: true };
+    };
+    const tools = [
+      tool('measure', `Splice the rewrite over lines ${start}-${end} of ${node.path} and measure the file with tree-sitter: it must parse, keep a method named ${node.qualified_name}, and not get deeper or more than one branch more complex. Call this on every version you write.`, { source: { type: 'string', description: 'the complete replacement for the region: the comment above the method and the method' } }, measure),
+      tool('rescan', 'Run the scan again over the rewrite: the same System One questions with the same neighborhood, plus the metrics. Every issue the scan raised must be gone or lower, a defect gone outright, and nothing new. Requires measure to have passed this exact source.', { source: { type: 'string' }, summary: { type: 'string', description: 'the commit line, under 72 characters' } }, rescan),
+      tool('run_tests', `Run the tests that reach ${node.qualified_name}${checks.length ? ` (${checks.map(check => check.name).join(', ')})` : ' (none found; passes trivially)'} against the rewrite. Requires measure to have passed this exact source.`, { source: { type: 'string' } }, runTests),
+      tool('submit', 'Finish with the rewrite. Refused unless measure, rescan, and run_tests have all passed this exact source.', { source: { type: 'string' }, summary: { type: 'string' } }, submit),
+    ];
 
-    // Baseline: an existing test that already fails on the original cannot be blamed on the patch, so only the passing ones count.
-    const baseline = { passing: [], failing: [] };
-    for (const path of existingTests) {
-      log(`running existing test ${path} on the original`);
-      const result = await run(path);
-      if (result.exit_code === 0) baseline.passing.push(path);
-      else { baseline.failing.push(path); log(`${path} already fails on the original (exit ${result.exit_code}); it will not count`); }
-    }
-    fix.baseline_failures = baseline.failing;
-    // One file named exactly after the module must be extended. Several topic files (command.action.test.js, ...) leave the model a choice:
-    // extend the fitting one or add a sibling named the same way.
-    const related = moduleCandidates.filter(path => !baseline.failing.includes(path));
-    const moduleTokens = tokens(stem(node.path)).length;
-    const moduleTest = related.find(path => tokens(stem(path)).filter(token => !testMarkers.has(token)).length === moduleTokens) ?? (related.length === 1 ? related[0] : null);
-    const examplePath = moduleTest ?? related[0] ?? nearTests[0] ?? scan.files.filter(file => file.test && file.language === node.language).map(file => file.path).sort(byDistance)[0] ?? null;
-    const exampleTest = examplePath ? { path: examplePath, text: (await testSourceOf(examplePath)).slice(0, moduleTest || related.length ? 32 * 1024 : 4096), extend: Boolean(moduleTest), related: moduleTest ? [] : related } : null;
-    Object.assign(fix, { module_test: moduleTest, related_tests: related, example_test: examplePath });
-    await writeJson(fixPath, fix);
-
-    let feedback = null, accepted = null;
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS && !accepted; attempt++) {
-      log(`asking ${model.id} for a fix and a regression test (attempt ${attempt})`);
-      const proposal = await model.ask(`fix-${attempt}`, fixPrompt({ finding, state: step.state, method, exampleTest, project, feedback, suggestedTestPath: moduleTest ? null : suggestTestName(node.path, examplePath) }));
-      const testPath = proposal.test_path, extending = treePaths.includes(testPath);
-      const record = { attempt, summary: proposal.summary, test_path: testPath, test_mode: extending ? 'extended' : 'new', method: proposal.method, test: proposal.test };
-      fix.attempts.push(record);
-      const reject = async (reason, restorePath) => { record.rejected = reason; feedback = reason; log(`attempt ${attempt} rejected: ${reason.split('\n')[0]}`); await writeJson(fixPath, fix); if (restorePath !== undefined) await restore(restorePath); };
-
-      // 1. Splice by line range and gate on the AST; the test must land where the project keeps its tests.
-      if (!proposal.method.trim() || proposal.method.trim() === method.trim()) { await reject(`the method was returned unchanged: ${proposal.summary || 'no reason given'}`); continue; }
-      if (!safePath(testPath) || !proposal.test.trim() || (extending && !testFile(testPath))) { await reject(`test_path must be a test file inside the repository; ${JSON.stringify(testPath)} is not`); continue; }
-      if (moduleTest && testPath !== moduleTest) { await reject(`${moduleTest} already tests this module; add the new case to that file and return its complete content, rather than creating ${testPath}`); continue; }
-      if (extending && !moduleTest && !related.includes(testPath)) { await reject(`${testPath} is not one of the files that test this module (${related.join(', ') || 'none'}); extend one of those or add a new file named like them`); continue; }
-      if (extending && baseline.failing.includes(testPath)) { await reject(`${testPath} already fails on the original, so a case added to it proves nothing; put the test in a new file named after the module`); continue; }
-      if (!extending && !namedAfter(testPath, node.path, examplePath)) { await reject(`a new test file must be named after the module it tests, the way this project names its tests (for ${node.path}, something like ${suggestTestName(node.path, examplePath)}); ${testPath} is not`); continue; }
-      if (extending) {
-        const removed = removedLines(await testSourceOf(testPath), proposal.test);
-        if (removed.length) { await reject(`extending ${testPath} may only add lines; these were changed or removed:\n${removed.slice(0, 8).join('\n')}`); continue; }
+    const effort = model.effort ?? DEFAULT_EFFORT;
+    const names = { measure: 'tree-sitter', rescan: `${systemOne.id} rescan`, run_tests: 'tests', submit: 'submit' };
+    const running = ui.task(`${model.id} working (effort ${effort})`);
+    let current = null;
+    const onEvent = event => {
+      if (event.type === 'tool_call') current = ui.task(`${model.id} ▸ ${names[event.name] ?? event.name}`);
+      else if (event.type === 'tool_result' && current) {
+        const r = event.result ?? {};
+        const detail = r.error ?? (r.after ? `now: ${r.after.join(', ') || 'no issues'}` : r.file ? `file ${r.file}` : r.checks ? (r.checks.length ? `${r.checks.length} pass${r.ignored_already_failing ? ` (${r.ignored_already_failing.join(', ')} already failing, ignored)` : ''}` : r.note ?? 'nothing to run') : '');
+        (r.ok ? current.ok : current.fail)(detail); current = null;
+        running.update(`${model.id} working (turn ${event.turn}, effort ${effort})`);
       }
-      const patchedLines = [...fileLines.slice(0, node.line - 1), ...methodLines(proposal.method), ...fileLines.slice(node.end_line)];
-      const patchedFile = patchedLines.join('\n');
-      const after = await analyzer.analyzeSource(patchedFile, language);
-      if (after.parser_status !== 'parsed') { await reject(`the patched file does not parse: ${after.parser_message ?? 'syntax error'}`); continue; }
-      if (!withinQualityGate(base, after.metrics)) { await reject(`the patch adds nesting, more than one branch, or more than one point of risk (risk ${base.risk_score.toFixed(1)} -> ${after.metrics.risk_score.toFixed(1)}, complexity ${base.cyclomatic_complexity} -> ${after.metrics.cyclomatic_complexity}, nesting ${base.max_nesting} -> ${after.metrics.max_nesting})`); continue; }
-
-      // 2. System One reads the test before a run is spent on it.
-      log(`asking ${systemOne.id} whether the test is sound`);
-      const check = testCheck({ finding, state: step.state, test: proposal.test, testPath: proposal.test_path });
-      const { answers: testAnswers } = await systemOne.ask(check.state, check.questions);
-      record.test_check = Object.fromEntries(Object.entries(testAnswers).map(([key, answer]) => [key, answer.noul]));
-      if (!soundTest(testAnswers)) { await reject(testObjections(testAnswers)); continue; }
-
-      // 3. Proof: the test fails on the original with an assertion, passes on the patch, and the existing tests still pass.
-      await place(proposal.test_path, proposal.test);
-      const before = await run(proposal.test_path);
-      record.before = { exit_code: before.exit_code, output: tail(before) };
-      const beforeText = before.stdout + before.stderr;
-      if (before.exit_code === 0) { await reject(`the test passes on the original, so it does not demonstrate the defect:\n${tail(before)}`, proposal.test_path); continue; }
-      if (loadFailure.test(beforeText) || !assertionFailure.test(beforeText)) { await reject(`the test did not fail with an assertion on the original (exit ${before.exit_code}${before.timed_out ? ', timed out' : ''}):\n${tail(before)}`, proposal.test_path); continue; }
-      await place(node.path, patchedFile);
-      const afterRun = await run(proposal.test_path);
-      record.after = { exit_code: afterRun.exit_code, output: tail(afterRun) };
-      if (afterRun.exit_code !== 0) { await reject(`the test file still fails on the patched method${extending ? ' (an existing case may have broken)' : ''}:\n${tail(afterRun)}`, proposal.test_path); continue; }
-      let regression = null;
-      for (const path of baseline.passing.filter(path => path !== testPath)) { const result = await run(path); if (result.exit_code !== 0) { regression = `${path}:\n${tail(result)}`; break; } }
-      record.existing_tests = regression ? 'failed' : `${baseline.passing.length} passed`;
-      if (regression) { await reject(`an existing test broke on the patch: ${regression}`, proposal.test_path); continue; }
-      const expected = [node.path, testPath].sort();
-      const changed = (await dirtyPaths(root)).filter(path => !dirtyBefore.includes(path)).sort();
-      if (changed.join('\n') !== expected.join('\n')) throw new Error(`The test run changed files other than ${expected.join(' and ')}: ${changed.join(', ') || 'none'}`);
-
-      // 4. The hunt's questions again over the patched method, so a patch that games the test is caught.
-      const patchedNode = { ...node, end_line: node.line + methodLines(proposal.method).length - 1 };
-      const patchedStep = huntStep({ node: patchedNode, lines: patchedLines, imports, callees, callers });
-      const verify = patchCheck({ step: patchedStep, original: method, summary: proposal.summary });
-      log(`asking ${systemOne.id} about the patched method`);
-      const { answers } = await systemOne.ask(verify.state, verify.questions);
-      const { verification, objections } = readPatchCheck({ finding, answers, calledBy: patchedStep.calledBy });
-      record.verification = verification;
-      if (objections.length) { await reject(objections.join('; '), proposal.test_path); continue; }
-
-      // 5. Commit the method and its test on the current branch, with the model's summary as the message.
-      await git(['add', '--', node.path, testPath], root);
-      const patch = await git(['diff', '--cached', '--', node.path, testPath], root);
-      if (!patch) throw new Error(`Patch for ${node.path} could not be captured`);
-      await git(['commit', '-q', '-m', proposal.summary, '-m', `perch ${finding.id}`, '--', node.path, testPath], root);
-      placed = null;
-      const commit = await gitRevision(root);
-      log(`committed ${commit.slice(0, 7)} on ${branch}: ${proposal.summary}`);
-      accepted = { proposal, record, patch, commit };
-    }
+    };
+    const run = await model.run({ prompt: fixPrompt({ finding, before, reachable, fileMetrics: trim(base), state: step.state, region, start, end, checks: checks.map(check => check.name) }), tools, effort, onEvent });
+    meter.add(model.id, run.usage, { turns: run.turns, requests: run.turns });
+    Object.assign(fix, { trace: run.trace, turns: run.turns });
     if (!accepted) {
-      await store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: id, method: finding.method, hash: hunted.hash, revision, status: 'rejected', attempts: fix.attempts.length, error: feedback });
-      return await finish('rejected', { error: feedback });
+      running.update(`${model.id} gave up`);
+      running.fail(`${run.turns} turns`);
+      const lastError = [...run.trace].reverse().find(event => event.type === 'tool_result' && event.result?.error)?.result.error ?? 'the model never submitted a verified rewrite';
+      return await finish('rejected', { error: lastError });
     }
+    running.update(`${model.id} done`);
+    running.ok(`${run.turns} ${run.turns === 1 ? 'turn' : 'turns'}`);
 
+    await place(splice(accepted.source).join('\n'));
+    await git(['add', '--', node.path], root);
+    const patch = await git(['diff', '--cached', '--', node.path], root);
+    if (!patch) throw new Error(`Patch for ${node.path} could not be captured`);
+    await git(['commit', '-q', '-m', accepted.summary, '-m', `perch ${finding.id}`, '--', node.path], root);
+    placed = false;
+    const commit = await gitRevision(root);
     const patchPath = join(dir, 'fix.patch');
-    await writeFile(patchPath, accepted.patch);
-    const verification = { kind: finding.kind.kind, before: { has_bug: finding.has_bug, kind: finding.kind.probability ?? null }, after: accepted.record.verification };
-    const proof = { fails_on_original: true, passes_on_patch: true, test_mode: accepted.record.test_mode, existing_tests: baseline.passing, baseline_failures: baseline.failing, command: command(project.single, accepted.proposal.test_path) };
-    await store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: id, method: finding.method, hash: hunted.hash, revision, status: 'ready', summary: accepted.proposal.summary,
-      commit: accepted.commit, branch, patch_path: patchPath, test_path: accepted.proposal.test_path, verification, proof });
-    return await finish('ready', { summary: accepted.proposal.summary, test_path: accepted.proposal.test_path, commit: accepted.commit, patch_path: patchPath, verification, proof });
+    await writeFile(patchPath, patch);
+    ui.say(`${OK} ${commit.slice(0, 7)} ${accepted.summary}`);
+    ui.say(`  before  ${before.map(issue => issue.text).join(', ')}`);
+    ui.say(`  after   ${accepted.after.map(issue => issue.text).join(', ') || 'no issues'}`);
+    ui.say(`  file    ${shift(base, accepted.fileMetrics)}${accepted.checks.length ? `; tests: ${accepted.checks.join(', ')}` : ''}`);
+    return await finish('ready', { summary: accepted.summary, commit, patch_path: patchPath, before, after: accepted.after, file_before: trim(base), file_after: accepted.fileMetrics, method_before: trim(node.metrics), method_after: accepted.metrics, reachable, checks: accepted.checks });
   } catch (error) {
     fix.status = 'failed';
     fix.error = error.message;
     await writeJson(fixPath, fix).catch(() => {});
     throw error;
   } finally {
-    // Whatever an interrupted attempt left in the checkout goes back to HEAD.
-    if (placed) {
-      await git(['checkout', '--', hunted.path], root).catch(() => {});
-      if (placed.testPath) { if ((await git(['ls-files', '--error-unmatch', '--', placed.testPath], root).then(() => true, () => false))) await git(['checkout', '--', placed.testPath], root).catch(() => {}); else await rm(join(root, placed.testPath), { force: true }).catch(() => {}); }
-    }
+    if (placed) await git(['checkout', '--', hunted.path], root).catch(() => {});
   }
 }
 
 /**
- * Work open findings of one `kind` ('fix' for defects, 'refactor' for design issues), strongest first, until `budget` have been tried.
- * `run` does one finding (runFix by default); each accepted result is one commit on the current branch.
+ * Work open issues, strongest first, until `budget` have been tried; each accepted result is one commit on the current branch.
+ * Findings whose method no longer exists are set aside and counted, not attempted.
  */
-export async function runFixQueue({ findings, budget = DEFAULT_BUDGET, kind = 'fix', run = runFix, root, out, model, systemOne, analyzer, shell, progress = () => {}, log = () => {} }) {
-  const selected = pendingFixes(findings, budget, kind);
-  const open = pendingFixes(findings, Infinity, kind).length;
+export async function fixIssues({ findings, budget = DEFAULT_FIX_BUDGET, root, out, model, systemOne, analyzer, shell, ui = plainUi(), meter = createMeter(), log = () => {}, debug = () => {} }) {
+  const pending = pendingFixes(findings, Infinity);
+  let current = pending, stale = [];
+  if (root && pending.length) {
+    const scan = await analyzeTree({ root, revision: await gitRevision(root), out, analyzer, log: debug, debug });
+    ({ current, stale } = splitStale(pending, scan));
+    if (stale.length) ui.say(`${stale.length} ${stale.length === 1 ? 'finding is' : 'findings are'} for methods that no longer exist under that name; scan again to see what replaced them`);
+  }
+  const selected = current.slice(0, budget);
   const fixes = [];
-  for (const finding of selected) {
-    progress(fixes.length, selected.length);
-    log(`investigating ${finding.id} ${finding.path}`);
+  for (const [index, finding] of selected.entries()) {
+    ui.say(`\n[${index + 1}/${selected.length}]`);
     const findingRoot = finding.root ?? root;
     try {
-      if (!findingRoot) throw new Error(`finding ${finding.id} has no repository recorded; hunt again`);
-      fixes.push(await run({ finding, root: findingRoot, out, model, systemOne, analyzer, shell, log }));
+      if (!findingRoot) throw new Error(`finding ${finding.id} has no repository recorded; scan again`);
+      fixes.push(await fixMethod({ finding, root: findingRoot, out, model, systemOne, analyzer, shell, ui, meter: createMeter(), log, debug }));
     } catch (error) {
-      log(`${finding.id} failed: ${error.message}`);
+      ui.say(`${FAIL} ${finding.id} failed: ${error.message.split('\n')[0]}`);
       fixes.push({ id: null, finding_id: finding.id, method: finding.method, path: finding.path, root: findingRoot, revision: finding.revision, out, status: 'failed', error: error.message });
     }
-    progress(fixes.length, selected.length);
   }
-  return { kind, budget, open, attempted: fixes.length, remaining: Math.max(0, open - selected.length), fixes };
+  for (const fix of fixes) for (const [name, entry] of Object.entries(fix.usage ?? {})) meter.add(name, { input_tokens: entry.input, cached_tokens: entry.cached, output_tokens: entry.output, reasoning_tokens: entry.reasoning }, { turns: entry.turns, requests: entry.requests });
+  return { budget, open: current.length, stale: stale.length, attempted: fixes.length, remaining: Math.max(0, current.length - selected.length), fixes, usage: meter.toJSON(), usage_lines: meter.lines() };
 }

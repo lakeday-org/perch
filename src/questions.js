@@ -24,31 +24,42 @@ export const REFACTORS = {
 export const SEVERITY_LEVELS = ['Cosmetic: no caller would notice', 'Minor: a wrong result in a rare or recoverable case', 'Major: a wrong result or state in normal use', 'Critical: data loss, corruption, a crash, or a security impact'];
 export const SEVERITY_NAMES = ['cosmetic', 'minor', 'major', 'critical'];
 
-const spaced = kind => kind.replaceAll('_', ' ');
+/** Plain names for the defect kinds and refactors, for anything a person reads. */
+export const KIND_LABELS = { boundary: 'off by one', missing_null_handling: 'unhandled null', wrong_return: 'wrong return value', swallowed_error: 'error ignored', state_mutation: 'bad state change', ordering: 'wrong order', resource_leak: 'leak', inverted_condition: 'inverted condition',
+  split: 'too big', flatten: 'too nested', simplify_conditions: 'tangled conditions', deduplicate: 'duplicated logic', rename: 'misnamed', remove_dead_code: 'dead code', none: 'none' };
+export const label = kind => KIND_LABELS[kind] ?? kind.replaceAll('_', ' ');
+const spaced = label;
+
+const percent = value => `${Math.round(value * 100)}%`;
+/** A method whose tree-sitter risk score is at least this carries a `complex` issue, whether or not System One has read it. */
+export const COMPLEX_RISK = 70;
 
 /**
- * Every issue a hunted method carries at probability `min` or more, strongest first. A defect needs `has_bug` and, when asked,
- * `reachable`; the design issues are a recommended refactor, a method that does not do what it claims, and one a caller cannot
- * learn the contract of from its comment. `perch fix` works the defects; `perch refactor` works the rest.
+ * Every issue a method carries at probability `min` or more, strongest first. A defect needs `has_bug` and, when asked, `reachable`;
+ * the design issues are a recommended refactor, a method that does not do what it claims, one a caller cannot learn the contract of
+ * from its comment, and `complex`, from the metrics alone. `perch fix` gives all of them to one agent as objectives, and the same
+ * scan run again over the rewrite decides whether they were met.
  */
 export function issuesOf(answers, min = 0.5) {
   const issues = [];
-  if (answers.has_bug >= min && (answers.reachable === undefined || answers.reachable >= min)) issues.push({ type: 'defect', label: spaced(answers.kind?.kind ?? 'defect'), probability: answers.has_bug });
+  if (answers.has_bug !== undefined && answers.has_bug >= min && (answers.reachable === undefined || answers.reachable >= min)) issues.push({ type: 'defect', label: spaced(answers.kind?.kind ?? 'defect'), probability: answers.has_bug, text: `${spaced(answers.kind?.kind ?? 'defect')} ${percent(answers.has_bug)}` });
   const refactor = answers.refactor?.refactor;
   const refactorProbability = refactor && refactor !== 'none' ? answers.refactor.probabilities?.[refactor] ?? 0 : 0;
-  if (refactorProbability >= min) issues.push({ type: 'refactor', label: spaced(refactor), probability: refactorProbability });
-  if (answers.does_what_it_claims !== undefined && 1 - answers.does_what_it_claims >= min) issues.push({ type: 'misaligned', label: 'does not do what it claims', probability: 1 - answers.does_what_it_claims });
-  if (answers.misdocumented !== undefined && answers.misdocumented >= min) issues.push({ type: 'misdocumented', label: 'misdocumented', probability: answers.misdocumented });
+  if (refactor && refactor !== 'none' && refactorProbability >= min) issues.push({ type: 'refactor', label: spaced(refactor), probability: refactorProbability, text: `${spaced(refactor)} ${percent(refactorProbability)}` });
+  if (answers.does_what_it_claims !== undefined && 1 - answers.does_what_it_claims >= min) issues.push({ type: 'misaligned', label: 'does not do what it claims', probability: 1 - answers.does_what_it_claims, text: `does not do what it claims ${percent(1 - answers.does_what_it_claims)}` });
+  if (answers.misdocumented !== undefined && answers.misdocumented >= min) issues.push({ type: 'misdocumented', label: 'misdocumented', probability: answers.misdocumented, text: `misdocumented ${percent(answers.misdocumented)}` });
+  const risk = answers.metrics?.risk_score;
+  if (risk !== undefined && risk !== null && risk >= COMPLEX_RISK) issues.push({ type: 'complex', label: 'complex', probability: risk / 100, text: `complex, risk ${Math.round(risk)}` });
   return issues.sort((a, b) => b.probability - a.probability);
 }
 export const isDesign = issue => issue.type !== 'defect';
 /** A hunted method is flagged when it carries a reachable defect at `min`. */
 export const flagged = (answers, min = 0.5) => issuesOf(answers, min).some(issue => issue.type === 'defect');
-/** A hunted method needs design work when it carries a refactor, alignment, or documentation issue at `min`. */
+/** A method needs design work when it carries a refactor, alignment, documentation, or complexity issue at `min`. */
 export const needsDesign = (answers, min = 0.5) => issuesOf(answers, min).some(isDesign);
 export const hasIssue = (answers, min = 0.5) => issuesOf(answers, min).length > 0;
 
-export const MAX_CALLEES = 8, MAX_CALLERS = 8, STATE_BUDGET = 48 * 1024;
+export const MAX_CALLEES = 8, MAX_CALLERS = 8, STATE_BUDGET = 48 * 1024, MODULE_SCOPE_BUDGET = 6 * 1024;
 /** A Choice accepts at most 255 options; past that, pick a window then the line inside it. */
 export const MAX_CHOICES = 255;
 const lineId = line => `L${String(line).padStart(4, '0')}`;
@@ -105,15 +116,36 @@ export function leadingComment(lines, line) {
 }
 
 /**
- * The state and questions for one method.
- * `node` is the graph node and `lines` its file's lines. `imports` are the file's import records.
- * `callees` and `callers` are [{ node, lines, site, calls }] with the neighbor's file lines, the calling line (callers),
- * and the names of the neighbor's own callees (second hop). `edges` are ["a -> b"] strings for the neighborhood.
+ * The file's top-level code outside every method: constants, regexes, types, module state. What a method's identifiers mean when they
+ * are not callees or imports. Blank and comment-only lines are dropped; the result is cut at `budget` bytes.
  */
-export function huntStep({ node, lines, imports = [], callees, callers, edges = [] }) {
+export function moduleScope(lines, methods, budget = MODULE_SCOPE_BUDGET) {
+  const inside = new Set();
+  for (const method of methods) for (let line = method.line; line <= method.end_line; line++) inside.add(line);
+  const kept = [];
+  let size = 0;
+  for (let line = 1; line <= lines.length; line++) {
+    const text = lines[line - 1];
+    if (inside.has(line) || !text.trim() || commentLine.test(text) || /^\s*(import|from|use|package)\b/.test(text)) continue;
+    const entry = `${lineId(line)}| ${text}`;
+    if (size + entry.length > budget) { kept.push(`... (cut at ${budget} bytes)`); break; }
+    kept.push(entry);
+    size += entry.length + 1;
+  }
+  return kept.join('\n') || null;
+}
+
+/**
+ * The state and questions for one method.
+ * `node` is the graph node and `lines` its file's lines. `imports` are the file's import records; `methods` the file's method records,
+ * so the module scope around them can be shown. `callees` and `callers` are [{ node, lines, site, calls }] with the neighbor's file
+ * lines, the calling line (callers), and the names of the neighbor's own callees (second hop). `edges` are ["a -> b"] strings.
+ */
+export function huntStep({ node, lines, imports = [], methods = [node], callees, callers, edges = [] }) {
   const build = limit => ({
     method: { path: node.path, name: node.qualified_name, leading_comment: leadingComment(lines, node.line) || null, metrics: node.metrics ?? null, source: tagged(lines.slice(node.line - 1, node.end_line), node.line) },
     imports: imports.map(item => `${item.name}${item.alias !== item.name ? ` as ${item.alias}` : ''} from ${item.module}`),
+    module_scope: moduleScope(lines, methods),
     calls: callees.slice(0, MAX_CALLEES).map(({ node: callee, lines: calleeLines, calls = [] }) =>
       ({ id: callee.id, name: callee.qualified_name, path: callee.path, source: excerpt(calleeLines, callee.line, callee.end_line, limit), calls: calls.map(short) })),
     called_by: callers.slice(0, MAX_CALLERS).map(({ node: caller, lines: callerLines, site }) =>
@@ -196,84 +228,33 @@ export function reachCheck({ finding, state }) {
   };
 }
 
-/** Questions about a proposed regression test, asked before it is run, over the hunt's full state so reachability is judged against real call sites. */
-export function testCheck({ finding, state, test, testPath }) {
-  return { state: { defect: defectOf(finding), ...state, test: { path: testPath, source: test } }, questions: {
-    imports_real_method: noul('Does `test` import and call the real `method` from its module in the repository, directly or through the package\'s entry point, rather than a copy or a stub?', 'It reaches the real method at `method.path` and calls it', 'It defines its own copy, mocks the method, or never calls it'),
-    targets_defect: noul('Does `test` drive `method` with the input or state that triggers `defect`, and assert the outcome that input should have?',
-      'Its input reaches `defect.line`, and its assertion states the correct result for that input: a value, a resulting state, or a clear error. When the defect is a crash or a wrong result, asserting the correct outcome is exactly the check; the original fails it',
-      'Its input would not reach the defect, or its assertion is about something the defect does not affect'),
-    reachable_by_callers: noul('Could the input or state `test` gives `method` arise from its real callers in `called_by` (or from outside the program, if it is an entry point), rather than being a value no caller could ever pass?',
-      'A caller shown, or external input it forwards, can produce this input or state in practice', 'No caller could pass this; the test constructs a value or state the method never receives, such as a type its callers never produce'),
-    asserts_behavior: noul('Does `test` assert on observable behavior rather than on implementation details or on the test\'s own values?', 'It asserts a return value, thrown error, or resulting state that callers can observe', 'It asserts on internals, on constants it defined itself, or on nothing'),
-    passes_on_original: noul('Would `test` pass against `method.source` as written, with the defect still present?', 'The assertion holds on the original, so the test does not demonstrate the defect', 'The assertion fails on the original because of the defect'),
-  } };
-}
-
 /**
  * A proof rests on answers the model is sure of. Something that must hold needs at least SURE; something that must not hold may reach at
  * most UNSURE. An answer in between is a shrug, and a shrug never counts as proof.
  */
 export const SURE = 0.6, UNSURE = 0.4;
-const percent = value => `${Math.round(value * 100)}%`;
 
-/** Whether the model believes a regression test is sound. */
-export const soundTest = answers => testObjections(answers) === '';
-export const testObjections = answers => [
-  answers.imports_real_method.noul < SURE && `the test does not clearly import and call the real method (${percent(answers.imports_real_method.noul)})`,
-  answers.targets_defect.noul < SURE && `the test does not clearly exercise the described defect (${percent(answers.targets_defect.noul)})`,
-  answers.reachable_by_callers.noul < SURE && `it is not clear any real caller could pass the input the test constructs (${percent(answers.reachable_by_callers.noul)}), so it does not demonstrate a reachable defect`,
-  answers.asserts_behavior.noul < SURE && `the test does not clearly assert on observable behavior (${percent(answers.asserts_behavior.noul)})`,
-  answers.passes_on_original.noul > UNSURE && `the test may pass on the original (${percent(answers.passes_on_original.noul)}), so it does not clearly demonstrate the defect`,
-].filter(Boolean).join('; ');
-
-/** The design questions again over a rewritten method, plus one about behavior: a refactor must read better and do the same thing. */
-export function refactorCheck({ step, original, summary }) {
-  const { has_bug, refactor, does_what_it_claims, misdocumented } = step.questions;
-  return { state: { ...step.state, original_source: original, refactor_summary: summary }, questions: { has_bug, refactor, does_what_it_claims, misdocumented,
-    collateral_change: noul('Comparing `original_source` with `method.source` and any helpers now beside it, does the rewrite change what callers observe: return values, thrown errors, or side effects, for any input the callers in `called_by` can pass?',
-      'Some input now behaves differently', 'Behavior is preserved; only structure, names, or documentation changed') } };
-}
-
-/** What the refactor-check answers say: each design issue the hunt raised must look less likely, the method no more defective, behavior unchanged. */
-export function readRefactorCheck({ finding, issues, answers }) {
-  const verification = { has_bug: answers.has_bug.noul, refactor: answers.refactor.choice, refactor_probabilities: answers.refactor.probabilities ?? {}, does_what_it_claims: answers.does_what_it_claims.noul, misdocumented: answers.misdocumented.noul, collateral_change: answers.collateral_change.noul };
-  const objections = [];
-  for (const issue of issues) {
-    if (issue.type === 'refactor') { const now = verification.refactor_probabilities[finding.refactor.refactor] ?? 0; if (now >= issue.probability) objections.push(`the method still looks like it needs ${issue.label} (${percent(issue.probability)} -> ${percent(now)})`); }
-    if (issue.type === 'misaligned' && verification.does_what_it_claims <= finding.does_what_it_claims) objections.push(`the method looks no more like it does what it claims (${percent(finding.does_what_it_claims)} -> ${percent(verification.does_what_it_claims)})`);
-    if (issue.type === 'misdocumented' && verification.misdocumented >= finding.misdocumented) objections.push(`the method looks no better documented (${percent(finding.misdocumented)} -> ${percent(verification.misdocumented)})`);
-  }
-  if (verification.has_bug > Math.max(finding.has_bug, UNSURE)) objections.push(`the rewrite looks more defective than the original (${percent(finding.has_bug)} -> ${percent(verification.has_bug)})`);
-  if (verification.collateral_change > UNSURE) objections.push(`the rewrite may change behavior (${percent(verification.collateral_change)})`);
-  return { verification, objections };
-}
-
-/** The hunt's questions again over a patched method, plus one about collateral change. */
+/** The hunt's defect questions again over a patched method, with the original beside it. */
 export function patchCheck({ step, original, summary }) {
   const questions = { ...step.questions };
   delete questions.where; delete questions.where_window; delete questions.follow; delete questions.refactor; delete questions.does_what_it_claims; delete questions.misdocumented;
   for (const key of Object.keys(questions)) if (key.startsWith('misuse_')) delete questions[key];
-  questions.collateral_change = { type: 'noul', instructions: 'Comparing `original_method` with `method`, does the change alter any behavior other than fixing the described defect (`fix_summary`)?',
-    criteria: { true: 'Some input that was handled correctly before now behaves differently', false: 'Only the defective behavior changed' } };
   return { state: { ...step.state, original_method: original, fix_summary: summary }, questions };
 }
 
 /**
- * What the patch-check answers say about the patched method, and why they would reject it. The test already proved the fix; this asks
- * whether the model agrees it improved: the defect probability and the flagged kind must be lower than the hunt found them, nothing
- * else may have changed, and no caller may be newly misused.
+ * What the patch-check answers say about the patched method, and why they would reject it: the defect probability and the flagged
+ * kind must be lower than the hunt found them, and no caller may be newly misused.
  */
 export function readPatchCheck({ finding, answers, calledBy }) {
   const kind = answers[`kind_${finding.kind.kind}`]?.noul ?? null;
   const kindBefore = finding.kind.probability ?? null;
   const misusedBy = calledBy.map((caller, index) => ({ caller: caller.id, before: finding.misused_by?.find(item => item.caller === caller.id)?.probability ?? 0, after: answers[`misused_by_${index}`].noul }));
-  const verification = { has_bug: answers.has_bug.noul, kind, severity: answers.severity?.score ?? null, collateral_change: answers.collateral_change.noul, misused_by: misusedBy };
+  const verification = { has_bug: answers.has_bug.noul, kind, severity: answers.severity?.score ?? null, misused_by: misusedBy };
   const objections = [
-    verification.has_bug >= finding.has_bug && `the patch did not lower the defect probability (${percent(finding.has_bug)} -> ${percent(verification.has_bug)})`,
-    kind !== null && kindBefore !== null && kind >= kindBefore && `the ${finding.kind.kind.replaceAll('_', ' ')} defect looks no less likely (${percent(kindBefore)} -> ${percent(kind)})`,
-    verification.collateral_change > UNSURE && `the patch may change behavior beyond the defect (${percent(verification.collateral_change)})`,
-    ...misusedBy.filter(item => item.after >= SURE && item.before < SURE).map(item => `${item.caller.split('::').at(-1)} now misuses the patched method (${percent(item.after)})`),
+    verification.has_bug >= finding.has_bug && `defect no less likely (${percent(finding.has_bug)} -> ${percent(verification.has_bug)})`,
+    kind !== null && kindBefore !== null && kind >= kindBefore && `${label(finding.kind.kind)} looks no less likely (${percent(kindBefore)} -> ${percent(kind)})`,
+    ...misusedBy.filter(item => item.after >= SURE && item.before < SURE).map(item => `${item.caller.split('::').at(-1)} would now call it wrong (${percent(item.after)})`),
   ].filter(Boolean);
   return { verification, objections };
 }

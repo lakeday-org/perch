@@ -1,27 +1,51 @@
 /** `perch hunt`: walk the method graph from riskiest to least, asking a System One model about each method once. */
 import { join } from 'node:path';
 import { readBlob } from './git.js';
-import { runScan } from './scan.js';
+import { analyzeTree } from './scan.js';
 import { buildGraph } from './graph.js';
 import { huntStep, locateWhere, reachCheck, readAnswers } from './questions.js';
-import { identity, openStore, writeJson } from './store.js';
+import { findingId, identity, openStore, writeJson } from './store.js';
+export { findingId };
 
-export const DEFAULT_BUDGET = 20, DEFAULT_PARALLEL = 8;
-/** A short stable handle for a method's finding, the same across hunts. */
-export const findingId = method => identity('finding', method).slice(0, 8);
+/** A scan reads every method it has not read before, or whose code changed since. `perch fix` works twenty issues by default. */
+export const DEFAULT_FIX_BUDGET = 20, DEFAULT_PARALLEL = 8;
 
-export async function runHunt({ root, revision, out, analyzer, systemOne, label = root, github = null, paths = [], budget = DEFAULT_BUDGET, parallel = DEFAULT_PARALLEL, force = false,
+/** One System One pass over a method: the hunt's questions, the line, and, when a defect looks likely, whether that line is reachable. */
+export async function questionMethod({ systemOne, node, step, lines, debug = () => {} }) {
+  debug(`asking ${systemOne.id} about ${node.qualified_name} in ${node.path}:${node.line} (${Object.keys(step.questions).length} questions${step.windows ? `, then a line in the chosen window` : ''})`);
+  const response = await locateWhere({ systemOne, state: step.state, questions: step.questions, windows: step.windows });
+  const answers = readAnswers(response.answers, step);
+  answers.where.text = lines[answers.where.line - 1]?.trim() ?? '';
+  if (answers.has_bug >= 0.5) {
+    debug(`asking ${systemOne.id} whether ${node.path}:${answers.where.line} is reachable`);
+    const check = reachCheck({ finding: { path: node.path, name: node.qualified_name, kind: answers.kind, where: answers.where }, state: step.state });
+    const reach = await systemOne.ask(check.state, check.questions);
+    answers.reachable = reach.answers.reachable.noul;
+    if (reach.usage) response.usage = { input_tokens: (response.usage?.input_tokens ?? 0) + (reach.usage.input_tokens ?? 0), output_tokens: (response.usage?.output_tokens ?? 0) + (reach.usage.output_tokens ?? 0) };
+  }
+  return { response, answers };
+}
+
+/** The events-log record of one questioned method. */
+export const huntedEvent = ({ node, answers, response, huntId = null, root, github = null, revision, calleeIds, callerIds }) => ({
+  type: 'hunted', at: new Date().toISOString(), id: findingId(node.id), hunt_id: huntId, root, github, revision, method: node.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line,
+  hash: node.hash, risk: node.metrics?.risk_score ?? null, model: response.model, ...answers, callees: calleeIds, callers: callerIds });
+
+export async function scanRepository({ root, revision, out, analyzer, systemOne, label = root, github = null, paths = [], budget = Infinity, parallel = DEFAULT_PARALLEL, force = false,
   progress = () => {}, scanProgress = () => {}, log = () => {}, debug = () => {} }) {
   const store = openStore(out);
-  const scan = await runScan({ root, revision, out, analyzer, label, github, paths, progress: scanProgress, log, debug });
+  const scan = await analyzeTree({ root, revision, out, analyzer, label, github, paths, progress: scanProgress, log, debug });
   const graph = buildGraph(scan.files);
   if (!scan.candidates.length) throw new Error('No methods to hunt in this repository');
   const hunted = force ? new Map() : await store.huntedIndex();
   const created = new Date().toISOString();
   const id = identity('hunt', revision, created);
   const dir = store.huntDir(id), huntPath = join(dir, 'hunt.json');
-  const hunt = { id, status: 'running', target: label, github, root, revision, model: systemOne.id, paths, budget, parallel, force, scan_id: scan.id, out: dir, created_at: created,
-    methods: scan.candidates.length, edges: graph.edgeCount(), calls: 0, skipped: 0, visited: [], usage: { input_tokens: 0, output_tokens: 0 } };
+  // What this scan has to read: every candidate whose code is new or changed since it was last read.
+  const toRead = scan.candidates.filter(candidate => hunted.get(candidate.id) !== graph.nodes.get(candidate.id).hash).length;
+  const total = Math.min(budget, toRead);
+  const hunt = { id, status: 'running', target: label, github, root, revision, model: systemOne.id, paths, budget: Number.isFinite(budget) ? budget : null, parallel, force, scan_id: scan.id, out: dir, created_at: created,
+    methods: scan.candidates.length, to_read: toRead, edges: graph.edgeCount(), calls: 0, skipped: 0, visited: [], usage: { input_tokens: 0, output_tokens: 0 } };
   await writeJson(huntPath, hunt);
 
   const sources = new Map();
@@ -52,23 +76,26 @@ export async function runHunt({ root, revision, out, analyzer, systemOne, label 
     const members = new Set([nodeId, ...calleeIds, ...callerIds, ...calleeIds.flatMap(calleeId => graph.callees(calleeId))]);
     const edges = [];
     for (const member of members) for (const target of graph.callees(member)) if (members.has(target)) edges.push(`${member.split('::').at(-1)} -> ${target.split('::').at(-1)}`);
-    return { node, calleeIds, callerIds, step: huntStep({ node, lines: await linesOf(node), imports: graph.files.get(node.path).file.imports, callees, callers, edges }) };
+    const file = graph.files.get(node.path).file;
+    return { node, calleeIds, callerIds, step: huntStep({ node, lines: await linesOf(node), imports: file.imports, methods: file.methods, callees, callers, edges }) };
   };
 
   const ask = async nodeId => {
     const { node, calleeIds, callerIds, step } = await stepFor(nodeId);
-    debug(`asking ${systemOne.id} about ${node.qualified_name} in ${node.path}:${node.line} (${Object.keys(step.questions).length} questions${step.windows ? `, then a line in the chosen window` : ''})`);
-    const response = await locateWhere({ systemOne, state: step.state, questions: step.questions, windows: step.windows });
-    const answers = readAnswers(response.answers, step);
-    answers.where.text = (await linesOf(node))[answers.where.line - 1]?.trim() ?? '';
-    if (answers.has_bug >= 0.5) {
-      debug(`asking ${systemOne.id} whether ${node.path}:${answers.where.line} is reachable`);
-      const check = reachCheck({ finding: { path: node.path, name: node.qualified_name, kind: answers.kind, where: answers.where }, state: step.state });
-      const reach = await systemOne.ask(check.state, check.questions);
-      answers.reachable = reach.answers.reachable.noul;
-      if (reach.usage) response.usage = { input_tokens: (response.usage?.input_tokens ?? 0) + (reach.usage.input_tokens ?? 0), output_tokens: (response.usage?.output_tokens ?? 0) + (reach.usage.output_tokens ?? 0) };
-    }
+    const { response, answers } = await questionMethod({ systemOne, node, step, lines: await linesOf(node), debug });
     return { node, calleeIds, callerIds, response, answers };
+  };
+  const recordHuntResults = async results => {
+    for (const { node, calleeIds, callerIds, response, answers } of results) {
+      hunt.calls++;
+      if (response.usage) { hunt.usage.input_tokens += response.usage.input_tokens ?? 0; hunt.usage.output_tokens += response.usage.output_tokens ?? 0; }
+      const event = huntedEvent({ node, answers, response, huntId: id, root, github, revision, calleeIds, callerIds });
+      await store.appendEvent(event);
+      hunted.set(node.id, node.hash);
+      hunt.visited.push({ ...event, status: 'hunted' });
+      push([...calleeIds, ...callerIds].filter(other => other !== answers.follow.method));
+      if (answers.follow.method) push([answers.follow.method]);
+    }
   };
 
   try {
@@ -90,18 +117,8 @@ export async function runHunt({ root, revision, out, analyzer, systemOne, label 
       }
       if (!batch.length) break;
       let done = 0;
-      const results = await Promise.all(batch.map(async nodeId => { const result = await ask(nodeId); progress(hunt.calls + ++done, budget); return result; }));
-      for (const { node, calleeIds, callerIds, response, answers } of results) {
-        hunt.calls++;
-        if (response.usage) { hunt.usage.input_tokens += response.usage.input_tokens ?? 0; hunt.usage.output_tokens += response.usage.output_tokens ?? 0; }
-        const event = { type: 'hunted', at: new Date().toISOString(), id: findingId(node.id), hunt_id: id, root, github, revision, method: node.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line,
-          hash: node.hash, risk: node.metrics?.risk_score ?? null, model: response.model, ...answers, callees: calleeIds, callers: callerIds };
-        await store.appendEvent(event);
-        hunted.set(node.id, node.hash);
-        hunt.visited.push({ ...event, status: 'hunted' });
-        push([...calleeIds, ...callerIds].filter(other => other !== answers.follow.method));
-        if (answers.follow.method) push([answers.follow.method]);
-      }
+      const results = await Promise.all(batch.map(async nodeId => { const result = await ask(nodeId); progress(hunt.calls + ++done, total); return result; }));
+      await recordHuntResults(results);
       await writeJson(huntPath, hunt);
     }
     hunt.remaining = ranked.filter(nodeId => !visited.has(nodeId)).length;

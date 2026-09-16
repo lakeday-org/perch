@@ -28,16 +28,6 @@ test('clamp enforces the lower bound', () => {
 });
 `;
 
-/** The one new case a fix adds to the module's test file. */
-export const regressionCase = `
-test('clamp enforces the upper bound', () => {
-  assert.strictEqual(clamp(11, 0, 10), 10);
-});
-`;
-
-/** The module's test file with the regression case added, as the fix contract asks for it. */
-export const regressionSource = existingTestSource + regressionCase;
-
 const author = ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com'];
 
 /** A fresh repository on `main` with a committed tree, then checked out on a feature branch, since fix and refactor commit to the current branch. */
@@ -65,28 +55,54 @@ export async function makeFixture() {
 /** The corrected clamp method alone, as the fix contract asks for it. */
 export const fixedMethod = fixedSource.trimEnd();
 
-export const description = {
-  title: 'clamp returns values above the upper bound unchanged',
-  what_happens: 'When v is greater than hi, the second branch returns v instead of hi, so the caller gets an unclamped value.',
-  how_to_reproduce: 'clamp(11, 0, 10) returns 11.',
-  expected: 'clamp(11, 0, 10) returns 10.',
-  what_changed: 'The upper-bound branch now returns hi.',
-};
-
-/** A rewrite of clamp that documents it and keeps its behavior, bug included. */
+/** A rewrite of clamp that documents it and keeps its behavior, bug included; same metrics as the original. */
 export const documentedSource = `/** Clamp v into [lo, hi]: values below lo become lo, values above hi become hi. */\n${buggySource.trimEnd()}`;
+/** A rewrite that drops the branch which returns v unchanged: identical behavior, one branch less. */
+export const leanerSource = `/** Clamp v to at least lo; values above hi pass through unchanged. */
+export function clamp(v, lo, hi) {
+  if (v < lo) return lo;
+  return v;
+}`;
 
 export const defaultResponses = {
-  fix: () => ({ method: fixedMethod, test: regressionSource, test_path: 'test/clamp.test.js', summary: 'Return hi when v exceeds the upper bound.' }),
-  refactor: () => ({ source: documentedSource, summary: 'Document what clamp returns at each bound.' }),
-  describe: () => description,
+  fix: () => ({ source: fixedMethod, summary: 'Return hi when v exceeds the upper bound.' }),
 };
 
-/** A scripted model: responses are chosen by the inference id prefix and may vary by attempt (the id is fix-1, fix-2, ...). */
+/**
+ * A scripted agent standing in for the generating model. `overrides.fix` returns proposals by attempt id (fix-1, fix-2, ...); the agent
+ * runs the verifiers on each in the order a careful model would (measure, rescan, run_tests, submit), submits the first that passes
+ * them all, and gives up after three proposals. Every tool call it makes is recorded in `calls`.
+ */
 export function scriptedModel(overrides = {}) {
   const calls = [];
   const responses = { ...defaultResponses, ...overrides };
-  return { id: 'scripted-model', calls, async ask(id, prompt) { calls.push({ id, prompt }); return responses[id.split('-')[0]](id, prompt); } };
+  return {
+    id: 'scripted-model', effort: null, calls,
+    async run({ prompt, tools, onEvent = () => {} }) {
+      const byName = new Map(tools.map(item => [item.name, item]));
+      const trace = [];
+      let turns = 0, done = false;
+      const call = async (name, args) => {
+        calls.push({ id: `fix-${turns}`, prompt, name, arguments: args });
+        const event = { at: new Date().toISOString(), type: 'tool_call', turn: turns, name, arguments: args };
+        trace.push(event); onEvent(event);
+        const result = await byName.get(name).handler(args);
+        const after = { at: new Date().toISOString(), type: 'tool_result', turn: turns, name, result };
+        trace.push(after); onEvent(after);
+        return result;
+      };
+      for (let attempt = 1; attempt <= 3 && !done; attempt++) {
+        turns++;
+        const proposal = responses.fix(`fix-${attempt}`, prompt);
+        for (const name of ['measure', 'rescan', 'run_tests', 'submit']) {
+          const result = await call(name, name === 'measure' || name === 'run_tests' ? { source: proposal.source } : { source: proposal.source, summary: proposal.summary });
+          if (!result.ok) break;
+          if (result.done) { done = true; break; }
+        }
+      }
+      return { done, turns, usage: { input_tokens: 1000 * turns, cached_tokens: 900 * (turns - 1), output_tokens: 200 * turns, reasoning_tokens: 0 }, trace };
+    },
+  };
 }
 
 export const fixtureOptions = (repo, extra = {}) => ({ root: repo.root, revision: repo.revision, out: repo.out, paths: [], ...extra });
