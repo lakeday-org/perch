@@ -191,7 +191,7 @@ export async function methodContext({ finding, root, out, analyzer, revision = f
   return { scan, graph, node, fileLines, method, callees, callers, calleeIds, callerIds, imports, methods, step, changed: Boolean(finding.hash) && node.hash !== finding.hash };
 }
 
-export async function fixMethod({ finding: hunted, root, out, model, systemOne: rawSystemOne, analyzer, shell, ui = plainUi(), meter = createMeter(), log = () => {}, debug = () => {} }) {
+export async function fixMethod({ finding: hunted, root, out, model, systemOne: rawSystemOne, analyzer, shell, ui = plainUi(), meter = createMeter(), position = '', log = () => {}, debug = () => {} }) {
   const store = openStore(out);
   const systemOne = metered(rawSystemOne, meter);
   const id = fixIdentity({ finding: hunted, model: model.id });
@@ -237,9 +237,10 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
     const dirtyBefore = await dirtyPaths(root);
     if (dirtyBefore.includes(node.path)) throw new Error(`${node.path} has uncommitted changes; commit or stash them before perch fix touches it`);
 
-    // The objectives, stated up front: each issue and what has to be true afterwards.
-    ui.say(`${finding.id}  ${finding.name}  ${finding.path}:${finding.line}`);
-    for (const issue of before) ui.say(`  ${issue.text.padEnd(28)} → ${goalOf(issue, systemOne.id)}`);
+    // The objectives, stated up front: one line naming the method, one naming everything that has to be gone. What each issue
+    // asks for in words is in the model's prompt, where it does the work; --verbose repeats it here.
+    ui.say(`${position}${finding.id}  ${finding.name}  ${finding.path}:${finding.line}`, `  Clear   ${before.map(issue => issue.text).join(', ')}`);
+    for (const issue of before) debug(`${issue.text.padEnd(28)} -> ${goalOf(issue, systemOne.id)}`);
 
     fix.before = before;
 
@@ -389,15 +390,19 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
     ];
 
     const effort = model.effort ?? DEFAULT_EFFORT;
-    const names = { read: 'read', measure: 'tree-sitter', rescan: `${systemOne.id} rescan`, run_tests: 'tests', submit: 'submit' };
+    const names = { read: 'read', measure: 'measure', rescan: 'rescan', run_tests: 'tests', submit: 'submit' };
     const running = ui.task(`${model.id} working (effort ${effort})`);
     let current = null;
+    /** What one tool call is worth saying: the method it moved, the issues it left, the file it read, the tests it ran. */
+    const detailOf = r => r.error ?? (r.method ? `method ${r.method}${r.file && r.file !== 'unchanged' ? `, file ${r.file}` : ''}`
+      : r.after ? (r.after.join(', ') || 'nothing left')
+      : r.directory ? `${r.path}, ${r.directory.length} files` : r.source !== undefined ? `${r.path}, ${r.lines} lines`
+      : r.checks ? (r.checks.length ? `${r.checks.length} pass${r.ignored_already_failing ? ` (${r.ignored_already_failing.join(', ')} already failing, ignored)` : ''}` : r.note ?? 'nothing to run') : '');
     const onEvent = event => {
-      if (event.type === 'tool_call') current = ui.task(`${model.id} ▸ ${names[event.name] ?? event.name}`);
+      if (event.type === 'tool_call') current = ui.task(names[event.name] ?? event.name, { width: 7, indent: '  ' });
       else if (event.type === 'tool_result' && current) {
         const r = event.result ?? {};
-        const detail = r.error ?? (r.after ? `now: ${r.after.join(', ') || 'no issues'}` : r.directory ? `${r.path}, ${r.directory.length} files` : r.source !== undefined ? `${r.path}, ${r.lines} lines` : r.file ? `file ${r.file}` : r.checks ? (r.checks.length ? `${r.checks.length} pass${r.ignored_already_failing ? ` (${r.ignored_already_failing.join(', ')} already failing, ignored)` : ''}` : r.note ?? 'nothing to run') : '');
-        (r.ok ? current.ok : current.fail)(detail); current = null;
+        (r.ok ? current.ok : current.fail)(detailOf(r)); current = null;
         running.update(`${model.id} working (turn ${event.turn}, effort ${effort})`);
       }
     };
@@ -450,19 +455,25 @@ export async function fixIssues({ findings, budget = DEFAULT_FIX_BUDGET, root, o
   }
   const selected = current.slice(0, budget);
   const fixes = [];
+  let stopped = null;
   for (const [index, finding] of selected.entries()) {
-    ui.say(`\n[${index + 1}/${selected.length}]`);
+    ui.say('');
     const findingRoot = finding.root ?? root;
     try {
       if (!findingRoot) throw new Error(`finding ${finding.id} has no repository recorded; scan again`);
-      const fix = await fixMethod({ finding, root: findingRoot, out, model, systemOne, analyzer, shell, ui, meter: createMeter(), log, debug });
+      const fix = await fixMethod({ finding, root: findingRoot, out, model, systemOne, analyzer, shell, ui, meter: createMeter(), position: `[${index + 1}/${selected.length}]  `, log, debug });
       fixes.push(fix);
       ui.say('', ...formatFix(fix).split('\n'));
     } catch (error) {
       ui.say(`${FAIL} ${finding.id} failed: ${error.message.split('\n')[0]}`);
       fixes.push({ id: null, finding_id: finding.id, method: finding.method, path: finding.path, root: findingRoot, revision: finding.revision, out, status: 'failed', error: error.message });
+      // An Abort is not this finding's fault: the checkout is no longer one perch can work in, and it will not be for the next
+      // finding either. Stopping here costs one wasted run instead of the whole budget.
+      if (error instanceof Abort) { stopped = error; break; }
     }
   }
+  if (stopped) ui.say(`${FAIL} stopped with ${selected.length - fixes.length} of ${selected.length} not attempted: ${stopped.message.split('\n')[0]}`);
   for (const fix of fixes) for (const [name, entry] of Object.entries(fix.usage ?? {})) meter.add(name, { input_tokens: entry.input, cached_tokens: entry.cached, output_tokens: entry.output, reasoning_tokens: entry.reasoning }, { turns: entry.turns, requests: entry.requests });
-  return { budget, open: current.length, stale: stale.length, attempted: fixes.length, remaining: Math.max(0, current.length - selected.length), fixes, usage: meter.toJSON(), usage_lines: meter.lines() };
+  return { budget, open: current.length, stale: stale.length, attempted: fixes.length, stopped: stopped?.message ?? null,
+    remaining: Math.max(0, current.length - fixes.length), fixes, usage: meter.toJSON(), usage_lines: meter.lines() };
 }

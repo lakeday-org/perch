@@ -82,11 +82,13 @@ export const REFACTORS = {
 };
 
 
-/** Plain names for the defect kinds and refactors, for anything a person reads. */
-export const KIND_LABELS = { boundary: 'off by one', missing_null_handling: 'unhandled null', wrong_return: 'wrong return value', swallowed_error: 'error ignored', state_mutation: 'bad state change', ordering: 'wrong order', resource_leak: 'leak', inverted_condition: 'inverted condition',
-  split: 'too big', flatten: 'too nested', simplify_conditions: 'tangled conditions', deduplicate: 'duplicated logic', rename: 'misnamed', remove_dead_code: 'dead code', none: 'none' };
-export const label = kind => KIND_LABELS[kind] ?? kind.replaceAll('_', ' ');
-const spaced = label;
+/**
+ * Plain names for the defect kinds and refactors. A label is written the way `--filter` takes it, underscores and all, so what a
+ * row shows is what you can type back at the command: `too_big 78%` is filtered with `--filter kind=too_big`.
+ */
+export const KIND_LABELS = { boundary: 'off_by_one', missing_null_handling: 'unhandled_null', wrong_return: 'wrong_return_value', swallowed_error: 'error_ignored', state_mutation: 'bad_state_change', ordering: 'wrong_order', resource_leak: 'leak', inverted_condition: 'inverted_condition',
+  split: 'too_big', flatten: 'too_nested', simplify_conditions: 'tangled_conditions', deduplicate: 'duplicated_logic', rename: 'misnamed', remove_dead_code: 'dead_code', none: 'none' };
+export const label = kind => KIND_LABELS[kind] ?? kind;
 
 const percent = value => `${Math.round(value * 100)}%`;
 /** A method whose tree-sitter risk score is at least this carries a `complex` issue, whether or not System One has read it. */
@@ -101,12 +103,12 @@ export function issuesOf(answers, min = 0) {
   const issues = [];
   const add = (type, label, probability) => { if (probability > min) issues.push({ type, label, probability, text: `${label} ${percent(probability)}` }); };
   // The chance of a defect is has_bug; the kind is the label the choice puts most weight on, not a second hurdle to clear.
-  if (answers.has_bug !== undefined) add('defect', spaced(answers.kind?.kind ?? 'defect'), answers.has_bug);
+  if (answers.has_bug !== undefined) add('defect', label(answers.kind?.kind ?? 'defect'), answers.has_bug);
   const vulnerability = securityOf(answers);
-  if (vulnerability) add('security', spaced(vulnerability.kind), vulnerability.probability);
+  if (vulnerability) add('security', label(vulnerability.kind), vulnerability.probability);
   const refactor = answers.refactor?.refactor;
-  if (refactor && refactor !== 'none') add('refactor', spaced(refactor), answers.refactor.probabilities?.[refactor] ?? 0);
-  if (answers.does_what_it_claims !== undefined) add('misaligned', 'does not do what it claims', 1 - answers.does_what_it_claims);
+  if (refactor && refactor !== 'none') add('refactor', label(refactor), answers.refactor.probabilities?.[refactor] ?? 0);
+  if (answers.does_what_it_claims !== undefined) add('misaligned', 'does_not_do_what_it_claims', 1 - answers.does_what_it_claims);
   if (answers.misdocumented !== undefined) add('misdocumented', 'misdocumented', answers.misdocumented);
   return issues.sort((a, b) => b.probability - a.probability);
 }
@@ -131,10 +133,9 @@ export const ANSWERS_VERSION = 3;
 /** Everything `--filter` understands, so `perch findings --types` can print it and a typo can be answered with the real list. */
 export const filterKeys = () => ({
   type: ['defect', 'security', 'refactor', 'misdocumented', 'misaligned'],
-  // The labels a finding is listed under, written the way they are typed. parseFilters reads either form, so
-  // `kind=too_big` and `kind=too big` both work.
-  kind: [...Object.keys(DEFECT_KINDS), ...Object.keys(SECURITY_KINDS), ...Object.keys(REFACTORS).filter(kind => kind !== 'none'), 'misdocumented', 'does_not_do_what_it_claims']
-    .map(kind => spaced(kind).replaceAll(' ', '_')),
+  // The labels a finding is listed under, exactly as a row prints them. parseFilters reads either form, so `kind=too_big` and
+  // `kind=too big` both work.
+  kind: [...Object.keys(DEFECT_KINDS), ...Object.keys(SECURITY_KINDS), ...Object.keys(REFACTORS).filter(kind => kind !== 'none'), 'misdocumented', 'does_not_do_what_it_claims'].map(label),
   severity: [...SEVERITY_BANDS],
 });
 

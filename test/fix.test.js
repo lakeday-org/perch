@@ -89,7 +89,7 @@ describe('perch fix', () => {
     // injection is only as likely as something from outside reaching the method; a value freed twice is wrong whoever calls it.
     expect(securityOf(answers)).toEqual({ kind: 'use_after_free', probability: 0.95 });
     expect(securityOf({ ...answers, exposed: 0.99 }).kind).toBe('injection');
-    expect(issuesOf(answers).find(issue => issue.type === 'security').text).toBe('use after free 95%');
+    expect(issuesOf(answers).find(issue => issue.type === 'security').text).toBe('use_after_free 95%');
   });
 
 
@@ -107,7 +107,7 @@ describe('perch fix', () => {
     expect(fileObjections(base, { ...base, cyclomatic_complexity: 200, sloc: 436 }, { security: true }))
       .toEqual(['the file grows too much, 319 -> 436 lines, and 351 is the most this fix may leave']);
 
-    // Extracting a helper raises a small file's risk on its own, and that must not block the split "too big" asks for.
+    // Extracting a helper raises a small file's risk on its own, and that must not block the split "too_big" asks for.
     const small = { risk_score: 26.47, cyclomatic_complexity: 3, max_nesting: 1, sloc: 5 };
     expect(fileObjections(small, { risk_score: 40, cyclomatic_complexity: 3, max_nesting: 1, sloc: 12 })).toEqual([]);
   });
@@ -127,8 +127,8 @@ describe('perch fix', () => {
       severity: { level: 'P1', confidence: 0.55 }, misuse: [{ callee: 'src/gh.js::gh', probability: 0.7 }], misused_by: [{ caller: 'src/cli.js::publish', probability: 0.3 }], does_what_it_claims: 0.8, misdocumented: 0.53, refactor: { refactor: 'split', probabilities: { split: 0.84, none: 0.1, flatten: 0.05 } } };
     const text = huntAnswers(finding, { reachable: 0.88 });
     expect(text).toContain('reachable behavioral defect: 63%');
-    expect(text).toContain('defect kinds, most likely first: error ignored 60%, wrong return value 40%, off by one 10%');
-    expect(text).toContain('refactor it most needs: too big 84%, none 10%, too nested 5%');
+    expect(text).toContain('defect kinds, most likely first: error_ignored 60%, wrong_return_value 40%, off_by_one 10%');
+    expect(text).toContain('refactor it most needs: too_big 84%, none 10%, too_nested 5%');
     expect(huntAnswers({ metrics: { risk_score: 80 } })).toBe('System One has not read this method; the issues come from the metrics.');
   });
 
@@ -139,7 +139,7 @@ describe('perch fix', () => {
     const fix = await fixMethod(options(repo, finding, { model, systemOne, ui }));
 
     expect(fix.status).toBe('ready');
-    expect(fix.before[0].text).toBe('wrong return value 90%');
+    expect(fix.before[0].text).toBe('wrong_return_value 90%');
     expect(fix.after.every(issue => issue.probability < 0.3)).toBe(true);
     expect(fix.expected.correctness).toBeLessThan(0);
     expect(fix.checks).toEqual(['test/clamp.test.js']);
@@ -152,7 +152,7 @@ describe('perch fix', () => {
     expect(model.calls.map(call => call.name)).toEqual(['measure', 'rescan', 'run_tests', 'submit']);
     expect(model.calls.every(call => call.arguments.source === fixedMethod)).toBe(true);
     const prompt = model.calls[0].prompt;
-    expect(prompt).toContain('OBJECTIVES:\n- wrong return value 90%: System One must no longer see this defect when it reads the rewrite');
+    expect(prompt).toContain('OBJECTIVES:\n- wrong_return_value 90%: System One must no longer see this defect when it reads the rewrite');
     expect(prompt).toContain('rescan runs the same scan over your rewrite');
     expect(prompt).toContain('and any sibling helpers it needs in that range');
     expect(prompt).toContain('reachable behavioral defect: 90%');
@@ -174,15 +174,17 @@ describe('perch fix', () => {
 
     // What was printed: the objectives, each tool call as the model's, the result, and the usage.
     expect(lines).toContainEqual(`${finding.id}  clamp  src/clamp.js:1`);
-    expect(lines.some(line => /^ {2}wrong return value \d+% +→ scripted-jev must no longer see this defect when it reads the rewrite$/.test(line))).toBe(true);
-    // Returning hi instead of v moves no metric, and the line says so rather than printing three numbers that did not change.
-    expect(lines.some(line => /^✓ scripted-model ▸ tree-sitter — file unchanged/.test(line))).toBe(true);
-    expect(lines.some(line => /^✓ scripted-model ▸ scripted-jev rescan — now: /.test(line))).toBe(true);
-    expect(lines.some(line => /^✓ scripted-model ▸ tests — 1 pass/.test(line))).toBe(true);
+    expect(lines.some(line => /^ {2}Clear   .*wrong_return_value \d+%/.test(line))).toBe(true);
+    // One column of steps, the model named once on the line that runs it. Returning hi instead of v moves no method metric, and
+    // the line says so rather than printing four numbers that did not change.
+    expect(lines.some(line => /^ {2}✓ measure {2}method unchanged {2}[\d.]+s$/.test(line))).toBe(true);
+    expect(lines.some(line => /^ {2}✓ rescan {3}inverted_condition 20%, /.test(line))).toBe(true);
+    expect(lines.some(line => /^ {2}✓ tests {4}1 pass {2}[\d.]+s$/.test(line))).toBe(true);
+    expect(lines.every(line => !line.includes('▸'))).toBe(true);
     expect(lines.some(line => /^✓ scripted-model done — 1 turn/.test(line))).toBe(true);
     expect(lines.some(line => /^✓ [0-9a-f]{7} Return hi when v exceeds the upper bound$/.test(line))).toBe(true);
     // The run tells the story once: the objectives, the steps, and the commit. The report is printed by whoever asked for the fix.
-    expect(lines.filter(line => line.startsWith('  Was') || line.startsWith('  Now'))).toEqual([]);
+    expect(lines.filter(line => line.startsWith('  Cleared') || line.startsWith('  Left'))).toEqual([]);
     expect(fix.usage['scripted-jev'].requests).toBe(1);
     expect(fix.usage['scripted-model'].turns).toBe(1);
 
@@ -195,10 +197,11 @@ describe('perch fix', () => {
     expect(formatFinding(listed)).toContain('Fixed: Return hi when v exceeds the upper bound');
     const text = formatFix(fix);
     expect(text).toContain(`${finding.id}  clamp  src/clamp.js:1  fixed in ${fix.commit.slice(0, 7)} on work`);
-    expect(text).toContain('Was    wrong return value 90%');
-    expect(text).toMatch(/Now {4}inverted condition 20%/);
+    // What became of each objective, not two lists to diff by eye.
+    expect(text).toContain('Cleared  wrong_return_value 90%');
+    expect(text).toContain('Added    inverted_condition 20%');
     expect(text).toContain('The upper bound was returned as the caller');
-    expect(text).toContain('Tests   test/clamp.test.js pass');
+    expect(text).toContain('Tests    test/clamp.test.js pass');
     expect(fix.usage['scripted-model'].input).toBe(1000);
 
     const again = scriptedModel();
@@ -217,7 +220,7 @@ describe('perch fix', () => {
     const { lines, ui } = captured();
     const fix = await fixMethod(options(repo, finding, { systemOne, ui }));
     expect(fix.status).toBe('ready');
-    expect(fix.before[0].text).toBe('wrong return value 85%');
+    expect(fix.before[0].text).toBe('wrong_return_value 85%');
     expect(lines.some(line => /^✓ scripted-jev reading clamp, changed since the scan — /.test(line))).toBe(true);
     const store = openStore(repo.out);
     expect((await store.readEvents()).filter(event => event.type === 'hunted')).toHaveLength(2);

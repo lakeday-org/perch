@@ -139,13 +139,13 @@ const spend = usage => {
 /** The batch: what was worked, then one line each. The full story for a fix was told as it ran. */
 export function formatFixes(batch) {
   const stale = batch.stale ? ` ${batch.stale} ${batch.stale === 1 ? 'finding is' : 'findings are'} for methods that no longer exist under that name; scan again to see what replaced them.` : '';
-  if (!batch.fixes.length) return `No open issues to work.${stale}`;
+  if (!batch.fixes.length) return `No open issues to work.${stale}${batch.stopped ? ` Stopped: ${batch.stopped.split('\n')[0]}` : ''}`;
   const left = batch.remaining ? `, ${batch.remaining} left` : '';
   const committed = batch.fixes.filter(fix => fix.status === 'ready').length;
   const rows = batch.fixes.map(fix => [fix.finding_id ?? '?', shortId(fix.method ?? '?'),
     fix.status === 'ready' ? fix.commit?.slice(0, 7) ?? 'done' : fix.status,
     fix.status === 'ready' ? fix.summary ?? '' : fix.status === 'closed' ? fix.reason ?? '' : (fix.error ?? '').split('\n')[0]]);
-  const lines = [`Worked ${batch.fixes.length} ${batch.fixes.length === 1 ? 'issue' : 'issues'} (budget ${batch.budget}${left}); ${committed} committed.${stale}`, '',
+  const lines = [`Worked ${batch.fixes.length} ${batch.fixes.length === 1 ? 'issue' : 'issues'} (budget ${batch.budget}${left}); ${committed} committed.${stale}${batch.stopped ? ` Stopped early: ${batch.stopped.split('\n')[0]}` : ''}`, '',
     ...table(['ID', 'Method', 'Result', 'What happened'], rows, ['left', 'left', 'left', 'left'])];
   if (batch.usage_lines?.length) lines.push('', 'Usage:', ...batch.usage_lines.map(line => `  ${line}`));
   return lines.join('\n');
@@ -158,6 +158,18 @@ const strongest = (issues = []) => {
 };
 
 /**
+ * What became of each objective. Printing the issues before and the issues after leaves the reader to diff two lists in their head;
+ * the useful reading is which ones went, which ones are still there and by how much, and which ones the rewrite introduced.
+ */
+export function issueOutcome(before = [], after = []) {
+  const byLabel = new Map(after.map(issue => [issue.label, issue]));
+  const gone = before.filter(issue => !byLabel.has(issue.label));
+  const left = before.filter(issue => byLabel.has(issue.label)).map(issue => ({ ...issue, now: byLabel.get(issue.label).probability }));
+  const seen = new Set(before.map(issue => issue.label));
+  return { gone, left, added: after.filter(issue => !seen.has(issue.label)) };
+}
+
+/**
  * One fix, as a reviewer reads it: what was wrong, what the model wrote about the change, what measurably moved, and what proved it.
  * The note is the model's own two or three sentences; everything under it is measured, not claimed.
  */
@@ -167,10 +179,14 @@ export function formatFix(fix) {
   const lines = [`${fix.finding_id ?? '?'}  ${shortId(fix.method ?? '?')}  ${where}  ${outcome}`, ''];
   const was = strongest(fix.before);
   if (fix.status === 'ready') {
-    lines.push(`  Was    ${was || '-'}`, `  Now    ${strongest(fix.after) || 'clear'}`);
-    if (fix.notes) lines.push('', ...wrap(fix.notes));
-    // Only the numbers that moved: a defect fix often changes none, and printing "unchanged" twice says nothing.
+    if (fix.notes) lines.push(...wrap(fix.notes), '');
+    const { gone, left, added } = issueOutcome(fix.before, fix.after);
     const rows = [];
+    if (gone.length) rows.push(['Cleared', gone.map(issue => issue.text).join(', ')]);
+    if (left.length) rows.push(['Left', left.map(issue => `${issue.label} ${percent(issue.probability)} -> ${percent(issue.now)}`).join(', ')]);
+    if (added.length) rows.push(['Added', added.map(issue => issue.text).join(', ')]);
+    if (!rows.length) rows.push(['Cleared', 'nothing the scan can see']);
+    // Only the numbers that moved: a defect fix often changes none, and printing "unchanged" twice says nothing.
     for (const [name, before, after] of [['Method', fix.method_before, fix.method_after], ['File', fix.file_before, fix.file_after]]) {
       const shift = before && after ? metricShift(before, after) : '-';
       if (shift !== 'unchanged' && shift !== '-') rows.push([name, shift]);
@@ -178,11 +194,12 @@ export function formatFix(fix) {
     rows.push(['Tests', fix.checks?.length ? `${fix.checks.join(', ')} pass` : 'none reach this method']);
     const cost = spend(fix.usage);
     if (cost) rows.push(['Cost', cost]);
-    lines.push('', ...rows.map(([name, text]) => `  ${name.padEnd(6)}  ${text}`));
+    const width = Math.max(...rows.map(([name]) => name.length));
+    lines.push(...rows.map(([name, text]) => `  ${name.padEnd(width)}  ${text}`));
   } else if (fix.status === 'closed') {
     lines.push(`  ${fix.reason ?? 'nothing to do'}`);
   } else {
-    lines.push(`  Was    ${was || '-'}`, '', ...wrap(`After ${fix.turns ?? 0} ${fix.turns === 1 ? 'turn' : 'turns'} nothing passed every check. Last objection: ${(fix.error ?? 'unknown').split('\n')[0]}`));
+    lines.push(`  Wanted  ${was || '-'}`, '', ...wrap(`After ${fix.turns ?? 0} ${fix.turns === 1 ? 'turn' : 'turns'} nothing passed every check. Last objection: ${(fix.error ?? 'unknown').split('\n')[0]}`));
     const cost = spend(fix.usage);
     if (cost) lines.push('', `  Cost    ${cost}`);
   }

@@ -95,7 +95,7 @@ describe('cli', () => {
     expect(await main(['issues', '--filter', 'severity=p9'], io)).toBe(2);
     expect(err.at(-1)).toContain('severity "p9" is not one of P3, P2, P1, P0');
     expect(await main(['findings', '--filter', 'kind=nope'], io)).toBe(2);
-    expect(err.at(-1)).toContain('too big');
+    expect(err.at(-1)).toContain('too_big');
     expect(await main(['issues', '-h'], io)).toBe(0);
     expect(out.at(-1)).toContain('perch findings: List what the scan found');
     expect(await main(['findings', '--types'], io)).toBe(0);
@@ -118,7 +118,7 @@ describe('cli', () => {
     const { out, err, io } = capture();
     const [f] = hunt.visited;
     expect(await main(['issues', '--out', repo.out], io)).toBe(0);
-    expect(out.at(-1)).toMatch(new RegExp(`^${f.id}  f +src/a.js:\\d+ +wrong return value \\d+%.* +P2 +open +-`, 'm'));
+    expect(out.at(-1)).toMatch(new RegExp(`^${f.id}  f +src/a.js:\\d+ +wrong_return_value \\d+%.* +P2 +open +-`, 'm'));
     expect(out.at(-1)).toMatch(/^ID +Method +Location +Issues +Severity +Status +Commit$/m);
     // A filter that matches keeps the row; one that does not leaves nothing.
     expect(await main(['findings', '--filter', 'type=defect,severity=P2', '--out', repo.out], io)).toBe(0);
@@ -129,7 +129,7 @@ describe('cli', () => {
     const code = await main(['issues', f.id.slice(0, 5), '--out', repo.out, '--verbose'], io);
     if (code !== 0) throw new Error(err.join('\n'));
     expect(out.at(-1)).toContain('Defect: 80%');
-    expect(out.at(-1)).toContain('wrong return value');
+    expect(out.at(-1)).toContain('wrong_return_value');
     expect(out.at(-1)).toContain('Metrics: risk');
     // --min is a weight, not a probability: no method is expected to have 9 problems.
     expect(await main(['issues', '--out', repo.out, '--min', '900'], io)).toBe(0);
