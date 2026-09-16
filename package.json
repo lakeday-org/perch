@@ -1,0 +1,26 @@
+{
+  "name": "@lakeday/perch",
+  "version": "0.1.0",
+  "description": "Finds real bugs in a repository, proves each one with a failing regression test, and optionally fixes it.",
+  "license": "MIT",
+  "type": "module",
+  "bin": { "perch": "bin/perch.mjs" },
+  "files": ["bin", "dist", "README.md", "LICENSE"],
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "node build.mjs",
+    "prepare": "node build.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc -p analysis --noEmit"
+  },
+  "dependencies": {
+    "tree-sitter-wasm": "2.0.1",
+    "web-tree-sitter": "0.27.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "esbuild": "^0.27.7",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}
