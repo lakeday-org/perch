@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { main, parseArgs } from '../src/cli.js';
 import { revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
-import { runHunt } from '../src/hunt.js';
+import { scanRepository } from '../src/hunt.js';
 import { fixtureOptions, makeFixture, makeGraphFixture, scriptedSystemOne } from './helpers.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -64,7 +64,7 @@ describe('cli', () => {
     const repoRoot = await makeGraphFixture();
     cleanups.push(repoRoot);
     const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
-    const hunt = await runHunt(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.8, kind_wrong_return: 0.6 } }), budget: 2 }));
+    const hunt = await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.8, kind_wrong_return: 0.6 } }), budget: 2 }));
     const { out, err, io } = capture();
     const [f] = hunt.visited;
     expect(await main(['issues', '--out', repo.out], io)).toBe(0);

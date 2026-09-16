@@ -10,7 +10,7 @@ export function scanIdentity({ revision, paths }) {
 
 const selected = paths => file => !paths.length || paths.some(path => file.path === path || file.path.startsWith(path.replace(/\/$/, '') + '/'));
 
-export async function runScan({ root, revision, out, analyzer, label = root, github = null, paths = [], progress = () => {}, log = () => {}, debug = () => {} }) {
+export async function analyzeTree({ root, revision, out, analyzer, label = root, github = null, paths = [], progress = () => {}, log = () => {}, debug = () => {} }) {
   const store = openStore(out);
   const id = scanIdentity({ revision, paths });
   const dir = store.scanDir(id), scanPath = join(dir, 'scan.json');

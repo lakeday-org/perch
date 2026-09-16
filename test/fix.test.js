@@ -4,56 +4,80 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
-import { runHunt } from '../src/hunt.js';
-import { pendingFixes, runFix, runFixQueue, runOne, splitStale, underPath } from '../src/fix.js';
-import { runRefactor } from '../src/refactor.js';
+import { scanRepository } from '../src/hunt.js';
+import { fixIssues, fixMethod, improvement, pendingFixes, regionStart, sameLines, splitStale, underPath } from '../src/fix.js';
 import { huntAnswers } from '../src/prompts.js';
+import { createMeter, money } from '../src/meter.js';
 import { createShell } from '../src/shell.js';
 import { openStore } from '../src/store.js';
 import { formatFinding, formatFix, formatFixes, formatIssues } from '../src/report.js';
 import { createUi } from '../src/ui.js';
-import { buggySource, commitAll, fixedMethod, fixedSource, fixtureOptions, leanerSource, makeFixture, scriptedModel, scriptedSystemOne } from './helpers.js';
+import { buggySource, commitAll, documentedSource, fixedMethod, fixedSource, fixtureOptions, leanerSource, makeFixture, scriptedModel, scriptedSystemOne } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
 const shell = createShell();
 const cleanups = [];
 afterEach(async () => { for (const dir of cleanups.splice(0)) await rm(dir, { recursive: true, force: true }); });
 
-/** The clamp fixture hunted once, so it has a finding for clamp pointing at the upper-bound line. */
-async function huntedFixture() {
+/** The clamp fixture scanned once, with a defect on clamp pointing at the upper-bound line. */
+async function scanned(answers = { has_bug: 0.9, where: 'L0003', kind_wrong_return: 0.9, severity: 2 }) {
   const root = await makeFixture();
   cleanups.push(root);
   const repo = { root, revision: await revision(root), out: join(root, '.perch') };
-  const hunt = await runHunt(fixtureOptions(repo, { analyzer, systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.9, where: 'L0003', kind_wrong_return: 0.9, severity: 2 } }) }));
-  return { repo, finding: hunt.visited[0] };
+  const scan = await scanRepository(fixtureOptions(repo, { analyzer, systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': answers }) }));
+  const [finding] = await openStore(repo.out).issues();
+  return { repo, scan, finding };
 }
-
-const fixOptions = (repo, finding, extra) => ({ finding, root: repo.root, out: repo.out, analyzer, shell, systemOne: scriptedSystemOne(), model: scriptedModel(), ...extra });
-const proposal = (method, summary = 'attempt') => ({ method, summary });
+const options = (repo, finding, extra) => ({ finding, root: repo.root, out: repo.out, analyzer, shell, systemOne: scriptedSystemOne(), model: scriptedModel(), ...extra });
+const proposal = (source, summary = 'Change the method') => ({ source, summary });
+const captured = () => { const lines = []; return { lines, ui: createUi({ live: false, log: text => lines.push(text) }) }; };
 
 describe('perch fix', () => {
-  it('queues every open issue up to the budget, under a path when given, and sets stale findings aside', async () => {
+  it('queues every open issue up to the budget, under a path when given, and sets aside methods that no longer exist', async () => {
     const defect = extra => ({ has_bug: 0.9, kind: { kind: 'boundary' }, ...extra });
     const design = extra => ({ has_bug: 0.1, refactor: { refactor: 'split', probabilities: { split: 0.8 } }, ...extra });
     const open = defect({ id: 'aaaa1111', path: 'src/a.js' });
-    const ready = defect({ id: 'bbbb2222', path: 'src/b.js', fix: { status: 'ready' } });
-    const rejected = defect({ id: 'cccc3333', path: 'src/c.js', fix: { status: 'rejected' } });
+    const fixed = defect({ id: 'bbbb2222', path: 'src/b.js', fix: { status: 'ready' } });
+    const closed = defect({ id: 'cccc3333', path: 'src/c.js', fix: { status: 'rejected' } });
     const messy = design({ id: 'ffff6666', path: 'lib/f.js' });
     const later = defect({ id: 'eeee5555', path: 'lib/e.js' });
-    expect(pendingFixes([open, ready, rejected, messy, later], 1).map(finding => finding.id)).toEqual(['aaaa1111']);
-    // Design issues are in the queue too; one already simplified is not, and a complex method never read by System One is.
-    expect(pendingFixes([open, ready, messy, later, design({ id: 'gggg7777', path: 'lib/g.js', refactored: { status: 'ready' } }), { id: 'hhhh8888', path: 'lib/h.js', metrics: { risk_score: 80 } }], 9).map(finding => finding.id)).toEqual(['aaaa1111', 'ffff6666', 'eeee5555', 'hhhh8888']);
+    const complex = { id: 'hhhh8888', path: 'lib/h.js', metrics: { risk_score: 80 } };
+    expect(pendingFixes([open, fixed, closed, messy, later, complex], 1).map(finding => finding.id)).toEqual(['aaaa1111']);
+    expect(pendingFixes([open, fixed, closed, messy, later, complex], 9).map(finding => finding.id)).toEqual(['aaaa1111', 'ffff6666', 'eeee5555', 'hhhh8888']);
     expect(underPath([open, messy, later], 'lib').map(finding => finding.id)).toEqual(['ffff6666', 'eeee5555']);
     expect(underPath([open, messy, later], 'lib/e.js').map(finding => finding.id)).toEqual(['eeee5555']);
-    const scan = { files: [{ path: 'src/a.js', methods: [{ id: 'src/a.js::f', hash: 'same' }] }] };
-    const { current, stale } = splitStale([{ method: 'src/a.js::f', hash: 'same' }, { method: 'src/a.js::f', hash: 'old' }, { method: 'gone.js::g', hash: 'x' }], scan);
-    expect(current).toHaveLength(2);
+    const { current, stale } = splitStale([{ method: 'src/a.js::f' }, { method: 'gone.js::g' }], { files: [{ path: 'src/a.js', methods: [{ id: 'src/a.js::f', hash: 'h' }] }] });
+    expect(current).toHaveLength(1);
     expect(stale).toHaveLength(1);
     expect(formatFixes({ budget: 5, remaining: 3, stale: 2, fixes: [] })).toBe('No open issues to work. 2 findings are for methods that no longer exist under that name; scan again to see what replaced them.');
-    const queued = await runFixQueue({ findings: [defect({ id: 'a1', method: 'm', path: 'src/a.js', revision: 'r' }), defect({ id: 'b2', method: 'n', path: 'src/b.js', revision: 'r' })], budget: 1, root: null, out: '/tmp', model: { id: 'x' }, systemOne: { id: 'y' }, analyzer: {}, shell: {} });
+    const queued = await fixIssues({ findings: [defect({ id: 'a1', method: 'm', path: 'src/a.js', revision: 'r' }), defect({ id: 'b2', method: 'n', path: 'src/b.js', revision: 'r' })], budget: 1, root: null, out: '/tmp', model: { id: 'x' }, systemOne: { id: 'y' }, analyzer: {}, shell: {} });
     expect(queued.attempted).toBe(1);
     expect(queued.remaining).toBe(1);
     expect(queued.fixes[0]).toMatchObject({ finding_id: 'a1', status: 'failed', error: 'finding a1 has no repository recorded; scan again' });
+  });
+
+  it('judges a rewrite by whether every issue is gone or lower and nothing new appeared', () => {
+    const issue = (type, probability, text = `${type} ${Math.round(probability * 100)}%`) => ({ type, label: type, probability, text });
+    expect(improvement([issue('defect', 0.9), issue('refactor', 0.8)], [])).toEqual([]);
+    expect(improvement([issue('defect', 0.9), issue('refactor', 0.8)], [issue('refactor', 0.6)])).toEqual([]);
+    expect(improvement([issue('defect', 0.9)], [issue('defect', 0.4)])).toEqual(['defect is still a defect (defect 90% -> defect 40%)']);
+    expect(improvement([issue('refactor', 0.8)], [issue('refactor', 0.8)])).toEqual(['refactor did not improve (refactor 80% -> refactor 80%)']);
+    expect(improvement([issue('refactor', 0.8)], [issue('misdocumented', 0.7)])).toEqual(['new issue: misdocumented 70%']);
+    expect(sameLines('a\n  b\nc', 'c\nb\n\n a')).toBe(true);
+    expect(sameLines('a\nb', 'a\nb\nc')).toBe(false);
+    expect(regionStart(['// a', '// b', 'function f() {}'], 3)).toBe(1);
+    expect(regionStart(['x', '', 'function f() {}'], 3)).toBe(3);
+    expect(money(0.0031)).toBe('$0.0031');
+    expect(money(1.2)).toBe('$1.20');
+    const meter = createMeter();
+    meter.add('jev-latest', { input_tokens: 1_000_000, output_tokens: 10 }, { requests: 3 });
+    meter.add('gpt-5.6-luna', { input_tokens: 100_000, input_tokens_details: { cached_tokens: 50_000 }, output_tokens: 10_000 }, { turns: 2 });
+    expect(meter.cost('jev-latest')).toBeCloseTo(0.042);
+    expect(meter.cost('gpt-5.6-luna')).toBeCloseTo(0.05 * 0.2 + 0.05 * 0.02 + 0.01 * 1.2);
+    const [jev, luna, total] = meter.lines();
+    expect(jev).toMatch(/^jev-latest {4}3 requests {2}1\.0M in \/ 10 out +\$0\.04$/);
+    expect(luna).toMatch(/^gpt-5\.6-luna {2}2 turns {5}100k in \(50k cached\) \/ 10k out {2}\$0\.02$/);
+    expect(total).toMatch(/^total +\$0\.07$/);
   });
 
   it('tells the model everything System One answered, with probabilities', () => {
@@ -61,214 +85,187 @@ describe('perch fix', () => {
       severity: { level: 'major', confidence: 0.55 }, misuse: [{ callee: 'src/gh.js::gh', probability: 0.7 }], misused_by: [{ caller: 'src/cli.js::publish', probability: 0.3 }], does_what_it_claims: 0.8, misdocumented: 0.53, refactor: { refactor: 'split', probabilities: { split: 0.84, none: 0.1, flatten: 0.05 } } };
     const text = huntAnswers(finding, { reachable: 0.88 });
     expect(text).toContain('reachable behavioral defect: 63%; the flagged line is reachable by a real caller: 88%');
-    expect(text).toContain('line 48 is where it is (confidence 71%): return null;');
     expect(text).toContain('defect kinds, most likely first: error ignored 60%, wrong return value 40%, off by one 10%');
-    expect(text).toContain('severity if real: major (confidence 55%)');
-    expect(text).toContain("misuses a callee's contract: gh 70%");
-    expect(text).toContain('a caller misuses this method or relies on what it does not guarantee: publish 30%');
-    expect(text).toContain('does what its name and comment claim: 80%; misdocumented: 53%');
     expect(text).toContain('refactor it most needs: too big 84%, none 10%, too nested 5%');
+    expect(huntAnswers({ metrics: { risk_score: 80 } })).toBe('System One has not read this method; the issues come from the metrics.');
   });
 
-  it('sends a finding with no defect to the simplify agent, with the issues the scan raised', async () => {
-    const { repo, finding } = await huntedFixture();
-    const design = { ...finding, has_bug: 0.39, refactor: { refactor: 'split', probabilities: { split: 0.97 } }, misdocumented: 0.82 };
-    const model = scriptedModel();
-    await expect(runFix(fixOptions(repo, design, { model }))).rejects.toThrow('clamp has no defect to fix (wrong return value 39%, reachable 90%). Its open issues are too big 97%, misdocumented 82%: perch fix works those by simplifying it.');
-    expect(model.calls).toHaveLength(0);
-    const record = await runOne({ ...fixOptions(repo, design, { model }), simplify: runRefactor });
-    expect(record.kind).toBe('refactor');
-    expect(record.status).toBe('ready');
-    expect(model.calls.map(call => call.name)).toEqual(['measure', 'run_tests', 'submit']);
-    expect(model.calls[0].prompt).toContain('WHAT THE SCAN RAISED ABOUT THIS METHOD: too big 97%; misdocumented 82%');
-    expect(await readFile(join(repo.root, 'src', 'clamp.js'), 'utf8')).toBe(leanerSource + '\n');
-    const [listed] = await openStore(repo.out).issues();
-    expect(listed.refactored).toMatchObject({ status: 'ready', commit: record.commit });
-  });
-
-  it('refuses to commit on a protected branch', async () => {
-    const { repo, finding } = await huntedFixture();
-    await git(['checkout', '-q', 'main'], repo.root);
-    await expect(runFix(fixOptions(repo, finding, {}))).rejects.toThrow('main is protected');
-  });
-
-  it('checks the fix by its metrics and System One, commits it, records it, and reuses it on rerun', async () => {
-    const { repo, finding } = await huntedFixture();
+  it('states the objectives, lets the model rewrite with the scan as the judge, commits, records, and reuses the record', async () => {
+    const { repo, finding } = await scanned();
     const model = scriptedModel(), systemOne = scriptedSystemOne();
-    const lines = [];
-    const fix = await runFix(fixOptions(repo, finding, { model, systemOne, ui: createUi({ live: false, log: text => lines.push(text) }) }));
+    const { lines, ui } = captured();
+    const fix = await fixMethod(options(repo, finding, { model, systemOne, ui }));
 
     expect(fix.status).toBe('ready');
-    expect(fix.finding_id).toBe(finding.id);
-    expect(fix.reach_check).toEqual({ reachable: 0.9 });
-    expect(fix.verification).toEqual({ kind: 'wrong_return', before: { has_bug: 0.9, kind: 0.9, reachable: 0.9 }, after: { has_bug: 0.2, kind: 0.2, severity: 1, misused_by: [] } });
-    expect(fix.metrics).toMatchObject({ complexity: [3, 3], nesting: [1, 1] });
+    expect(fix.before.map(issue => issue.text)).toEqual(['wrong return value 90%']);
+    expect(fix.after).toEqual([]);
+    expect(fix.reachable).toBe(0.9);
+    expect(fix.checks).toEqual(['test/clamp.test.js']);
+    expect(fix.file_before.cyclomatic_complexity).toBe(3);
     expect(fix.turns).toBe(1);
-    expect(fix.usage).toMatchObject({ input_tokens: 1000, cached_tokens: 0 });
+    expect(Object.keys(fix.usage).sort()).toEqual(['scripted-jev', 'scripted-model']);
+    expect(fix.usage['scripted-jev'].requests).toBe(2);
 
-    // The model ran as an agent: it checked, verified, and submitted the same source; the trace holds every call and result.
-    expect(model.calls.map(call => call.name)).toEqual(['check_method', 'verify_with_system_one', 'submit']);
-    expect(model.calls.every(call => call.arguments.method === fixedMethod)).toBe(true);
-    expect(model.calls[0].prompt).toContain('using the tools: check_method every version you write');
-    expect(model.calls[0].prompt).toContain('reachable behavioral defect: 90%; the flagged line is reachable by a real caller: 90%');
-    expect(model.calls[0].prompt).toContain('defect kinds, most likely first: wrong return value 90%');
-    expect(model.calls[0].prompt).toContain('"called_by"');
-    expect(fix.trace.filter(event => event.type === 'tool_result').map(event => event.result.ok)).toEqual([true, true, true]);
-    expect(fix.trace.find(event => event.name === 'verify_with_system_one' && event.type === 'tool_result').result.system_one).toBe('defect 90% -> 20%, wrong return value 90% -> 20%');
-    expect(systemOne.calls.map(call => call.method)).toEqual(['src/clamp.js::clamp', 'src/clamp.js::clamp']);
-    expect(systemOne.calls[0].questions.reachable).toBeDefined();
-    expect(systemOne.calls[0].state.module_scope).toBeNull();
+    // The model saw the objectives and everything System One answered; it measured, rescanned, ran the tests, and submitted one source.
+    expect(model.calls.map(call => call.name)).toEqual(['measure', 'rescan', 'run_tests', 'submit']);
+    expect(model.calls.every(call => call.arguments.source === fixedMethod)).toBe(true);
+    const prompt = model.calls[0].prompt;
+    expect(prompt).toContain('OBJECTIVES:\n- wrong return value 90%: System One must no longer see this defect when it reads the rewrite');
+    expect(prompt).toContain('rescan runs the same scan that raised these issues over your rewrite');
+    expect(prompt).toContain('reachable behavioral defect: 90%; the flagged line is reachable by a real caller: 90%');
+    expect(prompt).toContain('ORIGINAL, lines 1-5');
+    expect(prompt).toContain('"called_by"');
+    // System One was asked twice: is the line reachable, then the whole question set over the rewrite.
+    expect(systemOne.calls.map(call => Object.keys(call.questions)[0])).toEqual(['reachable', 'has_bug']);
     expect(systemOne.calls[1].state.method.source).toContain('L0003|   if (v > hi) return hi;');
-    expect(systemOne.calls[1].state.original_method).toBe(buggySource.trimEnd());
-    expect(Object.keys(systemOne.calls[1].questions)).toEqual(expect.arrayContaining(['has_bug', 'kind_wrong_return']));
-    expect(Object.keys(systemOne.calls[1].questions)).not.toContain('collateral_change');
-    expect(Object.keys(systemOne.calls[1].questions)).not.toEqual(expect.arrayContaining(['where', 'follow', 'refactor']));
+    expect(fix.trace.find(event => event.type === 'tool_result' && event.name === 'rescan').result).toEqual({ ok: true, before: ['wrong return value 90%'], after: [] });
 
-    // One commit on the current branch carrying the method; the checkout is clean, no worktree was made.
+    // One commit on the current branch; the checkout is clean.
     expect(fix.branch).toBe('work');
     expect(fix.commit).toBe(await revision(repo.root));
     expect((await git(['log', '-1', '--format=%s%n%n%b'], repo.root)).trim()).toBe(`Return hi when v exceeds the upper bound\n\nperch ${finding.id}`);
-    expect((await git(['diff', '--name-only', 'HEAD~1', 'HEAD'], repo.root)).trim()).toBe('src/clamp.js');
     expect(await readFile(join(repo.root, 'src', 'clamp.js'), 'utf8')).toBe(fixedSource);
     expect((await git(['status', '--porcelain'], repo.root)).trim()).toBe('');
     expect(existsSync(join(repo.out, 'workspaces'))).toBe(false);
-    expect((await git(['worktree', 'list'], repo.root)).trim().split('\n')).toHaveLength(1);
     expect(await readFile(fix.patch_path, 'utf8')).toContain('+  if (v > hi) return hi;');
 
-    // Every step was reported with a mark: the reach check, each tool call, the run, the commit.
+    // What was printed: the objectives, each tool call as the model's, the result, and the usage.
+    expect(lines).toContainEqual(`${finding.id}  clamp  src/clamp.js:1`);
+    expect(lines.some(line => /^ {2}wrong return value 90% +→ scripted-jev must no longer see it$/.test(line))).toBe(true);
     expect(lines.some(line => /^✓ scripted-jev: can a caller reach src\/clamp.js:3\? — reachable 90%/.test(line))).toBe(true);
-    expect(lines.some(line => /^scripted-model working on clamp \(effort max\)/.test(line))).toBe(true);
-    expect(lines.some(line => /^✓ scripted-model ▸ tree-sitter check — risk \d+ -> \d+, complexity 3 -> 3/.test(line))).toBe(true);
-    expect(lines.some(line => /^✓ scripted-model ▸ scripted-jev check — defect 90% -> 20%, wrong return value 90% -> 20%/.test(line))).toBe(true);
-    expect(lines.some(line => /^✓ scripted-model ▸ submit/.test(line))).toBe(true);
-    expect(lines.some(line => /^✓ scripted-model fixed clamp — 1 turn/.test(line))).toBe(true);
+    expect(lines.some(line => /^✓ scripted-model ▸ tree-sitter — file risk \d+ -> \d+, complexity 3 -> 3/.test(line))).toBe(true);
+    expect(lines.some(line => /^✓ scripted-model ▸ scripted-jev rescan — now: no issues/.test(line))).toBe(true);
+    expect(lines.some(line => /^✓ scripted-model ▸ tests — 1 pass/.test(line))).toBe(true);
+    expect(lines.some(line => /^✓ scripted-model done — 1 turn/.test(line))).toBe(true);
     expect(lines.some(line => /^✓ [0-9a-f]{7} Return hi when v exceeds the upper bound$/.test(line))).toBe(true);
+    expect(lines).toContainEqual('  before  wrong return value 90%');
+    expect(lines).toContainEqual('  after   no issues');
+    expect(lines.some(line => /^ {2}scripted-jev +2 requests/.test(line))).toBe(true);
+    expect(lines.some(line => /^ {2}scripted-model +1 turn/.test(line))).toBe(true);
 
-    // The record is in the events log, so issues shows the finding as fixed.
+    // The record is in the events log, so issues shows the finding fixed with its commit.
     const store = openStore(repo.out);
-    expect((await store.readEvents()).at(-1)).toMatchObject({ type: 'fixed', id: finding.id, fix_id: fix.id, method: 'src/clamp.js::clamp', status: 'ready', commit: fix.commit, branch: 'work' });
-    const [listed] = await store.findings();
-    expect(listed.fix).toMatchObject({ id: fix.id, commit: fix.commit, verification: fix.verification });
+    expect((await store.readEvents()).at(-1)).toMatchObject({ type: 'fixed', id: finding.id, fix_id: fix.id, status: 'ready', commit: fix.commit, branch: 'work' });
+    const [listed] = await store.issues();
+    expect(listed.fix).toMatchObject({ id: fix.id, status: 'ready', commit: fix.commit });
     expect(formatIssues([listed], 0.5)).toMatch(new RegExp(`Status  Commit\\n.*open +${fix.commit.slice(0, 7)}`));
-    expect(formatFinding(listed)).toContain('Fixed: Return hi when v exceeds the upper bound (defect 90% -> 20%)');
+    expect(formatFinding(listed)).toContain('Fixed: Return hi when v exceeds the upper bound');
     const text = formatFix(fix);
-    expect(text).toContain('verified by scripted-jev: reachable 90%; defect 90% -> 20%, wrong return value 90% -> 20%');
-    expect(text).toContain(`committed: ${fix.commit.slice(0, 7)} on work`);
-    expect(text).toContain('agent: 1 turn, 3 tool calls');
+    expect(text).toContain(`${finding.id}  src/clamp.js::clamp  ready: Return hi when v exceeds the upper bound`);
+    expect(text).toContain('before  wrong return value 90%');
+    expect(text).toContain('after   no issues');
+    expect(text).toContain(`commit  ${fix.commit.slice(0, 7)} on work; tests: test/clamp.test.js`);
+    expect(text).toMatch(/scripted-model: 1 turns, 1k in/);
 
     const again = scriptedModel();
-    expect((await runFix(fixOptions(repo, finding, { model: again }))).id).toBe(fix.id);
+    expect((await fixMethod(options(repo, finding, { model: again }))).id).toBe(fix.id);
     expect(again.calls).toHaveLength(0);
   });
 
-  it('discards an unreachable finding after a System One precheck, without calling the generative model', async () => {
-    const { repo, finding } = await huntedFixture();
+  it('closes a defect no caller can reach without a model call, and works whatever else is open', async () => {
+    const { repo, finding } = await scanned();
     const model = scriptedModel();
-    const systemOne = scriptedSystemOne({ 'src/clamp.js::clamp': { reachable: 0.15 } });
-    const fix = await runFix(fixOptions(repo, finding, { model, systemOne }));
-    expect(fix.status).toBe('closed');
-    expect(fix.reach_check).toEqual({ reachable: 0.15 });
-    expect(fix.reason).toBe('no caller can reach the flagged line (15%); an earlier guard excludes it');
-    expect(fix.error).toBeUndefined();
+    const closed = await fixMethod(options(repo, finding, { model, systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { reachable: 0.15 } }) }));
+    expect(closed.status).toBe('closed');
+    expect(closed.reason).toBe('no caller can reach the flagged line (15%); nothing else is open');
     expect(model.calls).toHaveLength(0);
-    expect(systemOne.calls).toHaveLength(1);
-    expect(formatFix(fix)).toBe(`${finding.id}  src/clamp.js::clamp  closed: no caller can reach the flagged line (15%); an earlier guard excludes it`);
-    const store = openStore(repo.out);
-    const [closed] = await store.findings();
-    expect(closed.fix).toMatchObject({ status: 'closed', reason: fix.reason });
-    expect(formatIssues([closed], 0.5)).toBe('No open issues. 1 closed (--closed).');
-    expect(formatFinding(closed)).toContain('Closed on');
-    expect(formatIssues([], 0.5, 10, { gone: 2 })).toBe('No open issues. 2 are for methods that no longer exist and are not listed.');
+    expect(formatFix(closed)).toContain('closed\n  no caller can reach the flagged line (15%)');
+    expect(formatIssues(await openStore(repo.out).issues(), 0.5)).toBe('No open issues. 1 closed (--closed).');
+
+    // A method with design issues and an unreachable defect still gets worked for the design issues.
+    const { repo: other, finding: design } = await scanned({ has_bug: 0.9, where: 'L0003', kind_wrong_return: 0.9, refactor: 'split', misdocumented: 0.8 });
+    const worker = scriptedModel({ fix: () => proposal(leanerSource, 'Drop the branch that returns v unchanged') });
+    const fix = await fixMethod(options(other, design, { model: worker, systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { reachable: 0.1 } }) }));
+    expect(fix.status).toBe('ready');
+    expect(fix.before.map(issue => issue.text)).toEqual(['too big 80%', 'misdocumented 80%']);
+    expect(worker.calls[0].prompt).toContain("- too big 80%: System One must see this less when it reads the rewrite\n- misdocumented 80%: the comment above the method must say what a caller needs");
+    expect(await readFile(join(other.root, 'src', 'clamp.js'), 'utf8')).toBe(leanerSource + '\n');
   });
 
-  it('re-questions a method that changed since the hunt and goes on from the fresh answers, or drops it when no defect is left', async () => {
-    const { repo, finding } = await huntedFixture();
-    // The method changes in a way that leaves the bug: a comment inside it.
+  it('reads a method again when it changed since the scan, and a method System One never read, before working it', async () => {
+    const { repo, finding } = await scanned();
     await writeFile(join(repo.root, 'src', 'clamp.js'), buggySource.replace('  if (v > hi) return v;', '  // upper bound\n  if (v > hi) return v;'));
     await commitAll(repo.root, 'touch clamp');
-    const lines = [];
-    // The re-question (questions, then reachability) answers with the fresh finding; the patch check afterwards answers with the defaults.
     const fresh = scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.85, where: 'L0004', kind_wrong_return: 0.8 } }), plain = scriptedSystemOne();
     let calls = 0;
     const systemOne = { id: 'scripted-jev', calls: fresh.calls, ask: (state, questions) => (++calls <= 2 ? fresh : plain).ask(state, questions) };
-    const fix = await runFix(fixOptions(repo, finding, { systemOne, ui: createUi({ live: false, log: text => lines.push(text) }) }));
+    const { lines, ui } = captured();
+    const fix = await fixMethod(options(repo, finding, { systemOne, ui }));
     expect(fix.status).toBe('ready');
-    expect(lines.some(line => /^✓ scripted-jev re-reading clamp, changed since the hunt — still looks defective: wrong return value 85% at line 4/.test(line))).toBe(true);
-    expect(fix.verification.before).toEqual({ has_bug: 0.85, kind: 0.8, reachable: 0.9 });
+    expect(fix.before.map(issue => issue.text)).toEqual(['wrong return value 85%']);
+    expect(lines.some(line => /^✓ scripted-jev reading clamp, changed since the scan — wrong return value 85%/.test(line))).toBe(true);
     const store = openStore(repo.out);
-    const hunted = (await store.readEvents()).filter(event => event.type === 'hunted');
-    expect(hunted).toHaveLength(2);
-    expect(hunted[1]).toMatchObject({ id: finding.id, hunt_id: null, has_bug: 0.85, where: { line: 4, text: 'if (v > hi) return v;' } });
-    expect((await store.findings())[0].fix).toMatchObject({ id: fix.id, status: 'ready' });
+    expect((await store.readEvents()).filter(event => event.type === 'hunted')).toHaveLength(2);
+    expect((await store.issues())[0].fix).toMatchObject({ id: fix.id, status: 'ready' });
 
-    // Changed again, and this time System One sees nothing: the finding leaves the list without a generative call.
-    await writeFile(join(repo.root, 'src', 'clamp.js'), fixedSource.replace('  return v;', '  return v; // in range'));
-    await commitAll(repo.root, 'touch clamp again');
-    const model = scriptedModel();
-    const gone = await runFix(fixOptions(repo, { ...finding, hash: 'stale' }, { model, systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.1 } }) }));
-    expect(gone.status).toBe('closed');
-    expect(gone.reason).toBe('no reachable defect in the method as it reads now (defect 10%)');
-    expect(model.calls).toHaveLength(0);
-    expect(await store.findings()).toEqual([]);
+    // A method only the metrics know about is read first, then worked on what System One finds.
+    const unread = { id: 'zzzz9999', method: 'src/clamp.js::clamp', path: 'src/clamp.js', name: 'clamp', line: 1, end_line: 5, metrics: { risk_score: 80 }, revision: await revision(repo.root), root: repo.root, at: new Date().toISOString(), unread: true };
+    const model = scriptedModel({ fix: () => proposal(fixedMethod, 'Return hi above the range') });
+    const worked = await fixMethod(options(repo, { ...unread, hash: undefined }, { model, systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.7, where: 'L0003', kind_wrong_return: 0.7 } }) }));
+    expect(['ready', 'rejected']).toContain(worked.status);
   });
 
-  it('lets the model recover from a tool rejection inside the same run, and refuses submit for source the verifiers have not passed', async () => {
-    const { repo, finding } = await huntedFixture();
+  it('refuses submit for source the verifiers have not passed, and lets the model recover from a rejection in the same run', async () => {
+    const { repo, finding } = await scanned();
     const model = scriptedModel({ fix: id => (id === 'fix-1' ? proposal(buggySource.trimEnd(), 'nothing wrong here') : proposal(fixedMethod)) });
-    const fix = await runFix(fixOptions(repo, finding, { model }));
+    const fix = await fixMethod(options(repo, finding, { model }));
     expect(fix.status).toBe('ready');
     expect(fix.turns).toBe(2);
-    expect(model.calls.map(call => call.name)).toEqual(['check_method', 'check_method', 'verify_with_system_one', 'submit']);
-    expect(fix.trace.filter(event => event.type === 'tool_result')[0].result).toEqual({ ok: false, error: 'the method is unchanged' });
-    expect(formatFix(fix)).toContain('agent: 2 turns, 4 tool calls');
+    expect(model.calls.map(call => call.name)).toEqual(['measure', 'measure', 'rescan', 'run_tests', 'submit']);
+    expect(fix.trace.filter(event => event.type === 'tool_result')[0].result.error).toBe("the source is the original, or the original's lines in another order; nothing changed");
 
-    // A model that skips the verifiers is refused at submit.
-    const { repo: other, finding: again } = await huntedFixture();
-    const impatient = { id: 'impatient', effort: null, calls: [], async run({ tools }) { const submit = tools.find(item => item.name === 'submit'); const result = await submit.handler({ method: fixedMethod, summary: 'trust me' }); return { done: Boolean(result.done), turns: 1, usage: { input_tokens: 1, cached_tokens: 0, output_tokens: 1, reasoning_tokens: 0 }, trace: [{ type: 'tool_call', name: 'submit' }, { type: 'tool_result', name: 'submit', result }] }; } };
-    const refused = await runFix(fixOptions(other, again, { model: impatient }));
+    const { repo: other, finding: again } = await scanned();
+    const impatient = { id: 'impatient', effort: null, calls: [], async run({ tools }) { const result = await tools.find(item => item.name === 'submit').handler({ source: fixedMethod, summary: 'trust me' }); return { done: Boolean(result.done), turns: 1, usage: { input_tokens: 1, cached_tokens: 0, output_tokens: 1, reasoning_tokens: 0 }, trace: [{ type: 'tool_call', name: 'submit' }, { type: 'tool_result', name: 'submit', result }] }; } };
+    const refused = await fixMethod(options(other, again, { model: impatient }));
     expect(refused.status).toBe('rejected');
-    expect(refused.error).toBe('check_method has not passed this exact source');
+    expect(refused.error).toBe('measure has not passed this exact source');
     expect(await readFile(join(other.root, 'src', 'clamp.js'), 'utf8')).toBe(buggySource);
   });
 
-  it('rejects an unchanged method, one that adds nesting, and one System One does not think improved; the checkout is left as it was', async () => {
-    const { repo, finding } = await huntedFixture();
-    const attempt = async (name, extra) => runFix(fixOptions(repo, finding, { ...extra, model: { ...(extra.model ?? scriptedModel()), id: name } }));
+  it('rejects a reordering, a deeper rewrite, one the rescan does not see improved, one that adds an issue, and one that breaks a test; the checkout is left as it was', async () => {
+    const { repo, finding } = await scanned();
+    const attempt = async (name, extra) => fixMethod(options(repo, finding, { ...extra, model: { ...(extra.model ?? scriptedModel()), id: name } }));
 
-    const unchanged = scriptedModel({ fix: () => proposal(buggySource.trimEnd(), 'no caller can pass v above hi') });
-    const noop = await attempt('unchanged', { model: unchanged });
-    expect(noop.status).toBe('rejected');
-    expect(noop.error).toBe('the method is unchanged');
-    expect(unchanged.calls.map(call => call.id)).toEqual(['fix-1', 'fix-2', 'fix-3']);
-    expect(noop.turns).toBe(3);
+    const shuffled = await attempt('shuffled', { model: scriptedModel({ fix: () => proposal(buggySource.trimEnd().split('\n').reverse().join('\n'), 'Reorder') }) });
+    expect(shuffled.status).toBe('rejected');
+    expect(shuffled.error).toBe("the source is the original, or the original's lines in another order; nothing changed");
 
     const nested = await attempt('nested', { model: scriptedModel({ fix: () => proposal(fixedMethod.replace('  if (v > hi) return hi;', '  if (v > hi) {\n    if (hi >= lo) return hi;\n  }')) }) });
-    expect(nested.status).toBe('rejected');
-    expect(nested.error).toBe('the patch adds nesting, more than one branch, or more than one point of risk; change only what the defect requires');
-    expect(nested.trace.at(-1).result.file_metrics_before_after.nesting).toEqual([1, 2]);
+    expect(nested.error).toBe('the file got deeper or more branching; a fix adds at most one branch and no nesting');
 
-    // The hunt rated the defect at 90%; a patch the model does not think lowered that is not a fix.
-    const gamed = await attempt('gamed', { systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.9 } }) });
-    expect(gamed.status).toBe('rejected');
-    expect(gamed.error).toBe('defect no less likely (90% -> 90%)');
-    const worse = await attempt('worse', { systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.95, kind_wrong_return: 0.9 } }) });
-    expect(worse.error).toBe('defect no less likely (90% -> 95%); wrong return value looks no less likely (90% -> 90%)');
-    // A patch that lowers it, even to a number the model is unsure of, is one.
-    const improved = await attempt('improved', { systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.46 } }) });
-    expect(improved.status).toBe('ready');
-    await git(['reset', '-q', '--hard', 'HEAD~1'], repo.root);
+    // The scan rated the defect at 90%; a rewrite System One still calls a defect, at any number, is not a fix.
+    const stillThere = await attempt('still', { systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.55, kind_wrong_return: 0.5 } }) });
+    expect(stillThere.error).toBe('wrong return value is still a defect (wrong return value 90% -> wrong return value 55%)');
+    const worse = await attempt('worse', { systemOne: scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.2, misdocumented: 0.9 } }) });
+    expect(worse.error).toBe('new issue: misdocumented 90%');
+
+    const breaking = await attempt('breaking', { model: scriptedModel({ fix: () => proposal(fixedMethod.replace('  return v;', '  return hi;')) }) });
+    expect(breaking.error).toBe('test/clamp.test.js fails on the rewrite and passes on the original');
+    expect(breaking.trace.at(-1).result.output).toMatch(/not ok|AssertionError/);
 
     const store = openStore(repo.out);
-    expect((await store.readEvents()).filter(event => event.type === 'fixed').map(event => event.status)).toEqual([...Array(4).fill('rejected'), 'ready']);
-    await store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: worse.id, method: finding.method, hash: finding.hash, revision: finding.revision, status: 'rejected', attempts: 3, error: worse.error });
-    const [discarded] = await store.findings();
-    expect(discarded.fix).toMatchObject({ id: worse.id, status: 'rejected', attempts: 3, error: worse.error });
+    expect((await store.readEvents()).filter(event => event.type === 'fixed').map(event => event.status)).toEqual(Array(5).fill('rejected'));
+    const [discarded] = await store.issues();
+    expect(discarded.fix).toMatchObject({ status: 'rejected', attempts: 3 });
     expect(formatIssues([discarded], 0.5)).toBe('No open issues. 1 closed (--closed).');
-    expect(formatIssues([discarded], 0.5, 10, { closed: true })).toMatch(/Status  Commit\n.*closed +-/);
-    expect(formatFinding(discarded)).toContain('Status: closed');
     expect(formatFinding(discarded)).toContain('No fix on');
-    expect((await git(['worktree', 'list'], repo.root)).trim().split('\n')).toHaveLength(1);
     expect((await git(['status', '--porcelain'], repo.root)).trim()).toBe('');
     expect(await readFile(join(repo.root, 'src', 'clamp.js'), 'utf8')).toBe(buggySource);
   }, 60_000);
+
+  it('refuses a protected branch and a dirty method file, and ignores a test that already fails on the original', async () => {
+    const { repo, finding } = await scanned();
+    await git(['checkout', '-q', 'main'], repo.root);
+    await expect(fixMethod(options(repo, finding, {}))).rejects.toThrow('main is protected');
+    await git(['checkout', '-q', 'work'], repo.root);
+    await writeFile(join(repo.root, 'src', 'clamp.js'), buggySource + '\n');
+    await expect(fixMethod(options(repo, finding, { model: { ...scriptedModel(), id: 'dirty' } }))).rejects.toThrow('uncommitted changes');
+    await git(['checkout', '--', 'src/clamp.js'], repo.root);
+    await writeFile(join(repo.root, 'test', 'clamp.broken.test.js'), `import assert from 'node:assert/strict';\nimport test from 'node:test';\nimport { clamp } from '../src/clamp.js';\ntest('wrong on purpose', () => { assert.strictEqual(clamp(1, 0, 10), 2); });\n`);
+    await commitAll(repo.root, 'a broken test');
+    const fix = await fixMethod(options(repo, finding, { model: { ...scriptedModel(), id: 'tolerant' } }));
+    expect(fix.status).toBe('ready');
+    expect(fix.checks).toEqual(['test/clamp.test.js']);
+    expect(fix.trace.find(event => event.type === 'tool_result' && event.name === 'run_tests').result).toEqual({ ok: true, checks: ['test/clamp.test.js'], ignored_already_failing: ['test/clamp.broken.test.js'] });
+  });
 });

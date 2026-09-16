@@ -37,7 +37,7 @@ export function createUi({ stream = process.stderr, live = Boolean(stream.isTTY)
       return { ok: detail => end(OK, detail), fail: detail => end(FAIL, detail), note: detail => end(NOTE, detail), update: label2 => { entry.label = label2; } };
     },
     /** A plain line between steps: a heading for the finding, a commit, a summary. */
-    say(text) { if (live) { stream.write(`\r\x1b[K${text}\n`); draw(); } else log(text); },
+    say(...lines) { for (const text of lines) { if (live) { stream.write(`\r\x1b[K${text}\n`); draw(); } else log(text); } },
   };
 }
 

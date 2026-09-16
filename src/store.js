@@ -34,6 +34,10 @@ async function entries(dir) {
   catch (error) { if (error.code === 'ENOENT') return []; throw error; }
 }
 
+/** A fix counts for a finding when the method read the same when it was made as when it was read by System One. */
+const fixApplies = (fix, finding) => Boolean(fix) && (fix.hash ? fix.hash === finding.hash : fix.revision === finding.revision || fix.at >= finding.at);
+const summarizeFix = work => ({ id: work.fix_id, status: work.status, at: work.at, summary: work.summary ?? null, commit: work.commit ?? null, branch: work.branch ?? null, patch_path: work.patch_path ?? null, before: work.before ?? null, after: work.after ?? null, reason: work.reason ?? null, error: work.error ?? null, attempts: work.attempts ?? 0 });
+
 const byCreation = (a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '') || a.id.localeCompare(b.id);
 
 export function openStore(out) {
@@ -65,30 +69,19 @@ export function openStore(out) {
       const text = await readFile(store.eventsPath, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
       return text.split('\n').filter(Boolean).map(line => JSON.parse(line));
     },
-    /**
-     * The latest hunted event per method, carrying the most recent fix and refactor made while the method still read as hunted.
-     * Events from before findings had ids and per-kind answers are ignored.
-     */
-    async latestFindings() {
-      const latest = new Map(), fixes = new Map(), refactors = new Map();
+    /** The latest hunted event and the latest fixed event per method. Events from before findings had ids and per-kind answers are ignored. */
+    async indexes() {
+      const latest = new Map(), fixes = new Map();
       for (const event of await store.readEvents()) {
         if (event.type === 'hunted' && event.id && event.kinds) latest.set(event.method, event);
         else if (event.type === 'fixed') fixes.set(event.method, event);
-        else if (event.type === 'refactored') refactors.set(event.method, event);
       }
-      // A fix or refactor counts for a finding when the method read the same when it was made as when it was hunted.
-      const applies = (work, finding) => work && (work.hash ? work.hash === finding.hash : work.revision === finding.revision || work.at >= finding.at);
-      const summarize = (work, key) => (work.status === 'ready'
-        ? { id: work[key], status: 'ready', at: work.at, summary: work.summary, commit: work.commit ?? null, branch: work.branch ?? null, patch_path: work.patch_path, before: work.before ?? null, after: work.after ?? null, file_before: work.file_before ?? null, file_after: work.file_after ?? null, verification: work.verification, proof: work.proof ?? null }
-        : work.status === 'closed' ? { id: work[key], status: 'closed', at: work.at, reason: work.reason }
-        : { id: work[key], status: 'rejected', at: work.at, attempts: work.attempts, error: work.error });
-      return [...latest.values()].map(finding => {
-        const fix = fixes.get(finding.method), refactor = refactors.get(finding.method);
-        const merged = { ...finding };
-        if (applies(fix, finding)) merged.fix = summarize(fix, 'fix_id');
-        if (applies(refactor, finding)) merged.refactored = summarize(refactor, 'refactor_id');
-        return merged;
-      });
+      return { latest, fixes };
+    },
+    /** The latest System One reading of each method, carrying the fix made while it still read that way. */
+    async latestFindings() {
+      const { latest, fixes } = await store.indexes();
+      return [...latest.values()].map(finding => { const fix = fixes.get(finding.method); return fixApplies(fix, finding) ? { ...finding, fix: summarizeFix(fix) } : { ...finding }; });
     },
     /** The hash each method had when it was last hunted in the current format. */
     async huntedIndex() {
@@ -102,6 +95,7 @@ export function openStore(out) {
      */
     async issues(min = 0.5, { scan = null, all = false } = {}) {
       const findings = await store.latestFindings();
+      const { fixes } = await store.indexes();
       scan ??= await store.latestScan();
       const byMethod = new Map(findings.map(finding => [finding.method, finding]));
       const every = [];
@@ -114,7 +108,8 @@ export function openStore(out) {
             const hunted = byMethod.get(method.id);
             const base = { metrics: method.metrics, file: file.metrics };
             // Answers about a method that has since changed are stale; the metrics are always about the code as it is.
-            every.push(hunted && hunted.hash === method.hash ? { ...hunted, ...base } : { id: findingId(method.id), method: method.id, path: file.path, name: method.qualified_name, line: method.line, end_line: method.end_line, hash: method.hash, revision: scan.revision, root: scan.root, at: scan.created_at, unread: true, ...base, ...(hunted ? { fix: hunted.fix, refactored: hunted.refactored } : {}) });
+            const fix = fixes.get(method.id);
+            every.push(hunted && hunted.hash === method.hash ? { ...hunted, ...base } : { id: findingId(method.id), method: method.id, path: file.path, name: method.qualified_name, line: method.line, end_line: method.end_line, hash: method.hash, revision: scan.revision, root: scan.root, at: scan.created_at, unread: true, ...base, ...(fix && fix.hash === method.hash ? { fix: summarizeFix(fix) } : {}) });
           }
         }
         for (const finding of findings) if (!seen.has(finding.method)) every.push(finding);
@@ -149,7 +144,6 @@ export function openStore(out) {
     listHunts: () => records('hunts', 'hunt.json'),
     listScans: () => records('scans', 'scan.json'),
     listFixes: () => records('fixes', 'fix.json'),
-    listRefactors: () => records('refactors', 'refactor.json'),
     async latestHunt() { return (await store.listHunts()).at(-1) ?? null; },
     /** The most recent scan on disk: the code as it was last analyzed. */
     async latestScan() { return (await store.listScans()).at(-1) ?? null; },

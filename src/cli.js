@@ -6,10 +6,10 @@ import { createModel, DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS } from './model.js'
 import { createSystemOne, DEFAULT_SYSTEM_ONE_MODEL } from './systemone.js';
 import { createSourceAnalyzer } from './analysis.js';
 import { openStore, resolveOut } from './store.js';
-import { runScan } from './scan.js';
-import { DEFAULT_FIX_BUDGET, DEFAULT_PARALLEL, runHunt } from './hunt.js';
-import { runFixQueue, runOne, splitStale, underPath } from './fix.js';
-import { runRefactor } from './refactor.js';
+import { analyzeTree } from './scan.js';
+import { DEFAULT_FIX_BUDGET, DEFAULT_PARALLEL, scanRepository } from './hunt.js';
+import { fixIssues, fixMethod, splitStale, underPath } from './fix.js';
+import { createMeter, metered } from './meter.js';
 import { createShell } from './shell.js';
 import { createUi } from './ui.js';
 import { formatFinding, formatFix, formatFixes, formatIssues, formatScanRun, visibleFindings } from './report.js';
@@ -32,7 +32,7 @@ const options = {
 const commandHelp = {
   scan: { args: '[target]', summary: 'Find the issues in a repository: defects, methods too big or too nested, misnamed, misdocumented, complex', detail: 'Analyzes every tracked source file with tree-sitter and records each method with its metrics and the calls and imports that link it to others. Then, starting at the riskiest method and walking its callers and callees, it sends one System One request per method with the method, the methods it calls, and its call sites, and asks: is there a reachable behavioral defect, on which line, of what kind, how severe; does any call misuse its callee; does the method do what its name and comment claim; is it documented; what refactor does it need; which neighbor to follow next. When a defect looks likely a second request asks whether the flagged line is actually executable. The first scan reads every method; later scans read only methods whose code changed since they were last read (--force reads everything again). Everything at 50% or more is an issue, and so is any method the metrics score at risk 70 or more, read or not. Prints the open issues. Needs TYPESAFE_API_KEY; always uses the jev-latest model.' },
   issues: { args: '[finding-id]', summary: 'List open issues, or show everything known about one method', detail: 'Lists every open issue at --min or more: the method, where, each issue it carries (the defect kind, too big, too nested, tangled conditions, misnamed, does not do what it claims, misdocumented, complex) with its probability, the severity of a defect, whether it is open or closed, and the commit once worked. An issue is closed once the work on it was given up or there was nothing left to do; closed issues are omitted unless --closed. Methods that no longer exist are not listed. With a finding id it prints everything known about that method.' },
-  fix: { args: '[finding-id | path]', summary: 'Work the open issues in this checkout, most serious first, one commit each', detail: 'Works the open issues, strongest first, up to --budget of them; with a path, only those in that file or directory; with a finding id, that one. A defect: System One first confirms a caller can reach the flagged line (if not, the issue is closed with no model call); then an OpenAI model runs as an agent with the verifiers as tools, sees everything System One answered with the method\'s neighborhood, and must pass check_method (the patch parses and does not grow) and verify_with_system_one (the defect looks less likely, no caller newly misused) on the exact source it submits. Anything else (too big, too nested, tangled, misnamed, misdocumented, complex): the same kind of agent rewrites the method and its comment and must pass measure (the file\'s risk score comes down with complexity and nesting no higher) and run_tests (every test that reaches the method still passes; one already failing on the original is ignored) on the exact source it submits. An accepted result is committed on the current branch with the summary as its message; a rejected run leaves the checkout as it was. Refuses to run on main or master. Needs OPENAI_API_KEY and TYPESAFE_API_KEY.' },
+  fix: { args: '[finding-id | path]', summary: 'Work the open issues in this checkout, most serious first, one commit each', detail: 'Works the open issues, most serious first, up to --budget of them; with a path, only those in that file or directory; with a finding id, that one. For a defect, System One first confirms a caller can reach the flagged line; if none can and nothing else is open on the method, the issue is closed with no model call. Then an OpenAI model runs as an agent. It is given every issue the scan raised on the method as an objective, everything System One answered, and the method with its callers and callees, and it has four tools: measure (splice the rewrite into the file and check with tree-sitter that it parses, keeps the method, and gets no deeper or more branching), rescan (run the same scan over the rewrite: every issue must be gone or lower, a defect gone outright, nothing new), run_tests (every test that reaches the method still passes; one already failing on the original is ignored), and submit, which refuses any source the other three have not passed. An accepted rewrite is committed on the current branch with the summary as its message; anything else leaves the checkout as it was. Refuses to run on main or master. Needs OPENAI_API_KEY and TYPESAFE_API_KEY.' },
 };
 
 /** Wrap prose at 80 columns. */
@@ -58,12 +58,10 @@ Arguments:
 ${column([['target', 'A directory (default ".", resolved to its git root), or a GitHub repository as owner/repo or its URL'], ['path', 'A repository-relative file or directory; only issues under it are worked'], ['finding-id', 'The 8-character id printed next to every issue; a unique prefix is enough']])}
 
 Options:
-${column(Object.values(options).map(([flag, text, verbs]) => [flag, `${text} (${verbs.length === Object.keys(commandHelp).length ? 'all commands' : verbs.join(', ')})`]))}
-  -h, --help        Show this help, or the help for one command
+${column([...Object.values(options).filter(([, , verbs]) => verbs.length === Object.keys(commandHelp).length).map(([flag, text]) => [flag, text]), ['-h, --help', 'This help, or perch <command> --help for one command']])}
 
 Environment:
-Read from the shell, then from a .env file in the repository root.
-${column([['TYPESAFE_API_KEY', `Required by scan and fix, which use the ${DEFAULT_SYSTEM_ONE_MODEL} model to read and judge code`], ['OPENAI_API_KEY', 'Required by fix, which uses an OpenAI model to write the code'], ['OPENAI_BASE_URL', 'OpenAI-compatible endpoint. Defaults to https://api.openai.com/v1'], ['OPENAI_MODEL', `OpenAI model for fix. Defaults to ${DEFAULT_MODEL}`]])}
+${column([['TYPESAFE_API_KEY', `scan, fix (${DEFAULT_SYSTEM_ONE_MODEL})`], ['OPENAI_API_KEY', `fix (${DEFAULT_MODEL})`], ['OPENAI_MODEL', 'another OpenAI model for fix'], ['OPENAI_BASE_URL', 'another OpenAI-compatible endpoint']])}
 
 Examples:
 ${column([['perch scan', 'Read every method the first time, only changed ones after; list the issues'], ['perch issues', 'The open issues'], ['perch issues 3f9c2a', 'Everything known about one method'], ['perch fix', 'Work the twenty most serious open issues, one commit each'], ['perch fix src/metrics.ts', 'Work the issues in one file'], ['perch fix 3f9c2a', 'Work one issue']])}`;
@@ -125,7 +123,7 @@ const uiFor = io => createUi({ live: Boolean(process.stderr.isTTY) && !io.verbos
 /** The open issues at HEAD: findings for methods that no longer exist are dropped and counted. */
 async function openIssues(store, min, io) {
   const root = (await store.latestHunt())?.root ?? (await store.latestScan())?.root ?? null;
-  const scan = root ? await runScan({ root, revision: await gitRevision(root), out: store.out, analyzer: createSourceAnalyzer(), log: io.debug, debug: io.debug }).catch(() => null) : null;
+  const scan = root ? await analyzeTree({ root, revision: await gitRevision(root), out: store.out, analyzer: createSourceAnalyzer(), log: io.debug, debug: io.debug }).catch(() => null) : null;
   let findings = await store.issues(min / 100, { scan }), gone = 0;
   if (scan) { const { current, stale } = splitStale(findings, scan); findings = current; gone = stale.length; }
   return { findings, gone, root, scan };
@@ -133,19 +131,20 @@ async function openIssues(store, min, io) {
 
 const commands = {
   async scan(io) {
-    const systemOne = createSystemOne({ apiKey: io.env.TYPESAFE_API_KEY, log: io.debug });
+    const meter = createMeter();
+    const systemOne = metered(createSystemOne({ apiKey: io.env.TYPESAFE_API_KEY, log: io.debug }), meter);
     const parallel = positiveInteger('--parallel', io.flags.parallel, DEFAULT_PARALLEL);
     const resolved = await resolveTarget(io.argument ?? '.', { out: io.flags.out, log: io.log });
     const files = counter(io, 'analyzed files'), methods = counter(io, 'read methods');
     let hunt;
     try {
-      hunt = await runHunt({ root: resolved.root, revision: await gitRevision(resolved.root), label: resolved.label, github: resolved.github, out: resolved.out,
+      hunt = await scanRepository({ root: resolved.root, revision: await gitRevision(resolved.root), label: resolved.label, github: resolved.github, out: resolved.out,
         systemOne, analyzer: createSourceAnalyzer(), paths: parsePaths(io.flags), parallel, force: Boolean(io.flags.force), progress: methods.update, scanProgress: files.update, log: io.debug, debug: io.debug });
     } finally { files.clear(); methods.clear(); }
     const store = openStore(resolved.out);
     const scan = await store.latestScan();
     const issues = visibleFindings(splitStale(await store.issues(0.5, { scan }), scan).current);
-    print(io, { scan: hunt, issues }, formatScanRun(hunt, issues, shown(io)));
+    print(io, { scan: hunt, issues, usage: meter.toJSON() }, formatScanRun(hunt, issues, shown(io), meter.lines()));
   },
   async issues(io) {
     const store = await storeFrom(io.flags);
@@ -167,18 +166,18 @@ const commands = {
     const model = modelFrom(io);
     const systemOne = createSystemOne({ apiKey: io.env.TYPESAFE_API_KEY, log: io.debug });
     const store = await storeFrom(io.flags);
-    const shared = { out: store.out, model, systemOne, shell: createShell({ verbose: io.verbose, log: io.debug }), analyzer: createSourceAnalyzer(), ui: uiFor(io), log: io.log, debug: io.debug, simplify: runRefactor };
+    const shared = { out: store.out, model, systemOne, shell: createShell({ verbose: io.verbose, log: io.debug }), analyzer: createSourceAnalyzer(), ui: uiFor(io), log: io.log, debug: io.debug };
     if (io.argument && looksLikeId(io.argument)) {
       const finding = await store.findFinding(io.argument);
       const root = finding.root ?? (await store.latestHunt())?.root ?? await repoRoot(process.cwd());
-      const record = await runOne({ finding, root, ...shared });
+      const record = await fixMethod({ finding, root, ...shared });
       print(io, record, formatFix(record));
       return;
     }
     const { findings: all, root } = await openIssues(store, min, io);
     const findings = underPath(all, io.argument);
     if (io.argument && !findings.length) throw new Error(`no open issues under ${io.argument}; perch issues lists them`);
-    const batch = await runFixQueue({ findings, budget, root: root ?? await repoRoot(process.cwd()), ...shared });
+    const batch = await fixIssues({ findings, budget, root: root ?? await repoRoot(process.cwd()), ...shared });
     print(io, batch, formatFixes(batch));
   },
 };

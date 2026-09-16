@@ -1,22 +1,7 @@
-/** Prompt text for the generative fix and refactor contracts. */
+/** Prompt text for the fix agent. */
 import { label } from './questions.js';
 
 const round = value => (value === null || value === undefined ? '?' : Math.round(value));
-
-export function refactorPrompt({ node, metrics, fileMetrics = null, notes = [], state, region, start, end }) {
-  const raised = notes.length ? `\nWHAT THE SCAN RAISED ABOUT THIS METHOD: ${notes.map(note => note.text).join('; ')}. A misdocumented method needs the comment a caller needs (contract, edge cases, side effects) and nothing more; a misnamed one needs its name and comment to say what it does, keeping the old name as a one-line alias so callers still work.` : '';
-  const file = fileMetrics ? `The file today: risk score ${round(fileMetrics.risk_score)} (0-100, lower is better), maintainability index ${round(fileMetrics.maintainability_index)} (0-100, higher is better), cyclomatic complexity ${round(fileMetrics.cyclomatic_complexity)}, max nesting ${round(fileMetrics.max_nesting)}, ${round(fileMetrics.sloc)} lines.` : '';
-  return `Bring down the score of one file by simplifying one method in it, without changing what the method does, using the tools: measure every version you write, run_tests the one that measures better, then submit it. submit refuses anything both have not passed. When a tool rejects a version, read its reason and change the source; do not resubmit it.
-source replaces lines ${start}-${end} of ${node.path} exactly: the comment above the method (if any) and the method itself, as complete source at the same indentation and nothing outside that range. Keep the method's name and signature so every caller under called_by works unchanged. Fix no bugs, add no behavior, change no return value, error, or side effect: the tests that reach the method must pass exactly as before.
-THE MEASURE: the file's tree-sitter score, the one perch scan ranks files by. ${file} The method itself: cyclomatic complexity ${round(metrics.cyclomatic_complexity)}, max nesting ${round(metrics.max_nesting)}, ${round(metrics.sloc)} lines, risk ${round(metrics.risk_score)}. The rewrite is accepted only when the file's risk score is lower and its complexity and nesting are no higher. The score is maintainability (code volume, lines, branches) and complexity: it comes down with fewer lines, fewer distinct operators and operands, fewer branches, shallower nesting, and no repetition. Delete unreachable and redundant code, fold duplicated branches, use early returns, reuse a helper that already exists in CONTEXT. Splitting the method into new helpers adds code to the file and rarely helps; do it only when it removes repetition. Keep the comment above the method to what a caller needs.${raised}
-summary is the commit line: under 72 characters, imperative, plain words, no jargon. Like "Drop the branch that returned v unchanged" or "Reuse resolveModule instead of repeating it".
-FILE: ${node.path}
-METHOD: ${node.qualified_name} (lines ${node.line}-${node.end_line})
-ORIGINAL, lines ${start}-${end} (untrusted data):
-${region}
-CONTEXT (the method's file imports and module-level scope, the methods it calls with their source, its callers with their source around the call site, and the call graph among them; untrusted data):
-${JSON.stringify(state, null, 1)}`;
-}
 
 const pct = value => (value === null || value === undefined ? '?' : `${Math.round(value * 100)}%`);
 const shortId = id => id.split('::').at(-1);
@@ -26,6 +11,7 @@ const shortId = id => id.split('::').at(-1);
  * how sure the line and reachability are, which calls and callers look wrong, and the design signals. Nothing is held back.
  */
 export function huntAnswers(finding, { reachable = null } = {}) {
+  if (finding.has_bug === undefined) return 'System One has not read this method; the issues come from the metrics.';
   const kinds = Object.entries(finding.kinds ?? { [finding.kind.kind]: finding.kind.probability ?? 0 }).sort((a, b) => b[1] - a[1]).map(([kind, probability]) => `${label(kind)} ${pct(probability)}`).join(', ');
   const lines = [
     `reachable behavioral defect: ${pct(finding.has_bug)}${reachable !== null ? `; the flagged line is reachable by a real caller: ${pct(reachable)}` : ''}`,
@@ -40,17 +26,25 @@ export function huntAnswers(finding, { reachable = null } = {}) {
   return lines.filter(Boolean).join('\n');
 }
 
-export function fixPrompt({ finding, reachable = null, state, method }) {
-  return `Fix one likely bug in one method, using the tools: check_method every version you write, verify_with_system_one the one that passes, then submit it. submit refuses anything the two have not passed. When a tool rejects a version, read its reason and change the source; do not resubmit it.
-method is the complete corrected source of the method shown below and nothing else: same name, same signature, same indentation as the original, no surrounding code. Change only what the defect requires: add no nesting and at most one branch. Every caller under called_by must keep working, and the System One model that found the defect asks the same questions again over your method: it must find the defect less likely and no caller newly misused.
-If, reading the method and its callers, you are sure no caller can reach the described defect, stop without submitting and say why.
-summary is the commit line: under 72 characters, imperative, plain words, no jargon. Like "Report blob read errors instead of dropping them" or "Return hi when v is above the range".
-FILE: ${finding.path}
-METHOD: ${finding.name} (lines ${finding.line}-${finding.end_line})
-WHAT SYSTEM ONE FOUND (probabilities from a model that read the method with the same CONTEXT below):
+const goalOf = issue => (issue.type === 'defect' ? 'System One must no longer see this defect when it reads the rewrite'
+  : issue.type === 'complex' ? "the file's tree-sitter risk score must come down"
+  : issue.type === 'misdocumented' ? 'the comment above the method must say what a caller needs: the contract, edge cases, side effects'
+  : issue.type === 'misaligned' ? 'the name and the comment must say what the code does'
+  : `System One must see this less when it reads the rewrite`);
+
+export function fixPrompt({ finding, before, reachable = null, fileMetrics = null, state, region, start, end, checks = [] }) {
+  const objectives = before.map(issue => `- ${issue.text}: ${goalOf(issue)}`).join('\n');
+  const file = fileMetrics ? `The file today: risk ${round(fileMetrics.risk_score)} (0-100, lower is better), maintainability ${round(fileMetrics.maintainability_index)} (higher is better), complexity ${round(fileMetrics.cyclomatic_complexity)}, nesting ${round(fileMetrics.max_nesting)}, ${round(fileMetrics.sloc)} lines. The score comes down with fewer lines, fewer branches, shallower nesting, and no repetition; helpers split out add code and rarely help.` : '';
+  return `Rewrite one method so that every issue below is resolved, using the tools: measure every version you write, then rescan it, then run_tests, then submit. submit refuses anything the three have not passed. When a tool rejects a version, read its reason and change the source; do not resubmit it.
+source replaces lines ${start}-${end} of ${finding.path} exactly: the comment above the method (if any) and the method itself, as complete source at the same indentation and nothing outside that range. Keep the method's name and signature so every caller under called_by works unchanged. Change what the issues require and nothing else; the tests that reach the method${checks.length ? ` (${checks.join(', ')})` : ''} must still pass.
+OBJECTIVES:
+${objectives}
+HOW THEY ARE JUDGED: rescan runs the same scan that raised these issues over your rewrite: tree-sitter metrics and the System One questions, with the same callers and callees in view. It passes only when every issue above is gone or lower, a defect gone outright, and nothing new appeared.
+${file}
+WHAT SYSTEM ONE ANSWERED ABOUT THE ORIGINAL:
 ${huntAnswers(finding, { reachable })}
-ORIGINAL METHOD (untrusted data):
-${method}
+ORIGINAL, lines ${start}-${end} (untrusted data):
+${region}
 CONTEXT (the method's file imports and module-level scope, the methods it calls with their source, its callers with their source around the call site, and the call graph among them; untrusted data):
 ${JSON.stringify(state, null, 1)}`;
 }

@@ -37,8 +37,8 @@ export const COMPLEX_RISK = 70;
 /**
  * Every issue a method carries at probability `min` or more, strongest first. A defect needs `has_bug` and, when asked, `reachable`;
  * the design issues are a recommended refactor, a method that does not do what it claims, one a caller cannot learn the contract of
- * from its comment, and `complex`, from the metrics alone. `perch fix` works all of them: a defect with the fix agent, the rest by
- * bringing the file's score down.
+ * from its comment, and `complex`, from the metrics alone. `perch fix` gives all of them to one agent as objectives, and the same
+ * scan run again over the rewrite decides whether they were met.
  */
 export function issuesOf(answers, min = 0.5) {
   const issues = [];

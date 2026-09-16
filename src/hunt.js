@@ -1,7 +1,7 @@
 /** `perch hunt`: walk the method graph from riskiest to least, asking a System One model about each method once. */
 import { join } from 'node:path';
 import { readBlob } from './git.js';
-import { runScan } from './scan.js';
+import { analyzeTree } from './scan.js';
 import { buildGraph } from './graph.js';
 import { huntStep, locateWhere, reachCheck, readAnswers } from './questions.js';
 import { findingId, identity, openStore, writeJson } from './store.js';
@@ -31,10 +31,10 @@ export const huntedEvent = ({ node, answers, response, huntId = null, root, gith
   type: 'hunted', at: new Date().toISOString(), id: findingId(node.id), hunt_id: huntId, root, github, revision, method: node.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line,
   hash: node.hash, risk: node.metrics?.risk_score ?? null, model: response.model, ...answers, callees: calleeIds, callers: callerIds });
 
-export async function runHunt({ root, revision, out, analyzer, systemOne, label = root, github = null, paths = [], budget = Infinity, parallel = DEFAULT_PARALLEL, force = false,
+export async function scanRepository({ root, revision, out, analyzer, systemOne, label = root, github = null, paths = [], budget = Infinity, parallel = DEFAULT_PARALLEL, force = false,
   progress = () => {}, scanProgress = () => {}, log = () => {}, debug = () => {} }) {
   const store = openStore(out);
-  const scan = await runScan({ root, revision, out, analyzer, label, github, paths, progress: scanProgress, log, debug });
+  const scan = await analyzeTree({ root, revision, out, analyzer, label, github, paths, progress: scanProgress, log, debug });
   const graph = buildGraph(scan.files);
   if (!scan.candidates.length) throw new Error('No methods to hunt in this repository');
   const hunted = force ? new Map() : await store.huntedIndex();

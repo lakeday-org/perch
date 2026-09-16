@@ -1,21 +1,25 @@
 /**
- * `perch fix`: for each open defect, System One first confirms a caller can reach the flagged line; a generative model then returns
- * the corrected method (and only the method); the patch must parse without growing; and System One, asked the hunt's questions
- * again, must find the defect less likely and nothing else changed. No test is run: the judge is System One and the metrics. Each
- * accepted fix is one commit on the current branch. A rejected attempt leaves the checkout as it was.
+ * `perch fix`: one agent per method, every issue the scan raised about it as an objective. The generating model rewrites the method
+ * (and the comment above it) with the verifiers as tools, and the decisive verifier is the scan itself run again over the rewrite:
+ * tree-sitter and the full System One question set, with the same neighborhood. The rewrite is accepted only when every issue is
+ * gone or lower and nothing new appeared, the tests that reach the method still pass, and the model submits that exact source.
+ * Each accepted result is one commit on the current branch; a rejected run leaves the checkout as it was.
  */
-import { DEFAULT_FIX_BUDGET, huntedEvent, questionMethod } from './hunt.js';
-import { visibleFindings, workFor, workOn } from './report.js';
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { git, revision as gitRevision } from './git.js';
+import { git, listTree, revision as gitRevision } from './git.js';
+import { DEFAULT_FIX_BUDGET, huntedEvent, questionMethod } from './hunt.js';
+import { visibleFindings } from './report.js';
 import { languageOf } from './analysis.js';
-import { runScan } from './scan.js';
+import { analyzeTree } from './scan.js';
 import { buildGraph, resolveModule } from './graph.js';
-import { flagged, huntStep, isDesign, issuesOf, label, patchCheck, reachCheck, readPatchCheck, SURE } from './questions.js';
+import { huntStep, isDesign, issuesOf, reachCheck, SURE } from './questions.js';
 import { identity, openStore, readJson, writeJson } from './store.js';
 import { fixPrompt } from './prompts.js';
-import { DEFAULT_EFFORT, describeRun, tool } from './model.js';
+import { Abort, DEFAULT_EFFORT, tool } from './model.js';
+import { createMeter, metered } from './meter.js';
+import { discoverProject } from './project.js';
+import { COMMAND_MS, workspaceEnv } from './workspace.js';
 import { FAIL, NOTE, OK, plainUi } from './ui.js';
 
 export const PROTECTED_BRANCHES = ['main', 'master'];
@@ -37,10 +41,10 @@ export function plainSummary(summary) {
 /** Findings under a repository-relative path (a file or a directory). */
 export const underPath = (findings, path) => (path ? findings.filter(finding => finding.path === path || finding.path.startsWith(path.replace(/\/$/, '') + '/')) : findings);
 
-/** System One verifications one fix may spend; each is a request. */
-export const MAX_VERIFICATIONS = 6;
+/** Rescans and test runs one fix may spend. */
+export const MAX_RESCANS = 6, MAX_TEST_RUNS = 6;
 /** Bumped whenever how a fix is made or judged changes, so a rejection recorded by an older pipeline is never reused. */
-export const FIX_VERSION = 4;
+export const FIX_VERSION = 5;
 
 export function fixIdentity({ finding, model }) {
   return identity('fix', FIX_VERSION, finding.id, finding.hash, model);
@@ -48,7 +52,7 @@ export function fixIdentity({ finding, model }) {
 
 /** Open issues nothing has worked yet, strongest first, capped at `budget`. */
 export function pendingFixes(findings, budget = DEFAULT_FIX_BUDGET) {
-  return visibleFindings(findings).filter(finding => !workOn(finding)).slice(0, budget);
+  return visibleFindings(findings).filter(finding => !finding.fix).slice(0, budget);
 }
 
 /**
@@ -65,13 +69,34 @@ export function splitStale(findings, scan) {
 const quote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
 export const tail = result => (result.stdout + result.stderr).trim().slice(-1500);
 
+const commentLine = /^\s*(\/\/|\/\*|\*|#|"""|''')/;
+/** The first line of the comment block sitting directly above a method, or the method's own line when there is none. */
+export function regionStart(lines, line) {
+  let start = line;
+  while (start > 1 && commentLine.test(lines[start - 2])) start--;
+  return start;
+}
+/** The same lines in a different order, or the same text: a rewrite that changes nothing. */
+export const sameLines = (before, after) => {
+  const bag = text => text.split('\n').map(line => line.trim()).filter(Boolean).sort().join('\n');
+  return bag(before) === bag(after);
+};
+const trim = metrics => (metrics ? { risk_score: metrics.risk_score, maintainability_index: metrics.maintainability_index, cyclomatic_complexity: metrics.cyclomatic_complexity, max_nesting: metrics.max_nesting, sloc: metrics.sloc } : null);
 /**
- * A patched file passes when it parses, adds no nesting, adds at most one branch (a missing guard is one branch), and moves the file's risk
- * score by at most one point. Enough room for a fix; not enough for a rewrite.
+ * Whether a rewrite improved a method: every issue it had is gone or lower, a defect is gone outright, and nothing new appeared.
+ * Returns the objections, empty when it did.
  */
-export const MAX_EXTRA_BRANCHES = 1, MAX_EXTRA_RISK = 1;
-export const withinQualityGate = (base, changed) => Boolean(changed) && changed.risk_score <= base.risk_score + MAX_EXTRA_RISK &&
-  (changed.cyclomatic_complexity ?? 0) <= (base.cyclomatic_complexity ?? 0) + MAX_EXTRA_BRANCHES && (changed.max_nesting ?? 0) <= (base.max_nesting ?? 0);
+export function improvement(before, after) {
+  const objections = [];
+  for (const issue of before) {
+    const now = after.find(item => item.type === issue.type);
+    if (!now) continue;
+    if (issue.type === 'defect') objections.push(`${issue.label} is still a defect (${issue.text} -> ${now.text})`);
+    else if (now.probability >= issue.probability) objections.push(`${issue.label} did not improve (${issue.text} -> ${now.text})`);
+  }
+  for (const issue of after) if (!before.some(item => item.type === issue.type)) objections.push(`new issue: ${issue.text}`);
+  return objections;
+}
 
 export const command = (template, file) => template.replaceAll('{file}', quote(file)).replaceAll('{dir}', quote(dirname(file) === '.' ? '.' : `./${dirname(file)}`));
 export const methodLines = method => method.replace(/\n$/, '').split('\n');
@@ -99,7 +124,7 @@ export function testsTouching({ graph, files, node }) {
  * callers, imports, and the hunt step built from them. `changed` says whether the method reads differently than when it was hunted.
  */
 export async function methodContext({ finding, root, out, analyzer, revision = finding.revision, log = () => {} }) {
-  const scan = await runScan({ root, revision, out, analyzer, log });
+  const scan = await analyzeTree({ root, revision, out, analyzer, log });
   const graph = buildGraph(scan.files);
   const node = graph.nodes.get(finding.method);
   if (!node) throw new Error(`${finding.method} no longer exists at ${revision.slice(0, 12)}; hunt again`);
@@ -116,149 +141,192 @@ export async function methodContext({ finding, root, out, analyzer, revision = f
   return { scan, graph, node, fileLines, method, callees, callers, calleeIds, callerIds, imports, methods, step, changed: Boolean(finding.hash) && node.hash !== finding.hash };
 }
 
-export async function runFix({ finding: hunted, root, out, model, systemOne, analyzer, shell, ui = plainUi(), log = () => {}, debug = () => {} }) {
+export async function fixMethod({ finding: hunted, root, out, model, systemOne: rawSystemOne, analyzer, shell, ui = plainUi(), meter = createMeter(), log = () => {}, debug = () => {} }) {
   const store = openStore(out);
+  const systemOne = metered(rawSystemOne, meter);
   const id = fixIdentity({ finding: hunted, model: model.id });
   const dir = store.fixDir(id), fixPath = join(dir, 'fix.json');
   const existing = await readJson(fixPath, null);
-  if (existing && ['ready', 'rejected'].includes(existing.status)) {
-    ui.say(`${hunted.id} ${hunted.path}::${hunted.name}: already ${existing.status} by ${model.id}; reusing`);
+  if (existing && ['ready', 'rejected', 'closed'].includes(existing.status)) {
+    ui.say(`${hunted.id}  ${hunted.name}  ${hunted.path}: already ${existing.status} by ${model.id}; reusing`);
     return existing;
   }
-  if (!flagged(hunted)) {
-    const design = issuesOf(hunted).filter(isDesign).map(issue => `${issue.label} ${Math.round(issue.probability * 100)}%`).join(', ');
-    throw new Error(`${hunted.name} has no defect to fix (${label(hunted.kind?.kind ?? 'defect')} ${Math.round(hunted.has_bug * 100)}%${hunted.reachable !== undefined ? `, reachable ${Math.round(hunted.reachable * 100)}%` : ''}). ${design ? `Its open issues are ${design}: perch fix works those by simplifying it.` : 'Nothing is open on it.'}`);
-  }
-  ui.say(`${hunted.id}  ${hunted.name}  ${hunted.path}:${hunted.where.line}  ${label(hunted.kind?.kind ?? 'defect')} ${Math.round(hunted.has_bug * 100)}%`);
   await store.exclude(root);
-  // The fix is made and committed in the operator's checkout, on whatever branch is checked out; never on a protected one.
   const branch = await workingBranch(root, 'fix');
   const revision = await gitRevision(root);
-  const fix = { id, finding_id: hunted.id, method: hunted.method, path: hunted.path, root, branch, revision, hunted_at: hunted.revision, model: model.id, verifier: systemOne.id, out: dir,
-    status: 'running', created_at: new Date().toISOString() };
+  const fix = { id, finding_id: hunted.id, method: hunted.method, path: hunted.path, root, branch, revision, hunted_at: hunted.revision, model: model.id, verifier: systemOne.id, out: dir, status: 'running', created_at: new Date().toISOString() };
   await writeJson(fixPath, fix);
+  const pct = value => `${Math.round(value * 100)}%`;
+  let finding = hunted;
   const finish = async (status, extra) => {
-    Object.assign(fix, { status, completed_at: new Date().toISOString(), ...extra });
+    Object.assign(fix, { status, completed_at: new Date().toISOString(), ...extra, usage: meter.toJSON() });
     await writeJson(fixPath, fix);
-    const mark = status === 'ready' ? OK : status === 'closed' ? NOTE : FAIL;
-    if (status !== 'ready') ui.say(`${mark} ${hunted.name}: ${status === 'closed' ? `closed — ${fix.reason}` : `no fix — ${(fix.error ?? '').split('\n')[0]}`}`);
+    await store.appendEvent({ type: 'fixed', at: fix.completed_at, id: finding.id, fix_id: id, method: finding.method, hash: finding.hash, revision, status, summary: fix.summary ?? null, commit: fix.commit ?? null, branch, patch_path: fix.patch_path ?? null, before: fix.before ?? null, after: fix.after ?? null, reason: fix.reason ?? null, error: fix.error ?? null, attempts: fix.turns ?? 0 });
+    if (status !== 'ready') ui.say(`${status === 'closed' ? NOTE : FAIL} ${hunted.name}: ${status === 'closed' ? `closed — ${fix.reason}` : `no fix — ${(fix.error ?? '').split('\n')[0]}`}`);
+    ui.say(...meter.lines().map(line => `  ${line}`));
     return fix;
   };
-  let finding = hunted;
-  /** The finding is closed without a fix: System One no longer sees a reachable defect. Recorded so issues drops it. */
-  const close = async reason => {
-    await store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: id, method: finding.method, hash: finding.hash, revision, status: 'closed', attempts: 0, reason });
-    return finish('closed', { reason });
-  };
-  const pct = value => `${Math.round(value * 100)}%`;
-  // The finding being fixed: the hunted one, or the fresh answers when the method changed since. Events carry its hash so the store attaches them to it.
-  const rejectedEvent = (attempts, error) => store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: id, method: finding.method, hash: finding.hash, revision, status: 'rejected', attempts, error });
 
   let placed = false;
   try {
-    // The same context the hunt showed System One, rebuilt from a scan of HEAD. The method may have moved; the finding's line moves with it.
-    const { node, fileLines, method, callees, callers, calleeIds, callerIds, imports, methods, step, changed } = await methodContext({ finding: hunted, root, out, analyzer, revision, log: debug });
-    finding = { ...hunted, line: node.line, end_line: node.end_line, where: { ...hunted.where, line: hunted.where.line + node.line - hunted.line } };
-    if (changed) {
-      // The method reads differently than when it was hunted, so its answers are about code that is gone: ask again, now, and go on from the fresh ones.
-      const asking = ui.task(`${systemOne.id} re-reading ${node.qualified_name}, changed since the hunt`);
+    // The method as it reads at HEAD, with the neighborhood the scan showed System One. If it changed since, System One reads it again first.
+    const { scan, graph, node, fileLines, callees, callers, calleeIds, callerIds, imports, methods, step, changed } = await methodContext({ finding: hunted, root, out, analyzer, revision, log: debug });
+    const fileOf = () => scan.files.find(file => file.path === node.path);
+    finding = { ...hunted, line: node.line, end_line: node.end_line, metrics: node.metrics, file: fileOf()?.metrics ?? null, where: hunted.where ? { ...hunted.where, line: hunted.where.line + node.line - hunted.line } : hunted.where };
+    if (changed || finding.has_bug === undefined) {
+      const reading = ui.task(`${systemOne.id} reading ${node.qualified_name}${changed ? ', changed since the scan' : ' for the first time'}`);
       const { response, answers } = await questionMethod({ systemOne, node, step, lines: fileLines, debug });
       const event = huntedEvent({ node, answers, response, root, github: hunted.github ?? null, revision, calleeIds, callerIds });
       await store.appendEvent(event);
-      finding = event;
-      if (!flagged(finding)) {
-        asking.note(`defect ${pct(finding.has_bug)}${finding.reachable !== undefined ? `, reachable ${pct(finding.reachable)}` : ''}`);
-        return await close(`no reachable defect in the method as it reads now (defect ${pct(finding.has_bug)}${finding.reachable !== undefined ? `, reachable ${pct(finding.reachable)}` : ''})`);
-      }
-      asking.ok(`still looks defective: ${label(finding.kind.kind)} ${pct(finding.has_bug)} at line ${finding.where.line}`);
-      ui.say(`${finding.id}  ${finding.name}  ${finding.path}:${finding.where.line}  ${label(finding.kind.kind)} ${pct(finding.has_bug)}`);
+      finding = { ...event, metrics: node.metrics, file: finding.file };
+      reading.ok(issuesOf(finding).map(issue => issue.text).join(', ') || 'no issues');
     }
+    let before = issuesOf(finding);
+    if (!before.length) return await finish('closed', { reason: 'no open issue on the method as it reads now' });
     const dirtyBefore = await dirtyPaths(root);
     if (dirtyBefore.includes(node.path)) throw new Error(`${node.path} has uncommitted changes; commit or stash them before perch fix touches it`);
 
-    // 1. Before anything is generated: can a real caller execute the flagged line at all?
-    const reaching = ui.task(`${systemOne.id}: can a caller reach ${finding.path}:${finding.where.line}?`);
-    const reach = reachCheck({ finding, state: step.state });
-    const { answers: reachAnswers } = await systemOne.ask(reach.state, reach.questions);
-    const reachable = reachAnswers.reachable.noul;
-    fix.reach_check = { reachable };
-    if (reachable < SURE) {
-      reaching.note(`reachable ${pct(reachable)}`);
-      return await close(`no caller can reach the flagged line (${pct(reachable)}); an earlier guard excludes it`);
+    // The objectives, stated up front: each issue and what has to be true afterwards.
+    ui.say(`${finding.id}  ${finding.name}  ${finding.path}:${finding.line}`);
+    const goal = issue => (issue.type === 'defect' ? `${systemOne.id} must no longer see it` : issue.type === 'complex' ? "the file's score must come down" : issue.type === 'misdocumented' ? 'the comment must say what a caller needs' : `${systemOne.id} must see it less`);
+    for (const issue of before) ui.say(`  ${issue.text.padEnd(28)} → ${goal(issue)}`);
+
+    // A defect the caller cannot reach is not one: System One says so before anything is generated.
+    let reachable = null;
+    const defect = before.find(issue => issue.type === 'defect');
+    if (defect) {
+      const reaching = ui.task(`${systemOne.id}: can a caller reach ${finding.path}:${finding.where.line}?`);
+      const { answers } = await systemOne.ask(reachCheck({ finding, state: step.state }).state, reachCheck({ finding, state: step.state }).questions);
+      reachable = answers.reachable.noul;
+      if (reachable < SURE) {
+        reaching.note(`reachable ${pct(reachable)}; not a defect`);
+        before = before.filter(issue => issue.type !== 'defect');
+        finding = { ...finding, reachable };
+        if (!before.length) return await finish('closed', { reason: `no caller can reach the flagged line (${pct(reachable)}); nothing else is open` });
+      } else reaching.ok(`reachable ${pct(reachable)}`);
     }
-    reaching.ok(`reachable ${pct(reachable)}`);
+    fix.before = before;
+
     const language = languageOf(node.path);
     const base = (await analyzer.analyzeSource(fileLines.join('\n'), language)).metrics;
     if (!base) throw new Error(`${node.path} does not parse at ${revision.slice(0, 12)}`);
+    const start = regionStart(fileLines, node.line), end = node.end_line;
+    const region = fileLines.slice(start - 1, end).join('\n');
+    const splice = source => [...fileLines.slice(0, start - 1), ...methodLines(source), ...fileLines.slice(end)];
+
+    // The tests that reach the method, run only when the model asks; one already failing on the original is ignored, not blamed.
+    const project = await discoverProject({ root, revision, out, paths: (await listTree(root, revision)).map(item => item.path), systemOne, log: debug });
+    const reaching = testsTouching({ graph, files: scan.files, node });
+    const runFile = file => shell.run(command(project.single, file), { cwd: root, timeoutMs: COMMAND_MS, env: workspaceEnv() });
+    const checks = project.single ? reaching.map(path => ({ name: path, run: () => runFile(path) })) : [];
+    if (!checks.length && project.suite) checks.push({ name: project.suite, run: () => shell.run(project.suite, { cwd: root, timeoutMs: 4 * COMMAND_MS, env: workspaceEnv() }) });
+    const ignored = new Set();
+    fix.checks = checks.map(check => check.name);
 
     const place = async text => { await writeFile(join(root, node.path), text); placed = true; };
-    const splice = source => [...fileLines.slice(0, node.line - 1), ...methodLines(source), ...fileLines.slice(node.end_line)];
+    const restore = async () => { await git(['checkout', '--', node.path], root); placed = false; };
+    const shift = (from, to) => `risk ${Math.round(from.risk_score)} -> ${Math.round(to.risk_score)}, complexity ${from.cyclomatic_complexity} -> ${to.cyclomatic_complexity}, nesting ${from.max_nesting} -> ${to.max_nesting}`;
 
-    // The verifiers, as tools. Each remembers what it passed, keyed by the exact source, so submit can insist on it.
-    const passed = { check: new Map(), verify: new Map() };
-    let verifications = 0;
-    const checkMethod = async ({ method: source }) => {
-      if (!source.trim() || source.trim() === method.trim()) return { ok: false, error: 'the method is unchanged' };
-      const after = await analyzer.analyzeSource(splice(source).join('\n'), language);
-      if (after.parser_status !== 'parsed') return { ok: false, error: `the patched file does not parse: ${after.parser_message ?? 'syntax error'}` };
-      const metrics = { risk: [Math.round(base.risk_score), Math.round(after.metrics.risk_score)], complexity: [base.cyclomatic_complexity, after.metrics.cyclomatic_complexity], nesting: [base.max_nesting, after.metrics.max_nesting] };
-      if (!withinQualityGate(base, after.metrics)) return { ok: false, error: 'the patch adds nesting, more than one branch, or more than one point of risk; change only what the defect requires', file_metrics_before_after: metrics };
-      passed.check.set(source, metrics);
-      return { ok: true, file_metrics_before_after: metrics };
-    };
-    const verifyWithSystemOne = async ({ method: source, summary }) => {
-      if (!passed.check.has(source)) return { ok: false, error: 'run check_method on this exact source first' };
-      if (++verifications > MAX_VERIFICATIONS) return { ok: false, error: `no more than ${MAX_VERIFICATIONS} System One verifications per fix; submit your best passing source or stop` };
+    // The verifiers, as tools. Each remembers the exact source it passed; submit insists on all that apply.
+    const passed = { measure: new Map(), rescan: new Map(), tests: new Map() };
+    let rescans = 0, testRuns = 0;
+    const measure = async ({ source }) => {
+      if (!source.trim() || sameLines(region, source)) return { ok: false, error: 'the source is the original, or the original\'s lines in another order; nothing changed' };
+      const replacement = methodLines(source);
       const patchedLines = splice(source);
-      const patchedNode = { ...node, end_line: node.line + methodLines(source).length - 1 };
-      const patchedStep = huntStep({ node: patchedNode, lines: patchedLines, imports, methods, callees, callers });
-      const verify = patchCheck({ step: patchedStep, original: method, summary });
-      const { answers } = await systemOne.ask(verify.state, verify.questions);
-      const { verification, objections } = readPatchCheck({ finding, answers, calledBy: patchedStep.calledBy });
-      const summaryLine = `defect ${pct(finding.has_bug)} -> ${pct(verification.has_bug)}, ${label(finding.kind.kind)} ${pct(finding.kind.probability ?? 0)} -> ${pct(verification.kind ?? 0)}`;
-      if (objections.length) return { ok: false, error: objections.join('; '), system_one: summaryLine };
-      passed.verify.set(source, verification);
-      return { ok: true, system_one: summaryLine };
+      const after = await analyzer.analyzeSource(patchedLines.join('\n'), language);
+      if (after.parser_status !== 'parsed') return { ok: false, error: `the file does not parse: ${after.parser_message ?? 'syntax error'}` };
+      const regionEnd = start + replacement.length - 1;
+      const inRegion = after.declarations.filter(declaration => declaration.line >= start && declaration.line <= regionEnd && declaration.name !== '<anonymous>');
+      const kept = inRegion.find(declaration => declaration.qualified_name === node.qualified_name);
+      if (!kept) return { ok: false, error: `keep a method named ${node.qualified_name} in lines ${start}-${regionEnd}; found ${inRegion.map(declaration => declaration.qualified_name).join(', ') || 'none'}` };
+      const fileMetrics = trim(after.metrics), metrics = trim(kept.metrics);
+      const detail = { file: shift(base, fileMetrics), method: shift(node.metrics ?? metrics, metrics) };
+      if ((fileMetrics.max_nesting ?? 0) > (base.max_nesting ?? 0) || (fileMetrics.cyclomatic_complexity ?? 0) > (base.cyclomatic_complexity ?? 0) + 1) return { ok: false, error: 'the file got deeper or more branching; a fix adds at most one branch and no nesting', ...detail };
+      passed.measure.set(source, { kept, metrics, fileMetrics, inRegion: inRegion.map(declaration => ({ line: declaration.line, end_line: declaration.end_line })), replacementLength: replacement.length });
+      return { ok: true, ...detail };
+    };
+    const rescan = async ({ source }) => {
+      if (!passed.measure.has(source)) return { ok: false, error: 'run measure on this exact source first' };
+      if (++rescans > MAX_RESCANS) return { ok: false, error: `no more than ${MAX_RESCANS} rescans per fix; submit your best passing source or stop` };
+      const { kept, metrics, fileMetrics, inRegion, replacementLength } = passed.measure.get(source);
+      const patchedLines = splice(source);
+      const shifted = replacementLength - (end - start + 1);
+      const patchedMethods = methods.filter(other => other.id !== node.id).map(other => (other.line > end ? { ...other, line: other.line + shifted, end_line: other.end_line + shifted } : other)).concat(inRegion);
+      const patchedNode = { ...node, line: kept.line, end_line: kept.end_line, metrics };
+      const patchedStep = huntStep({ node: patchedNode, lines: patchedLines, imports, methods: patchedMethods, callees, callers });
+      const { answers } = await questionMethod({ systemOne, node: patchedNode, step: patchedStep, lines: patchedLines, debug });
+      const after = issuesOf({ ...answers, metrics, file: fileMetrics });
+      const objections = improvement(before, after);
+      const result = { before: before.map(issue => issue.text), after: after.map(issue => issue.text) };
+      if (objections.length) return { ok: false, error: objections.join('; '), ...result };
+      passed.rescan.set(source, { answers, after });
+      return { ok: true, ...result };
+    };
+    const runTests = async ({ source }) => {
+      if (!passed.measure.has(source)) return { ok: false, error: 'run measure on this exact source first' };
+      if (!checks.length) { passed.tests.set(source, []); return { ok: true, checks: [], note: 'no test reaches this method and no suite command was found' }; }
+      if (++testRuns > MAX_TEST_RUNS) return { ok: false, error: `no more than ${MAX_TEST_RUNS} test runs per fix` };
+      const patched = splice(source).join('\n');
+      await place(patched);
+      try {
+        for (const check of checks) {
+          if (ignored.has(check.name)) continue;
+          const result = await check.run();
+          if (result.exit_code === 0) continue;
+          await restore();
+          const control = await check.run();
+          await place(patched);
+          if (control.exit_code !== 0) { ignored.add(check.name); continue; }
+          return { ok: false, error: `${check.name} fails on the rewrite and passes on the original`, output: tail(result) };
+        }
+        const changedPaths = (await dirtyPaths(root)).filter(path => !dirtyBefore.includes(path));
+        if (changedPaths.join('\n') !== node.path) throw new Abort(`the checkout changed while perch fix was running (${changedPaths.filter(path => path !== node.path).join(', ') || 'unknown'}); commit or stash your work and run it again`);
+      } finally { await restore(); }
+      const ran = checks.map(check => check.name).filter(name => !ignored.has(name));
+      passed.tests.set(source, ran);
+      return { ok: true, checks: ran, ...(ignored.size ? { ignored_already_failing: [...ignored] } : {}) };
     };
     let accepted = null;
-    const submit = async ({ method: source, summary }) => {
-      if (!passed.check.has(source)) return { ok: false, error: 'check_method has not passed this exact source' };
-      if (!passed.verify.has(source)) return { ok: false, error: 'verify_with_system_one has not passed this exact source' };
+    const submit = async ({ source, summary }) => {
+      for (const [name, map] of [['measure', passed.measure], ['rescan', passed.rescan], ['run_tests', passed.tests]]) if (!map.has(source)) return { ok: false, error: `${name} has not passed this exact source` };
       const line = plainSummary(summary);
       if (line.error) return { ok: false, error: line.error };
-      accepted = { source, summary: line.text, verification: passed.verify.get(source), metrics: passed.check.get(source) };
+      accepted = { source, summary: line.text, ...passed.measure.get(source), ...passed.rescan.get(source), checks: passed.tests.get(source) };
       return { ok: true, done: true };
     };
     const tools = [
-      tool('check_method', 'Splice the corrected method into the file and measure it with tree-sitter: it must parse and may not add nesting, more than one branch, or more than a point of risk. Call this on every version you write.', { method: { type: 'string', description: 'the complete corrected method' } }, checkMethod),
-      tool('verify_with_system_one', 'Ask the System One model that found the defect to judge the patched method with the same context: the defect and its kind must look less likely than before, and no caller newly misused. Requires check_method to have passed this exact source.', { method: { type: 'string' }, summary: { type: 'string', description: 'one sentence: what was wrong and what the change does' } }, verifyWithSystemOne),
-      tool('submit', 'Finish with the corrected method. Refused unless check_method and verify_with_system_one have both passed this exact source.', { method: { type: 'string' }, summary: { type: 'string' } }, submit),
+      tool('measure', `Splice the rewrite over lines ${start}-${end} of ${node.path} and measure the file with tree-sitter: it must parse, keep a method named ${node.qualified_name}, and not get deeper or more than one branch more complex. Call this on every version you write.`, { source: { type: 'string', description: 'the complete replacement for the region: the comment above the method and the method' } }, measure),
+      tool('rescan', 'Run the scan again over the rewrite: the same System One questions with the same neighborhood, plus the metrics. Every issue the scan raised must be gone or lower, a defect gone outright, and nothing new. Requires measure to have passed this exact source.', { source: { type: 'string' }, summary: { type: 'string', description: 'the commit line, under 72 characters' } }, rescan),
+      tool('run_tests', `Run the tests that reach ${node.qualified_name}${checks.length ? ` (${checks.map(check => check.name).join(', ')})` : ' (none found; passes trivially)'} against the rewrite. Requires measure to have passed this exact source.`, { source: { type: 'string' } }, runTests),
+      tool('submit', 'Finish with the rewrite. Refused unless measure, rescan, and run_tests have all passed this exact source.', { source: { type: 'string' }, summary: { type: 'string' } }, submit),
     ];
 
-    // The model drives: writes, checks, verifies, submits. Every step is shown and kept on the record.
     const effort = model.effort ?? DEFAULT_EFFORT;
-    const names = { check_method: 'tree-sitter check', verify_with_system_one: `${systemOne.id} check`, submit: 'submit' };
-    const running = ui.task(`${model.id} working on ${node.qualified_name} (effort ${effort})`);
+    const names = { measure: 'tree-sitter', rescan: `${systemOne.id} rescan`, run_tests: 'tests', submit: 'submit' };
+    const running = ui.task(`${model.id} working (effort ${effort})`);
     let current = null;
     const onEvent = event => {
       if (event.type === 'tool_call') current = ui.task(`${model.id} ▸ ${names[event.name] ?? event.name}`);
-      else if (event.type === 'tool_result' && current) { const r = event.result ?? {}; const detail = r.error ?? r.system_one ?? (r.file_metrics_before_after ? `risk ${r.file_metrics_before_after.risk.join(' -> ')}, complexity ${r.file_metrics_before_after.complexity.join(' -> ')}` : ''); (r.ok ? current.ok : current.fail)(detail); current = null; running.update(`${model.id} working on ${node.qualified_name} (turn ${event.turn}, effort ${effort})`); }
+      else if (event.type === 'tool_result' && current) {
+        const r = event.result ?? {};
+        const detail = r.error ?? (r.after ? `now: ${r.after.join(', ') || 'no issues'}` : r.file ? `file ${r.file}` : r.checks ? (r.checks.length ? `${r.checks.length} pass${r.ignored_already_failing ? ` (${r.ignored_already_failing.join(', ')} already failing, ignored)` : ''}` : r.note ?? 'nothing to run') : '');
+        (r.ok ? current.ok : current.fail)(detail); current = null;
+        running.update(`${model.id} working (turn ${event.turn}, effort ${effort})`);
+      }
     };
-    const run = await model.run({ prompt: fixPrompt({ finding, reachable, state: step.state, method }), tools, effort, onEvent });
-    fix.trace = run.trace;
-    fix.usage = run.usage;
-    fix.turns = run.turns;
+    const run = await model.run({ prompt: fixPrompt({ finding, before, reachable, fileMetrics: trim(base), state: step.state, region, start, end, checks: checks.map(check => check.name) }), tools, effort, onEvent });
+    meter.add(model.id, run.usage, { turns: run.turns, requests: run.turns });
+    Object.assign(fix, { trace: run.trace, turns: run.turns });
     if (!accepted) {
-      running.update(`${model.id} gave up on ${node.qualified_name}`);
-      running.fail(`${run.turns} turns, ${describeRun(run)}`);
-      const lastError = [...run.trace].reverse().find(event => event.type === 'tool_result' && event.result?.error)?.result.error ?? 'the model never submitted a verified fix';
-      await rejectedEvent(run.turns, lastError);
+      running.update(`${model.id} gave up`);
+      running.fail(`${run.turns} turns`);
+      const lastError = [...run.trace].reverse().find(event => event.type === 'tool_result' && event.result?.error)?.result.error ?? 'the model never submitted a verified rewrite';
       return await finish('rejected', { error: lastError });
     }
-    running.update(`${model.id} fixed ${node.qualified_name}`);
-    running.ok(describeRun(run));
+    running.update(`${model.id} done`);
+    running.ok(`${run.turns} ${run.turns === 1 ? 'turn' : 'turns'}`);
 
-    // Commit on the current branch, with the model's summary as the message.
     await place(splice(accepted.source).join('\n'));
     await git(['add', '--', node.path], root);
     const patch = await git(['diff', '--cached', '--', node.path], root);
@@ -266,35 +334,32 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
     await git(['commit', '-q', '-m', accepted.summary, '-m', `perch ${finding.id}`, '--', node.path], root);
     placed = false;
     const commit = await gitRevision(root);
-    ui.say(`${OK} ${commit.slice(0, 7)} ${accepted.summary}`);
-
     const patchPath = join(dir, 'fix.patch');
     await writeFile(patchPath, patch);
-    const verification = { kind: finding.kind.kind, before: { has_bug: finding.has_bug, kind: finding.kind.probability ?? null, reachable }, after: accepted.verification };
-    await store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: id, method: finding.method, hash: finding.hash, revision, status: 'ready', summary: accepted.summary,
-      commit, branch, patch_path: patchPath, verification });
-    return await finish('ready', { summary: accepted.summary, commit, patch_path: patchPath, verification, metrics: accepted.metrics });
+    ui.say(`${OK} ${commit.slice(0, 7)} ${accepted.summary}`);
+    ui.say(`  before  ${before.map(issue => issue.text).join(', ')}`);
+    ui.say(`  after   ${accepted.after.map(issue => issue.text).join(', ') || 'no issues'}`);
+    ui.say(`  file    ${shift(base, accepted.fileMetrics)}${accepted.checks.length ? `; tests: ${accepted.checks.join(', ')}` : ''}`);
+    return await finish('ready', { summary: accepted.summary, commit, patch_path: patchPath, before, after: accepted.after, file_before: trim(base), file_after: accepted.fileMetrics, method_before: trim(node.metrics), method_after: accepted.metrics, reachable, checks: accepted.checks });
   } catch (error) {
     fix.status = 'failed';
     fix.error = error.message;
     await writeJson(fixPath, fix).catch(() => {});
     throw error;
   } finally {
-    // Whatever an interrupted attempt left in the checkout goes back to HEAD.
     if (placed) await git(['checkout', '--', hunted.path], root).catch(() => {});
   }
 }
 
 /**
- * Work open issues, strongest first, until `budget` have been tried: a defect goes to the fix agent, anything else to the simplify
- * agent on the file's score. Each accepted result is one commit on the current branch. Findings whose method no longer exists are
- * set aside and counted, not attempted.
+ * Work open issues, strongest first, until `budget` have been tried; each accepted result is one commit on the current branch.
+ * Findings whose method no longer exists are set aside and counted, not attempted.
  */
-export async function runFixQueue({ findings, budget = DEFAULT_FIX_BUDGET, root, out, model, systemOne, analyzer, shell, ui = plainUi(), log = () => {}, debug = () => {}, simplify = null }) {
+export async function fixIssues({ findings, budget = DEFAULT_FIX_BUDGET, root, out, model, systemOne, analyzer, shell, ui = plainUi(), meter = createMeter(), log = () => {}, debug = () => {} }) {
   const pending = pendingFixes(findings, Infinity);
-  let current = pending, stale = [], scan = null;
+  let current = pending, stale = [];
   if (root && pending.length) {
-    scan = await runScan({ root, revision: await gitRevision(root), out, analyzer, log: debug, debug });
+    const scan = await analyzeTree({ root, revision: await gitRevision(root), out, analyzer, log: debug, debug });
     ({ current, stale } = splitStale(pending, scan));
     if (stale.length) ui.say(`${stale.length} ${stale.length === 1 ? 'finding is' : 'findings are'} for methods that no longer exist under that name; scan again to see what replaced them`);
   }
@@ -305,22 +370,12 @@ export async function runFixQueue({ findings, budget = DEFAULT_FIX_BUDGET, root,
     const findingRoot = finding.root ?? root;
     try {
       if (!findingRoot) throw new Error(`finding ${finding.id} has no repository recorded; scan again`);
-      fixes.push(await runOne({ finding, scan, root: findingRoot, out, model, systemOne, analyzer, shell, ui, log, debug, simplify }));
+      fixes.push(await fixMethod({ finding, root: findingRoot, out, model, systemOne, analyzer, shell, ui, meter: createMeter(), log, debug }));
     } catch (error) {
       ui.say(`${FAIL} ${finding.id} failed: ${error.message.split('\n')[0]}`);
       fixes.push({ id: null, finding_id: finding.id, method: finding.method, path: finding.path, root: findingRoot, revision: finding.revision, out, status: 'failed', error: error.message });
     }
   }
-  return { budget, open: current.length, stale: stale.length, attempted: fixes.length, remaining: Math.max(0, current.length - selected.length), fixes };
-}
-
-/** Work one finding the way its issues call for: the fix agent for a defect, the simplify agent for the rest. */
-export async function runOne({ finding, scan = null, root, out, model, systemOne, analyzer, shell, ui = plainUi(), log = () => {}, debug = () => {}, simplify = null }) {
-  if (workFor(finding) === 'defect') return runFix({ finding, root, out, model, systemOne, analyzer, shell, ui, log, debug });
-  if (!simplify) throw new Error(`${finding.name} has no defect; nothing here can simplify it`);
-  const current = scan ?? await runScan({ root, revision: await gitRevision(root), out, analyzer, log: debug, debug });
-  const file = (current.files ?? []).find(item => item.path === finding.path);
-  const method = file?.methods.find(item => item.id === finding.method);
-  if (!method) throw new Error(`${finding.method} no longer exists at HEAD; scan again`);
-  return simplify({ method: { ...method, path: file.path, file: file.metrics }, notes: issuesOf(finding).filter(isDesign), root, out, model, systemOne, analyzer, shell, ui, log, debug });
+  for (const fix of fixes) for (const [name, entry] of Object.entries(fix.usage ?? {})) meter.add(name, { input_tokens: entry.input, cached_tokens: entry.cached, output_tokens: entry.output, reasoning_tokens: entry.reasoning }, { turns: entry.turns, requests: entry.requests });
+  return { budget, open: current.length, stale: stale.length, attempted: fixes.length, remaining: Math.max(0, current.length - selected.length), fixes, usage: meter.toJSON(), usage_lines: meter.lines() };
 }
