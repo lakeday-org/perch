@@ -158,8 +158,9 @@ const commands = {
     const store = openStore(resolved.out);
     const scan = await store.latestScan();
     const issues = visibleFindings(splitStale(await store.issues(0.5, { scan }), scan).current);
-    io.note(scanCount(hunt), ...meter.lines());
+    // The table first. What was read and what it cost is context for a person watching, and reads as a footnote to the table.
     print(io, { scan: hunt, issues, usage: meter.toJSON() }, formatScanRun(hunt, issues, shown(io)));
+    io.note(scanCount(hunt), ...meter.lines());
   },
   async findings(io) {
     if (io.flags.types) { io.stdout(formatFilterKeys()); return; }
