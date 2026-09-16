@@ -29,7 +29,7 @@ export function huntAnswers(finding) {
 }
 
 /** What has to be true for one issue to count as resolved, said the same way in the prompt and on screen. */
-export const goalOf = (issue, verifier = 'System One') => (issue.type === 'defect' ? `${verifier} must no longer see this defect when it reads the rewrite`
+export const goalOf = (issue, verifier = 'the scan') => (issue.type === 'defect' ? `${verifier} must no longer see this defect when it reads the rewrite`
   : issue.type === 'security' ? 'close the hole: validate, escape, parameterise, confine, or bound the value that comes from outside, without changing what a legitimate caller gets'
   : issue.type === 'complex' ? "this method's tree-sitter risk score must come down"
   : issue.type === 'misdocumented' ? 'the comment above the method must say what a caller needs: the contract, edge cases, side effects'

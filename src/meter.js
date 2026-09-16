@@ -33,14 +33,22 @@ export function createMeter() {
     total() { return [...models.keys()].reduce((sum, model) => sum + (meter.cost(model) ?? 0), 0); },
     /** Snapshot for records. */
     toJSON() { return Object.fromEntries([...models].map(([model, entry]) => [model, { ...entry, cost: meter.cost(model) }])); },
-    /** Aligned lines: one per model, then the total. */
+/**
+     * What the run spent, as one line. Which model answered is a detail of the day the run happened: models change, and the two
+     * kinds here are the one that reads code and the one that writes it. The per-model breakdown stays in `toJSON`, which is what
+     * the records keep and `--json` prints.
+     */
     lines() {
+      const entries = [...models.values()];
+      if (!entries.length) return [];
+      const sum = key => entries.reduce((total, entry) => total + entry[key], 0);
       const k = value => (value >= 1e6 ? `${(value / 1e6).toFixed(1)}M` : value >= 1000 ? `${Math.round(value / 1000)}k` : String(value));
-      const rows = [...models].map(([model, entry]) => [model, `${entry.turns ? `${entry.turns} ${entry.turns === 1 ? 'turn' : 'turns'}` : `${entry.requests} ${entry.requests === 1 ? 'request' : 'requests'}`}`,
-        `${k(entry.input)} in${entry.cached ? ` (${k(entry.cached)} cached)` : ''}${entry.output ? ` / ${k(entry.output)} out` : ''}${entry.reasoning ? `, ${k(entry.reasoning)} reasoning` : ''}`, money(meter.cost(model))]);
-      if (rows.length > 1) rows.push(['total', '', '', money(meter.total())]);
-      const widths = [0, 1, 2].map(column => Math.max(...rows.map(row => row[column].length)));
-      return rows.map(row => `${row[0].padEnd(widths[0])}  ${row[1].padEnd(widths[1])}  ${row[2].padEnd(widths[2])}  ${row[3]}`);
+      const count = (value, noun) => `${value} ${value === 1 ? noun : `${noun}s`}`;
+      const turns = sum('turns'), requests = sum('requests'), cached = sum('cached'), reasoning = sum('reasoning');
+      const unpriced = [...models.keys()].some(model => meter.cost(model) === null);
+      return [[turns ? `${count(turns, 'turn')}, ${count(requests, 'request')}` : count(requests, 'request'),
+        `${k(sum('input'))} in${cached ? ` (${k(cached)} cached)` : ''}${sum('output') ? ` / ${k(sum('output'))} out` : ''}${reasoning ? `, ${k(reasoning)} reasoning` : ''}`,
+        `${money(meter.total())}${unpriced ? ' (some prices unknown)' : ''}`].join('  ')];
     },
     models,
   };

@@ -77,10 +77,10 @@ describe('perch fix', () => {
     meter.add('gpt-5.6-luna', { input_tokens: 100_000, input_tokens_details: { cached_tokens: 50_000 }, output_tokens: 10_000 }, { turns: 2 });
     expect(meter.cost('jev-latest')).toBeCloseTo(0.042);
     expect(meter.cost('gpt-5.6-luna')).toBeCloseTo(0.05 * 0.2 + 0.05 * 0.02 + 0.01 * 1.2);
-    const [jev, luna, total] = meter.lines();
-    expect(jev).toMatch(/^jev-latest {4}3 requests {2}1\.0M in \/ 10 out +\$0\.04$/);
-    expect(luna).toMatch(/^gpt-5\.6-luna {2}2 turns {5}100k in \(50k cached\) \/ 10k out {2}\$0\.02$/);
-    expect(total).toMatch(/^total +\$0\.07$/);
+    // One line for the run, not one per model: which model answered is a detail of the day, and toJSON keeps the breakdown.
+    expect(meter.lines()).toEqual(['2 turns, 4 requests  1.1M in (50k cached) / 10k out  $0.07']);
+    expect(Object.keys(meter.toJSON()).sort()).toEqual(['gpt-5.6-luna', 'jev-latest']);
+    expect(createMeter().lines()).toEqual([]);
   });
 
   it('lists a hole that stands on its own even when nothing outside is said to reach the method', async () => {
@@ -152,7 +152,7 @@ describe('perch fix', () => {
     expect(model.calls.map(call => call.name)).toEqual(['measure', 'rescan', 'run_tests', 'submit']);
     expect(model.calls.every(call => call.arguments.source === fixedMethod)).toBe(true);
     const prompt = model.calls[0].prompt;
-    expect(prompt).toContain('OBJECTIVES:\n- wrong_return_value 90%: System One must no longer see this defect when it reads the rewrite');
+    expect(prompt).toContain('OBJECTIVES:\n- wrong_return_value 90%: the scan must no longer see this defect when it reads the rewrite');
     expect(prompt).toContain('rescan runs the same scan over your rewrite');
     expect(prompt).toContain('and any sibling helpers it needs in that range');
     expect(prompt).toContain('reachable behavioral defect: 90%');
@@ -181,7 +181,9 @@ describe('perch fix', () => {
     expect(lines.some(line => /^ {2}✓ rescan {3}inverted_condition 20%, /.test(line))).toBe(true);
     expect(lines.some(line => /^ {2}✓ tests {4}1 pass {2}[\d.]+s$/.test(line))).toBe(true);
     expect(lines.every(line => !line.includes('▸'))).toBe(true);
-    expect(lines.some(line => /^✓ scripted-model done — 1 turn/.test(line))).toBe(true);
+    expect(lines.some(line => /^✓ done — 1 turn/.test(line))).toBe(true);
+    // No model name anywhere in what a person reads; the record keeps which one answered.
+    expect(lines.every(line => !/scripted-(model|jev)/.test(line))).toBe(true);
     expect(lines.some(line => /^✓ [0-9a-f]{7} Return hi when v exceeds the upper bound$/.test(line))).toBe(true);
     // The run tells the story once: the objectives, the steps, and the commit. The report is printed by whoever asked for the fix.
     expect(lines.filter(line => line.startsWith('  Cleared') || line.startsWith('  Left'))).toEqual([]);
@@ -221,7 +223,7 @@ describe('perch fix', () => {
     const fix = await fixMethod(options(repo, finding, { systemOne, ui }));
     expect(fix.status).toBe('ready');
     expect(fix.before[0].text).toBe('wrong_return_value 85%');
-    expect(lines.some(line => /^✓ scripted-jev reading clamp, changed since the scan — /.test(line))).toBe(true);
+    expect(lines.some(line => /^✓ reading clamp, changed since the scan — /.test(line))).toBe(true);
     const store = openStore(repo.out);
     expect((await store.readEvents()).filter(event => event.type === 'hunted')).toHaveLength(2);
     expect((await store.issues())[0].fix).toMatchObject({ id: fix.id, status: 'ready' });
@@ -243,7 +245,7 @@ describe('perch fix', () => {
     let asked = 0;
     const systemOne = { id: 'scripted-jev', calls: fresh.calls, ask: (state, questions) => (++asked <= 1 ? fresh : clean).ask(state, questions) };
     const fix = await fixMethod(options(repo, { ...finding, answers_version: 1 }, { ui, systemOne }));
-    expect(lines.some(line => /^✓ scripted-jev reading clamp, answered before the questions changed/.test(line))).toBe(true);
+    expect(lines.some(line => /^✓ reading clamp, answered before the questions changed/.test(line))).toBe(true);
     if (fix.status !== 'ready') throw new Error(`${fix.status}: ${fix.error ?? fix.reason}`);
     expect((await openStore(repo.out).readEvents()).filter(event => event.type === 'hunted').at(-1).answers_version).toBe(ANSWERS_VERSION);
   });
