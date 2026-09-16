@@ -40,7 +40,7 @@ export function fixPrompt({ finding, before, reachable = null, fileMetrics = nul
 Lines ${start}-${end} of ${finding.path} are replaced by your source: the comment above the method (if any), the method, and any sibling helpers it needs in that range. Keep ${finding.name}'s name and signature so every caller under called_by still works. Prefer the real fix — split a too-big method into helpers here, flatten nesting, fix the defect, rewrite the comment — not a cosmetic reshuffle of the same blob.
 OBJECTIVES:
 ${objectives}
-HOW THEY ARE JUDGED: rescan runs the same scan over your rewrite (tree-sitter metrics and System One, same callers and callees). It passes when every issue above is gone or lower, a defect gone outright, and nothing new appeared. Tests that reach the method${checks.length ? ` (${checks.join(', ')})` : ''} must still pass.
+HOW THEY ARE JUDGED: rescan runs the same scan over your rewrite (tree-sitter metrics and System One, same callers and callees). It passes only when every issue above is gone (no longer listed), a defect gone outright, and nothing new appeared. A 1% nudge on too big or risk is not enough — split, flatten, or fix until the issue disappears. Tests that reach the method${checks.length ? ` (${checks.join(', ')})` : ''} must still pass.
 ${file}
 WHAT SYSTEM ONE ANSWERED ABOUT THE ORIGINAL:
 ${huntAnswers(finding, { reachable })}

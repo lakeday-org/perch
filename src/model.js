@@ -10,7 +10,7 @@ export const DEFAULT_MODEL = 'gpt-5.6-luna';
 export const EFFORTS = ['none', 'low', 'medium', 'high', 'xhigh', 'max'];
 export const DEFAULT_EFFORT = 'max';
 /** How many model turns one run may take before it is cut off. Each turn may call several tools. */
-export const MAX_TURNS = 16;
+export const MAX_TURNS = 8;
 
 /** Thrown by a tool handler when the run cannot go on for reasons the model cannot fix (the checkout changed under it); ends the run. */
 export class Abort extends Error {}
