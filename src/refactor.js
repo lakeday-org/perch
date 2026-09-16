@@ -101,6 +101,10 @@ export async function runRefactor({ method: target, root, out, model, systemOne,
     const restore = async () => { await git(['checkout', '--', node.path], root); placed = false; };
     const shift = (from, to) => `risk ${Math.round(from.risk_score)} -> ${Math.round(to.risk_score)}, complexity ${from.cyclomatic_complexity} -> ${to.cyclomatic_complexity}, nesting ${from.max_nesting} -> ${to.max_nesting}`;
     const splice = source => [...fileLines.slice(0, start - 1), ...methodLines(source), ...fileLines.slice(end)];
+    const assertTestFiles = async () => {
+      const changed = (await dirtyPaths(root)).filter(path => !dirtyBefore.includes(path));
+      if (changed.join('\n') !== node.path) throw new Error(`The test run changed files other than ${node.path}: ${changed.join(', ') || 'none'}`);
+    };
 
     // The verifiers, as tools. Each remembers what it passed, keyed by the exact source, so submit can insist on all three.
     const passed = { measure: new Map(), tests: new Map() };
@@ -137,10 +141,10 @@ export async function runRefactor({ method: target, root, out, model, systemOne,
           const control = await check.run();
           await place(patched);
           if (control.exit_code !== 0) { ignored.add(check.name); continue; }
+          await assertTestFiles();
           return { ok: false, error: `${check.name} fails on the rewrite and passes on the original`, output: tail(result) };
         }
-        const changed = (await dirtyPaths(root)).filter(path => !dirtyBefore.includes(path));
-        if (changed.join('\n') !== node.path) throw new Error(`The test run changed files other than ${node.path}: ${changed.join(', ') || 'none'}`);
+        await assertTestFiles();
       } finally { await restore(); }
       const ran = checks.map(check => check.name).filter(name => !ignored.has(name));
       if (!ran.length) return { ok: false, error: 'every test that reaches the method already fails on the original, so nothing can check the rewrite' };
@@ -208,7 +212,7 @@ export async function runRefactorQueue({ root, out, path = null, budget = DEFAUL
   const candidates = refactorCandidates(scan, { path, min }).filter(method => !done.has(refactorIdentity({ method, model: model.id })));
   const selected = candidates.slice(0, budget);
   const fixes = [];
-  ui.say(`${candidates.length} ${candidates.length === 1 ? 'method' : 'methods'}${min ? ` at risk ${min} or more` : ''}${path ? ` under ${path}` : ''}, riskiest first; working ${selected.length}`);
+  ui.say(`${candidates.length} ${candidates.length === 1 ? 'method' : 'methods'} at risk ${min} or more${path ? ` under ${path}` : ''}; working ${selected.length}`);
   for (const [index, method] of selected.entries()) {
     ui.say(`\n[${index + 1}/${selected.length}]`);
     try { fixes.push(await runRefactor({ method, root, out, model, systemOne, analyzer, shell, ui, log, debug })); }
