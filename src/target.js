@@ -21,7 +21,7 @@ export async function resolveTarget(target = '.', { out, log = () => {} } = {}) 
     if (existsSync(join(dir, '.git'))) {
       log(`fetching ${github.owner}/${github.repo}`);
       await git(['fetch', '--prune', 'origin'], dir);
-      await git(['checkout', '--force', '--detach', 'origin/HEAD'], dir).catch(() => {});
+      await git(['checkout', '--force', '--detach', 'origin/HEAD'], dir);
     } else {
       log(`cloning ${github.owner}/${github.repo}`);
       await mkdir(dir, { recursive: true });
