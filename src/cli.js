@@ -22,7 +22,7 @@ const options = {
   force: ['--force', 'Read every method again, even ones unchanged since an earlier scan', ['scan']],
   all: ['--all', 'List every row instead of the top 10', ['scan', 'findings']],
   closed: ['--closed', 'Include closed issues (worked and given up on, or nothing left to do)', ['findings']],
-  min: ['--min P', 'Only issues at P percent or more (default 50)', ['findings', 'fix']],
+  min: ['--min P', 'Only methods expected to have more than P problems, on a scale where one certain issue is 100 (default 0: everything, ranked)', ['findings', 'fix']],
   filter: ['--filter k=v', 'Only issues matching, e.g. type=security, kind=too big, severity=P1 (comma-separated)', ['findings', 'fix']],
   types: ['--types', 'Print everything --filter accepts and stop', ['findings']],
   model: ['--model M', `OpenAI model (default ${DEFAULT_MODEL}, or $OPENAI_MODEL)`, ['fix']],
@@ -106,7 +106,7 @@ const modelFrom = ({ flags, env, log }) => { if (flags.effort !== undefined && !
 const storeFrom = async flags => openStore(await resolveOut(flags.out));
 /** `--filter type=security,severity=P1` as tests a finding must pass; a bad clause is a usage error naming the real values. */
 const filtersFrom = flags => { try { return parseFilters(flags.filter ?? ''); } catch (error) { throw new UsageError(error.message); } };
-const threshold = (value, fallback = 50) => { const min = value === undefined ? fallback : Number(value); if (!(min >= 0 && min <= 100)) throw new UsageError('--min must be a number from 0 to 100'); return min; };
+const threshold = (value, fallback = 0) => { const min = value === undefined ? fallback : Number(value); if (!(min >= 0)) throw new UsageError('--min must be a number of expected problems, 0 or more, where one certain issue is 100'); return min; };
 const positiveInteger = (flag, value, fallback) => { const number = value === undefined ? fallback : Number(value); if (!Number.isInteger(number) || number < 1) throw new UsageError(`${flag} must be a positive integer`); return number; };
 const print = (io, record, text) => io.stdout(io.flags.json ? JSON.stringify(record, null, 2) : text);
 /** Counts and costs: context for a person watching, never part of the output a pipe reads. */

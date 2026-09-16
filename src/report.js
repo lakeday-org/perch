@@ -1,5 +1,5 @@
 /** Human-readable summaries of scans, issues, and the work done on them. */
-import { filterKeys, isDesign, issuesOf, label, matchesFilters, SEVERITY_QUESTIONS, severityName } from './questions.js';
+import { filterKeys, isDesign, issuesOf, label, matchesFilters, SEVERITY_BANDS, severityName } from './questions.js';
 
 const short = revision => revision?.slice(0, 12) ?? '?';
 
@@ -29,11 +29,12 @@ const shortId = id => id.split('::').at(-1);
 export const TOP = 10;
 
 
-/** What the severity bands came back as: "data or security 12%, normal use 71%, recoverable 64%". */
+/** What the score put on each band: "P1 62%, P2 24%, P0 9%, P3 5%". */
 const severityDetail = severity => {
-  const parts = Object.keys(SEVERITY_QUESTIONS).filter(key => severity?.[key] !== undefined)
-    .map(key => `${label(key.replace('severe_', ''))} ${percent(severity[key])}`);
-  return parts.length ? ` (${parts.join(', ')})` : severity?.score === undefined ? '' : ` (older reading, score ${severity.score.toFixed(2)})`;
+  const probabilities = severity?.probabilities;
+  if (!probabilities) return '';
+  const bands = Object.entries(probabilities).map(([level, p]) => [SEVERITY_BANDS[Number(level)] ?? level, p]).sort((a, b) => b[1] - a[1]);
+  return ` (${bands.map(([band, p]) => `${band} ${percent(p)}`).join(', ')})`;
 };
 
 /** A finding is closed once its fix was closed (nothing to do) or given up on. */
@@ -41,11 +42,17 @@ export const issueStatus = finding => (finding.fix && finding.fix.status !== 're
 /** The commit that fixed a finding, for the table, or `-`. */
 const commitRef = finding => (finding.fix?.status === 'ready' ? finding.fix.commit?.slice(0, 7) ?? 'done' : '-');
 const statusRow = finding => [issueStatus(finding), commitRef(finding)];
-const issueCell = (finding, min) => issuesOf(finding, min).map(issue => issue.text).join(', ');
+/** The three the model believes most. Everything it answered is in `perch findings <id>`; a row is not the place for a tail of 9%s. */
+export const SHOWN_PER_ROW = 3;
+const issueCell = (finding, min) => {
+  const issues = issuesOf(finding, min);
+  const shown = issues.slice(0, SHOWN_PER_ROW).map(issue => issue.text);
+  return [...shown, ...(issues.length > shown.length ? [`+${issues.length - shown.length} more`] : [])].join(', ');
+};
 const locationOf = (finding, min) => `${finding.path}:${issuesOf(finding, min)[0]?.type === 'defect' ? finding.where.line : finding.line}`;
 
 /** Aligned rows of methods with issues: everything the scan raised about each, defects and design alike. */
-function issueTable(findings, min = 0.5) {
+function issueTable(findings, min = 0) {
   // Severity is asked about a behavioral defect, so a method whose issues are all design or security has none to show.
   const rows = findings.map(finding => [finding.id, finding.name, locationOf(finding, min), issueCell(finding, min),
     issuesOf(finding, min).some(issue => issue.type === 'defect') ? severityName(finding.severity) : '-', ...statusRow(finding)]);
@@ -55,7 +62,7 @@ function issueTable(findings, min = 0.5) {
 
 /** What one scan did, then the open issues as `perch issues` lists them. */
 export function formatScanRun(hunt, issues, shown = TOP) {
-  return formatIssues(issues, 0.5, shown);
+  return formatIssues(issues, 0, shown);
 }
 
 /** What a scan did, for stderr. */
@@ -92,7 +99,7 @@ export function formatFinding(finding) {
   lines.push(`Issues: ${issueCell(finding) || 'none at 50%'}`);
   if (finding.metrics) lines.push(`Metrics: risk ${number(finding.metrics.risk_score)}, maintainability ${number(finding.metrics.maintainability_index)}, complexity ${number(finding.metrics.cyclomatic_complexity)}, nesting ${number(finding.metrics.max_nesting)}, ${number(finding.metrics.sloc)} lines${finding.file ? `; file risk ${number(finding.file.risk_score)}` : ''}`);
   if (finding.has_bug !== undefined) {
-    lines.push(`Defect: ${percent(finding.has_bug)}${finding.reachable === undefined ? '' : `; line reachable ${percent(finding.reachable)}`}. Points at line ${finding.where.line} (confidence ${percent(finding.where.confidence)}):`, `    ${finding.where.line}| ${finding.where.text ?? ''}`,
+    lines.push(`Defect: ${percent(finding.has_bug)}. Points at line ${finding.where.line} (confidence ${percent(finding.where.confidence)}):`, `    ${finding.where.line}| ${finding.where.text ?? ''}`,
       `Kind: ${probabilities(finding.kinds ?? { [finding.kind.kind]: finding.kind.probability ?? 0 })}`, `Severity: ${severityName(finding.severity)}${severityDetail(finding.severity)}`);
     if (finding.securities) lines.push(`Exposed to outside input: ${percent(finding.exposed)}. Vulnerability: ${probabilities(finding.securities)}`);
   if (finding.does_what_it_claims !== undefined) lines.push(`Does what it claims: ${percent(finding.does_what_it_claims)}. Misdocumented: ${percent(finding.misdocumented)}. Refactor: ${probabilities(finding.refactor.probabilities ?? {})}`);
@@ -144,6 +151,12 @@ export function formatFixes(batch) {
   return lines.join('\n');
 }
 
+/** The three the model believes most, the rest counted. */
+const strongest = (issues = []) => {
+  const shown = issues.slice(0, SHOWN_PER_ROW).map(issue => issue.text);
+  return [...shown, ...(issues.length > shown.length ? [`+${issues.length - shown.length} more`] : [])].join(', ');
+};
+
 /**
  * One fix, as a reviewer reads it: what was wrong, what the model wrote about the change, what measurably moved, and what proved it.
  * The note is the model's own two or three sentences; everything under it is measured, not claimed.
@@ -152,9 +165,9 @@ export function formatFix(fix) {
   const where = `${fix.path ?? '?'}${fix.line ? `:${fix.line}` : ''}`;
   const outcome = fix.status === 'ready' ? `fixed in ${fix.commit?.slice(0, 7) ?? '?'} on ${fix.branch ?? '?'}` : fix.status === 'closed' ? 'closed, nothing to do' : 'no fix';
   const lines = [`${fix.finding_id ?? '?'}  ${shortId(fix.method ?? '?')}  ${where}  ${outcome}`, ''];
-  const was = (fix.before ?? []).map(issue => issue.text).join(', ');
+  const was = strongest(fix.before);
   if (fix.status === 'ready') {
-    lines.push(`  Was    ${was || '-'}`, `  Now    ${(fix.after ?? []).map(issue => issue.text).join(', ') || 'clear'}`);
+    lines.push(`  Was    ${was || '-'}`, `  Now    ${strongest(fix.after) || 'clear'}`);
     if (fix.notes) lines.push('', ...wrap(fix.notes));
     // Only the numbers that moved: a defect fix often changes none, and printing "unchanged" twice says nothing.
     const rows = [];

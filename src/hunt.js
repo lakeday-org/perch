@@ -3,26 +3,19 @@ import { join } from 'node:path';
 import { readBlob } from './git.js';
 import { analyzeTree } from './scan.js';
 import { buildGraph } from './graph.js';
-import { huntStep, locateWhere, reachCheck, readAnswers } from './questions.js';
+import { huntStep, locateWhere, readAnswers } from './questions.js';
 import { findingId, identity, openStore, writeJson } from './store.js';
 export { findingId };
 
 /** A scan reads every method it has not read before, or whose code changed since. `perch fix` works twenty issues by default. */
 export const DEFAULT_FIX_BUDGET = 20, DEFAULT_PARALLEL = 8;
 
-/** One System One pass over a method: the hunt's questions, the line, and, when a defect looks likely, whether that line is reachable. */
+/** One System One pass over a method: the hunt's questions and the line they point at. */
 export async function questionMethod({ systemOne, node, step, lines, debug = () => {} }) {
   debug(`asking ${systemOne.id} about ${node.qualified_name} in ${node.path}:${node.line} (${Object.keys(step.questions).length} questions${step.windows ? `, then a line in the chosen window` : ''})`);
   const response = await locateWhere({ systemOne, state: step.state, questions: step.questions, windows: step.windows });
   const answers = readAnswers(response.answers, step);
   answers.where.text = lines[answers.where.line - 1]?.trim() ?? '';
-  if (answers.has_bug >= 0.5) {
-    debug(`asking ${systemOne.id} whether ${node.path}:${answers.where.line} is reachable`);
-    const check = reachCheck({ finding: { path: node.path, name: node.qualified_name, kind: answers.kind, where: answers.where }, state: step.state });
-    const reach = await systemOne.ask(check.state, check.questions);
-    answers.reachable = reach.answers.reachable.noul;
-    if (reach.usage) response.usage = { input_tokens: (response.usage?.input_tokens ?? 0) + (reach.usage.input_tokens ?? 0), output_tokens: (response.usage?.output_tokens ?? 0) + (reach.usage.output_tokens ?? 0) };
-  }
   return { response, answers };
 }
 

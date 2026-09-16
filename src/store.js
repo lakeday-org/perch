@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { appendFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { excludeFromStatus, git, repoRoot } from './git.js';
-import { flagged, hasIssue, issuesOf } from './questions.js';
+import { flagged, issueWeight } from './questions.js';
 
 export const sha256 = text => createHash('sha256').update(text).digest('hex');
 /** A stable 16-hex-character id derived from everything that determines a record's result. */
@@ -122,12 +122,12 @@ export function openStore(out) {
         }
         for (const finding of findings) if (!seen.has(finding.method)) every.push(finding);
       } else every.push(...findings);
-      const strength = event => issuesOf(event, min)[0]?.probability ?? 0;
-      return every.filter(event => all || hasIssue(event, min)).sort((a, b) => strength(b) - strength(a) || (b.severity?.score ?? 0) - (a.severity?.score ?? 0));
+      // Ranked by how many problems each method is expected to have, correctness first; nothing is cut, the tail just sorts last.
+      return every.filter(event => all || issueWeight(event) > min).sort((a, b) => issueWeight(b) - issueWeight(a));
     },
     /** Flagged methods at probability `min` or more, most likely first. */
-    async findings(min = 0.5) {
-      return (await store.issues(min)).filter(event => flagged(event, min)).sort((a, b) => b.has_bug - a.has_bug || (b.severity?.score ?? 0) - (a.severity?.score ?? 0));
+    async findings(min = 0) {
+      return (await store.issues(min)).filter(event => flagged(event)).sort((a, b) => issueWeight(b) - issueWeight(a));
     },
     /** The finding with this id or unique id prefix. */
     async findFinding(ref) {

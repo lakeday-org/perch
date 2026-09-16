@@ -81,37 +81,38 @@ describe('cli', () => {
     expect(err.at(-1)).toContain('unknown filter "status"; filter on type, kind, severity');
     expect(err.at(-1)).toContain('perch findings:');
     expect(await main(['issues', '--filter', 'severity=p9'], io)).toBe(2);
-    expect(err.at(-1)).toContain('severity "p9" is not one of P0, P1, P2, P3');
+    expect(err.at(-1)).toContain('severity "p9" is not one of P3, P2, P1, P0');
     expect(await main(['findings', '--filter', 'kind=nope'], io)).toBe(2);
     expect(err.at(-1)).toContain('too big');
     expect(await main(['issues', '-h'], io)).toBe(0);
     expect(out.at(-1)).toContain('perch findings: List what the scan found');
     expect(await main(['findings', '--types'], io)).toBe(0);
-    expect(out.at(-1)).toContain('severity\n  P0\n  P1\n  P2\n  P3');
+    expect(out.at(-1)).toContain('severity\n  P3\n  P2\n  P1\n  P0');
   });
 
   it('lists the issues a scan found, from the results directory', async () => {
     const repoRoot = await makeGraphFixture();
     cleanups.push(repoRoot);
     const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
-    const hunt = await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.8, kind_wrong_return: 0.6, severe_recoverable: 0.8 } }), budget: 2 }));
+    const hunt = await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.8, kind: 'wrong_return', severity: 1 } }), budget: 2 }));
     const { out, err, io } = capture();
     const [f] = hunt.visited;
     expect(await main(['issues', '--out', repo.out], io)).toBe(0);
-    expect(out.at(-1)).toMatch(new RegExp(`^${f.id}  f +src/a.js:\\d+ +wrong return value 80% +P2 +open +-`, 'm'));
+    expect(out.at(-1)).toMatch(new RegExp(`^${f.id}  f +src/a.js:\\d+ +wrong return value \\d+%.* +P2 +open +-`, 'm'));
     expect(out.at(-1)).toMatch(/^ID +Method +Location +Issues +Severity +Status +Commit$/m);
     // A filter that matches keeps the row; one that does not leaves nothing.
     expect(await main(['findings', '--filter', 'type=defect,severity=P2', '--out', repo.out], io)).toBe(0);
     expect(out.at(-1)).toContain(f.id);
-    expect(await main(['findings', '--filter', 'type=security', '--out', repo.out], io)).toBe(0);
+    expect(await main(['findings', '--filter', 'kind=injection', '--out', repo.out], io)).toBe(0);
     expect(out.at(-1)).toBe('Nothing matches.');
     expect(out.at(-1)).not.toContain('Work');
     const code = await main(['issues', f.id.slice(0, 5), '--out', repo.out, '--verbose'], io);
     if (code !== 0) throw new Error(err.join('\n'));
     expect(out.at(-1)).toContain('Defect: 80%');
-    expect(out.at(-1)).toContain('wrong return value 60%');
+    expect(out.at(-1)).toContain('wrong return value');
     expect(out.at(-1)).toContain('Metrics: risk');
-    expect(await main(['issues', '--out', repo.out, '--min', '90'], io)).toBe(0);
+    // --min is a weight, not a probability: no method is expected to have 9 problems.
+    expect(await main(['issues', '--out', repo.out, '--min', '900'], io)).toBe(0);
     expect(out.at(-1)).toBe('Nothing matches.');
     expect(await main(['issues', '--out', repo.out, '--json'], io)).toBe(0);
     expect(JSON.parse(out.at(-1))[0].id).toBe(f.id);

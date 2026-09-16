@@ -13,7 +13,7 @@ import { formatFix, visibleFindings } from './report.js';
 import { languageOf } from './analysis.js';
 import { analyzeTree } from './scan.js';
 import { buildGraph, resolveModule } from './graph.js';
-import { ANSWERS_VERSION, huntStep, isDesign, issuesOf, reachCheck, SURE } from './questions.js';
+import { ANSWERS_VERSION, expectedIssues, huntStep, issuesOf } from './questions.js';
 import { identity, openStore, readJson, sha256, writeJson } from './store.js';
 import { fixPrompt, goalOf } from './prompts.js';
 import { Abort, DEFAULT_EFFORT, tool } from './model.js';
@@ -59,17 +59,21 @@ export function plainNotes(notes) {
 /**
  * How much bigger the whole file may get. Splitting a method into helpers costs a few signatures and returns, so a little growth is
  * honest; a rewrite that inflates the file has moved the mess rather than removed it, whatever it did for the one method's score.
+ *
+ * Closing a hole means validating, bounding, or escaping something, and every one of those is a branch. So when a vulnerability is
+ * among the objectives there is no complexity ceiling: refusing a security fix to hold a complexity number is the wrong trade, and
+ * the line budget still stops a rewrite from turning into a rewrite of the file.
  */
-export function fileBudget(base) {
+export function fileBudget(base, { security = false } = {}) {
   return {
     // A split moves decisions, it does not create them; the slack is for a real error path the fix adds.
-    cyclomatic_complexity: base.cyclomatic_complexity + Math.max(2, Math.round(base.cyclomatic_complexity * 0.05)),
+    cyclomatic_complexity: security ? Infinity : base.cyclomatic_complexity + Math.max(2, Math.round(base.cyclomatic_complexity * 0.05)),
     sloc: base.sloc + Math.max(25, Math.round(base.sloc * 0.1)),
   };
 }
 /** Why a rewrite that helps one method still leaves the file worse off. */
-export function fileObjections(base, after) {
-  const limit = fileBudget(base), objections = [];
+export function fileObjections(base, after, { security = false } = {}) {
+  const limit = fileBudget(base, { security }), objections = [];
   if (after.cyclomatic_complexity > limit.cyclomatic_complexity) objections.push(`the file's complexity goes up too far, ${base.cyclomatic_complexity} -> ${after.cyclomatic_complexity}, and ${limit.cyclomatic_complexity} is the most this fix may leave`);
   if (after.sloc > limit.sloc) objections.push(`the file grows too much, ${base.sloc} -> ${after.sloc} lines, and ${limit.sloc} is the most this fix may leave`);
   return objections;
@@ -125,34 +129,23 @@ const trim = metrics => (metrics ? { risk_score: metrics.risk_score, maintainabi
  * A 1% nudge on "too big" does not count.
  */
 /**
- * An issue is cleared when it falls below CLEARED, and something counts as newly introduced only above APPEARED. The two
- * thresholds sit either side of the 50% used for listing on purpose: a probability that wanders between 45% and 55% is the
- * same reading twice, and judging both directions at the same cliff makes a rewrite fail for noise it did not cause.
- */
-export const CLEARED = 0.4, APPEARED = 0.6;
-
-/**
- * Whether a rewrite resolved what it was asked to resolve. `after` is read at CLEARED.
+ * Whether a rewrite is worth keeping, judged by how many problems each reading expects rather than by whether any number crossed a
+ * line. Every answer contributes its own probability, so a defect at 90% falling to 40% counts for what it is instead of being
+ * called "still open", and a refactor the scan names for the first time counts against the rewrite only as much as the model
+ * believes it.
  *
- * Issues are matched by what they are, not by which question raised them: `too big` and `dead code` are both refactors, and
- * comparing the slot rather than the issue said "too big is still open" about a rewrite that had just cleared it.
- *
- * Every issue it was pointed at must clear. Bringing a defect or a vulnerability that was not there rejects the rewrite, since
- * those are regressions. A design issue named for the first time does not: the refactor question always names something, so one
- * falling away tends to raise the next, and that is the next run's work rather than a reason to throw this one out.
+ * Correctness and design are counted apart and neither may rise: a rewrite that closes a hole by making the method incoherent is
+ * not an improvement, and nor is one that tidies the shape while introducing a bug. At least one of the two must fall, or nothing
+ * happened. Cost in complexity is not counted at all; a fix that needs another branch is still a fix.
  */
 export function improvement(before, after) {
-  const objections = [], left = [];
-  for (const issue of before) {
-    const now = after.find(item => item.label === issue.label);
-    if (now) objections.push(`${issue.label} is still open (${issue.text} -> ${now.text})`);
-  }
-  for (const issue of after) {
-    if (issue.probability < APPEARED || before.some(item => item.label === issue.label)) continue;
-    if (isDesign(issue)) left.push(issue.text);
-    else objections.push(`the rewrite brings ${issue.text}, which was not there before`);
-  }
-  return { objections, left };
+  const round = value => Math.round(value * 100) / 100;
+  const shift = { correctness: round(after.correctness - before.correctness), design: round(after.design - before.design) };
+  // Pareto: neither kind may rise, and one must fall. A rewrite does not get to buy correctness with shape or shape with bugs.
+  const objections = ['correctness', 'design'].filter(name => shift[name] > 0)
+    .map(name => `${name} up ${shift[name].toFixed(2)}: the rewrite is expected to leave more problems of that kind than it found`);
+  if (!objections.length && shift.correctness === 0 && shift.design === 0) objections.push('nothing the scan can see changed: the same problems are expected as before');
+  return { objections, shift, better: !objections.length };
 }
 
 export const command = (template, file) => template.replaceAll('{file}', quote(file)).replaceAll('{dir}', quote(dirname(file) === '.' ? '.' : `./${dirname(file)}`));
@@ -239,7 +232,7 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
       finding = { ...event, metrics: node.metrics, file: finding.file };
       reading.ok(issuesOf(finding).map(issue => issue.text).join(', ') || 'no issues');
     }
-    let before = issuesOf(finding);
+    const before = issuesOf(finding);
     if (!before.length) return await finish('closed', { reason: 'no open issue on the method as it reads now' });
     const dirtyBefore = await dirtyPaths(root);
     if (dirtyBefore.includes(node.path)) throw new Error(`${node.path} has uncommitted changes; commit or stash them before perch fix touches it`);
@@ -248,20 +241,6 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
     ui.say(`${finding.id}  ${finding.name}  ${finding.path}:${finding.line}`);
     for (const issue of before) ui.say(`  ${issue.text.padEnd(28)} → ${goalOf(issue, systemOne.id)}`);
 
-    // A defect the caller cannot reach is not one: System One says so before anything is generated.
-    let reachable = null;
-    const defect = before.find(issue => issue.type === 'defect');
-    if (defect) {
-      const reaching = ui.task(`${systemOne.id}: can a caller reach ${finding.path}:${finding.where.line}?`);
-      const { answers } = await systemOne.ask(reachCheck({ finding, state: step.state }).state, reachCheck({ finding, state: step.state }).questions);
-      reachable = answers.reachable.noul;
-      if (reachable < SURE) {
-        reaching.note(`reachable ${pct(reachable)}; not a defect`);
-        before = before.filter(issue => issue.type !== 'defect');
-        finding = { ...finding, reachable };
-        if (!before.length) return await finish('closed', { reason: `no caller can reach the flagged line (${pct(reachable)}); nothing else is open` });
-      } else reaching.ok(`reachable ${pct(reachable)}`);
-    }
     fix.before = before;
 
     const language = languageOf(node.path);
@@ -302,7 +281,7 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
       const kept = inRegion.find(declaration => declaration.qualified_name === node.qualified_name);
       if (!kept) return { ok: false, error: `keep a method named ${node.qualified_name} in lines ${start}-${regionEnd}; found ${inRegion.map(declaration => declaration.qualified_name).join(', ') || 'none'}` };
       const fileMetrics = trim(after.metrics), metrics = trim(kept.metrics);
-      const bloat = fileObjections(base, fileMetrics);
+      const bloat = fileObjections(base, fileMetrics, { security: before.some(issue => issue.type === 'security') });
       if (bloat.length) return { ok: false, error: `${bloat.join('; ')}. Take code out of the file or cut it; do not add.`, file: shift(base, fileMetrics) };
       const detail = { file: shift(base, fileMetrics), method: shift(node.metrics ?? metrics, metrics), helpers: inRegion.filter(declaration => declaration.qualified_name !== node.qualified_name).map(declaration => declaration.qualified_name) };
       // measure only checks that the rewrite parses and keeps the method; rescan and the tests decide whether it improved.
@@ -323,12 +302,12 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
       const patchedStep = huntStep({ node: patchedNode, lines: patchedLines, imports, methods: patchedMethods, callees, callers });
       const { answers } = await questionMethod({ systemOne, node: patchedNode, step: patchedStep, lines: patchedLines, debug });
       const reading = { ...answers, metrics, file: fileMetrics };
-      const { objections, left } = improvement(before, issuesOf(reading, CLEARED));
       const after = issuesOf(reading);
-      const result = { before: before.map(issue => issue.text), after: after.map(issue => issue.text) };
+      const { objections, shift } = improvement(expectedIssues(finding, before), expectedIssues(reading, after));
+      const result = { before: before.map(issue => issue.text), after: after.map(issue => issue.text), expected: shift };
       if (objections.length) return { ok: false, error: objections.join('; '), ...result };
-      passed.rescan.set(source, { answers, after, left });
-      return { ok: true, ...result, ...(left.length ? { left_for_next_time: left } : {}) };
+      passed.rescan.set(source, { answers, after, shift });
+      return { ok: true, ...result };
     };
     const runTests = async ({ source }) => {
       if (!passed.measure.has(source)) return { ok: false, error: 'run measure on this exact source first' };
@@ -407,7 +386,7 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
         running.update(`${model.id} working (turn ${event.turn}, effort ${effort})`);
       }
     };
-    const run = await model.run({ prompt: fixPrompt({ finding, before, reachable, fileMetrics: trim(base), budget: fileBudget(base), state: step.state, region, start, end, checks: checks.map(check => check.name) }), tools, effort, onEvent });
+    const run = await model.run({ prompt: fixPrompt({ finding, before, fileMetrics: trim(base), budget: fileBudget(base, { security: before.some(issue => issue.type === 'security') }), state: step.state, region, start, end, checks: checks.map(check => check.name) }), tools, effort, onEvent });
     meter.add(model.id, run.usage, { turns: run.turns, requests: run.turns });
     Object.assign(fix, { trace: run.trace, turns: run.turns });
     if (!accepted) {
@@ -431,7 +410,7 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
     ui.say(`${OK} ${commit.slice(0, 7)} ${accepted.summary}`);
     // The hash of the method as it now reads, so `issues` shows this fix against what it produced rather than what it replaced.
     const hashAfter = sha256(splice(accepted.source).slice(accepted.kept.line - 1, accepted.kept.end_line).join('\n'));
-    return await finish('ready', { summary: accepted.summary, notes: accepted.notes, line: node.line, hash_after: hashAfter, commit, patch_path: patchPath, before, after: accepted.after, file_before: trim(base), file_after: accepted.fileMetrics, method_before: trim(node.metrics), method_after: accepted.metrics, reachable, checks: accepted.checks });
+    return await finish('ready', { summary: accepted.summary, notes: accepted.notes, line: node.line, hash_after: hashAfter, commit, patch_path: patchPath, before, after: accepted.after, file_before: trim(base), file_after: accepted.fileMetrics, method_before: trim(node.metrics), method_after: accepted.metrics, expected: accepted.shift, checks: accepted.checks });
   } catch (error) {
     fix.status = 'failed';
     fix.error = error.message;
