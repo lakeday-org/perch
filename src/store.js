@@ -3,11 +3,13 @@ import { createHash } from 'node:crypto';
 import { appendFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { excludeFromStatus, git, repoRoot } from './git.js';
-import { flagged, hasIssue, issuesOf, needsDesign } from './questions.js';
+import { flagged, hasIssue, issuesOf } from './questions.js';
 
 export const sha256 = text => createHash('sha256').update(text).digest('hex');
 /** A stable 16-hex-character id derived from everything that determines a record's result. */
 export const identity = (...parts) => sha256(JSON.stringify(parts)).slice(0, 16);
+/** A short stable handle for a method's finding, the same across scans. */
+export const findingId = method => identity('finding', method).slice(0, 8);
 
 export async function writeJson(path, value) {
   await mkdir(dirname(path), { recursive: true });
@@ -94,23 +96,39 @@ export function openStore(out) {
       for (const event of await store.latestFindings()) index.set(event.method, event.hash);
       return index;
     },
-    /** Every method with an issue at probability `min` or more: defects and design issues together, strongest first. */
-    async issues(min = 0.5) {
+    /**
+     * Every method with an issue at probability `min` or more, strongest first: System One's answers for the methods it has read, joined
+     * with the latest scan's metrics for every method, so a method too complex by the metrics is an issue whether or not it was read.
+     */
+    async issues(min = 0.5, { scan = null, all = false } = {}) {
+      const findings = await store.latestFindings();
+      scan ??= await store.latestScan();
+      const byMethod = new Map(findings.map(finding => [finding.method, finding]));
+      const every = [];
+      if (scan) {
+        const seen = new Set();
+        for (const file of scan.files ?? []) {
+          if (file.test) continue;
+          for (const method of file.methods) {
+            seen.add(method.id);
+            const hunted = byMethod.get(method.id);
+            const base = { metrics: method.metrics, file: file.metrics };
+            // Answers about a method that has since changed are stale; the metrics are always about the code as it is.
+            every.push(hunted && hunted.hash === method.hash ? { ...hunted, ...base } : { id: findingId(method.id), method: method.id, path: file.path, name: method.qualified_name, line: method.line, end_line: method.end_line, hash: method.hash, revision: scan.revision, root: scan.root, at: scan.created_at, unread: true, ...base, ...(hunted ? { fix: hunted.fix, refactored: hunted.refactored } : {}) });
+          }
+        }
+        for (const finding of findings) if (!seen.has(finding.method)) every.push(finding);
+      } else every.push(...findings);
       const strength = event => issuesOf(event, min)[0]?.probability ?? 0;
-      return (await store.latestFindings()).filter(event => hasIssue(event, min)).sort((a, b) => strength(b) - strength(a) || (b.severity?.score ?? 0) - (a.severity?.score ?? 0));
+      return every.filter(event => all || hasIssue(event, min)).sort((a, b) => strength(b) - strength(a) || (b.severity?.score ?? 0) - (a.severity?.score ?? 0));
     },
     /** Flagged methods at probability `min` or more, most likely first. */
     async findings(min = 0.5) {
-      return (await store.latestFindings()).filter(event => flagged(event, min)).sort((a, b) => b.has_bug - a.has_bug || (b.severity?.score ?? 0) - (a.severity?.score ?? 0));
-    },
-    /** Methods needing design work at probability `min` or more, strongest signal first. */
-    async designFindings(min = 0.5) {
-      const weight = event => Math.max(event.refactor?.refactor === 'none' ? 0 : event.refactor?.probabilities?.[event.refactor?.refactor] ?? 0, 1 - (event.does_what_it_claims ?? 1));
-      return (await store.latestFindings()).filter(event => needsDesign(event, min)).sort((a, b) => weight(b) - weight(a));
+      return (await store.issues(min)).filter(event => flagged(event, min)).sort((a, b) => b.has_bug - a.has_bug || (b.severity?.score ?? 0) - (a.severity?.score ?? 0));
     },
     /** The finding with this id or unique id prefix. */
     async findFinding(ref) {
-      const matches = (await store.latestFindings()).filter(event => event.id?.startsWith(ref));
+      const matches = (await store.issues(0.5, { all: true })).filter(event => event.id?.startsWith(ref));
       if (matches.length === 1) return matches[0];
       if (matches.length) throw new Error(`finding id ${ref} is ambiguous: ${matches.map(event => event.id).join(', ')}`);
       throw new Error(`no finding ${ref}; run perch issues to list them`);
@@ -129,9 +147,12 @@ export function openStore(out) {
       return findings;
     },
     listHunts: () => records('hunts', 'hunt.json'),
+    listScans: () => records('scans', 'scan.json'),
     listFixes: () => records('fixes', 'fix.json'),
     listRefactors: () => records('refactors', 'refactor.json'),
     async latestHunt() { return (await store.listHunts()).at(-1) ?? null; },
+    /** The most recent scan on disk: the code as it was last analyzed. */
+    async latestScan() { return (await store.listScans()).at(-1) ?? null; },
   };
   return store;
 }

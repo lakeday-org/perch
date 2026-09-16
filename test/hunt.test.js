@@ -7,7 +7,7 @@ import { createSourceAnalyzer } from '../src/analysis.js';
 import { runHunt } from '../src/hunt.js';
 import { huntStep, locateWhere, MAX_CHOICES } from '../src/questions.js';
 import { openStore } from '../src/store.js';
-import { formatHunt } from '../src/report.js';
+import { formatScanRun } from '../src/report.js';
 import { commitAll, fixtureOptions, makeGraphFixture, scriptedSystemOne } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
@@ -80,9 +80,10 @@ describe('perch hunt', () => {
     expect(existsSync(join(repo.out, 'workspaces'))).toBe(false);
     expect((await git(['status', '--porcelain'], repo.root)).trim()).toBe('');
     expect(f.where.text).toBe('if (x > 10) return g(x) + h(x);');
-    expect(formatHunt(hunt)).toContain('1 have issues (1 defect, 0 design only), 3 look clean.');
-    expect(formatHunt(hunt)).toMatch(new RegExp(`${f.id}  f +src/a.js:4 +off by one 90%, too big 80%, misdocumented 70% +major +open`));
-    expect(formatHunt(hunt)).not.toContain('Design work');
+    const shown = formatScanRun(hunt, await openStore(repo.out).issues());
+    expect(shown).toMatch(/^Scanned .* at commit [0-9a-f]{7}: 4 methods; System One read 4\./m);
+    expect(shown).toContain('1 open issues at 50% or more.');
+    expect(shown).toMatch(new RegExp(`${f.id}  f +src/a.js:4 +off by one 90%, too big 80%, misdocumented 70% +major +open +-`));
 
     // A second hunt skips everything, without a single model call.
     const again = await runHunt(await withRevision(repo, { systemOne: scriptedSystemOne() }));

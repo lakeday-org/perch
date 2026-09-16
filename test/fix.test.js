@@ -5,13 +5,14 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { runHunt } from '../src/hunt.js';
-import { pendingFixes, runFix, runFixQueue, splitStale, underPath } from '../src/fix.js';
+import { pendingFixes, runFix, runFixQueue, runOne, splitStale, underPath } from '../src/fix.js';
+import { runRefactor } from '../src/refactor.js';
 import { huntAnswers } from '../src/prompts.js';
 import { createShell } from '../src/shell.js';
 import { openStore } from '../src/store.js';
 import { formatFinding, formatFix, formatFixes, formatIssues } from '../src/report.js';
 import { createUi } from '../src/ui.js';
-import { buggySource, commitAll, fixedMethod, fixedSource, fixtureOptions, makeFixture, scriptedModel, scriptedSystemOne } from './helpers.js';
+import { buggySource, commitAll, fixedMethod, fixedSource, fixtureOptions, leanerSource, makeFixture, scriptedModel, scriptedSystemOne } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
 const shell = createShell();
@@ -31,7 +32,7 @@ const fixOptions = (repo, finding, extra) => ({ finding, root: repo.root, out: r
 const proposal = (method, summary = 'attempt') => ({ method, summary });
 
 describe('perch fix', () => {
-  it('queues open defects up to the budget, under a path when given, and sets stale findings aside', async () => {
+  it('queues every open issue up to the budget, under a path when given, and sets stale findings aside', async () => {
     const defect = extra => ({ has_bug: 0.9, kind: { kind: 'boundary' }, ...extra });
     const design = extra => ({ has_bug: 0.1, refactor: { refactor: 'split', probabilities: { split: 0.8 } }, ...extra });
     const open = defect({ id: 'aaaa1111', path: 'src/a.js' });
@@ -40,18 +41,19 @@ describe('perch fix', () => {
     const messy = design({ id: 'ffff6666', path: 'lib/f.js' });
     const later = defect({ id: 'eeee5555', path: 'lib/e.js' });
     expect(pendingFixes([open, ready, rejected, messy, later], 1).map(finding => finding.id)).toEqual(['aaaa1111']);
-    expect(pendingFixes([open, ready, messy, later], 5).map(finding => finding.id)).toEqual(['aaaa1111', 'eeee5555']);
+    // Design issues are in the queue too; one already simplified is not, and a complex method never read by System One is.
+    expect(pendingFixes([open, ready, messy, later, design({ id: 'gggg7777', path: 'lib/g.js', refactored: { status: 'ready' } }), { id: 'hhhh8888', path: 'lib/h.js', metrics: { risk_score: 80 } }], 9).map(finding => finding.id)).toEqual(['aaaa1111', 'ffff6666', 'eeee5555', 'hhhh8888']);
     expect(underPath([open, messy, later], 'lib').map(finding => finding.id)).toEqual(['ffff6666', 'eeee5555']);
     expect(underPath([open, messy, later], 'lib/e.js').map(finding => finding.id)).toEqual(['eeee5555']);
     const scan = { files: [{ path: 'src/a.js', methods: [{ id: 'src/a.js::f', hash: 'same' }] }] };
     const { current, stale } = splitStale([{ method: 'src/a.js::f', hash: 'same' }, { method: 'src/a.js::f', hash: 'old' }, { method: 'gone.js::g', hash: 'x' }], scan);
     expect(current).toHaveLength(2);
     expect(stale).toHaveLength(1);
-    expect(formatFixes({ kind: 'fix', budget: 5, remaining: 3, stale: 2, fixes: [] })).toBe('No open defects to fix. 2 findings are for methods that no longer exist under that name; hunt again to see what replaced them.');
+    expect(formatFixes({ budget: 5, remaining: 3, stale: 2, fixes: [] })).toBe('No open issues to work. 2 findings are for methods that no longer exist under that name; scan again to see what replaced them.');
     const queued = await runFixQueue({ findings: [defect({ id: 'a1', method: 'm', path: 'src/a.js', revision: 'r' }), defect({ id: 'b2', method: 'n', path: 'src/b.js', revision: 'r' })], budget: 1, root: null, out: '/tmp', model: { id: 'x' }, systemOne: { id: 'y' }, analyzer: {}, shell: {} });
     expect(queued.attempted).toBe(1);
     expect(queued.remaining).toBe(1);
-    expect(queued.fixes[0]).toMatchObject({ finding_id: 'a1', status: 'failed', error: 'finding a1 has no repository recorded; hunt again' });
+    expect(queued.fixes[0]).toMatchObject({ finding_id: 'a1', status: 'failed', error: 'finding a1 has no repository recorded; scan again' });
   });
 
   it('tells the model everything System One answered, with probabilities', () => {
@@ -66,6 +68,22 @@ describe('perch fix', () => {
     expect(text).toContain('a caller misuses this method or relies on what it does not guarantee: publish 30%');
     expect(text).toContain('does what its name and comment claim: 80%; misdocumented: 53%');
     expect(text).toContain('refactor it most needs: too big 84%, none 10%, too nested 5%');
+  });
+
+  it('sends a finding with no defect to the simplify agent, with the issues the scan raised', async () => {
+    const { repo, finding } = await huntedFixture();
+    const design = { ...finding, has_bug: 0.39, refactor: { refactor: 'split', probabilities: { split: 0.97 } }, misdocumented: 0.82 };
+    const model = scriptedModel();
+    await expect(runFix(fixOptions(repo, design, { model }))).rejects.toThrow('clamp has no defect to fix (wrong return value 39%, reachable 90%). Its open issues are too big 97%, misdocumented 82%: perch fix works those by simplifying it.');
+    expect(model.calls).toHaveLength(0);
+    const record = await runOne({ ...fixOptions(repo, design, { model }), simplify: runRefactor });
+    expect(record.kind).toBe('refactor');
+    expect(record.status).toBe('ready');
+    expect(model.calls.map(call => call.name)).toEqual(['measure', 'run_tests', 'submit']);
+    expect(model.calls[0].prompt).toContain('WHAT THE SCAN RAISED ABOUT THIS METHOD: too big 97%; misdocumented 82%');
+    expect(await readFile(join(repo.root, 'src', 'clamp.js'), 'utf8')).toBe(leanerSource + '\n');
+    const [listed] = await openStore(repo.out).issues();
+    expect(listed.refactored).toMatchObject({ status: 'ready', commit: record.commit });
   });
 
   it('refuses to commit on a protected branch', async () => {
@@ -160,7 +178,7 @@ describe('perch fix', () => {
     expect(closed.fix).toMatchObject({ status: 'closed', reason: fix.reason });
     expect(formatIssues([closed], 0.5)).toBe('No open issues at 50% or more. 1 closed; --closed to list them.');
     expect(formatFinding(closed)).toContain('Closed on');
-    expect(formatIssues([], 0.5, 10, { gone: 2 })).toBe('No hunted method has an issue at 50% or more. 2 findings are for methods that no longer exist and are not listed.');
+    expect(formatIssues([], 0.5, 10, { gone: 2 })).toBe('No method has an issue at 50% or more. 2 findings are for methods that no longer exist and are not listed.');
   });
 
   it('re-questions a method that changed since the hunt and goes on from the fresh answers, or drops it when no defect is left', async () => {
@@ -248,7 +266,7 @@ describe('perch fix', () => {
     expect(formatIssues([discarded], 0.5)).toBe('No open issues at 50% or more. 1 closed; --closed to list them.');
     expect(formatIssues([discarded], 0.5, 10, { closed: true })).toMatch(/Status  Commit\n.*closed +-/);
     expect(formatFinding(discarded)).toContain('Status: closed');
-    expect(formatFinding(discarded)).toContain('Fix discarded on');
+    expect(formatFinding(discarded)).toContain('No fix on');
     expect((await git(['worktree', 'list'], repo.root)).trim().split('\n')).toHaveLength(1);
     expect((await git(['status', '--porcelain'], repo.root)).trim()).toBe('');
     expect(await readFile(join(repo.root, 'src', 'clamp.js'), 'utf8')).toBe(buggySource);

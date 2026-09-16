@@ -30,25 +30,32 @@ export const KIND_LABELS = { boundary: 'off by one', missing_null_handling: 'unh
 export const label = kind => KIND_LABELS[kind] ?? kind.replaceAll('_', ' ');
 const spaced = label;
 
+const percent = value => `${Math.round(value * 100)}%`;
+/** A method whose tree-sitter risk score is at least this carries a `complex` issue, whether or not System One has read it. */
+export const COMPLEX_RISK = 70;
+
 /**
- * Every issue a hunted method carries at probability `min` or more, strongest first. A defect needs `has_bug` and, when asked,
- * `reachable`; the design issues are a recommended refactor, a method that does not do what it claims, and one a caller cannot
- * learn the contract of from its comment. `perch fix` works the defects; `perch refactor` works the rest.
+ * Every issue a method carries at probability `min` or more, strongest first. A defect needs `has_bug` and, when asked, `reachable`;
+ * the design issues are a recommended refactor, a method that does not do what it claims, one a caller cannot learn the contract of
+ * from its comment, and `complex`, from the metrics alone. `perch fix` works all of them: a defect with the fix agent, the rest by
+ * bringing the file's score down.
  */
 export function issuesOf(answers, min = 0.5) {
   const issues = [];
-  if (answers.has_bug >= min && (answers.reachable === undefined || answers.reachable >= min)) issues.push({ type: 'defect', label: spaced(answers.kind?.kind ?? 'defect'), probability: answers.has_bug });
+  if (answers.has_bug !== undefined && answers.has_bug >= min && (answers.reachable === undefined || answers.reachable >= min)) issues.push({ type: 'defect', label: spaced(answers.kind?.kind ?? 'defect'), probability: answers.has_bug, text: `${spaced(answers.kind?.kind ?? 'defect')} ${percent(answers.has_bug)}` });
   const refactor = answers.refactor?.refactor;
   const refactorProbability = refactor && refactor !== 'none' ? answers.refactor.probabilities?.[refactor] ?? 0 : 0;
-  if (refactorProbability >= min) issues.push({ type: 'refactor', label: spaced(refactor), probability: refactorProbability });
-  if (answers.does_what_it_claims !== undefined && 1 - answers.does_what_it_claims >= min) issues.push({ type: 'misaligned', label: 'does not do what it claims', probability: 1 - answers.does_what_it_claims });
-  if (answers.misdocumented !== undefined && answers.misdocumented >= min) issues.push({ type: 'misdocumented', label: 'misdocumented', probability: answers.misdocumented });
+  if (refactor && refactor !== 'none' && refactorProbability >= min) issues.push({ type: 'refactor', label: spaced(refactor), probability: refactorProbability, text: `${spaced(refactor)} ${percent(refactorProbability)}` });
+  if (answers.does_what_it_claims !== undefined && 1 - answers.does_what_it_claims >= min) issues.push({ type: 'misaligned', label: 'does not do what it claims', probability: 1 - answers.does_what_it_claims, text: `does not do what it claims ${percent(1 - answers.does_what_it_claims)}` });
+  if (answers.misdocumented !== undefined && answers.misdocumented >= min) issues.push({ type: 'misdocumented', label: 'misdocumented', probability: answers.misdocumented, text: `misdocumented ${percent(answers.misdocumented)}` });
+  const risk = answers.metrics?.risk_score;
+  if (risk !== undefined && risk !== null && risk >= COMPLEX_RISK) issues.push({ type: 'complex', label: 'complex', probability: risk / 100, text: `complex, risk ${Math.round(risk)}` });
   return issues.sort((a, b) => b.probability - a.probability);
 }
 export const isDesign = issue => issue.type !== 'defect';
 /** A hunted method is flagged when it carries a reachable defect at `min`. */
 export const flagged = (answers, min = 0.5) => issuesOf(answers, min).some(issue => issue.type === 'defect');
-/** A hunted method needs design work when it carries a refactor, alignment, or documentation issue at `min`. */
+/** A method needs design work when it carries a refactor, alignment, documentation, or complexity issue at `min`. */
 export const needsDesign = (answers, min = 0.5) => issuesOf(answers, min).some(isDesign);
 export const hasIssue = (answers, min = 0.5) => issuesOf(answers, min).length > 0;
 
@@ -226,7 +233,6 @@ export function reachCheck({ finding, state }) {
  * most UNSURE. An answer in between is a shrug, and a shrug never counts as proof.
  */
 export const SURE = 0.6, UNSURE = 0.4;
-const percent = value => `${Math.round(value * 100)}%`;
 
 /** The hunt's defect questions again over a patched method, with the original beside it. */
 export function patchCheck({ step, original, summary }) {

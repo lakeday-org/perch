@@ -5,14 +5,14 @@
  * accepted fix is one commit on the current branch. A rejected attempt leaves the checkout as it was.
  */
 import { DEFAULT_BUDGET, huntedEvent, questionMethod } from './hunt.js';
-import { visibleFindings } from './report.js';
+import { visibleFindings, workFor, workOn } from './report.js';
 import { writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { git, revision as gitRevision } from './git.js';
 import { languageOf } from './analysis.js';
 import { runScan } from './scan.js';
 import { buildGraph, resolveModule } from './graph.js';
-import { flagged, huntStep, label, patchCheck, reachCheck, readPatchCheck, SURE } from './questions.js';
+import { flagged, huntStep, isDesign, issuesOf, label, patchCheck, reachCheck, readPatchCheck, SURE } from './questions.js';
 import { identity, openStore, readJson, writeJson } from './store.js';
 import { fixPrompt } from './prompts.js';
 import { DEFAULT_EFFORT, describeRun, tool } from './model.js';
@@ -40,15 +40,15 @@ export const underPath = (findings, path) => (path ? findings.filter(finding => 
 /** System One verifications one fix may spend; each is a request. */
 export const MAX_VERIFICATIONS = 6;
 /** Bumped whenever how a fix is made or judged changes, so a rejection recorded by an older pipeline is never reused. */
-export const FIX_VERSION = 3;
+export const FIX_VERSION = 4;
 
 export function fixIdentity({ finding, model }) {
   return identity('fix', FIX_VERSION, finding.id, finding.hash, model);
 }
 
-/** Open defects with no fix record yet, most likely first, capped at `budget`. */
+/** Open issues nothing has worked yet, strongest first, capped at `budget`. */
 export function pendingFixes(findings, budget = DEFAULT_BUDGET) {
-  return visibleFindings(findings).filter(finding => flagged(finding) && !finding.fix).slice(0, budget);
+  return visibleFindings(findings).filter(finding => !workOn(finding)).slice(0, budget);
 }
 
 /**
@@ -124,6 +124,10 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
   if (existing && ['ready', 'rejected'].includes(existing.status)) {
     ui.say(`${hunted.id} ${hunted.path}::${hunted.name}: already ${existing.status} by ${model.id}; reusing`);
     return existing;
+  }
+  if (!flagged(hunted)) {
+    const design = issuesOf(hunted).filter(isDesign).map(issue => `${issue.label} ${Math.round(issue.probability * 100)}%`).join(', ');
+    throw new Error(`${hunted.name} has no defect to fix (${label(hunted.kind?.kind ?? 'defect')} ${Math.round(hunted.has_bug * 100)}%${hunted.reachable !== undefined ? `, reachable ${Math.round(hunted.reachable * 100)}%` : ''}). ${design ? `Its open issues are ${design}: perch fix works those by simplifying it.` : 'Nothing is open on it.'}`);
   }
   ui.say(`${hunted.id}  ${hunted.name}  ${hunted.path}:${hunted.where.line}  ${label(hunted.kind?.kind ?? 'defect')} ${Math.round(hunted.has_bug * 100)}%`);
   await store.exclude(root);
@@ -282,16 +286,17 @@ export async function runFix({ finding: hunted, root, out, model, systemOne, ana
 }
 
 /**
- * Work open defects, most likely first, until `budget` have been tried; each proven fix is one commit on the current branch.
- * Findings whose method no longer reads as hunted are set aside and counted, not attempted.
+ * Work open issues, strongest first, until `budget` have been tried: a defect goes to the fix agent, anything else to the simplify
+ * agent on the file's score. Each accepted result is one commit on the current branch. Findings whose method no longer exists are
+ * set aside and counted, not attempted.
  */
-export async function runFixQueue({ findings, budget = DEFAULT_BUDGET, root, out, model, systemOne, analyzer, shell, ui = plainUi(), log = () => {}, debug = () => {} }) {
+export async function runFixQueue({ findings, budget = DEFAULT_BUDGET, root, out, model, systemOne, analyzer, shell, ui = plainUi(), log = () => {}, debug = () => {}, simplify = null }) {
   const pending = pendingFixes(findings, Infinity);
-  let current = pending, stale = [];
+  let current = pending, stale = [], scan = null;
   if (root && pending.length) {
-    const scan = await runScan({ root, revision: await gitRevision(root), out, analyzer, log: debug, debug });
+    scan = await runScan({ root, revision: await gitRevision(root), out, analyzer, log: debug, debug });
     ({ current, stale } = splitStale(pending, scan));
-    if (stale.length) ui.say(`${stale.length} ${stale.length === 1 ? 'finding is' : 'findings are'} for methods that no longer exist under that name; hunt again to see what replaced them`);
+    if (stale.length) ui.say(`${stale.length} ${stale.length === 1 ? 'finding is' : 'findings are'} for methods that no longer exist under that name; scan again to see what replaced them`);
   }
   const selected = current.slice(0, budget);
   const fixes = [];
@@ -299,12 +304,23 @@ export async function runFixQueue({ findings, budget = DEFAULT_BUDGET, root, out
     ui.say(`\n[${index + 1}/${selected.length}]`);
     const findingRoot = finding.root ?? root;
     try {
-      if (!findingRoot) throw new Error(`finding ${finding.id} has no repository recorded; hunt again`);
-      fixes.push(await runFix({ finding, root: findingRoot, out, model, systemOne, analyzer, shell, ui, log, debug }));
+      if (!findingRoot) throw new Error(`finding ${finding.id} has no repository recorded; scan again`);
+      fixes.push(await runOne({ finding, scan, root: findingRoot, out, model, systemOne, analyzer, shell, ui, log, debug, simplify }));
     } catch (error) {
       ui.say(`${FAIL} ${finding.id} failed: ${error.message.split('\n')[0]}`);
       fixes.push({ id: null, finding_id: finding.id, method: finding.method, path: finding.path, root: findingRoot, revision: finding.revision, out, status: 'failed', error: error.message });
     }
   }
-  return { kind: 'fix', budget, open: current.length, stale: stale.length, attempted: fixes.length, remaining: Math.max(0, current.length - selected.length), fixes };
+  return { budget, open: current.length, stale: stale.length, attempted: fixes.length, remaining: Math.max(0, current.length - selected.length), fixes };
+}
+
+/** Work one finding the way its issues call for: the fix agent for a defect, the simplify agent for the rest. */
+export async function runOne({ finding, scan = null, root, out, model, systemOne, analyzer, shell, ui = plainUi(), log = () => {}, debug = () => {}, simplify = null }) {
+  if (workFor(finding) === 'defect') return runFix({ finding, root, out, model, systemOne, analyzer, shell, ui, log, debug });
+  if (!simplify) throw new Error(`${finding.name} has no defect; nothing here can simplify it`);
+  const current = scan ?? await runScan({ root, revision: await gitRevision(root), out, analyzer, log: debug, debug });
+  const file = (current.files ?? []).find(item => item.path === finding.path);
+  const method = file?.methods.find(item => item.id === finding.method);
+  if (!method) throw new Error(`${finding.method} no longer exists at HEAD; scan again`);
+  return simplify({ method: { ...method, path: file.path, file: file.metrics }, notes: issuesOf(finding).filter(isDesign), root, out, model, systemOne, analyzer, shell, ui, log, debug });
 }

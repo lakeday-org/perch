@@ -1,5 +1,5 @@
-/** Human-readable summaries of scan, hunt, fix, and issue records. */
-import { hasIssue, isDesign, issuesOf, label } from './questions.js';
+/** Human-readable summaries of scans, issues, and the work done on them. */
+import { isDesign, issuesOf, label } from './questions.js';
 
 const short = revision => revision?.slice(0, 12) ?? '?';
 
@@ -13,63 +13,38 @@ function table(header, rows, align) {
 const number = value => value === null || value === undefined ? '-' : Math.round(value);
 const relative = path => path.startsWith(process.cwd() + '/') ? path.slice(process.cwd().length + 1) : path;
 
-export function formatScan(scan, shown = TOP) {
-  const files = (scan.files ?? []).filter(file => file.metrics).sort((a, b) => (b.metrics.risk_score ?? 0) - (a.metrics.risk_score ?? 0) || a.path.localeCompare(b.path));
-  const lines = [`Scanned ${relative(scan.target)} at commit ${scan.revision?.slice(0, 7) ?? '?'}`];
-  if (scan.coverage) {
-    const listed = Math.min(shown, files.length);
-    lines.push(`${scan.coverage.parsed} source files, ${scan.functions} methods. ${files.length} files ranked by risk${files.length > listed ? `; the ${listed} riskiest are listed, --all for every one` : ''}.`);
-    if (scan.coverage.parse_failures) lines.push(`${scan.coverage.parse_failures} files could not be parsed and were skipped.`);
-  }
-  if (files.length) {
-    const rows = files.slice(0, shown).map(file => {
-      const metrics = file.metrics;
-      return [file.path, number(metrics.risk_score), number(metrics.maintainability_index), number(metrics.cyclomatic_complexity), number(metrics.max_nesting), number(metrics.sloc)];
-    });
-    lines.push('', ...table(['File', 'Risk', 'Maintainability', 'Complexity', 'Nesting', 'Lines'], rows, ['left']), '',
-      'Risk 0-100, higher is riskier. Maintainability 0-100, higher is better. Lines exclude blanks and comments.');
-  }
-  lines.push('', `Full results: ${relative(scan.out)}/scan.json`);
-  return lines.join('\n');
-}
-
 const percent = value => `${Math.round(value * 100)}%`;
 const words = label;
 const shortId = id => id.split('::').at(-1);
 export const TOP = 10;
 
 
-/** A finding is closed once its defect was closed (nothing reachable to fix) or every attempt to fix it was rejected. */
-export const issueStatus = finding => (finding.fix?.status === 'rejected' || finding.fix?.status === 'closed' ? 'closed' : 'open');
-/** What a fix did to a finding, for the table: the commit, or `-`. */
-const fixRef = finding => (finding.fix?.status === 'ready' ? finding.fix.commit?.slice(0, 7) ?? 'fixed' : '-');
-const statusRow = finding => [issueStatus(finding), fixRef(finding)];
-const issueCell = (finding, min) => issuesOf(finding, min).map(issue => `${issue.label} ${percent(issue.probability)}`).join(', ');
+/** How a finding is worked: a defect by the fix agent, anything else by bringing the file's score down. */
+export const workFor = (finding, min = 0.5) => (issuesOf(finding, min).some(issue => !isDesign(issue)) ? 'defect' : 'simplify');
+/** The record of the work done on a finding, whichever kind it was. */
+export const workOn = finding => (workFor(finding) === 'defect' ? finding.fix : finding.refactored) ?? null;
+/** A finding is closed once its work was closed (nothing to do) or every attempt at it was rejected. */
+export const issueStatus = finding => { const work = workOn(finding); return work && (work.status === 'rejected' || work.status === 'closed') ? 'closed' : 'open'; };
+/** The commit that worked a finding, for the table, or `-`. */
+const commitRef = finding => { const work = workOn(finding); return work?.status === 'ready' ? work.commit?.slice(0, 7) ?? 'done' : '-'; };
+const statusRow = finding => [issueStatus(finding), commitRef(finding)];
+const issueCell = (finding, min) => issuesOf(finding, min).map(issue => issue.text).join(', ');
 const locationOf = (finding, min) => `${finding.path}:${issuesOf(finding, min)[0]?.type === 'defect' ? finding.where.line : finding.line}`;
 
-/** Aligned rows of methods with issues: defects and design issues in one list, each row naming everything the hunt raised. */
+/** Aligned rows of methods with issues: everything the scan raised about each, defects and design alike. */
 function issueTable(findings, min = 0.5) {
-  const rows = findings.map(finding => [finding.id, finding.name, locationOf(finding, min), issueCell(finding, min), issuesOf(finding, min).some(issue => !isDesign(issue)) ? finding.severity.level : '-', ...statusRow(finding)]);
+  const rows = findings.map(finding => [finding.id, finding.name, locationOf(finding, min), issueCell(finding, min), workFor(finding, min) === 'defect' ? finding.severity?.level ?? '-' : '-', ...statusRow(finding)]);
   return table(['ID', 'Method', 'Location', 'Issues', 'Severity', 'Status', 'Commit'], rows, ['left', 'left', 'left', 'left', 'left', 'left', 'left']);
 }
 
-const footer = 'perch issues <id> for detail, perch fix to work the defects.';
+const footer = 'perch issues <id> for detail; perch fix [id | path] works them, most serious first.';
 
-export function formatHunt(hunt, shown = TOP) {
+/** What one scan did, then the open issues as `perch issues` lists them. */
+export function formatScanRun(hunt, issues, shown = TOP) {
   const hunted = (hunt.visited ?? []).filter(visit => visit.status === 'hunted');
-  const strength = visit => issuesOf(visit)[0]?.probability ?? 0;
-  const findings = hunted.filter(visit => hasIssue(visit)).sort((a, b) => strength(b) - strength(a));
-  const defects = findings.filter(visit => issuesOf(visit).some(issue => !isDesign(issue))).length;
-  const lines = [`Hunted ${hunted.length} methods in ${relative(hunt.target)} at commit ${hunt.revision?.slice(0, 7) ?? '?'}${hunt.status === 'complete' ? '' : ` (${hunt.status})`}.`];
+  const lines = [`Scanned ${relative(hunt.target)} at commit ${hunt.revision?.slice(0, 7) ?? '?'}: ${hunt.methods} methods; System One read ${hunted.length}${hunt.skipped ? `, skipped ${hunt.skipped} unchanged since an earlier scan` : ''}${hunt.remaining ? `, ${hunt.remaining} not reached yet (--budget)` : ''}.${hunt.status === 'complete' ? '' : ` (${hunt.status})`}`];
   if (hunt.error) lines.push(`Error: ${hunt.error}`);
-  const parts = [];
-  if (findings.length) parts.push(`${findings.length} have issues (${defects} ${defects === 1 ? 'defect' : 'defects'}, ${findings.length - defects} design only)`);
-  if (hunted.length - findings.length) parts.push(`${hunted.length - findings.length} look clean`);
-  if (hunt.skipped) parts.push(`${hunt.skipped} skipped as unchanged since an earlier hunt`);
-  if (hunt.remaining) parts.push(`${hunt.remaining} of ${hunt.methods} not reached yet`);
-  if (parts.length) lines.push(`${parts.join(', ')}.`);
-  if (findings.length) lines.push('', ...issueTable(findings.slice(0, shown)), ...(findings.length > shown ? [`${findings.length - shown} more; --all for every one.`] : []));
-  lines.push('', footer);
+  lines.push('', formatIssues(issues, 0.5, shown));
   return lines.join('\n');
 }
 
@@ -88,7 +63,7 @@ export function visibleFindings(findings, { closed = false } = {}) {
 
 export function formatIssues(findings, min, shown = TOP, { closed = false, gone = 0 } = {}) {
   const goneNote = gone ? ` ${gone} ${gone === 1 ? 'finding is' : 'findings are'} for methods that no longer exist and ${gone === 1 ? 'is' : 'are'} not listed.` : '';
-  if (!findings.length) return `No hunted method has an issue at ${percent(min)} or more.${goneNote}`;
+  if (!findings.length) return `No method has an issue at ${percent(min)} or more.${goneNote}`;
   const hidden = findings.filter(finding => issueStatus(finding) === 'closed').length;
   const rows = visibleFindings(findings, { closed });
   const noun = `issues at ${percent(min)} or more`;
@@ -96,40 +71,35 @@ export function formatIssues(findings, min, shown = TOP, { closed = false, gone 
   return [listed(findings.length - hidden, hidden, shown, noun, closed) + goneNote, '', ...issueTable(rows.slice(0, shown), min), '', footer].join('\n');
 }
 
-/** Everything the model answered about one method. */
+/** Everything known about one method: System One's answers when it has read it, the metrics always, and the work done on it. */
 export function formatFinding(finding) {
   const probabilities = object => Object.entries(object).sort((a, b) => b[1] - a[1]).map(([key, value]) => `${words(key)} ${percent(value)}`).join(', ');
-  const lines = [
-    `${finding.id}  ${finding.name}  ${finding.path}:${finding.line}-${finding.end_line}  hunted at commit ${finding.revision.slice(0, 7)} on ${finding.at.slice(0, 10)}`,
-    `Reachable defect: ${percent(finding.has_bug)}${finding.reachable === undefined ? '' : `; line reachable ${percent(finding.reachable)}`}. Points at line ${finding.where.line} (confidence ${percent(finding.where.confidence)}):`,
-    `    ${finding.where.line}| ${finding.where.text ?? ''}`,
-    `Kind: ${probabilities(finding.kinds ?? { [finding.kind.kind]: finding.kind.probability ?? 0 })}`,
-    `Severity: ${finding.severity.level} (score ${finding.severity.score.toFixed(2)}, confidence ${percent(finding.severity.confidence)})`,
-  ];
+  const lines = [`${finding.id}  ${finding.name}  ${finding.path}:${finding.line}-${finding.end_line}  at commit ${finding.revision.slice(0, 7)}${finding.unread ? ' (not yet read by System One)' : ` read on ${finding.at.slice(0, 10)}`}`];
   lines.push(`Issues: ${issueCell(finding) || 'none at 50%'}`);
-  if (finding.does_what_it_claims !== undefined) lines.push(`Does what it claims: ${percent(finding.does_what_it_claims)}. Misdocumented: ${percent(finding.misdocumented)}. Refactor: ${probabilities(finding.refactor.probabilities ?? {})}`);
-  if (finding.misuse?.length) lines.push(`Misuses a callee: ${finding.misuse.map(item => `${shortId(item.callee)} ${percent(item.probability)}`).join(', ')}`);
-  if (finding.misused_by?.length) lines.push(`Misused by a caller: ${finding.misused_by.map(item => `${shortId(item.caller)} ${percent(item.probability)}`).join(', ')}`);
-  lines.push(`Follow next: ${finding.follow.method ? `${shortId(finding.follow.method)} (${percent(finding.follow.confidence)})` : 'none'}`);
-  if (finding.callees?.length) lines.push(`Calls: ${finding.callees.map(shortId).join(', ')}`);
-  if (finding.callers?.length) lines.push(`Called by: ${finding.callers.map(shortId).join(', ')}`);
+  if (finding.metrics) lines.push(`Metrics: risk ${number(finding.metrics.risk_score)}, maintainability ${number(finding.metrics.maintainability_index)}, complexity ${number(finding.metrics.cyclomatic_complexity)}, nesting ${number(finding.metrics.max_nesting)}, ${number(finding.metrics.sloc)} lines${finding.file ? `; file risk ${number(finding.file.risk_score)}` : ''}`);
+  if (finding.has_bug !== undefined) {
+    lines.push(`Defect: ${percent(finding.has_bug)}${finding.reachable === undefined ? '' : `; line reachable ${percent(finding.reachable)}`}. Points at line ${finding.where.line} (confidence ${percent(finding.where.confidence)}):`, `    ${finding.where.line}| ${finding.where.text ?? ''}`,
+      `Kind: ${probabilities(finding.kinds ?? { [finding.kind.kind]: finding.kind.probability ?? 0 })}`, `Severity: ${finding.severity.level} (score ${finding.severity.score.toFixed(2)}, confidence ${percent(finding.severity.confidence)})`);
+    if (finding.does_what_it_claims !== undefined) lines.push(`Does what it claims: ${percent(finding.does_what_it_claims)}. Misdocumented: ${percent(finding.misdocumented)}. Refactor: ${probabilities(finding.refactor.probabilities ?? {})}`);
+    if (finding.misuse?.length) lines.push(`Misuses a callee: ${finding.misuse.map(item => `${shortId(item.callee)} ${percent(item.probability)}`).join(', ')}`);
+    if (finding.misused_by?.length) lines.push(`Misused by a caller: ${finding.misused_by.map(item => `${shortId(item.caller)} ${percent(item.probability)}`).join(', ')}`);
+    if (finding.callees?.length) lines.push(`Calls: ${finding.callees.map(shortId).join(', ')}`);
+    if (finding.callers?.length) lines.push(`Called by: ${finding.callers.map(shortId).join(', ')}`);
+  }
   lines.push(`Status: ${issueStatus(finding)}`);
-  if (finding.fix?.status === 'ready') lines.push(`Fixed: ${finding.fix.summary ?? ''} (defect ${percent(finding.fix.verification?.before?.has_bug ?? finding.has_bug)} -> ${percent(finding.fix.verification?.after?.has_bug ?? 0)})`.trimEnd(), `    commit ${finding.fix.commit?.slice(0, 7) ?? '?'}${finding.fix.branch ? ` on ${finding.fix.branch}` : ''}  ${finding.fix.patch_path}`);
-  else if (finding.fix?.status === 'closed') lines.push(`Closed on ${finding.fix.at.slice(0, 10)}: ${finding.fix.reason}`);
-  else if (finding.fix) lines.push(`Fix discarded on ${finding.fix.at.slice(0, 10)} after ${finding.fix.attempts} model turns; last rejection: ${(finding.fix.error ?? '').split('\n')[0]}`);
-  if (finding.refactored?.status === 'ready') lines.push(`Refactored: ${finding.refactored.summary ?? ''}${finding.refactored.file_before && finding.refactored.file_after ? ` (file ${metricShift(finding.refactored.file_before, finding.refactored.file_after)})` : ''}`.trimEnd(), `    commit ${finding.refactored.commit?.slice(0, 7) ?? '?'}${finding.refactored.branch ? ` on ${finding.refactored.branch}` : ''}  ${finding.refactored.patch_path}`);
-  else if (finding.refactored) lines.push(`Refactor discarded on ${finding.refactored.at.slice(0, 10)} after ${finding.refactored.attempts} model turns; last rejection: ${(finding.refactored.error ?? '').split('\n')[0]}`);
+  const work = workOn(finding);
+  if (work?.status === 'ready') lines.push(`${workFor(finding) === 'defect' ? 'Fixed' : 'Simplified'}: ${work.summary ?? ''}${work.file_before && work.file_after ? ` (file ${metricShift(work.file_before, work.file_after)})` : work.verification ? ` (defect ${percent(work.verification.before?.has_bug ?? finding.has_bug)} -> ${percent(work.verification.after?.has_bug ?? 0)})` : ''}`.trimEnd(), `    commit ${work.commit?.slice(0, 7) ?? '?'}${work.branch ? ` on ${work.branch}` : ''}  ${work.patch_path}`);
+  else if (work?.status === 'closed') lines.push(`Closed on ${work.at.slice(0, 10)}: ${work.reason}`);
+  else if (work) lines.push(`No fix on ${work.at.slice(0, 10)} after ${work.attempts} model turns; last rejection: ${(work.error ?? '').split('\n')[0]}`);
   return lines.join('\n');
 }
 
 export function formatFixes(batch) {
-  const refactor = batch.kind === 'refactor';
-  const noun = refactor ? 'methods' : 'defects';
-  const stale = batch.stale ? ` ${batch.stale} ${batch.stale === 1 ? 'finding is' : 'findings are'} for methods that no longer exist under that name; hunt again to see what replaced them.` : '';
-  if (!batch.fixes.length) return refactor ? `No methods${batch.min ? ` at risk ${batch.min} or more` : ''} left to refactor.` : `No open defects to fix.${stale}`;
+  const stale = batch.stale ? ` ${batch.stale} ${batch.stale === 1 ? 'finding is' : 'findings are'} for methods that no longer exist under that name; scan again to see what replaced them.` : '';
+  if (!batch.fixes.length) return `No open issues to work.${stale}`;
   const left = batch.remaining ? `, ${batch.remaining} left` : '';
   const committed = batch.fixes.filter(fix => fix.status === 'ready').length;
-  return [`${refactor ? 'Simplified' : 'Investigated'} ${batch.fixes.length} ${noun} (budget ${batch.budget}${left}); ${committed} committed.${stale}`, ...batch.fixes.flatMap(fix => ['', formatFix(fix)])].join('\n');
+  return [`Worked ${batch.fixes.length} ${batch.fixes.length === 1 ? 'issue' : 'issues'} (budget ${batch.budget}${left}); ${committed} committed.${stale}`, ...batch.fixes.flatMap(fix => ['', formatFix(fix)])].join('\n');
 }
 
 /** "risk 91 -> 74, maintainability 12 -> 30, complexity 48 -> 20, nesting 4 -> 3, lines 180 -> 120". */

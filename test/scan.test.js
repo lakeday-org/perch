@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { runScan } from '../src/scan.js';
-import { formatScan } from '../src/report.js';
 import { fixtureOptions, makeFixture, makeGraphFixture } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
@@ -32,8 +31,6 @@ describe('perch scan', () => {
     expect(existsSync(join(repo.out, 'workspaces'))).toBe(false);
     expect((await git(['status', '--porcelain'], repo.root)).trim()).toBe('');
     expect((await git(['worktree', 'list', '--porcelain'], repo.root)).match(/^worktree /gm)).toHaveLength(1);
-    expect(formatScan(scan)).toContain('src/clamp.js');
-    expect(formatScan(scan)).toMatch(/File +Risk +Maintainability/);
 
     const again = await runScan(fixtureOptions(repo, { analyzer }));
     expect(again.id).toBe(scan.id);

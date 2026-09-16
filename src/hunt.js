@@ -4,11 +4,10 @@ import { readBlob } from './git.js';
 import { runScan } from './scan.js';
 import { buildGraph } from './graph.js';
 import { huntStep, locateWhere, reachCheck, readAnswers } from './questions.js';
-import { identity, openStore, writeJson } from './store.js';
+import { findingId, identity, openStore, writeJson } from './store.js';
+export { findingId };
 
 export const DEFAULT_BUDGET = 20, DEFAULT_PARALLEL = 8;
-/** A short stable handle for a method's finding, the same across hunts. */
-export const findingId = method => identity('finding', method).slice(0, 8);
 
 /** One System One pass over a method: the hunt's questions, the line, and, when a defect looks likely, whether that line is reachable. */
 export async function questionMethod({ systemOne, node, step, lines, debug = () => {} }) {

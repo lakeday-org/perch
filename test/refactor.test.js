@@ -4,11 +4,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { runScan } from '../src/scan.js';
-import { improves, refactorCandidates, regionStart, runRefactor, runRefactorQueue } from '../src/refactor.js';
+import { improves, regionStart, runRefactor } from '../src/refactor.js';
 import { moduleScope } from '../src/questions.js';
 import { createShell } from '../src/shell.js';
 import { openStore } from '../src/store.js';
-import { formatFix, formatFixes } from '../src/report.js';
+import { formatFix } from '../src/report.js';
 import { createUi } from '../src/ui.js';
 import { buggySource, commitAll, documentedSource, fixtureOptions, leanerSource, makeFixture, scriptedModel, scriptedSystemOne } from './helpers.js';
 
@@ -17,37 +17,26 @@ const shell = createShell();
 const cleanups = [];
 afterEach(async () => { for (const dir of cleanups.splice(0)) await rm(dir, { recursive: true, force: true }); });
 
+/** The method record `perch fix` hands the simplify agent: the scan's method with its file's metrics. */
+const methodIn = (scan, id) => { const file = scan.files.find(item => item.methods.some(method => method.id === id)); return { ...file.methods.find(method => method.id === id), path: file.path, file: file.metrics }; };
+
 /** The clamp fixture scanned, with clamp as the method to work on. */
 async function scanned() {
   const root = await makeFixture();
   cleanups.push(root);
   const repo = { root, revision: await revision(root), out: join(root, '.perch') };
   const scan = await runScan(fixtureOptions(repo, { analyzer }));
-  const [method] = refactorCandidates(scan, { min: 0 });
-  expect(method.id).toBe('src/clamp.js::clamp');
-  return { repo, scan, method };
+  return { repo, scan, method: methodIn(scan, 'src/clamp.js::clamp') };
 }
 const options = (repo, method, extra) => ({ method, root: repo.root, out: repo.out, analyzer, shell, systemOne: scriptedSystemOne(), model: scriptedModel(), ...extra });
 
 describe('perch refactor', () => {
-  it('finds the comment block above a method, picks candidates by file risk, and gates on the file score', async () => {
+  it('finds the comment block above a method and gates on the file score', async () => {
     expect(regionStart(['// a', '// b', 'function f() {}'], 3)).toBe(1);
     expect(regionStart(['x', '', 'function f() {}'], 3)).toBe(3);
     expect(improves({ risk_score: 50, cyclomatic_complexity: 3, max_nesting: 1 }, { risk_score: 40, cyclomatic_complexity: 3, max_nesting: 1 })).toBe(true);
     expect(improves({ risk_score: 50, cyclomatic_complexity: 3, max_nesting: 1 }, { risk_score: 50, cyclomatic_complexity: 2, max_nesting: 1 })).toBe(false);
     expect(improves({ risk_score: 50, cyclomatic_complexity: 3, max_nesting: 1 }, { risk_score: 40, cyclomatic_complexity: 4, max_nesting: 1 })).toBe(false);
-    const { scan } = await scanned();
-    expect(refactorCandidates(scan, { min: 99 })).toEqual([]);
-    expect(refactorCandidates(scan, { min: 0, path: 'test' })).toEqual([]);
-    expect(refactorCandidates(scan, { min: 0, path: 'src' }).map(method => method.id)).toEqual(['src/clamp.js::clamp']);
-    expect(refactorCandidates(scan, { min: 0 })[0].file.risk_score).toBeTypeOf('number');
-    // Candidates follow the file ranking, then the method's own risk within the file.
-    const ranked = refactorCandidates({ files: [
-      { path: 'a.js', test: false, metrics: { risk_score: 40 }, methods: [{ id: 'a.js::x', metrics: { risk_score: 90 } }] },
-      { path: 'b.js', test: false, metrics: { risk_score: 80 }, methods: [{ id: 'b.js::y', metrics: { risk_score: 10 } }, { id: 'b.js::z', metrics: { risk_score: 30 } }] },
-    ], candidates: [{ id: 'a.js::x' }, { id: 'b.js::z' }, { id: 'b.js::y' }] }, { min: 0 });
-    expect(ranked.map(method => method.id)).toEqual(['b.js::z', 'b.js::y', 'a.js::x']);
-    expect(refactorCandidates({ files: ranked.length ? [] : [], candidates: [] }, { min: 70 })).toEqual([]);
     // Module scope is the file outside its methods: constants and the like, never imports, blanks, or comments.
     expect(moduleScope(['import x from "y";', 'const LIMIT = 3;', '// note', '', 'function f() {', '  return LIMIT;', '}'], [{ line: 5, end_line: 7 }])).toBe('L0002| const LIMIT = 3;');
     expect(moduleScope(['function f() {}'], [{ line: 1, end_line: 1 }])).toBeNull();
@@ -130,7 +119,7 @@ describe('perch refactor', () => {
     await writeFile(join(repo.root, 'test', 'clamp.broken.test.js'), `import assert from 'node:assert/strict';\nimport test from 'node:test';\nimport { clamp } from '../src/clamp.js';\ntest('wrong on purpose', () => { assert.strictEqual(clamp(1, 0, 10), 2); });\n`);
     await commitAll(repo.root, 'a broken test');
     const rescan = await runScan(fixtureOptions({ ...repo, revision: await revision(repo.root) }, { analyzer }));
-    const [again] = refactorCandidates(rescan, { min: 0 });
+    const again = methodIn(rescan, 'src/clamp.js::clamp');
     const tolerant = await runRefactor(options(repo, again, { model: { ...scriptedModel(), id: 'tolerant' } }));
     expect(tolerant.status).toBe('ready');
     expect(tolerant.proof.checks).toEqual(['test/clamp.test.js']);
@@ -141,27 +130,6 @@ describe('perch refactor', () => {
     expect((await openStore(repo.out).readEvents()).filter(event => event.type === 'refactored').map(event => event.status)).toEqual([...Array(4).fill('rejected'), 'ready']);
     expect(await readFile(join(repo.root, 'src', 'clamp.js'), 'utf8')).toBe(buggySource);
     expect((await git(['status', '--porcelain'], repo.root)).trim()).toBe('');
-  }, 60_000);
-
-  it('works the riskiest methods from the scan, up to the budget and under a path, skipping ones already done', async () => {
-    const { repo } = await scanned();
-    const shared = { root: repo.root, out: repo.out, analyzer, shell, systemOne: scriptedSystemOne(), model: scriptedModel() };
-    const none = await runRefactorQueue({ ...shared, min: 99 });
-    expect(none).toMatchObject({ kind: 'refactor', open: 0, attempted: 0, fixes: [] });
-    expect(formatFixes(none)).toBe('No methods at risk 99 or more left to refactor.');
-    const elsewhere = await runRefactorQueue({ ...shared, min: 0, path: 'test' });
-    expect(elsewhere.attempted).toBe(0);
-    // A model that cannot improve it leaves a rejected record, and the same method under the same model is not retried.
-    const stubborn = scriptedModel({ refactor: () => ({ source: buggySource.trimEnd(), summary: 'no' }) });
-    const rejected = await runRefactorQueue({ ...shared, min: 0, path: 'src', budget: 5, model: stubborn });
-    expect(rejected.attempted).toBe(1);
-    expect(rejected.fixes[0].status).toBe('rejected');
-    expect((await runRefactorQueue({ ...shared, min: 0, path: 'src', budget: 5, model: stubborn })).attempted).toBe(0);
-    // Another model gets its turn; once the method is committed simpler, its new shape is a new candidate.
-    const batch = await runRefactorQueue({ ...shared, min: 0, path: 'src', budget: 5, model: { ...scriptedModel(), id: 'better-model' } });
-    expect(batch.attempted).toBe(1);
-    expect(batch.fixes[0].status).toBe('ready');
-    expect(formatFixes(batch)).toMatch(/^Simplified 1 methods \(budget 5\); 1 committed\./);
   }, 60_000);
 
   it('refuses a protected branch, a dirty file, and a method with no passing test to check against', async () => {
@@ -176,7 +144,7 @@ describe('perch refactor', () => {
     await writeFile(join(repo.root, 'package.json'), JSON.stringify({ name: 'fixture', version: '1.0.0', type: 'module' }) + '\n');
     await commitAll(repo.root, 'no tests');
     const rescan = await runScan(fixtureOptions({ ...repo, revision: await revision(repo.root) }, { analyzer }));
-    const [bare] = refactorCandidates(rescan, { min: 0 });
+    const bare = methodIn(rescan, 'src/clamp.js::clamp');
     await expect(runRefactor(options(repo, bare, { model: { ...scriptedModel(), id: 'untested' } }))).rejects.toThrow('No test reaches clamp and no suite command');
   });
 });
