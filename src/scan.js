@@ -1,4 +1,4 @@
-/** `perch scan`: analyze every tracked source file at a revision and rank its methods by risk. No worktree, no commands, no model. */
+/** `perch scan`: analyze every tracked source file at a revision and rank the files by risk. No worktree, no commands, no model. */
 import { join } from 'node:path';
 import { listTree, readBlobs } from './git.js';
 import { analyzeFiles, sourceFile } from './analysis.js';

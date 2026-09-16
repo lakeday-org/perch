@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { readBlob } from './git.js';
 import { runScan } from './scan.js';
 import { buildGraph } from './graph.js';
-import { huntStep, readAnswers } from './questions.js';
+import { huntStep, locateWhere, reachCheck, readAnswers } from './questions.js';
 import { identity, openStore, writeJson } from './store.js';
 
 export const DEFAULT_BUDGET = 20, DEFAULT_PARALLEL = 8;
@@ -57,10 +57,17 @@ export async function runHunt({ root, revision, out, analyzer, systemOne, label 
 
   const ask = async nodeId => {
     const { node, calleeIds, callerIds, step } = await stepFor(nodeId);
-    debug(`asking ${systemOne.id} about ${node.qualified_name} in ${node.path}:${node.line} (${Object.keys(step.questions).length} questions)`);
-    const response = await systemOne.ask(step.state, step.questions);
+    debug(`asking ${systemOne.id} about ${node.qualified_name} in ${node.path}:${node.line} (${Object.keys(step.questions).length} questions${step.windows ? `, then a line in the chosen window` : ''})`);
+    const response = await locateWhere({ systemOne, state: step.state, questions: step.questions, windows: step.windows });
     const answers = readAnswers(response.answers, step);
     answers.where.text = (await linesOf(node))[answers.where.line - 1]?.trim() ?? '';
+    if (answers.has_bug >= 0.5) {
+      debug(`asking ${systemOne.id} whether ${node.path}:${answers.where.line} is reachable`);
+      const check = reachCheck({ finding: { path: node.path, name: node.qualified_name, kind: answers.kind, where: answers.where }, state: step.state });
+      const reach = await systemOne.ask(check.state, check.questions);
+      answers.reachable = reach.answers.reachable.noul;
+      if (reach.usage) response.usage = { input_tokens: (response.usage?.input_tokens ?? 0) + (reach.usage.input_tokens ?? 0), output_tokens: (response.usage?.output_tokens ?? 0) + (reach.usage.output_tokens ?? 0) };
+    }
     return { node, calleeIds, callerIds, response, answers };
   };
 

@@ -24,7 +24,8 @@ describe('cli', () => {
   it('parses flags and positionals', () => {
     expect(parseArgs(['hunt', 'owner/repo', '--paths', 'src,lib', '--budget=2', '--parallel', '3', '--force', '--json'])).toEqual({
       flags: { paths: 'src,lib', budget: '2', parallel: '3', force: true, json: true }, positional: ['hunt', 'owner/repo'] });
-    expect(parseArgs(['fix', 'abc', '--keep-workspace']).flags).toEqual({ 'keep-workspace': true });
+    expect(parseArgs(['refactor', 'src/metrics.ts', '--budget', '5'])).toEqual({ flags: { budget: '5' }, positional: ['refactor', 'src/metrics.ts'] });
+    expect(parseArgs(['issues', '--closed', '--all']).flags).toEqual({ closed: true, all: true });
     expect(() => parseArgs(['scan', '--bogus'])).toThrow('unknown option --bogus');
     expect(() => parseArgs(['hunt', '--candidates', '2'])).toThrow('unknown option --candidates');
     expect(() => parseArgs(['hunt', '--model'])).toThrow('--model requires a value');
@@ -33,13 +34,17 @@ describe('cli', () => {
   it('prints usage and rejects bad invocations', async () => {
     const { out, err, io } = capture();
     expect(await main(['--help'], io)).toBe(0);
-    for (const verb of ['scan [target]', 'hunt [target]', 'fix <finding-id>', 'publish <finding-id>', 'issues [finding-id]', 'design [finding-id]', 'report ']) expect(out[0]).toContain(verb);
+    for (const verb of ['scan [target]', 'hunt [target]', 'issues [finding-id]', 'fix [path]', 'refactor [path]', 'publish <finding-id>', 'report ']) expect(out[0]).toContain(verb);
+    expect(out[0]).not.toMatch(/^\s*design /m);
     expect(await main(['fix', '-h'], io)).toBe(0);
-    expect(out.at(-1)).toContain('perch fix: Fix one finding and prove the fix with a regression test');
-    expect(out.at(-1)).toContain('--keep-workspace');
+    expect(out.at(-1)).toContain('perch fix: Fix open defects in this checkout');
+    expect(out.at(-1)).toContain('--budget');
+    expect(await main(['refactor', '-h'], io)).toBe(0);
+    expect(out.at(-1)).toContain('perch refactor: Improve methods with open design issues');
     expect(await main(['bogus'], io)).toBe(2);
-    expect(await main(['fix'], io)).toBe(2);
-    expect(err.at(-1)).toContain('fix needs a finding id');
+    expect(await main(['design'], io)).toBe(2);
+    expect(await main(['fix', '--budget', '0'], io)).toBe(2);
+    expect(err.at(-1)).toContain('--budget must be a positive integer');
     expect(await main(['report', 'owner/repo'], io)).toBe(2);
   });
 
@@ -49,7 +54,9 @@ describe('cli', () => {
     const { out, err, io } = capture();
     expect(await main(['hunt', repo], io)).toBe(1);
     expect(err.at(-1)).toContain('TYPESAFE_API_KEY');
-    expect(await main(['fix', 'abc', '--out', join(repo, '.perch')], io)).toBe(1);
+    expect(await main(['fix', '--out', join(repo, '.perch')], io)).toBe(1);
+    expect(err.at(-1)).toContain('OPENAI_API_KEY');
+    expect(await main(['refactor', 'src', '--out', join(repo, '.perch')], io)).toBe(1);
     expect(err.at(-1)).toContain('OPENAI_API_KEY');
     expect(await main(['scan', repo], io)).toBe(0);
     expect(out.at(-1)).toContain('src/clamp.js');
@@ -71,14 +78,12 @@ describe('cli', () => {
     expect(JSON.parse(out.at(-1)).id).toBe(hunt.id);
     const [f] = hunt.visited;
     expect(await main(['issues', '--out', repo.out], io)).toBe(0);
-    expect(out.at(-1)).toMatch(new RegExp(`${f.id}  f +src/a.js:\\d+ +80%  wrong return`));
+    expect(out.at(-1)).toMatch(new RegExp(`${f.id}  f +src/a.js:\\d+ +wrong return 80% +minor +open`));
     expect(await main(['issues', f.id.slice(0, 5), '--out', repo.out], io)).toBe(0);
     expect(out.at(-1)).toContain('Reachable defect: 80%');
     expect(out.at(-1)).toContain('wrong return 60%');
     expect(await main(['issues', '--out', repo.out, '--min', '90'], io)).toBe(0);
-    expect(out.at(-1)).toContain('No hunted method looks defective at 90%');
-    expect(await main(['design', '--out', repo.out], io)).toBe(0);
-    expect(out.at(-1)).toContain('No hunted method needs design work');
+    expect(out.at(-1)).toContain('No hunted method has an issue at 90%');
     expect(await main(['publish', 'zzz', '--out', repo.out], io)).toBe(1);
     expect(await main(['publish', f.id, '--out', repo.out], io)).toBe(1);
     expect(err.at(-1)).toContain('no GitHub repository');

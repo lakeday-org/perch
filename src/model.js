@@ -4,6 +4,7 @@
 const string = { type: 'string' };
 export const responseShapes = {
   fix: { method: string, test: string, test_path: string, summary: string },
+  refactor: { source: string, summary: string },
   describe: { title: string, what_happens: string, how_to_reproduce: string, expected: string, what_changed: string },
 };
 

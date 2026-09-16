@@ -32,7 +32,8 @@ describe('perch scan', () => {
     expect(existsSync(join(repo.out, 'workspaces'))).toBe(false);
     expect((await git(['status', '--porcelain'], repo.root)).trim()).toBe('');
     expect((await git(['worktree', 'list', '--porcelain'], repo.root)).match(/^worktree /gm)).toHaveLength(1);
-    expect(formatScan(scan)).toContain('src/clamp.js:1');
+    expect(formatScan(scan)).toContain('src/clamp.js');
+    expect(formatScan(scan)).toMatch(/File +Risk +Maintainability/);
 
     const again = await runScan(fixtureOptions(repo, { analyzer }));
     expect(again.id).toBe(scan.id);

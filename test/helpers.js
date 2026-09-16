@@ -40,6 +40,16 @@ export const regressionSource = existingTestSource + regressionCase;
 
 const author = ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com'];
 
+/** A fresh repository on `main` with a committed tree, then checked out on a feature branch, since fix and refactor commit to the current branch. */
+async function initRepo(root) {
+  await git(['init', '-q', '-b', 'main', '.'], root);
+  await git(['config', 'user.name', 'Fixture'], root);
+  await git(['config', 'user.email', 'fixture@example.com'], root);
+  await git([...author, 'add', '-A'], root);
+  await git([...author, 'commit', '-q', '-m', 'fixture'], root);
+  await git(['checkout', '-q', '-b', 'work'], root);
+}
+
 /** A git repository with a planted bug in src/clamp.js and a passing existing test. */
 export async function makeFixture() {
   const root = await mkdtemp(join(tmpdir(), 'perch-fixture-'));
@@ -48,9 +58,7 @@ export async function makeFixture() {
   await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'fixture', version: '1.0.0', type: 'module', scripts: { test: 'node --test' } }, null, 2) + '\n');
   await writeFile(join(root, 'src', 'clamp.js'), buggySource);
   await writeFile(join(root, 'test', 'clamp.test.js'), existingTestSource);
-  await git(['init', '-q', '-b', 'main', '.'], root);
-  await git([...author, 'add', '-A'], root);
-  await git([...author, 'commit', '-q', '-m', 'fixture'], root);
+  await initRepo(root);
   return root;
 }
 
@@ -65,8 +73,12 @@ export const description = {
   what_changed: 'The upper-bound branch now returns hi.',
 };
 
+/** A rewrite of clamp that documents it and keeps its behavior, bug included. */
+export const documentedSource = `/** Clamp v into [lo, hi]: values below lo become lo, values above hi become hi. */\n${buggySource.trimEnd()}`;
+
 export const defaultResponses = {
   fix: () => ({ method: fixedMethod, test: regressionSource, test_path: 'test/clamp.test.js', summary: 'Return hi when v exceeds the upper bound.' }),
+  refactor: () => ({ source: documentedSource, summary: 'Document what clamp returns at each bound.' }),
   describe: () => description,
 };
 
@@ -111,9 +123,7 @@ import { f } from '../src/a.js';
 
 test('f', () => { f(1); });
 `);
-  await git(['init', '-q', '-b', 'main', '.'], root);
-  await git([...author, 'add', '-A'], root);
-  await git([...author, 'commit', '-q', '-m', 'fixture'], root);
+  await initRepo(root);
   return root;
 }
 
@@ -123,7 +133,7 @@ export async function commitAll(root, message) {
 }
 
 /** Questions whose plausible default answer is "yes". */
-const affirmative = new Set(['does_what_it_claims', 'imports_real_method', 'targets_defect', 'reachable_by_callers', 'asserts_behavior']);
+const affirmative = new Set(['does_what_it_claims', 'imports_real_method', 'targets_defect', 'reachable_by_callers', 'asserts_behavior', 'reachable']);
 
 /**
  * A scripted System One: answers every question plausibly, with overrides keyed by what the state is about.
@@ -131,7 +141,7 @@ const affirmative = new Set(['does_what_it_claims', 'imports_real_method', 'targ
  */
 export function scriptedSystemOne(overrides = {}) {
   const calls = [];
-  const keyOf = state => (state.method ? `${state.method.path}::${state.method.name}` : state.test ? 'test' : 'project');
+  const keyOf = state => (state.test ? 'test' : state.method ? `${state.method.path}::${state.method.name}` : 'project');
   return {
     id: 'scripted-jev',
     calls,

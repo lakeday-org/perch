@@ -13,7 +13,7 @@ import { runFix } from '../src/fix.js';
 import { createShell } from '../src/shell.js';
 import { openStore } from '../src/store.js';
 import { formatFinding, formatIssues, formatPublished } from '../src/report.js';
-import { buggySource, description, fixtureOptions, makeFixture, regressionSource, scriptedModel, scriptedSystemOne } from './helpers.js';
+import { description, fixedSource, fixtureOptions, makeFixture, regressionSource, scriptedModel, scriptedSystemOne } from './helpers.js';
 
 const cleanups = [];
 afterEach(async () => { for (const dir of cleanups.splice(0)) await rm(dir, { recursive: true, force: true }); });
@@ -170,14 +170,14 @@ Closes #9
     noModelTalk(body);
     expect(pullRequestTitle(published)).toBe(description.title);
 
-    // The branch on origin has exactly one commit over the finding's revision, carrying the fixed method and the extended test; the checkout is untouched.
+    // The branch on origin has exactly one commit over the finding's revision, carrying the fixed method and the extended test; the checkout carries the fix commit.
     const branch = branchFor(proven);
     expect((await git(['rev-parse', `${branch}~1`], origin)).trim()).toBe(repo.revision);
     expect((await git(['show', `${branch}:src/clamp.js`], origin))).toContain('if (v > hi) return hi;');
     expect((await git(['show', `${branch}:test/clamp.test.js`], origin))).toBe(regressionSource);
     expect((await git(['log', '-1', '--format=%s', branch], origin)).trim()).toBe(description.title);
     expect((await git(['log', '-1', '--format=%b', branch], origin))).not.toContain('<sub>');
-    expect(await readFile(join(root, 'src', 'clamp.js'), 'utf8')).toBe(buggySource);
+    expect(await readFile(join(root, 'src', 'clamp.js'), 'utf8')).toBe(fixedSource);
     expect((await git(['status', '--porcelain'], root)).trim()).toBe('');
     expect(existsSync(join(repo.out, 'workspaces', `pr-${fix.id}`))).toBe(false);
     expect(formatPublished(published)).toBe(`${proven.id}  ${description.title}\n${proven.id}  issue: https://github.com/o/r/issues/9  (created)\n${proven.id}  pull request: https://github.com/o/r/pull/10  (created)`);
@@ -186,9 +186,11 @@ Closes #9
     await store.appendEvent({ type: 'published', at: new Date().toISOString(), id: proven.id, method: proven.method, github_url: published.github_url, github_status: published.github_status, pr_url: published.pr_url, pr_status: published.pr_status, description: published.description });
     const [recorded] = await store.findings();
     expect(recorded).toMatchObject({ github_url: 'https://github.com/o/r/issues/9', github_status: 'created', pr_url: 'https://github.com/o/r/pull/10', description });
-    expect(formatFinding(recorded)).toContain('Pull request: https://github.com/o/r/pull/10');
+    expect(formatFinding(recorded)).toContain('Status: open  PR: https://github.com/o/r/pull/10');
     expect(formatFinding(recorded)).toContain(`Filed as: ${description.title}`);
-    expect(formatIssues([recorded], 0.5)).toContain('proven, 90% -> 20%');
+    expect(formatIssues([recorded], 0.5)).toMatch(/open +#10/);
+    expect(formatIssues([recorded], 0.5)).toContain('Status');
+    expect(formatIssues([recorded], 0.5)).not.toMatch(/proven|discarded|Fixed/);
     const edits = [];
     const again = await publishFinding({ finding: recorded, github, root, out: repo.out, run: async args => { edits.push(args.slice(0, 2).join(' ')); return ''; }, describe: async () => { throw new Error('no write-up'); } });
     expect(edits).toEqual(['issue edit', 'pr edit']);

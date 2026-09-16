@@ -1,19 +1,34 @@
 /**
- * `perch fix`: for one finding, get a corrected method and a regression test from a generative model, check the test with System One,
- * prove it in a worktree of its own (fails on the original with an assertion, passes on the patch, the existing tests that touch the method
- * still pass), question the patched method again, and write the patch. The proof is recorded in the events log so issues shows it.
+ * `perch fix issues` / `perch fix design`: for each selected finding, get a corrected method and a regression test from a generative
+ * model, check the test with System One, prove it in the operator's checkout (fails on the original with an assertion, passes on the
+ * patch, the existing tests that touch the method still pass), question the patched method again, and commit it on the current
+ * branch. A rejected attempt leaves the checkout as it was. The proof is recorded in the events log so issues shows it.
  */
+import { DEFAULT_BUDGET } from './hunt.js';
+import { visibleFindings } from './report.js';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
-import { git, listTree } from './git.js';
+import { git, listTree, revision as gitRevision } from './git.js';
 import { languageOf, testFile } from './analysis.js';
 import { runScan } from './scan.js';
 import { buildGraph, resolveModule } from './graph.js';
-import { huntStep, patchCheck, readPatchCheck, soundTest, testCheck, testObjections } from './questions.js';
+import { flagged, huntStep, needsDesign, patchCheck, reachCheck, readPatchCheck, soundTest, SURE, testCheck, testObjections } from './questions.js';
 import { discoverProject } from './project.js';
-import { COMMAND_MS, INSTALL_MS, openWorkspace } from './workspace.js';
+import { COMMAND_MS, workspaceEnv } from './workspace.js';
 import { identity, openStore, readJson, writeJson } from './store.js';
 import { fixPrompt } from './prompts.js';
+
+export const PROTECTED_BRANCHES = ['main', 'master'];
+/** Paths with uncommitted changes, untracked files included. */
+export const dirtyPaths = async root => (await git(['status', '--porcelain', '--untracked-files=all', '-z'], root)).split('\0').filter(Boolean).map(entry => entry.slice(3).split(' -> ').at(-1));
+/** The checked-out branch, refusing the protected ones: perch commits to it. */
+export async function workingBranch(root, verb) {
+  const branch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'], root)).trim();
+  if (PROTECTED_BRANCHES.includes(branch)) throw new Error(`perch ${verb} commits to the current branch, and ${branch} is protected; check out a feature branch first`);
+  return branch;
+}
+/** Findings under a repository-relative path (a file or a directory). */
+export const underPath = (findings, path) => (path ? findings.filter(finding => finding.path === path || finding.path.startsWith(path.replace(/\/$/, '') + '/')) : findings);
 
 export const MAX_ATTEMPTS = 3;
 
@@ -21,12 +36,18 @@ export function fixIdentity({ finding, model }) {
   return identity('fix', finding.id, finding.hash, model);
 }
 
+/** Open findings that carry the issue `kind` works (defects for fix, design issues for refactor) and have no record of it yet, strongest first, capped at `budget`. */
+export function pendingFixes(findings, budget = DEFAULT_BUDGET, kind = 'fix') {
+  const wanted = kind === 'refactor' ? finding => needsDesign(finding) && !finding.refactored : finding => flagged(finding) && !finding.fix;
+  return visibleFindings(findings).filter(wanted).slice(0, budget);
+}
+
 /** Output that says a test ran and an assertion failed, as the common runners print it. */
 const assertionFailure = /AssertionError|assertion `?left|assertion failed|assert(ion)? (error|failed)|expected .+ (to|but)|\bFAILED\b|^\s*FAIL\b|✕|✗|not ok|--- FAIL|panicked at|Tests?:\s+\d+ failed|\d+ failed\b/ms;
 /** Output that says the test never ran: the file did not load, compile, or find its imports. */
 const loadFailure = /Cannot find (module|package)|ERR_MODULE_NOT_FOUND|MODULE_NOT_FOUND|ModuleNotFoundError|ImportError|SyntaxError|cannot find package|no such file or directory|error\[E\d+\]|undefined: \w+|is not defined|is not a function/;
 const quote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
-const tail = result => (result.stdout + result.stderr).trim().slice(-1500);
+export const tail = result => (result.stdout + result.stderr).trim().slice(-1500);
 
 /**
  * A patched file passes when it parses, adds no nesting, adds at most one branch (a missing guard is one branch), and moves the file's risk
@@ -76,8 +97,8 @@ export function removedLines(original, proposed) {
   }
   return missing;
 }
-const command = (template, file) => template.replaceAll('{file}', quote(file)).replaceAll('{dir}', quote(dirname(file) === '.' ? '.' : `./${dirname(file)}`));
-const methodLines = method => method.replace(/\n$/, '').split('\n');
+export const command = (template, file) => template.replaceAll('{file}', quote(file)).replaceAll('{dir}', quote(dirname(file) === '.' ? '.' : `./${dirname(file)}`));
+export const methodLines = method => method.replace(/\n$/, '').split('\n');
 
 /**
  * Test files that reach a method: test methods that call it in the graph, test files that import its file directly or through one
@@ -97,13 +118,16 @@ export function testsTouching({ graph, files, node }) {
   return [...touching].sort();
 }
 
-/** The finding's method at its commit with the same neighborhood the hunt showed: file lines, callees, callers, imports, and the hunt step built from them. */
-export async function methodContext({ finding, root, out, analyzer, log = () => {} }) {
-  const { revision } = finding;
+/**
+ * The finding's method at `revision` (the checkout's HEAD by default) with the same neighborhood the hunt showed: file lines, callees,
+ * callers, imports, and the hunt step built from them. The method must still read as it did when hunted; its line may have moved.
+ */
+export async function methodContext({ finding, root, out, analyzer, revision = finding.revision, log = () => {} }) {
   const scan = await runScan({ root, revision, out, analyzer, log });
   const graph = buildGraph(scan.files);
   const node = graph.nodes.get(finding.method);
-  if (!node) throw new Error(`${finding.method} no longer exists at ${revision.slice(0, 12)}`);
+  if (!node) throw new Error(`${finding.method} no longer exists at ${revision.slice(0, 12)}; hunt again`);
+  if (finding.hash && node.hash !== finding.hash) throw new Error(`${finding.method} has changed since it was hunted at ${finding.revision.slice(0, 12)}; hunt again`);
   const sources = new Map();
   const linesOf = async member => { if (!sources.has(member.path)) sources.set(member.path, (await git(['show', `${revision}:${member.path}`], root)).split('\n')); return sources.get(member.path); };
   const callees = [], callers = [];
@@ -116,9 +140,9 @@ export async function methodContext({ finding, root, out, analyzer, log = () => 
   return { scan, graph, node, fileLines, method, callees, callers, imports, step };
 }
 
-export async function runFix({ finding, root, out, model, systemOne, analyzer, shell, keepWorkspace = false, log = () => {} }) {
+export async function runFix({ finding: hunted, root, out, model, systemOne, analyzer, shell, log = () => {} }) {
   const store = openStore(out);
-  const id = fixIdentity({ finding, model: model.id });
+  const id = fixIdentity({ finding: hunted, model: model.id });
   const dir = store.fixDir(id), fixPath = join(dir, 'fix.json');
   const existing = await readJson(fixPath, null);
   if (existing && ['ready', 'rejected'].includes(existing.status)) {
@@ -126,22 +150,36 @@ export async function runFix({ finding, root, out, model, systemOne, analyzer, s
     return existing;
   }
   await store.exclude(root);
-  const workspaceDir = join(out, 'workspaces', id);
-  const fix = { id, finding_id: finding.id, method: finding.method, path: finding.path, root, revision: finding.revision, model: model.id, verifier: systemOne.id, out: dir,
-    workspace: keepWorkspace ? workspaceDir : null, status: 'running', attempts: [], created_at: new Date().toISOString() };
+  // The fix is made and committed in the operator's checkout, on whatever branch is checked out; never on a protected one.
+  const branch = await workingBranch(root, 'fix');
+  const revision = await gitRevision(root);
+  const fix = { id, finding_id: hunted.id, method: hunted.method, path: hunted.path, root, branch, revision, hunted_at: hunted.revision, model: model.id, verifier: systemOne.id, out: dir,
+    status: 'running', attempts: [], created_at: new Date().toISOString() };
   await writeJson(fixPath, fix);
   const finish = async (status, extra) => {
     Object.assign(fix, { status, completed_at: new Date().toISOString(), ...extra });
     await writeJson(fixPath, fix);
-    log(`${finding.path}: fix ${status}${fix.error ? `: ${fix.error}` : ''}`);
+    log(`${hunted.path}: fix ${status}${fix.error ? `: ${fix.error}` : ''}`);
     return fix;
   };
 
-  let workspace = null;
+  let placed = null;
   try {
-    // The same context the hunt showed the System One model, rebuilt from the scan at the finding's commit.
-    const { revision } = finding;
-    const { scan, graph, node, fileLines, method, callees, callers, imports, step } = await methodContext({ finding, root, out, analyzer, log });
+    // The same context the hunt showed the System One model, rebuilt from a scan of HEAD. The method may have moved; the finding's line moves with it.
+    const { scan, graph, node, fileLines, method, callees, callers, imports, step } = await methodContext({ finding: hunted, root, out, analyzer, revision, log });
+    const finding = { ...hunted, line: node.line, end_line: node.end_line, where: { ...hunted.where, line: hunted.where.line + node.line - hunted.line } };
+    const dirtyBefore = await dirtyPaths(root);
+    if (dirtyBefore.includes(node.path)) throw new Error(`${node.path} has uncommitted changes; commit or stash them before perch fix touches it`);
+
+    log(`asking ${systemOne.id} whether the defect at ${finding.path}:${finding.where.line} is reachable`);
+    const reach = reachCheck({ finding, state: step.state });
+    const { answers: reachAnswers } = await systemOne.ask(reach.state, reach.questions);
+    fix.reach_check = { reachable: reachAnswers.reachable.noul };
+    if (reachAnswers.reachable.noul < SURE) {
+      const error = `the flagged defect is not clearly reachable (${Math.round(reachAnswers.reachable.noul * 100)}%); an earlier guard likely excludes it`;
+      await store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: id, method: finding.method, hash: hunted.hash, revision, status: 'rejected', attempts: 0, error });
+      return await finish('rejected', { error });
+    }
     const language = languageOf(node.path);
     const base = (await analyzer.analyzeSource(fileLines.join('\n'), language)).metrics;
     if (!base) throw new Error(`${node.path} does not parse at ${revision.slice(0, 12)}`);
@@ -161,19 +199,14 @@ export async function runFix({ finding, root, out, model, systemOne, analyzer, s
     Object.assign(fix, { existing_tests: existingTests, project: { install: project.install, single: project.single } });
     await writeJson(fixPath, fix);
 
-    // One worktree for this fix alone, removed with it unless asked to keep it.
-    workspace = await openWorkspace({ root, revision, dir: workspaceDir, shell, log });
-    if (project.install && !workspace.linked.length) {
-      log(`installing dependencies: ${project.install}`);
-      const install = await workspace.run(project.install, INSTALL_MS);
-      if (install.exit_code !== 0) throw new Error(`Dependency install failed (${project.install}):\n${tail(install)}`);
-    }
-    const run = file => workspace.run(command(project.single, file), COMMAND_MS);
-    const place = async (path, text) => { await mkdir(dirname(join(workspace.dir, path)), { recursive: true }); await writeFile(join(workspace.dir, path), text); };
+    // Tests run in the checkout itself, with perch's own keys withheld. Files a rejected attempt wrote are put back from HEAD.
+    const run = file => shell.run(command(project.single, file), { cwd: root, timeoutMs: COMMAND_MS, env: workspaceEnv() });
+    const place = async (path, text) => { await mkdir(dirname(join(root, path)), { recursive: true }); await writeFile(join(root, path), text); placed = { testPath: path === node.path ? placed?.testPath ?? null : path }; };
     const restore = async testPath => {
-      await git(['checkout', '--', node.path], workspace.dir);
-      if (testPath && treePaths.includes(testPath)) await git(['checkout', '--', testPath], workspace.dir);
-      else if (testPath) await rm(join(workspace.dir, testPath), { force: true });
+      await git(['checkout', '--', node.path], root);
+      if (testPath && treePaths.includes(testPath)) await git(['checkout', '--', testPath], root);
+      else if (testPath) await rm(join(root, testPath), { force: true });
+      placed = null;
     };
 
     // Baseline: an existing test that already fails on the original cannot be blamed on the patch, so only the passing ones count.
@@ -223,7 +256,7 @@ export async function runFix({ finding, root, out, model, systemOne, analyzer, s
 
       // 2. System One reads the test before a run is spent on it.
       log(`asking ${systemOne.id} whether the test is sound`);
-      const check = testCheck({ finding, method, test: proposal.test, testPath: proposal.test_path, callers: step.state.called_by });
+      const check = testCheck({ finding, state: step.state, test: proposal.test, testPath: proposal.test_path });
       const { answers: testAnswers } = await systemOne.ask(check.state, check.questions);
       record.test_check = Object.fromEntries(Object.entries(testAnswers).map(([key, answer]) => [key, answer.noul]));
       if (!soundTest(testAnswers)) { await reject(testObjections(testAnswers)); continue; }
@@ -243,9 +276,9 @@ export async function runFix({ finding, root, out, model, systemOne, analyzer, s
       for (const path of baseline.passing.filter(path => path !== testPath)) { const result = await run(path); if (result.exit_code !== 0) { regression = `${path}:\n${tail(result)}`; break; } }
       record.existing_tests = regression ? 'failed' : `${baseline.passing.length} passed`;
       if (regression) { await reject(`an existing test broke on the patch: ${regression}`, proposal.test_path); continue; }
-      const expected = extending ? [node.path, testPath].sort() : [node.path];
-      const changed = (await git(['diff', '--name-only'], workspace.dir)).trim().split('\n').filter(Boolean).sort();
-      if (changed.join('\n') !== expected.join('\n')) throw new Error(`The test run changed tracked files other than ${expected.join(' and ')}: ${changed.join(', ') || 'none'}`);
+      const expected = [node.path, testPath].sort();
+      const changed = (await dirtyPaths(root)).filter(path => !dirtyBefore.includes(path)).sort();
+      if (changed.join('\n') !== expected.join('\n')) throw new Error(`The test run changed files other than ${expected.join(' and ')}: ${changed.join(', ') || 'none'}`);
 
       // 4. The hunt's questions again over the patched method, so a patch that games the test is caught.
       const patchedNode = { ...node, end_line: node.line + methodLines(proposal.method).length - 1 };
@@ -257,13 +290,18 @@ export async function runFix({ finding, root, out, model, systemOne, analyzer, s
       record.verification = verification;
       if (objections.length) { await reject(objections.join('; '), proposal.test_path); continue; }
 
-      if (!extending) await git(['add', '-N', '--', testPath], workspace.dir);
-      const patch = await git(['diff', '--', node.path, testPath], workspace.dir);
+      // 5. Commit the method and its test on the current branch, with the model's summary as the message.
+      await git(['add', '--', node.path, testPath], root);
+      const patch = await git(['diff', '--cached', '--', node.path, testPath], root);
       if (!patch) throw new Error(`Patch for ${node.path} could not be captured`);
-      accepted = { proposal, record, patch };
+      await git(['commit', '-q', '-m', proposal.summary, '-m', `perch ${finding.id}`, '--', node.path, testPath], root);
+      placed = null;
+      const commit = await gitRevision(root);
+      log(`committed ${commit.slice(0, 7)} on ${branch}: ${proposal.summary}`);
+      accepted = { proposal, record, patch, commit };
     }
     if (!accepted) {
-      await store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: id, method: finding.method, revision, status: 'rejected', attempts: fix.attempts.length, error: feedback });
+      await store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: id, method: finding.method, hash: hunted.hash, revision, status: 'rejected', attempts: fix.attempts.length, error: feedback });
       return await finish('rejected', { error: feedback });
     }
 
@@ -271,15 +309,43 @@ export async function runFix({ finding, root, out, model, systemOne, analyzer, s
     await writeFile(patchPath, accepted.patch);
     const verification = { kind: finding.kind.kind, before: { has_bug: finding.has_bug, kind: finding.kind.probability ?? null }, after: accepted.record.verification };
     const proof = { fails_on_original: true, passes_on_patch: true, test_mode: accepted.record.test_mode, existing_tests: baseline.passing, baseline_failures: baseline.failing, command: command(project.single, accepted.proposal.test_path) };
-    await store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: id, method: finding.method, revision, status: 'ready', summary: accepted.proposal.summary,
-      patch_path: patchPath, test_path: accepted.proposal.test_path, verification, proof });
-    return await finish('ready', { summary: accepted.proposal.summary, test_path: accepted.proposal.test_path, patch_path: patchPath, verification, proof });
+    await store.appendEvent({ type: 'fixed', at: new Date().toISOString(), id: finding.id, fix_id: id, method: finding.method, hash: hunted.hash, revision, status: 'ready', summary: accepted.proposal.summary,
+      commit: accepted.commit, branch, patch_path: patchPath, test_path: accepted.proposal.test_path, verification, proof });
+    return await finish('ready', { summary: accepted.proposal.summary, test_path: accepted.proposal.test_path, commit: accepted.commit, patch_path: patchPath, verification, proof });
   } catch (error) {
     fix.status = 'failed';
     fix.error = error.message;
     await writeJson(fixPath, fix).catch(() => {});
     throw error;
   } finally {
-    if (workspace && !keepWorkspace) await workspace.close().catch(() => {});
+    // Whatever an interrupted attempt left in the checkout goes back to HEAD.
+    if (placed) {
+      await git(['checkout', '--', hunted.path], root).catch(() => {});
+      if (placed.testPath) { if ((await git(['ls-files', '--error-unmatch', '--', placed.testPath], root).then(() => true, () => false))) await git(['checkout', '--', placed.testPath], root).catch(() => {}); else await rm(join(root, placed.testPath), { force: true }).catch(() => {}); }
+    }
   }
+}
+
+/**
+ * Work open findings of one `kind` ('fix' for defects, 'refactor' for design issues), strongest first, until `budget` have been tried.
+ * `run` does one finding (runFix by default); each accepted result is one commit on the current branch.
+ */
+export async function runFixQueue({ findings, budget = DEFAULT_BUDGET, kind = 'fix', run = runFix, root, out, model, systemOne, analyzer, shell, progress = () => {}, log = () => {} }) {
+  const selected = pendingFixes(findings, budget, kind);
+  const open = pendingFixes(findings, Infinity, kind).length;
+  const fixes = [];
+  for (const finding of selected) {
+    progress(fixes.length, selected.length);
+    log(`investigating ${finding.id} ${finding.path}`);
+    const findingRoot = finding.root ?? root;
+    try {
+      if (!findingRoot) throw new Error(`finding ${finding.id} has no repository recorded; hunt again`);
+      fixes.push(await run({ finding, root: findingRoot, out, model, systemOne, analyzer, shell, log }));
+    } catch (error) {
+      log(`${finding.id} failed: ${error.message}`);
+      fixes.push({ id: null, finding_id: finding.id, method: finding.method, path: finding.path, root: findingRoot, revision: finding.revision, out, status: 'failed', error: error.message });
+    }
+    progress(fixes.length, selected.length);
+  }
+  return { kind, budget, open, attempted: fixes.length, remaining: Math.max(0, open - selected.length), fixes };
 }

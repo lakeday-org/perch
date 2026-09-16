@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { runHunt } from '../src/hunt.js';
+import { huntStep, locateWhere, MAX_CHOICES } from '../src/questions.js';
 import { openStore } from '../src/store.js';
 import { formatHunt } from '../src/report.js';
 import { commitAll, fixtureOptions, makeGraphFixture, scriptedSystemOne } from './helpers.js';
@@ -23,6 +24,22 @@ async function fixture() {
 const withRevision = async (repo, extra) => fixtureOptions(repo, { analyzer, revision: await revision(repo.root), ...extra });
 
 describe('perch hunt', () => {
+  it('picks a window then a line when a method has more lines than a Choice can name', async () => {
+    const lines = Array.from({ length: 400 }, (_, index) => `  x += ${index};`);
+    const step = huntStep({ node: { path: 'a.rs', qualified_name: 'big', line: 1, end_line: 400 }, lines, callees: [], callers: [] });
+    expect(step.questions.where).toBeUndefined();
+    expect(Object.keys(step.questions.where_window.criteria)).toEqual(['W0001', 'W0002']);
+    expect(step.windows).toHaveLength(2);
+    expect(step.windows.every(window => window.length <= MAX_CHOICES)).toBe(true);
+    expect(step.windows[0][0]).toBe('L0001');
+    expect(step.windows.at(-1).at(-1)).toBe('L0400');
+    const systemOne = scriptedSystemOne({ 'a.rs::big': { where_window: 'W0002', where: 'L0400' } });
+    const located = await locateWhere({ systemOne, state: step.state, questions: step.questions, windows: step.windows });
+    expect(located.answers.where.choice).toBe('L0400');
+    expect(systemOne.calls).toHaveLength(2);
+    expect(Object.keys(systemOne.calls[1].questions.where.criteria)).toEqual(step.windows[1]);
+  });
+
   it('walks every method once from riskiest down, logs each, and skips unchanged methods next time', async () => {
     const repo = await fixture();
     const systemOne = scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.9, where: 'L0004', kind_boundary: 0.8, severity: 2, refactor: 'split', misdocumented: 0.7 } });
@@ -35,7 +52,7 @@ describe('perch hunt', () => {
     expect(hunt.visited.map(visit => visit.method)[0]).toBe('src/a.js::f');
     expect(new Set(hunt.visited.map(visit => visit.method))).toEqual(new Set(['src/a.js::f', 'src/a.js::g', 'src/b.js::h', 'src/b.js::k']));
     const f = hunt.visited.find(visit => visit.method === 'src/a.js::f');
-    expect(f).toMatchObject({ status: 'hunted', id: expect.stringMatching(/^[0-9a-f]{8}$/), has_bug: 0.9, where: { line: 4 }, kind: { kind: 'boundary', probability: 0.8 }, severity: { level: 'major' }, misdocumented: 0.7, refactor: { refactor: 'split' }, callees: expect.arrayContaining(['src/a.js::g', 'src/b.js::h']) });
+    expect(f).toMatchObject({ status: 'hunted', id: expect.stringMatching(/^[0-9a-f]{8}$/), has_bug: 0.9, reachable: 0.9, where: { line: 4 }, kind: { kind: 'boundary', probability: 0.8 }, severity: { level: 'major' }, misdocumented: 0.7, refactor: { refactor: 'split' }, callees: expect.arrayContaining(['src/a.js::g', 'src/b.js::h']) });
     expect(f.kinds.boundary).toBe(0.8);
     expect(f.callers).toEqual([]);
 
@@ -62,8 +79,9 @@ describe('perch hunt', () => {
     expect(existsSync(join(repo.out, 'workspaces'))).toBe(false);
     expect((await git(['status', '--porcelain'], repo.root)).trim()).toBe('');
     expect(f.where.text).toBe('if (x > 10) return g(x) + h(x);');
-    expect(formatHunt(hunt)).toMatch(new RegExp(`${f.id}  f +src/a.js:4 +90%  boundary +major`));
-    expect(formatHunt(hunt)).toMatch(new RegExp(`${f.id}  f +src/a.js:3 +split +80% +90% +70%`));
+    expect(formatHunt(hunt)).toContain('1 have issues (1 defect, 0 design only), 3 look clean.');
+    expect(formatHunt(hunt)).toMatch(new RegExp(`${f.id}  f +src/a.js:4 +boundary 90%, split 80%, misdocumented 70% +major +open`));
+    expect(formatHunt(hunt)).not.toContain('Design work');
 
     // A second hunt skips everything, without a single model call.
     const again = await runHunt(await withRevision(repo, { systemOne: scriptedSystemOne() }));
@@ -84,6 +102,14 @@ describe('perch hunt', () => {
     expect((await runHunt(await withRevision(repo, { systemOne: forced, force: true }))).calls).toBe(4);
     const findings = await openStore(repo.out).findings(0.25);
     expect(findings.map(finding => [finding.method, finding.has_bug])).toEqual([['src/a.js::f', 0.3]]);
+  });
+
+  it('does not list a defect when the flagged line is not reachable', async () => {
+    const repo = await fixture();
+    const hunt = await runHunt(await withRevision(repo, { systemOne: scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.9, where: 'L0004', kind_boundary: 0.8, reachable: 0.1 } }) }));
+    const f = hunt.visited.find(visit => visit.method === 'src/a.js::f');
+    expect(f).toMatchObject({ has_bug: 0.9, reachable: 0.1 });
+    expect(await openStore(repo.out).findings(0.5)).toEqual([]);
   });
 
   it('follows the neighbor the model points at before the next riskiest method', async () => {

@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { appendFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { excludeFromStatus, git, repoRoot } from './git.js';
-import { flagged, needsDesign } from './questions.js';
+import { flagged, hasIssue, issuesOf, needsDesign } from './questions.js';
 
 export const sha256 = text => createHash('sha256').update(text).digest('hex');
 /** A stable 16-hex-character id derived from everything that determines a record's result. */
@@ -67,20 +67,23 @@ export function openStore(out) {
      * since: the issue, its status, and the pull request. Events from before findings had ids and per-kind answers are ignored.
      */
     async latestFindings() {
-      const latest = new Map(), fixes = new Map(), published = new Map();
+      const latest = new Map(), fixes = new Map(), refactors = new Map(), published = new Map();
       for (const event of await store.readEvents()) {
         if (event.type === 'hunted' && event.id && event.kinds) latest.set(event.method, event);
         else if (event.type === 'fixed') fixes.set(event.method, event);
+        else if (event.type === 'refactored') refactors.set(event.method, event);
         else if (event.type === 'published') published.set(event.method, { ...published.get(event.method), ...Object.fromEntries(Object.entries(event).filter(([, value]) => value !== null && value !== undefined)) });
       }
+      // A fix or refactor counts for a finding when the method read the same when it was made as when it was hunted.
+      const applies = (work, finding) => work && (work.hash ? work.hash === finding.hash : work.revision === finding.revision || work.at >= finding.at);
+      const summarize = (work, key) => (work.status === 'ready'
+        ? { id: work[key], status: 'ready', at: work.at, summary: work.summary, commit: work.commit ?? null, branch: work.branch ?? null, patch_path: work.patch_path, test_path: work.test_path ?? null, verification: work.verification, proof: work.proof }
+        : { id: work[key], status: 'rejected', at: work.at, attempts: work.attempts, error: work.error });
       return [...latest.values()].map(finding => {
-        const fix = fixes.get(finding.method), issue = published.get(finding.method);
+        const fix = fixes.get(finding.method), refactor = refactors.get(finding.method), issue = published.get(finding.method);
         const merged = { ...finding };
-        if (fix && fix.revision === finding.revision) {
-          merged.fix = fix.status === 'ready'
-            ? { id: fix.fix_id, status: 'ready', at: fix.at, summary: fix.summary, patch_path: fix.patch_path, test_path: fix.test_path, verification: fix.verification, proof: fix.proof }
-            : { id: fix.fix_id, status: 'rejected', at: fix.at, attempts: fix.attempts, error: fix.error };
-        }
+        if (applies(fix, finding)) merged.fix = summarize(fix, 'fix_id');
+        if (applies(refactor, finding)) merged.refactored = summarize(refactor, 'refactor_id');
         if (issue && issue.at >= finding.at) {
           if (issue.github_url) merged.github_url = issue.github_url;
           if (issue.github_status) merged.github_status = issue.github_status;
@@ -95,6 +98,11 @@ export function openStore(out) {
       const index = new Map();
       for (const event of await store.latestFindings()) index.set(event.method, event.hash);
       return index;
+    },
+    /** Every method with an issue at probability `min` or more: defects and design issues together, strongest first. */
+    async issues(min = 0.5) {
+      const strength = event => issuesOf(event, min)[0]?.probability ?? 0;
+      return (await store.latestFindings()).filter(event => hasIssue(event, min)).sort((a, b) => strength(b) - strength(a) || (b.severity?.score ?? 0) - (a.severity?.score ?? 0));
     },
     /** Flagged methods at probability `min` or more, most likely first. */
     async findings(min = 0.5) {
