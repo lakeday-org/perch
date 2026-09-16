@@ -11,8 +11,9 @@ next. Every answer lands in an append-only events log under a short finding
 id, and a method is never asked about twice unless its source changes. What
 comes back is one list of issues: defects, refactors, methods that do not do
 what they claim, methods a caller cannot learn the contract of. `fix` works
-the defects and `refactor` the rest, each as a commit on your current branch
-with a proof behind it. `scan` and `hunt` never write to your working tree.
+the defects, `refactor` the methods the scan scores worst, each as a commit on
+your current branch checked by the tests that reach the method, the metrics,
+and System One. `scan` and `hunt` never write to your working tree.
 
 ## Install
 
@@ -43,7 +44,7 @@ perch report   [--out DIR] [--json]
 | `scan` | Analyzes every tracked source file at `HEAD`, records each file and method with its metrics, calls, and imports, and ranks the files by risk. Reads blobs straight from git: no worktree, no commands, no model. | `git` |
 | `hunt` | Walks the method graph from riskiest down within a budget, asking the System One model about each method once, several at a time. Runs `scan` first if needed. | `TYPESAFE_API_KEY` |
 | `issues` | Lists every open issue from every hunt so far: the method, each issue it carries with its probability (the defect kind, the refactor it needs, does not do what it claims, misdocumented), the severity of a defect, status, and the commit once fixed. Closed findings are omitted unless `--closed`. With a finding id, prints every answer for that method. | nothing |
-| `fix` | Works the open defects, most likely first, up to `--budget`; under a path, only those in that file or directory. System One first confirms the flagged line is reachable; then an OpenAI model returns the corrected method and one regression test; System One reads the test; the test must fail on the original and pass on the patch in your checkout, and the tests that reach the method must still pass; System One confirms the defect looks less likely than the hunt found it. Each proven fix is one commit on your current branch. Findings for methods that changed since the hunt are set aside. | `OPENAI_API_KEY`, `TYPESAFE_API_KEY` |
+| `fix` | Works the open defects, most likely first, up to `--budget`; under a path, only those in that file or directory. System One first confirms the flagged line is reachable; an OpenAI model, shown everything System One answered and the method's neighborhood, returns the corrected method; the patch may not grow in nesting, branches, or risk; the tests that reach the method must still pass; System One confirms the defect looks less likely and nothing else changed. Each accepted fix is one commit on your current branch. Findings for methods that changed since the hunt are set aside. | `OPENAI_API_KEY`, `TYPESAFE_API_KEY` |
 | `refactor` | Independent of the hunt. Takes the methods the scan scores at risk `--min` or more, riskiest first, up to `--budget`; under a path, only those in that file or directory. An OpenAI model rewrites the method and its comment, splitting helpers out beside it; the method must come out less risky with complexity and nesting no higher, and the file no deeper, no more complex, no more than a point riskier; every test that reaches the method (or the suite, when none does) must still pass; System One compares the two versions and confirms behavior is unchanged. Each accepted rewrite is one commit on your current branch. | `OPENAI_API_KEY`, `TYPESAFE_API_KEY` |
 | `report` | Prints the latest hunt. | nothing |
 
@@ -138,50 +139,48 @@ a refactor other than none, doubt that it does what it claims, or
 `misdocumented` reaches the threshold. `issues` lists every method with at
 least one, all of its issues on the row.
 
-## How a fix is proven
+## How a fix is checked
 
-Without a test that fails on the original and passes on the patch, a fix is
-an opinion with a probability on it. `fix` makes the proof part of the record.
+`fix` does not write a regression test today; that will come back once it is
+worth its cost. A fix is checked three ways, each cheap, and none of them is the
+generating model's own opinion.
 
-1. **Reachability precheck.** System One is asked whether a real caller can
-   execute the flagged line given the method's existing guards. If not, the
-   finding is discarded and the generative model is never called.
-2. **One generative call.** The OpenAI model sees the finding, the context the
-   hunt used, an existing test that reaches the method or a neighbor (so the
-   new test follows the project's style), and how the project runs one test
-   file. It returns the corrected method, one new regression test, the path the
-   test belongs at, and a one-line summary.
+1. **Reachability.** System One is asked, with the method and its callers in
+   front of it, whether a real caller can execute the flagged line given the
+   method's own guards. If not, the finding is closed and no generative call is
+   made.
+2. **One generative call, no thinking.** The OpenAI model sees everything
+   System One answered about the method, every defect kind with its
+   probability, the line and how sure, severity, which calls and callers look
+   wrong, the design signals, together with the neighborhood the hunt used:
+   the file's imports and module scope, the callees' source, the callers' source
+   around the call site, and the call graph. It returns the corrected method
+   and a one-line summary, nothing else. Reasoning effort is `none`; a rejected
+   attempt gets `low`, then `medium`.
 3. **Splice and gate.** The method is spliced into the file by line range. The
-   result must parse and must not raise cyclomatic complexity, nesting, or risk
-   score by more than a branch and a point. The test lands in the module's own
-   test file, or in a new file named after the module inside the repository.
-4. **System One reads the test** before a run is spent on it: does it import
-   the real method rather than a copy, does it exercise the flagged defect,
-   does it assert on behavior rather than internals, would it pass on the
-   original for the wrong reason. A test that fails goes back to the generative
-   model with the reasons.
-5. **Run it, twice.** In your checkout, the test must fail on the original with
-   an assertion (not a load or import error) and pass on the patch. Then the
-   existing tests the graph says reach the method (test methods that call it,
-   test files that import its file) must still pass.
-6. **System One questions the patched method** with the hunt's questions plus
+   result must parse and may not add nesting, more than one branch, or more
+   than a point of risk.
+4. **The tests still pass.** Every test that reaches the method (test methods
+   that call it, test files that import its file) and passed on the original
+   must pass on the patch. One that already failed is reported and never
+   blamed on the patch. One that fails on the patch is re-run on the original
+   first, so a checkout that changed under perch is reported, not recorded as a
+   rejection. When no test reaches the method, the patch rests on the metrics
+   and System One.
+5. **System One questions the patched method** with the hunt's questions plus
    one about collateral change. The defect probability and the flagged kind
-   must both be lower than the hunt found them (the test already proved the
-   fix; this asks whether the model agrees it improved), no caller may be newly
-   misused, and nothing may have changed beyond the defect. This catches a
-   patch that games the test.
-7. **Commit and record.** The method and its test are committed on the current
-   branch with the summary as the message and `perch <finding-id>` in the body.
-   The diff is kept at `<out>/fixes/<fix-id>/fix.patch` and a `fixed` event with
-   the commit, the before and after probabilities, and the test path goes to
-   `events.jsonl`, so `issues` shows the finding with its commit.
+   must both be lower than the hunt found them, no caller may be newly
+   misused, and nothing may have changed beyond the defect.
+6. **Commit and record.** The method is committed on the current branch with
+   the summary as the message and `perch <finding-id>` in the body. The diff
+   is kept at `<out>/fixes/<fix-id>/fix.patch` and a `fixed` event with the
+   commit and the before and after probabilities goes to `events.jsonl`, so
+   `issues` shows the finding with its commit.
 
 Three attempts, each fed the previous rejection. When all three fail, the
-finding is recorded as discarded and `issues` says so. Existing tests are run
-on the original first: one that already fails there is reported but never
-blamed on the patch. Test runs never see perch's own keys (`OPENAI_API_KEY`,
-`TYPESAFE_API_KEY`, `OPENAI_*`). A rejected attempt restores the files it
-wrote from `HEAD`; nothing else in the checkout is touched.
+finding is recorded as discarded and `issues` says so. Test runs never see
+perch's own keys (`OPENAI_API_KEY`, `TYPESAFE_API_KEY`, `OPENAI_*`). A rejected
+attempt restores the file from `HEAD`; nothing else in the checkout is touched.
 
 ## How a refactor is checked
 
@@ -213,14 +212,6 @@ the same thing.
 Three attempts, each fed the previous rejection; a rejected attempt restores
 the file from `HEAD`. A method already worked by the same model is not retried
 until it changes.
-
-The regression test goes where the project keeps its tests. When the module
-already has a test file (one that imports it, or whose name is the module's
-name plus `test`/`spec`), the model returns only the new case and perch appends
-it to that file; a whole file sent back is rejected. Otherwise a new file is created
-and must be named after the module the way the project's other tests are
-(`test/target.test.js`, `tests/test_target.py`, `target_test.go`); names with
-invented suffixes are rejected.
 
 How the project runs its tests is discovered from the tree at `HEAD`: candidate
 commands from `package.json` and its lockfile, `pyproject.toml`, `Cargo.toml`,

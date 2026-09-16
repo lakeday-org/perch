@@ -11,7 +11,7 @@ function fakeFetch(handler) {
 }
 
 const options = { apiKey: 'sk-test', model: 'test-model', retryDelayMs: 1, sleep: async () => {} };
-const proposal = { method: 'function f() {}', test: 'test', test_path: 'test/f.test.js', summary: 'fixed' };
+const proposal = { method: 'function f() {}', summary: 'fixed' };
 
 describe('model', () => {
   it('sends a strict schema request and parses a valid response', async () => {
@@ -25,7 +25,7 @@ describe('model', () => {
     expect(url).toBe('https://api.openai.com/v1/responses');
     expect(headers.authorization).toBe('Bearer sk-test');
     expect(body).toMatchObject({ model: 'test-model', input: 'please fix', store: false, max_output_tokens: 4096, reasoning: { effort: 'none' },
-      text: { format: { type: 'json_schema', name: 'fix', strict: true, schema: { additionalProperties: false, required: ['method', 'test', 'test_path', 'summary'] } } } });
+      text: { format: { type: 'json_schema', name: 'fix', strict: true, schema: { additionalProperties: false, required: ['method', 'summary'] } } } });
     expect(body.background).toBeUndefined();
     expect(model.last).toMatchObject({ effort: 'none' });
     await model.ask('fix-2', 'again', { effort: 'medium' });

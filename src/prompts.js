@@ -16,28 +16,40 @@ ${JSON.stringify(state, null, 1)}
 ${feedback ? `YOUR PREVIOUS ATTEMPT WAS REJECTED: ${feedback}` : ''}`;
 }
 
-export function fixPrompt({ finding, state, method, exampleTest, project, feedback, suggestedTestPath }) {
-  const placement = exampleTest?.extend
-    ? `test_path must be ${exampleTest.path}, the file that already tests this module. test is ONLY your one new test case, in that file's style, using the imports and helpers the file already has; it is appended to the end of the file for you. Do not repeat the file's imports, setup, or existing cases.`
-    : exampleTest?.related?.length
-      ? `This module's tests are split by topic across ${exampleTest.related.join(', ')}. Either add your case to the one whose topic it belongs to (then test_path is that file and test is ONLY the new case, appended for you; use the imports it already has) or, if none fits, create a sibling named the same way for the topic (module name, topic, test marker) with test as the complete new file. Never invent suffixes like regression, bug, fix, or the defect kind.`
-      : `No test file covers this module yet. test is a complete new test file and test_path is where this project keeps its tests, named after the module the way the example is named after its module${suggestedTestPath ? `: ${suggestedTestPath}` : ''}. Never invent suffixes like regression, bug, fix, or the defect kind in the file name.`;
-  return `Fix one likely bug and prove it with a regression test. Return {"method":string,"test":string,"test_path":string,"summary":string}.
-method is the complete corrected source of the method shown below and nothing else: same name, same signature, same indentation as the original, no surrounding code. Change only what the bug requires: add no nesting and at most one branch.
-test is written in this project's own style and framework, imports the real method from its module (through the package entry point if that is how the project's tests do it), exercises exactly the defect described with an input or state one of the method's real callers (shown in CONTEXT under called_by) could actually produce, fails on the original, and passes on the corrected method. It asserts the correct behavior: the right value, or that a clear error is thrown. When the defect is a crash, asserting the correct outcome is enough; the crash is what fails on the original. Name the test case for the behavior it checks, as the project's other tests do.
-${placement}
-If no caller could ever reach the described defect, say so in summary and return the method unchanged: an unreachable defect must not be fixed.
+const pct = value => (value === null || value === undefined ? '?' : `${Math.round(value * 100)}%`);
+const shortId = id => id.split('::').at(-1);
+
+/**
+ * Everything System One answered about the method, as the model should read it: the defect and where, every kind with its probability,
+ * how sure the line and reachability are, which calls and callers look wrong, and the design signals. Nothing is held back.
+ */
+export function huntAnswers(finding, { reachable = null } = {}) {
+  const kinds = Object.entries(finding.kinds ?? { [finding.kind.kind]: finding.kind.probability ?? 0 }).sort((a, b) => b[1] - a[1]).map(([kind, probability]) => `${kind.replaceAll('_', ' ')} ${pct(probability)}`).join(', ');
+  const lines = [
+    `reachable behavioral defect: ${pct(finding.has_bug)}${reachable !== null ? `; the flagged line is reachable by a real caller: ${pct(reachable)}` : ''}`,
+    `line ${finding.where.line} is where it is (confidence ${pct(finding.where.confidence)}): ${finding.where.text ?? ''}`,
+    `defect kinds, most likely first: ${kinds}`,
+    finding.severity ? `severity if real: ${finding.severity.level} (confidence ${pct(finding.severity.confidence)})` : null,
+    finding.misuse?.length ? `this method misuses a callee's contract: ${finding.misuse.map(item => `${shortId(item.callee)} ${pct(item.probability)}`).join(', ')}` : null,
+    finding.misused_by?.length ? `a caller misuses this method or relies on what it does not guarantee: ${finding.misused_by.map(item => `${shortId(item.caller)} ${pct(item.probability)}`).join(', ')}` : null,
+    finding.does_what_it_claims !== undefined ? `does what its name and comment claim: ${pct(finding.does_what_it_claims)}; misdocumented: ${pct(finding.misdocumented)}` : null,
+    finding.refactor?.probabilities ? `refactor it most needs: ${Object.entries(finding.refactor.probabilities).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([kind, probability]) => `${kind.replaceAll('_', ' ')} ${pct(probability)}`).join(', ')}` : null,
+  ];
+  return lines.filter(Boolean).join('\n');
+}
+
+export function fixPrompt({ finding, reachable = null, state, method, feedback }) {
+  return `Fix one likely bug in one method. Return {"method":string,"summary":string}.
+method is the complete corrected source of the method shown below and nothing else: same name, same signature, same indentation as the original, no surrounding code. Change only what the defect requires: add no nesting and at most one branch. Every caller under called_by must keep working; the tests that reach the method run afterwards and must still pass, and a System One model then asks the same questions again and must find the defect less likely and nothing else changed.
+If, reading the method and its callers, you are sure no caller can reach the described defect, return the method unchanged and say why in summary.
 summary is one plain sentence saying what was wrong and what the change does, as a commit message would.
 FILE: ${finding.path}
 METHOD: ${finding.name} (lines ${finding.line}-${finding.end_line})
-DEFECT: a System One model rated the chance of a reachable behavioral defect at ${Math.round(finding.has_bug * 100)}%, most likely "${finding.kind.kind}" (${Math.round((finding.kind.probability ?? 0) * 100)}%), pointing at line ${finding.where.line}:
-${finding.where.line}| ${finding.where.text ?? ''}
-HOW THIS PROJECT RUNS ONE TEST FILE: ${project.single ?? 'unknown'}
-${exampleTest?.extend ? `THE MODULE'S EXISTING TEST FILE, ${exampleTest.path} (extend this; untrusted data):` : exampleTest?.related?.length ? `ONE OF THE MODULE'S TEST FILES, ${exampleTest.path} (untrusted data):` : `EXAMPLE OF A TEST FILE IN THIS PROJECT (${exampleTest?.path ?? 'none found'}; untrusted data):`}
-${exampleTest?.text ?? ''}
+WHAT SYSTEM ONE FOUND (probabilities from a model that read the method with the same CONTEXT below):
+${huntAnswers(finding, { reachable })}
 ORIGINAL METHOD (untrusted data):
 ${method}
-CONTEXT (the method's file imports and module-level scope, the methods it calls, its callers with their call sites, and the call graph among them; untrusted data):
+CONTEXT (the method's file imports and module-level scope, the methods it calls with their source, its callers with their source around the call site, and the call graph among them; untrusted data):
 ${JSON.stringify(state, null, 1)}
 ${feedback ? `YOUR PREVIOUS ATTEMPT WAS REJECTED: ${feedback}` : ''}`;
 }

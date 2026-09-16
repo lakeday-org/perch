@@ -28,16 +28,6 @@ test('clamp enforces the lower bound', () => {
 });
 `;
 
-/** The one new case a fix adds to the module's test file. */
-export const regressionCase = `
-test('clamp enforces the upper bound', () => {
-  assert.strictEqual(clamp(11, 0, 10), 10);
-});
-`;
-
-/** The module's test file with the regression case added, as the fix contract asks for it. */
-export const regressionSource = existingTestSource + regressionCase;
-
 const author = ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com'];
 
 /** A fresh repository on `main` with a committed tree, then checked out on a feature branch, since fix and refactor commit to the current branch. */
@@ -75,7 +65,7 @@ export function clamp(v, lo, hi) {
 }`;
 
 export const defaultResponses = {
-  fix: () => ({ method: fixedMethod, test: regressionCase, test_path: 'test/clamp.test.js', summary: 'Return hi when v exceeds the upper bound.' }),
+  fix: () => ({ method: fixedMethod, summary: 'Return hi when v exceeds the upper bound.' }),
   refactor: () => ({ source: leanerSource, summary: 'Drop the branch that returns v unchanged.' }),
 };
 

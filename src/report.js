@@ -113,7 +113,7 @@ export function formatFinding(finding) {
   if (finding.callees?.length) lines.push(`Calls: ${finding.callees.map(shortId).join(', ')}`);
   if (finding.callers?.length) lines.push(`Called by: ${finding.callers.map(shortId).join(', ')}`);
   lines.push(`Status: ${issueStatus(finding)}`);
-  if (finding.fix?.status === 'ready') lines.push(`Fixed: ${finding.fix.test_path} fails on the original and passes on the change${finding.fix.summary ? ` — ${finding.fix.summary}` : ''}`, `    commit ${finding.fix.commit?.slice(0, 7) ?? '?'}${finding.fix.branch ? ` on ${finding.fix.branch}` : ''}  ${finding.fix.patch_path}`);
+  if (finding.fix?.status === 'ready') lines.push(`Fixed: ${finding.fix.summary ?? ''} (defect ${percent(finding.fix.verification?.before?.has_bug ?? finding.has_bug)} -> ${percent(finding.fix.verification?.after?.has_bug ?? 0)})`.trimEnd(), `    commit ${finding.fix.commit?.slice(0, 7) ?? '?'}${finding.fix.branch ? ` on ${finding.fix.branch}` : ''}  ${finding.fix.patch_path}`);
   else if (finding.fix) lines.push(`Fix discarded: no fix after ${finding.fix.attempts} attempts on ${finding.fix.at.slice(0, 10)}; last rejection: ${(finding.fix.error ?? '').split('\n')[0]}`);
   if (finding.refactored?.status === 'ready') lines.push(`Refactored: ${finding.refactored.summary ?? ''}${finding.refactored.before && finding.refactored.after ? ` (${metricShift(finding.refactored.before, finding.refactored.after)})` : ''}`.trimEnd(), `    commit ${finding.refactored.commit?.slice(0, 7) ?? '?'}${finding.refactored.branch ? ` on ${finding.refactored.branch}` : ''}  ${finding.refactored.patch_path}`);
   else if (finding.refactored) lines.push(`Refactor discarded: after ${finding.refactored.attempts} attempts on ${finding.refactored.at.slice(0, 10)}; last rejection: ${(finding.refactored.error ?? '').split('\n')[0]}`);
@@ -157,9 +157,9 @@ export function formatFix(fix) {
     const failing = fix.proof.baseline_failures ?? [];
     const existing = (fix.proof.existing_tests.length ? `${fix.proof.existing_tests.length} existing ${fix.proof.existing_tests.length === 1 ? 'test' : 'tests'} still pass` : 'no existing test reaches the method')
       + (failing.length ? ` (${failing.join(', ')} already failed on the original and did not count)` : '');
-    const shift = (from, to) => (from === null ? percent(to) : `${percent(from)} -> ${percent(to)}`);
-    lines.push(`  proof: ${fix.test_path} fails on the original with an assertion and passes on the patch; ${existing}`,
-      `  verified by ${fix.verifier}: reachable defect ${shift(before.has_bug, after.has_bug)}${after.kind !== null ? `, ${words(kind)} ${shift(before.kind, after.kind)}` : ''}, collateral change ${percent(after.collateral_change)}`,
+    const shift = (from, to) => (from === null || from === undefined ? percent(to) : `${percent(from)} -> ${percent(to)}`);
+    lines.push(`  checked: ${existing}; reachable ${percent(before.reachable ?? 1)} before the fix`,
+      `  verified by ${fix.verifier}: defect ${shift(before.has_bug, after.has_bug)}${after.kind !== null ? `, ${words(kind)} ${shift(before.kind, after.kind)}` : ''}, collateral change ${percent(after.collateral_change)}`,
       `  committed: ${fix.commit?.slice(0, 7) ?? '?'} on ${fix.branch ?? '?'}  (patch: ${fix.patch_path})`);
     if (fix.attempts.length > 1) lines.push(`  attempts: ${fix.attempts.length}; ${fix.attempts.slice(0, -1).map(attempt => `attempt ${attempt.attempt} rejected: ${attempt.rejected?.split('\n')[0]}`).join('; ')}`);
   }

@@ -217,36 +217,12 @@ export function reachCheck({ finding, state }) {
   };
 }
 
-/** Questions about a proposed regression test, asked before it is run, over the hunt's full state so reachability is judged against real call sites. */
-export function testCheck({ finding, state, test, testPath }) {
-  return { state: { defect: defectOf(finding), ...state, test: { path: testPath, source: test } }, questions: {
-    imports_real_method: noul('Does `test` import and call the real `method` from its module in the repository, directly or through the package\'s entry point, rather than a copy or a stub?', 'It reaches the real method at `method.path` and calls it', 'It defines its own copy, mocks the method, or never calls it'),
-    targets_defect: noul('Does `test` drive `method` with the input or state that triggers `defect`, and assert the outcome that input should have?',
-      'Its input reaches `defect.line`, and its assertion states the correct result for that input: a value, a resulting state, or a clear error. When the defect is a crash or a wrong result, asserting the correct outcome is exactly the check; the original fails it',
-      'Its input would not reach the defect, or its assertion is about something the defect does not affect'),
-    reachable_by_callers: noul('Could the input or state `test` gives `method` arise from its real callers in `called_by` (or from outside the program, if it is an entry point), rather than being a value no caller could ever pass?',
-      'A caller shown, or external input it forwards, can produce this input or state in practice', 'No caller could pass this; the test constructs a value or state the method never receives, such as a type its callers never produce'),
-    asserts_behavior: noul('Does `test` assert on observable behavior rather than on implementation details or on the test\'s own values?', 'It asserts a return value, thrown error, or resulting state that callers can observe', 'It asserts on internals, on constants it defined itself, or on nothing'),
-    passes_on_original: noul('Would `test` pass against `method.source` as written, with the defect still present?', 'The assertion holds on the original, so the test does not demonstrate the defect', 'The assertion fails on the original because of the defect'),
-  } };
-}
-
 /**
  * A proof rests on answers the model is sure of. Something that must hold needs at least SURE; something that must not hold may reach at
  * most UNSURE. An answer in between is a shrug, and a shrug never counts as proof.
  */
 export const SURE = 0.6, UNSURE = 0.4;
 const percent = value => `${Math.round(value * 100)}%`;
-
-/** Whether the model believes a regression test is sound. */
-export const soundTest = answers => testObjections(answers) === '';
-export const testObjections = answers => [
-  answers.imports_real_method.noul < SURE && `the test does not clearly import and call the real method (${percent(answers.imports_real_method.noul)})`,
-  answers.targets_defect.noul < SURE && `the test does not clearly exercise the described defect (${percent(answers.targets_defect.noul)})`,
-  answers.reachable_by_callers.noul < SURE && `it is not clear any real caller could pass the input the test constructs (${percent(answers.reachable_by_callers.noul)}), so it does not demonstrate a reachable defect`,
-  answers.asserts_behavior.noul < SURE && `the test does not clearly assert on observable behavior (${percent(answers.asserts_behavior.noul)})`,
-  answers.passes_on_original.noul > UNSURE && `the test may pass on the original (${percent(answers.passes_on_original.noul)}), so it does not clearly demonstrate the defect`,
-].filter(Boolean).join('; ');
 
 /**
  * Behavior questions over a rewritten method, asked with the same neighborhood the hunt uses. The metrics already said the rewrite is

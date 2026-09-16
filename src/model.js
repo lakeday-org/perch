@@ -3,7 +3,7 @@
 // Strict provider schemas also define the local acceptance boundary for persisted responses.
 const string = { type: 'string' };
 export const responseShapes = {
-  fix: { method: string, test: string, test_path: string, summary: string },
+  fix: { method: string, summary: string },
   refactor: { source: string, summary: string },
 };
 
