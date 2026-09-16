@@ -106,8 +106,15 @@ export function buildGraph(files) {
     files: byPath,
     callees: id => [...(callees.get(id) ?? [])],
     callers: id => [...(callers.get(id) ?? [])],
-    /** The line in the caller where it first calls the callee. */
-    site: (from, to) => sites.get(`${from}->${to}`) ?? null,
+    /**
+     * Return the first recorded source line for the directed edge from `from` to `to`.
+     * The line may identify a call or a function-value handover. Return null when no
+     * such edge was recorded; this lookup does not change the graph.
+     */
+    site: (from, to) => {
+      const edge = `${from}->${to}`;
+      return sites.get(edge) ?? null;
+    },
     edgeCount: () => [...callees.values()].reduce((sum, set) => sum + set.size, 0),
   };
 }
