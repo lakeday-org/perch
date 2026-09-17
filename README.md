@@ -1,11 +1,25 @@
-# perch
+<p align="center">
+  <a href="https://perchscan.com">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset=".github/logo.svg">
+      <img alt="perch" src=".github/logo-light.svg" width="300">
+    </picture>
+  </a>
+</p>
 
-[![npm](https://img.shields.io/npm/v/@lakeday/perch)](https://www.npmjs.com/package/@lakeday/perch)
-[![ci](https://github.com/lakeday-org/perch/actions/workflows/ci.yml/badge.svg)](https://github.com/lakeday-org/perch/actions/workflows/ci.yml)
-[![node](https://img.shields.io/node/v/@lakeday/perch)](https://nodejs.org)
-[![license](https://img.shields.io/npm/l/@lakeday/perch)](LICENSE)
+<p align="center">
+  <a href="https://www.npmjs.com/package/@lakeday/perch"><img alt="npm" src="https://img.shields.io/npm/v/@lakeday/perch"></a>
+  <a href="https://github.com/lakeday-org/perch/actions/workflows/ci.yml"><img alt="ci" src="https://github.com/lakeday-org/perch/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://nodejs.org"><img alt="node" src="https://img.shields.io/node/v/@lakeday/perch"></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/npm/l/@lakeday/perch"></a>
+</p>
 
-perch finds bugs and design problems in a repo. [perchscan.com](https://perchscan.com)
+<p align="center">
+  <a href="https://perchscan.com">perchscan.com</a> &nbsp;&middot;&nbsp;
+  <a href="https://docs.perchscan.com">docs</a>
+</p>
+
+perch finds bugs and design problems in a repo.
 
 `perch scan` parses every tracked file with tree-sitter, scores each method, then
 asks a TypeSafe System One model a fixed set of questions about each one: is
@@ -126,7 +140,15 @@ perch close e585492e --reason "verifies the HMAC before parsing"
 A closure stays closed. Later scans and later edits leave it alone, the way a
 `.eslintignore` entry does, because perch being wrong about something does not
 stop being true when a line above it moves. `perch reopen` is the only thing that
-brings it back, and closing one issue leaves everything else in that file live.
+brings it back.
+
+It covers the kinds that were on the issue when you closed it, so a defect found
+in that method later is a new thing and is listed. `--kind` closes some of them
+and leaves the rest:
+
+```sh
+perch close e585492e --kind docs
+```
 
 `--filter` narrows a list down to the issues you care about:
 
