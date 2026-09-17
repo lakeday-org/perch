@@ -9,8 +9,8 @@ import { join } from 'node:path';
 import { listTree, readBlob } from './git.js';
 import { analyzeTree } from './analyze.js';
 import { buildGraph } from './graph.js';
-import { askKey, CORRECTNESS, floorFor, questionSet, SEARCHES } from './ask.js';
-import { methodSteps, locateWhere, readAnswers } from './questions.js';
+import { askKey, CORRECTNESS, floorFor, questionSet, questionsFor, SEARCHES } from './ask.js';
+import { label as kindLabel, methodSteps, locateWhere, readAnswers } from './questions.js';
 import { asRules, askUnits, readRules, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL } from './units.js';
 import { findingId, identity, openStore, writeJson } from './store.js';
 export { findingId };
@@ -109,7 +109,7 @@ const createLineReader = (root, graph) => {
  * reads: a number that stops partway through leaves a report that looks complete and is not.
  */
 export async function scanRepository({ root, revision, out, analyzer, systemOne, label = root, github = null, paths = [], parallel = DEFAULT_PARALLEL,
-  unitParallel = UNIT_PARALLEL, min = 0.5, onFile = () => {}, progress = () => {}, unitProgress = () => {}, searchProgress = () => {}, scanProgress = () => {}, log = () => {}, debug = () => {} }) {
+  unitParallel = UNIT_PARALLEL, min = 0.5, filters = [], onFile = () => {}, progress = () => {}, unitProgress = () => {}, searchProgress = () => {}, scanProgress = () => {}, log = () => {}, debug = () => {} }) {
   const store = openStore(out);
   // The whole tree is parsed however narrow the run is. Parsing is free next to a request, and a method's callers matter whether
   // or not they are in the diff: a graph cut down to what a branch touched cannot say who calls into it.
@@ -126,7 +126,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const dir = store.runDir(id), runPath = join(dir, 'run.json');
   const total = candidateIds.length;
   const run = { id, status: 'running', target: label, github, root, revision, model: systemOne.id, paths, parallel, scan_id: scan.id, out: dir, created_at: created,
-    methods: total, to_read: total, rules: rules.length, edges: graph.edgeCount(), calls: 0, carried: 0, checked: 0, visited: [], broken: [], failed: [], usage: { input_tokens: 0, output_tokens: 0 } };
+    methods: total, to_read: total, rules: rules.length, filters, edges: graph.edgeCount(), calls: 0, carried: 0, skipped: 0, checked: 0, visited: [], broken: [], failed: [], usage: { input_tokens: 0, output_tokens: 0 } };
   await writeJson(runPath, run);
 
   // A file is reported the moment every method in it has been accounted for, rather than the run being held back to the end. A
@@ -164,13 +164,17 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const file = graph.files.get(node.path).file;
     // Your rules about this method are asked in its request, beside perch's own. A method covered by five rules costs one reading,
     // not six.
-    const own = rulesForMethod(rules, node);
-    const asked = [...questionSet().filter(question => question.each === 'method' && !question.kind), ...own];
+    // A filter narrows what is asked, not just what is printed. Asking thirty questions about a method to print two is paying
+    // for twenty-eight answers nobody reads, and a method no kept question covers is not read at all.
+    const asked = questionsFor([...questionSet().filter(question => question.each === 'method' && !question.kind), ...rulesForMethod(rules, node)], filters, kindLabel);
+    const own = asked.filter(question => question.kind);
+    if (!asked.length) return { node, calleeIds, callerIds, rules: own, skip: true };
     const steps = methodSteps({ node, lines: await linesOf(node), imports: file.imports, methods: file.methods, callees, callers, edges, asked });
     return { node, calleeIds, callerIds, rules: own, steps, key: askKey(steps, asked) };
   };
   const ask = async nodeId => {
-    const { node, calleeIds, callerIds, rules: own, steps, key } = await stepFor(nodeId);
+    const { node, calleeIds, callerIds, rules: own, steps, key, skip } = await stepFor(nodeId);
+    if (skip) return { node, calleeIds, callerIds, rules: own, skipped: true };
     // The same state and the same questions have an answer already. Asking again would spend a request to be told what is on
     // disk, and would move the percentages on an issue nobody has touched, which is worse: a row you looked at yesterday should
     // read the same today unless the code did something.
@@ -182,7 +186,8 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   /** Every reading this run made, written whole at the end: the file says what this scan said, not what any scan ever said. */
   const read = [], broken = [];
   const record = async results => {
-    for (const { node, calleeIds, callerIds, rules: own, response, answers, key, carried } of results) {
+    for (const { node, calleeIds, callerIds, rules: own, response, answers, key, carried, skipped } of results) {
+      if (skipped) { run.skipped++; continue; }
       if (carried) run.carried++; else run.calls++;
       run.usage.input_tokens += response?.usage?.input_tokens ?? 0; run.usage.output_tokens += response?.usage?.output_tokens ?? 0;
       const event = carried ?? readEvent({ node, answers, response, key, runId: id, root, github, revision, calleeIds, callerIds });
@@ -237,8 +242,10 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const tree = await listTree(root, revision);
     for (const item of tree) if (item.type === 'blob' && !files.has(item.path)) files.set(item.path, await readBlob(root, item.sha).catch(() => ''));
     const over = { scan, graph, files, tree, revision, systemOne, inScope, min, debug, earlier: checks };
-    const units = await askUnits({ ...over, rules: rules.filter(rule => !SEARCHES(rule.kind) && rule.each !== 'method'), parallel: unitParallel, progress: unitProgress });
-    const searches = await searchUnits({ ...over, rules: rules.filter(rule => SEARCHES(rule.kind)), parallel: unitParallel, progress: searchProgress });
+    const kept = new Set(questionsFor(rules, filters, kindLabel).map(rule => rule.name));
+    const asking = rules.filter(rule => kept.has(rule.name));
+    const units = await askUnits({ ...over, rules: asking.filter(rule => !SEARCHES(rule.kind) && rule.each !== 'method'), parallel: unitParallel, progress: unitProgress });
+    const searches = await searchUnits({ ...over, rules: asking.filter(rule => SEARCHES(rule.kind)), parallel: unitParallel, progress: searchProgress });
     run.carried += units.carried + searches.carried;
     // What each rule actually covered. A selector that matches nothing is a rule that never fires and never says so, which is
     // the one kind of broken rule you cannot see by reading the report: it looks exactly like a rule nothing violates.

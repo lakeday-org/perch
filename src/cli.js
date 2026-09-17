@@ -28,7 +28,7 @@ const options = {
   page: ['--page N', 'Which page of them, 1 is the first', ['issues']],
   closed: ['--closed', 'Include closed issues (worked and given up on, or nothing left to do)', ['issues']],
   min: ['--min P', `Only issues it is at least P percent sure of (default ${BELIEVED * 100}; --min 0 shows everything). On a rule, the floor for that one alone`, ['scan', 'issues', 'rules']],
-  filter: ['--filter k=v', 'Only issues matching, e.g. type=security, kind=too big, severity=P1 (comma-separated)', ['issues']],
+  filter: ['--filter k=v', 'Only issues matching, e.g. type=security, kind=too big, severity=P1 (comma-separated)', ['scan', 'issues']],
   types: ['--types', 'Print everything --filter accepts and stop', ['issues']],
   rules: ['--rules a,b', 'Ask only these: rule names, or defect, security, refactor, docs, misaligned', ['check']],
   ensure: ['--ensure TEXT', 'What has to be true of every file or method it covers', ['rules']],
@@ -295,6 +295,7 @@ const commands = {
     const meter = createMeter();
     const parallel = positiveInteger('--parallel', io.flags.parallel, DEFAULT_PARALLEL);
     const min = threshold(io.flags.min) / 100;
+    const filters = filtersFrom(io.flags);
     const resolved = await resolveTarget(io.argument ?? '.', { out: io.flags.out, log: io.log });
     const paths = await scanPaths(io, resolved.root);
     if (io.flags.since && !paths.length) { io.stdout(`Nothing changed since ${io.flags.since}.`); return 0; }
@@ -311,7 +312,7 @@ const commands = {
     const said = new Set();
     const say = (path, findings) => {
       said.add(path);
-      const block = formatScanReport(visibleFindings(findings), { min, summary: false, empty: '' });
+      const block = formatScanReport(narrow(visibleFindings(findings), filters, min), { min, filters, summary: false, empty: '' });
       if (!block) return;
       methods.clear();
       io.stdout(block + '\n');
@@ -319,18 +320,18 @@ const commands = {
     let run;
     try {
       run = await scanRepository({ root: resolved.root, revision: await gitRevision(resolved.root), label: resolved.label, github: resolved.github, out: resolved.out,
-        systemOne, analyzer: createSourceAnalyzer(), paths, parallel, min, onFile: io.flags.json ? () => {} : say,
+        systemOne, analyzer: createSourceAnalyzer(), paths, parallel, min, filters, onFile: io.flags.json ? () => {} : say,
         progress: methods.update, unitProgress: units.update, searchProgress: searches.update, scanProgress: files.update,
         log: note, debug: note });
     } finally { files.clear(); methods.clear(); units.clear(); searches.clear(); }
     const store = openStore(resolved.out);
     const scan = await store.latestScan();
-    const issues = visibleFindings(splitStale(await store.issues(min, { scan }), scan).current);
+    const issues = narrow(visibleFindings(splitStale(await store.issues(min, { scan }), scan).current), filters, min);
     // Whatever has not gone past already: the rules about files and tests, which are asked after the walk. Then the tally, which
     // counts the whole run. What was read and what it cost is context for a person watching, and goes under it on stderr.
     const rest = issues.filter(finding => !said.has(finding.path));
     print(io, { run, issues, usage: meter.toJSON() },
-      [formatScanReport(rest, { min, summary: false, empty: '' }), scanTally(issues, min)].filter(Boolean).join('\n\n'));
+      [formatScanReport(rest, { min, filters, summary: false, empty: '' }), scanTally(issues, min, undefined, filters)].filter(Boolean).join('\n\n'));
     io.note(brokenRules(run), scanCount(run), ...meter.lines());
     // A rule is a claim you made about your own code, so breaking one is a failure CI can read. A finding perch turned up on its
     // own is a probability, and exiting on one would make every run a coin toss.

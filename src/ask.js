@@ -209,16 +209,47 @@ export function issues(answers, min = 0, questions = questionSet(), rename = kin
   return [...found, ...strongest.values()].filter(issue => issue.probability > issue.floor).sort((a, b) => b.probability - a.probability);
 }
 
+/** The labels one question can raise: the options of the choice it names, or the one name it files under. */
+function labelsOf(question, questions, rename = kind => kind) {
+  const wanted = question.issue?.label ?? 'self';
+  const named = questions.find(other => other.name === wanted && other.type === 'choice');
+  if (named) return Object.keys(named.options).filter(option => option !== question.issue.except).map(rename);
+  return [rename(wanted === 'self' ? question.name : wanted)];
+}
+
+/**
+ * The questions worth asking for a given filter. A filter that narrows a report to one kind of problem should narrow the run to
+ * the questions that can raise it: asking thirty questions per method and printing two is paying for twenty-eight answers nobody
+ * reads. What a kept question depends on comes with it — the gate it multiplies by, the choice that names it, and the severity
+ * rubric when it is a correctness issue, since that is what ranks it.
+ */
+export function questionsFor(questions, filters = [], rename = kind => kind) {
+  const named = filters.filter(clause => clause.key === 'type' || clause.key === 'kind');
+  if (!named.length) return questions;
+  const canon = value => String(value).toLowerCase().replace(/[_-]+/g, ' ');
+  const wanted = new Set();
+  for (const question of questions) {
+    if (!question.issue) continue;
+    const labels = labelsOf(question, questions, rename);
+    if (named.some(clause => (clause.key === 'type' ? question.issue.type === clause.value : labels.some(label => canon(label) === clause.value)))) wanted.add(question.name);
+  }
+  for (const name of [...wanted]) {
+    const question = questions.find(other => other.name === name);
+    if (question.when) wanted.add(question.when);
+    const label = question.issue.label ?? 'self';
+    if (label !== 'self' && questions.some(other => other.name === label)) wanted.add(label);
+    if (CORRECTNESS.has(question.issue.type)) wanted.add('severity');
+  }
+  return questions.filter(question => wanted.has(question.name));
+}
+
 /** The types a question set can raise, and the labels it can raise them under, so `--filter` can name them and reject a typo. */
 export function vocabulary(questions = questionSet(), rename = kind => kind) {
   const types = new Set(), labels = new Set();
   for (const question of questions) {
     if (!question.issue) continue;
     types.add(question.issue.type);
-    const wanted = question.issue.label ?? 'self';
-    const named = questions.find(other => other.name === wanted && other.type === 'choice');
-    if (named) for (const option of Object.keys(named.options)) { if (option !== question.issue.except) labels.add(rename(option)); }
-    else labels.add(rename(wanted === 'self' ? question.name : wanted));
+    for (const label of labelsOf(question, questions, rename)) labels.add(label);
   }
   return { types: [...types], labels: [...labels] };
 }

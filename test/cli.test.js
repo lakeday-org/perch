@@ -50,8 +50,8 @@ describe('cli', () => {
 
   it('refuses a flag the command does not take, and names the command that does', async () => {
     const { err, io } = capture();
-    expect(await main(['scan', '--filter', 'type=security'], io)).toBe(2);
-    expect(err.join('\n')).toContain('perch scan does not take --filter; it belongs to issues');
+    expect(await main(['scan', '--closed'], io)).toBe(2);
+    expect(err.join('\n')).toContain('perch scan does not take --closed; it belongs to issues');
     expect(err.join('\n')).toContain('perch scan --help');
     expect(await main(['scan', '--rules', 'a'], io)).toBe(2);
     expect(err.join('\n')).toContain('perch scan does not take --rules; it belongs to check');

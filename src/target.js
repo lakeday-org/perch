@@ -29,6 +29,9 @@ export async function resolveTarget(target = '.', { out, log = () => {} } = {}) 
     }
     return { kind: 'github', root: dir, github, out: base, label: `${github.owner}/${github.repo}` };
   }
-  const root = await repoRoot(resolve(target));
+  // A target that is not there reads as a spawn failure from deep inside git, which says the wrong thing about the wrong tool.
+  const where = resolve(target);
+  if (!existsSync(where)) throw new Error(`${target} is not a directory, a repository, or a GitHub url. perch scan --help`);
+  const root = await repoRoot(where);
   return { kind: 'local', root, github: parseGithub(await originUrl(root)), out: out ?? join(root, '.perch'), label: root };
 }

@@ -114,10 +114,13 @@ function issueTable(findings, min = 0, filters = [], { width = WIDTH() } = {}) {
  * One line per problem, not per method: a method carrying five is five things to fix. `perch issues` is where a method is taken
  * as a whole and ranked against the others.
  */
-export function formatScanReport(findings, { min = 0, width = WIDTH(), color = COLOR(), summary = true, empty = 'Nothing to report.' } = {}) {
+export function formatScanReport(findings, { min = 0, width = WIDTH(), color = COLOR(), filters = [], summary = true, empty = 'Nothing to report.' } = {}) {
   const byFile = new Map();
   for (const finding of findings) {
-    const issues = issuesOf(finding, min);
+    // A search that found nothing anywhere is not about a file. It is reported against the rule file so `perch issues` has a
+    // place to point at, but listing it under a header that reads like a scanned file says perch went looking through your rules.
+    if (String(finding.unit ?? '').startsWith('search:')) continue;
+    const issues = shownIssues(finding, min, filters);
     if (!issues.length) continue;
     const line = issues[0]?.type === 'defect' ? finding.where?.line ?? finding.line : finding.line;
     if (!byFile.has(finding.path)) byFile.set(finding.path, []);
@@ -156,12 +159,12 @@ export function formatScanReport(findings, { min = 0, width = WIDTH(), color = C
 }
 
 /** "✖ 41 problems in 18 places in 2 files", the line a run ends on. */
-export function scanTally(findings, min = 0, color = COLOR()) {
-  const places = findings.map(finding => issuesOf(finding, min)).filter(issues => issues.length);
-  const count = places.reduce((total, issues) => total + issues.length, 0);
-  const files = new Set(findings.filter(finding => issuesOf(finding, min).length).map(finding => finding.path)).size;
-  if (!count) return `${'✓'} nothing to report`;
-  const worst = places.filter(issues => issues.some(issue => issue.probability >= 0.9)).length;
+export function scanTally(findings, min = 0, color = COLOR(), filters = []) {
+  const kept = findings.map(finding => ({ path: finding.path, issues: shownIssues(finding, min, filters) })).filter(item => item.issues.length);
+  const count = kept.reduce((total, item) => total + item.issues.length, 0);
+  const files = new Set(kept.map(item => item.path)).size;
+  if (!count) return '✓ nothing to report';
+  const worst = kept.some(item => item.issues.some(issue => issue.probability >= 0.9));
   // Two numbers, not three. How many problems and how many files they are in is what a person reads; how many methods carried
   // them is arithmetic nobody asked for.
   return `${worst ? red('✖', color) : yellow('!', color)} ${count} ${count === 1 ? 'problem' : 'problems'} in ${files} ${files === 1 ? 'file' : 'files'}`;
@@ -177,10 +180,12 @@ export function brokenRules(run, { color = COLOR(), keep = 4 } = {}) {
   const counts = new Map();
   for (const finding of broken) counts.set(finding.rule, (counts.get(finding.rule) ?? 0) + 1);
   const fired = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  const shown = fired.slice(0, keep).map(([name, count]) => `${name} ${count}`);
+  const nowhere = new Set(broken.filter(finding => String(finding.unit ?? '').startsWith('search:')).map(finding => finding.rule));
+  const shown = fired.slice(0, keep).map(([name, count]) => `${name} ${count}${nowhere.has(name) ? ' (nothing has it)' : ''}`);
   const rest = fired.length - shown.length;
   // Whose rules, since perch's own questions raise issues and never break anything: only what you wrote can be broken.
-  return `${red(String(broken.length), color)} of them break a rule in ${RULES_FILE}: ${[...shown, ...(rest ? [`+${rest} more`] : [])].join(', ')}`;
+  const named = [...shown, ...(rest ? [`+${rest} more`] : [])].join(', ');
+  return `${red(String(broken.length), color)} of them break a rule in ${RULES_FILE}: ${named}`;
 }
 
 /** What a run did, for stderr. */
@@ -333,6 +338,18 @@ export const formatFilterKeys = () => Object.entries(filterKeys())
     const others = key === 'type' ? alsoKnownAs(value) : [];
     return `  ${value}${others.length ? ` (or ${others.join(', ')})` : ''}`;
   }).join('\n')}`).join('\n\n');
+
+/**
+ * The problems a listing shows for one finding. A filter narrows this to the problems it named, not just to the methods carrying
+ * one of them, and a severity clause is about the method and has already kept or dropped it. Counted and printed from here both,
+ * so the line that says how many there are is counting the ones on the screen.
+ */
+export function shownIssues(finding, min, filters = []) {
+  if (String(finding.unit ?? '').startsWith('search:')) return [];
+  const named = filters.filter(clause => clause.key === 'type' || clause.key === 'kind');
+  return issuesOf(finding, min).filter(issue => !named.length
+    || named.some(clause => (clause.key === 'type' ? issue.type : String(issue.label).toLowerCase().replace(/[_-]+/g, ' ')) === clause.value));
+}
 
 /** A distribution as a row: the ones worth reading, then a count of the tail. A list of sixteen percentages is not a reading. */
 function spread(map, keep = 3) {
