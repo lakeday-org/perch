@@ -74,6 +74,12 @@ export const readEvent = ({ node, answers, response, key, runId = null, root, gi
   hash: node.hash, key, risk: node.metrics?.risk_score ?? null, model: response.model, ...answers, callees: calleeIds, callers: callerIds });
 
 /**
+ * What a run narrowed by --paths or --since is about: a named file, or anything under a named directory. One definition, because
+ * the walk and the report both ask it, and a report covering more than the run read is a report about somebody else's work.
+ */
+export const covers = (paths = []) => path => !paths.length || paths.some(item => path === item || path.startsWith(item.replace(/\/$/, '') + '/'));
+
+/**
  * The order methods are read in: riskiest neighbor first off the stack, then the next riskiest method overall. An id from the
  * scan or from the model is taken only when it names a node the graph actually has, is not a test, and is in scope. A neighbor
  * outside scope is in view as context for the method that names it, and is not itself read: what a run covers is what it covers.
@@ -131,7 +137,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const rules = asRules(await readRules(root, revision));
   // --since and --paths say what this run reads, not what perch knows. A method outside is neither read nor reported here, and
   // what the last run said about it is carried onto the file at the end rather than dropped.
-  const inScope = path => !paths.length || paths.some(item => path === item || path.startsWith(item.replace(/\/$/, '') + '/'));
+  const inScope = covers(paths);
   const candidates = scan.candidates.filter(candidate => graph.nodes.has(candidate.id) && inScope(graph.nodes.get(candidate.id).path));
   // No methods in scope is an ordinary run, not a failure: a branch that only touched markdown and a workflow has none, and the
   // rules about files still cover what it did touch. Erroring here failed the run and skipped those rules as well.

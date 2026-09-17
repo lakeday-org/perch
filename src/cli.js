@@ -6,7 +6,7 @@ import { createSystemOne } from './systemone.js';
 import { createSourceAnalyzer } from './analysis.js';
 import { openStore, resolveOut } from './store.js';
 import { analyzeTree } from './analyze.js';
-import { DEFAULT_PARALLEL, scanRepository } from './scan.js';
+import { covers, DEFAULT_PARALLEL, scanRepository } from './scan.js';
 import { BELIEVED, filterKeys, filterStrength, matchesFilters, parseFilters } from './questions.js';
 import { splitStale } from './context.js';
 import { changedPaths, readRules, RULES_FILE, UNIT_PARALLEL } from './units.js';
@@ -17,7 +17,10 @@ import { allQuestions, SHAPES } from './ask.js';
 import { createMeter, metered } from './meter.js';
 import { formatDoctor, formatFilterKeys, gating, useColor, formatFinding, formatIssues, formatCheck, formatRules, formatScanReport, issueCount, scanCount, scanTally, TOP, visibleFindings } from './report.js';
 
-/** Stamped into the bundle at build time so `perch doctor` reports the version that is running, not one read from a stray file. */
+/**
+ * Stamped into the bundle at build time, so it reports what is running rather than a number read off a package.json that may not
+ * be the one this code came from. A build that is not sitting on its release tag says DEVELOPMENT and names the commit.
+ */
 export const VERSION = typeof PERCH_VERSION === 'string' ? PERCH_VERSION : 'dev';
 
 const options = {
@@ -86,7 +89,7 @@ Commands:
 ${column(Object.entries(commandHelp).map(([name, help]) => [`${name} ${help.args}`.trim(), help.summary]))}
 
 Options:
-${column([...Object.values(options).filter(([, , verbs]) => verbs.length === Object.keys(commandHelp).length).map(([flag, text]) => [flag, text]), ['-h, --help', 'This help; perch <command> --help for one command']])}
+${column([...Object.values(options).filter(([, , verbs]) => verbs.length === Object.keys(commandHelp).length).map(([flag, text]) => [flag, text]), ['-h, --help', 'This help; perch <command> --help for one command'], ['-v, --version', 'The release this was built from, or DEVELOPMENT and the commit']])}
 
 Environment:
 ${column([['TYPESAFE_API_KEY', 'scan, check']])}`;
@@ -112,7 +115,7 @@ export const EXIT = { clean: 0, broke: 1, usage: 2, found: 3 };
 
 const valued = new Set(['paths', 'parallel', 'min', 'filter', 'out', 'reason', 'kind', 'limit', 'page', 'since', 'rules',
   'ensure', 'ensure_present', 'ensure_absent', 'where', 'except', 'each', 'sees', 'type', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', 'gate']);
-const switches = new Set(['force', 'all', 'json', 'verbose', 'closed', 'types', 'help']);
+const switches = new Set(['force', 'all', 'json', 'verbose', 'closed', 'types', 'help', 'version']);
 
 export function parseArgs(argv) {
   const flags = {}, positional = [];
@@ -120,6 +123,7 @@ export function parseArgs(argv) {
     const arg = argv[i];
     if (arg === '--') { positional.push(...argv.slice(i + 1)); break; }
     if (arg === '-h') { flags.help = true; continue; }
+    if (arg === '-v') { flags.version = true; continue; }
     if (!arg.startsWith('--')) { positional.push(arg); continue; }
     const eq = arg.indexOf('=');
     const key = eq < 0 ? arg.slice(2) : arg.slice(2, eq);
@@ -380,7 +384,11 @@ const commands = {
     } finally { files.clear(); methods.clear(); units.clear(); searches.clear(); }
     const store = openStore(resolved.out);
     const scan = await store.latestScan();
-    const issues = narrow(visibleFindings(splitStale(await store.issues(min, { scan }), scan).current), filters, min);
+    // What this run was about, not everything perch knows. A run narrowed to one file used to end on the whole store's count,
+    // so `--paths README.md` read nothing and reported eighteen problems in nine files as though it had just found them.
+    const inScope = covers(paths);
+    const issues = narrow(visibleFindings(splitStale(await store.issues(min, { scan }), scan).current)
+      .filter(finding => inScope(finding.path)), filters, min);
     // Whatever has not gone past already: the rules about files and tests, which are asked after the walk. Then the tally, which
     // counts the whole run. What was read and what it cost is context for a person watching, and goes under it on stderr.
     const rest = issues.filter(finding => !said.has(finding.path));
@@ -473,6 +481,8 @@ export async function main(argv, { stdout = text => process.stdout.write(text + 
   const [typed = 'help', argument] = positional;
   const commandName = ALIASES[typed] ?? typed;
   const command = commands[commandName];
+  // Answered before the command is checked or run, since asking what is running is not something you do to a command.
+  if (flags.version) { stdout(VERSION); return EXIT.clean; }
   if (flags.help || commandName === 'help') { stdout(command ? usageFor(commandName) : usage); return EXIT.clean; }
   if (!command) { stderr(`perch: unknown command ${typed}`); stderr(`perch --help lists them`); return EXIT.usage; }
   try { checkFlags(flags, commandName); }
