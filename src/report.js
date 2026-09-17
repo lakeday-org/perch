@@ -120,10 +120,18 @@ export function formatIssues(findings, min, shown = TOP, { closed = false, filte
   return issueTable(rows.slice(0, shown), min, filters, { width }).join('\n');
 }
 
-/** "10 of 240 open, --all for the rest": how much of the list you are looking at. Context, so it goes to stderr under the table. */
-export function issueCount({ open, matched, listed, closed = 0, filtered = false }) {
-  const noun = total => `${total} open ${total === 1 ? 'issue' : 'issues'}`;
-  const parts = [filtered ? `${matched} of ${noun(open)} match` : listed < open ? `${listed} of ${noun(open)}, --all for the rest` : noun(open)];
+/** "11-20 of 124 open issues match, --page 3 for the next": where you are in the list. Context, so it goes to stderr. */
+export function issueCount({ open, matched, from = 0, listed, size = Infinity, closed = 0, filtered = false }) {
+  const total = filtered ? matched : open;
+  const noun = count => `${count} open ${count === 1 ? 'issue' : 'issues'}`;
+  if (!listed && from) {
+    const pages = Math.max(1, Math.ceil(total / size));
+    return `page ${Math.floor(from / size) + 1} is past the end. ${noun(total)}${filtered ? ` match, out of ${open}` : ''}, ${pages} ${pages === 1 ? 'page' : 'pages'}`;
+  }
+  const all = listed === total && !from;
+  const head = all ? noun(total) : `${from + 1}-${from + listed} of ${noun(total)}`;
+  const parts = [filtered && total !== open ? `${head}${all ? ' match' : ' matching'}, out of ${open}` : head];
+  if (from + listed < total) parts.push(Number.isFinite(size) ? `--page ${Math.floor(from / size) + 2} for the next` : '--all for the rest');
   if (closed) parts.push(`${closed} closed, --closed to include`);
   return parts.join('. ');
 }

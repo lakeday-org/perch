@@ -42,7 +42,7 @@ main and master.
 
 ```
 perch scan   [<target>] [--paths a,b] [--parallel N] [--force] [--all]
-perch issues [<issue-id>] [--filter k=v] [--types] [--min P] [--all] [--closed]
+perch issues [<issue-id>] [--filter k=v] [--types] [--min P] [--limit N] [--page N] [--all] [--closed]
 perch close  <issue-id>... [--reason R]
 perch reopen <issue-id>...
 perch fix    [<issue-id> | <path>] [--filter k=v] [--budget N] [--min P] [--effort E]
@@ -98,6 +98,14 @@ perch fix --filter severity=P1 --budget 5
 Filtered lists print every match and put the thing you filtered for first in
 each row. Unfiltered lists are cut to 10 unless you pass `--all`.
 
+To walk a long list, `--limit` sets the page size and `--page` picks one. A line
+under the table says where you are:
+
+```sh
+perch issues --limit 25            # 1-25 of 235 open issues. --page 2 for the next
+perch issues --limit 25 --page 4   # 76-100 of 235 open issues. --page 5 for the next
+```
+
 ### Flags
 
 | Flag | Meaning |
@@ -111,6 +119,8 @@ each row. Unfiltered lists are cut to 10 unless you pass `--all`.
 | `--reason R` | Why you closed something. Kept on the record. |
 | `--budget N` | Fix at most N issues (default 20). |
 | `--effort E` | `none`, `low`, `medium`, `high`, `xhigh`, `max` (default `medium`). |
+| `--limit N` | Rows per page (default 10). |
+| `--page N` | Which page of them, 1 is the first. |
 | `--all` | Print every row instead of the top 10. |
 | `--closed` | Include closed issues. |
 | `--out DIR` | Results directory (default `.perch`). |

@@ -21,6 +21,8 @@ const options = {
   parallel: ['--parallel N', `How many methods to read at once (default ${DEFAULT_PARALLEL})`, ['scan']],
   force: ['--force', 'Read every method again, even ones unchanged since an earlier scan', ['scan']],
   all: ['--all', 'List every row instead of the top 10', ['scan', 'issues']],
+  limit: ['--limit N', `Rows per page (default ${TOP})`, ['issues']],
+  page: ['--page N', 'Which page of them, 1 is the first', ['issues']],
   closed: ['--closed', 'Include closed issues (worked and given up on, or nothing left to do)', ['issues']],
   min: ['--min P', `Only issues the scan is at least P percent sure of (default ${BELIEVED * 100}; --min 0 shows everything it answered)`, ['issues', 'fix']],
   filter: ['--filter k=v', 'Only issues matching, e.g. type=security, kind=too big, severity=P1 (comma-separated)', ['issues', 'fix']],
@@ -80,7 +82,7 @@ Options:
 ${column(own.map(([flag, text]) => [flag, text]))}`;
 }
 
-const valued = new Set(['paths', 'budget', 'parallel', 'min', 'filter', 'model', 'effort', 'out', 'reason']);
+const valued = new Set(['paths', 'budget', 'parallel', 'min', 'filter', 'model', 'effort', 'out', 'reason', 'limit', 'page']);
 const switches = new Set(['force', 'all', 'json', 'verbose', 'closed', 'types', 'help']);
 
 export function parseArgs(argv) {
@@ -128,9 +130,17 @@ const print = (io, record, text) => io.stdout(io.flags.json ? JSON.stringify(rec
 const noteFrom = (io, stderr) => (...lines) => { if (!io.flags.json) for (const line of lines.filter(Boolean)) stderr(line); };
 /**
  * How many rows to print. The top ten is what an unasked-for list is cut to, because nobody wants 365 rows for typing `perch
- * issues`. A filter is the asking: you named what you wanted, so you get all of it.
+ * issues`. A filter is the asking: you named what you wanted, so you get all of it. --limit and --page say it outright.
  */
 const shown = (io, filters = []) => (io.flags.all || filters.length ? Infinity : TOP);
+/** Where to start and how many to take: `--page 3` is the third `--limit`, and `--all` is the lot. */
+function paging(io, filters = []) {
+  const limit = io.flags.limit === undefined ? null : positiveInteger('--limit', io.flags.limit);
+  const page = io.flags.page === undefined ? null : positiveInteger('--page', io.flags.page);
+  if (io.flags.all && !limit && !page) return { from: 0, size: Infinity };
+  const size = limit ?? (page ? TOP : shown(io, filters));
+  return { from: page ? (page - 1) * size : 0, size };
+}
 /** An in-place counter on stderr for interactive runs; silent when piped, verbose, or JSON. */
 function counter(io, noun) {
   const live = process.stderr.isTTY && !io.verbose && !io.flags.json;
@@ -196,9 +206,10 @@ const commands = {
     const findings = narrow(all, filters, min / 100);
     const closed = Boolean(io.flags.closed);
     const rows = visibleFindings(findings, { closed });
-    const limit = shown(io, filters);
-    print(io, rows, formatIssues(findings, min / 100, limit, { closed, filters }));
-    io.note(issueCount({ open: visibleFindings(all).length, matched: visibleFindings(findings).length, listed: Math.min(rows.length, limit),
+    const { from, size } = paging(io, filters);
+    const page = rows.slice(from, Number.isFinite(size) ? from + size : undefined);
+    print(io, page, formatIssues(page, min / 100, Infinity, { closed, filters }));
+    io.note(issueCount({ open: visibleFindings(all).length, matched: rows.length, from, listed: page.length, size,
       closed: closed ? 0 : all.length - visibleFindings(all).length, filtered: filters.length > 0 }));
   },
   /** Set issues aside, or put them back: a judgement you make about what the scan found, kept in the same log as everything else. */

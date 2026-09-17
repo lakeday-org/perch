@@ -187,6 +187,30 @@ describe('cli', () => {
     for (const row of out.at(-1).split('\n').slice(1)) expect(row).toMatch(/^\S+ +\S+ +\S+ +security /);
   });
 
+  it('pages through the list and says where you are', async () => {
+    const repoRoot = await makeGraphFixture();
+    cleanups.push(repoRoot);
+    const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
+    await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne({}), budget: 4 }));
+    const { out, err, io } = capture();
+    const ids = text => text.split('\n').slice(1).map(row => row.slice(0, 8));
+
+    expect(await main(['issues', '--out', repo.out, '--min', '0', '--limit', '2'], io)).toBe(0);
+    const first = ids(out.at(-1));
+    expect(first).toHaveLength(2);
+    expect(err.at(-1)).toMatch(/^1-2 of \d+ open issues\. --page 2 for the next$/);
+
+    expect(await main(['issues', '--out', repo.out, '--min', '0', '--limit', '2', '--page', '2'], io)).toBe(0);
+    // A page is the next slice, not a repeat of the first.
+    expect(ids(out.at(-1)).some(id => first.includes(id))).toBe(false);
+    expect(err.at(-1)).toMatch(/^3-4 of \d+ open issues/);
+
+    expect(await main(['issues', '--out', repo.out, '--min', '0', '--page', '99'], io)).toBe(0);
+    expect(err.at(-1)).toMatch(/^page 99 is past the end\. \d+ open issues, \d+ pages?$/);
+    expect(await main(['issues', '--out', repo.out, '--limit', '0'], io)).toBe(2);
+    expect(err.at(-1)).toContain('--limit must be a positive integer');
+  });
+
   it('closes an issue, keeps why, and brings it back when the method changes', async () => {
     const repoRoot = await makeGraphFixture();
     cleanups.push(repoRoot);
