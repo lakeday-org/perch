@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { main, parseArgs } from '../src/cli.js';
+import { main, parseArgs, VERSION } from '../src/cli.js';
 import { parseFilters } from '../src/questions.js';
 import { revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
@@ -59,6 +59,17 @@ describe('cli', () => {
     // An alias is checked against the command it resolves to, and a flag both commands take is fine.
     expect(await main(['findings', '--parallel', '2'], io)).toBe(2);
     expect(err.join('\n')).toContain('perch issues does not take --parallel; it belongs to scan');
+  });
+
+  it('says what is running, before it cares which command you typed', async () => {
+    const { out, io } = capture();
+    // Asked of perch itself, so it is answered whatever follows it, and by a command that does not exist either.
+    for (const argv of [['--version'], ['-v'], ['scan', '--version'], ['nonsense', '-v']]) {
+      expect(await main(argv, io)).toBe(0);
+      expect(out.at(-1)).toBe(VERSION);
+    }
+    // A working copy is not the release whose number is in package.json, and says so rather than claiming to be it.
+    expect(VERSION === 'dev' || /^\d+\.\d+\.\d+$/.test(VERSION) || VERSION.startsWith('DEVELOPMENT')).toBe(true);
   });
 
   it('needs a TypeSafe key to ask anything, but none to read what it already knows', async () => {

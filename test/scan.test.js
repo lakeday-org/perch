@@ -170,6 +170,22 @@ describe('perch hunt', () => {
     expect(run.coverage.find(item => item.name === 'prose')?.units).toBe(1);
   });
 
+  it('reports what the run covered, not everything the store knows', async () => {
+    const repo = await fixture();
+    await scanRepository(await withRevision(repo, { systemOne: scriptedSystemOne() }));
+    // Narrowed to one file, the report and its tally are about that file. They used to be about the whole store, so a run that
+    // read nothing still ended on a count of problems in files it never opened, as though it had just found them.
+    const { covers } = await import('../src/scan.js');
+    const inScope = covers(['src/b.js']);
+    const all = await openStore(repo.out).issues();
+    expect(all.some(finding => !inScope(finding.path))).toBe(true);
+    const kept = all.filter(finding => inScope(finding.path));
+    expect(kept.length).toBeGreaterThan(0);
+    expect(kept.every(finding => finding.path === 'src/b.js')).toBe(true);
+    // A run with no narrowing covers everything, so nothing is hidden by the same predicate.
+    expect(all.filter(finding => covers([])(finding.path)).length).toBe(all.length);
+  });
+
   it('finishes the file it is in, then follows the neighbor the model points at', async () => {
     const repo = await fixture();
     const systemOne = scriptedSystemOne({ 'src/a.js::f': { follow: 'src/b.js::h' }, 'src/b.js::h': { follow: 'src/b.js::k' } });
