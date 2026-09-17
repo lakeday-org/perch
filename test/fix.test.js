@@ -165,7 +165,8 @@ describe('perch fix', () => {
     expect(fix.file_before.cyclomatic_complexity).toBe(3);
     expect(fix.turns).toBe(1);
     expect(Object.keys(fix.usage).sort()).toEqual(['scripted-jev', 'scripted-model']);
-    expect(fix.usage['scripted-jev'].requests).toBe(1);
+    // Two readings: the rescan, and the one that works out what the project's commands are for. The second is cached per commit.
+    expect(fix.usage['scripted-jev'].requests).toBe(2);
 
     // The model saw the objectives and everything System One answered; it measured, rescanned, ran the tests, and submitted one source.
     expect(model.calls.map(call => call.name)).toEqual(['measure', 'rescan', 'run_tests', 'submit']);
@@ -177,8 +178,8 @@ describe('perch fix', () => {
     expect(prompt).toContain('reachable behavioral defect: 90%');
     expect(prompt).toContain('ORIGINAL, lines 1-5');
     expect(prompt).toContain('"called_by"');
-    // System One was asked twice: is the line reachable, then the whole question set over the rewrite.
-    expect(systemOne.calls.map(call => Object.keys(call.questions)[0])).toEqual(['has_bug']);
+    // System One was asked what the project's commands do, then the whole question set over the rewrite.
+    expect(systemOne.calls.map(call => Object.keys(call.questions)[0])).toEqual(['role_0', 'has_bug']);
     expect(systemOne.calls.at(-1).state.method.source).toContain('L0003|   if (v > hi) return hi;');
     expect(fix.trace.find(event => event.type === 'tool_result' && event.name === 'rescan').result.expected.correctness).toBeLessThan(0);
 
@@ -207,7 +208,7 @@ describe('perch fix', () => {
     expect(lines.some(line => /^✓ [0-9a-f]{7} Return hi when v exceeds the upper bound$/.test(line))).toBe(true);
     // The run tells the story once: the objectives, the steps, and the commit. The report is printed by whoever asked for the fix.
     expect(lines.filter(line => line.startsWith('  Cleared') || line.startsWith('  Left'))).toEqual([]);
-    expect(fix.usage['scripted-jev'].requests).toBe(1);
+    expect(fix.usage['scripted-jev'].requests).toBe(2);
     expect(fix.usage['scripted-model'].turns).toBe(1);
 
     // The record is in the events log, so issues shows the finding fixed with its commit.
@@ -336,6 +337,29 @@ describe('perch fix', () => {
     expect(model.calls.find(call => call.name === 'measure').arguments.source).toContain('function above');
     expect(fix.trace.find(event => event.type === 'tool_result' && event.name === 'measure').result.helpers).toEqual(['above']);
     expect(await readFile(join(repo.root, 'src', 'clamp.js'), 'utf8')).toContain('function above');
+  });
+
+  it('refuses a rewrite that breaks a gate, and ignores a gate that was already broken', async () => {
+    const { repo, finding } = await scanned();
+    // Two stand-ins for a linter: one that fails only on what the rewrite adds, one that was failing before perch arrived.
+    await writeFile(join(repo.root, 'package.json'), JSON.stringify({ name: 'fixture', version: '1.0.0', type: 'module',
+      scripts: { test: 'node --test', lint: '! grep -q banned src/clamp.js', typecheck: 'exit 1' } }, null, 2) + '\n');
+    await commitAll(repo.root, 'add gates');
+    const fresh = { ...finding, revision: await revision(repo.root) };
+
+    const dirty = `/** Clamp v into [lo, hi]. */\nexport function clamp(v, lo, hi) {\n  const banned = 1;\n  if (v < lo) return lo;\n  if (v > hi) return hi;\n  return v + banned - 1;\n}`;
+    const model = scriptedModel({ fix: id => (id === 'fix-1' ? proposal(dirty) : proposal(fixedMethod, 'Return hi when v exceeds the upper bound')) });
+    const fix = await fixMethod(options(repo, fresh, { model }));
+
+    expect(fix.gates).toEqual(['npm run lint', 'npm run typecheck']);
+    const submits = fix.trace.filter(event => event.type === 'tool_result' && event.name === 'submit').map(event => event.result.error ?? 'ok');
+    // The first source passed measure, rescan and the tests and was still refused: the project's own check says it is wrong.
+    expect(submits[0]).toContain('npm run lint fails on the rewrite and passes on the original');
+    // The one that was already failing is not this fix's fault, so it is not held against it.
+    expect(submits[0]).not.toContain('typecheck');
+    expect(submits.at(-1)).toBe('ok');
+    expect(fix.status).toBe('ready');
+    expect(await readFile(join(repo.root, 'src', 'clamp.js'), 'utf8')).toContain('if (v > hi) return hi;');
   });
 
   it('refuses a protected branch and a dirty method file, and ignores a test that already fails on the original', async () => {

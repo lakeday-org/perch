@@ -262,6 +262,13 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
     if (!checks.length && project.suite) checks.push({ name: project.suite, run: () => shell.run(project.suite, { cwd: root, timeoutMs: 4 * COMMAND_MS, env: workspaceEnv() }) });
     const ignored = new Set();
     fix.checks = checks.map(check => check.name);
+    /**
+     * The project's own lint and typecheck, run once on the way out rather than on every attempt. A rewrite that passes the
+     * tests reaching it can still leave an unused parameter or a type error, and that is a broken build whatever the scan says.
+     * They are whole-tree commands and slow on a large repository, so submit pays for them once instead of six rescans doing it.
+     */
+    const gates = (project.gates ?? []).map(name => ({ name, run: () => shell.run(name, { cwd: root, timeoutMs: 4 * COMMAND_MS, env: workspaceEnv() }) }));
+    fix.gates = gates.map(gate => gate.name);
 
     /**
      * Replace the tracked method's file with candidate source for a test run.
@@ -367,8 +374,29 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
       if (line.error) return { ok: false, error: line.error };
       const note = plainNotes(notes);
       if (note.error) return { ok: false, error: note.error };
-      accepted = { source, summary: line.text, notes: note.text, ...passed.measure.get(source), ...passed.rescan.get(source), checks: passed.tests.get(source) };
+      const failed = await runGates(source);
+      if (failed) return { ok: false, error: failed };
+      accepted = { source, summary: line.text, notes: note.text, ...passed.measure.get(source), ...passed.rescan.get(source), checks: passed.tests.get(source), gates: fix.gates };
       return { ok: true, done: true };
+    };
+    /** Each gate on the rewrite, and the first one that fails on it but not on the original. One already broken is not this fix's fault. */
+    const runGates = async source => {
+      if (!gates.length) return null;
+      const patched = splice(source).join('\n');
+      await place(patched);
+      try {
+        for (const gate of gates) {
+          if (ignored.has(gate.name)) continue;
+          const result = await gate.run();
+          if (result.exit_code === 0) continue;
+          await restore();
+          const control = await gate.run();
+          await place(patched);
+          if (control.exit_code !== 0) { ignored.add(gate.name); continue; }
+          return `${gate.name} fails on the rewrite and passes on the original:\n${tail(result)}`;
+        }
+      } finally { await restore(); }
+      return null;
     };
     const MAX_READ_LINES = 400;
     const read = async ({ path }) => {
@@ -388,7 +416,7 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
       tool('measure', `Splice the rewrite over lines ${start}-${end} of ${node.path} and measure with tree-sitter: it must parse and still contain ${node.qualified_name}. Sibling helpers in that range are fine. Returns the method and file metrics; improvement is judged by rescan, not here. Call this on every version you write.`, { source: { type: 'string', description: 'replacement for the region: comment, method, and any helpers it needs' } }, measure),
       tool('rescan', 'Run the scan again over the rewrite: the same System One questions with the same neighborhood, plus the metrics. Every issue the scan raised must be gone (no longer listed), a defect gone outright, and nothing new. A tiny probability drop is not enough. Requires measure to have passed this exact source.', { source: { type: 'string' } }, rescan),
       tool('run_tests', `Run the tests that reach ${node.qualified_name}${checks.length ? ` (${checks.map(check => check.name).join(', ')})` : ' (none found; passes trivially)'} against the rewrite. Requires measure to have passed this exact source.`, { source: { type: 'string' } }, runTests),
-      tool('submit', 'Finish with the rewrite. Refused unless measure, rescan, and run_tests have all passed this exact source.',
+      tool('submit', `Finish with the rewrite. Refused unless measure, rescan, and run_tests have all passed this exact source${gates.length ? `, and refused if it breaks ${gates.map(gate => gate.name).join(', ')}, which run here` : ''}.`,
         { source: { type: 'string' }, summary: { type: 'string', description: 'the commit line: imperative, under 72 characters' },
           notes: { type: 'string', description: 'two or three plain sentences for the reviewer: what was wrong, what you changed, why it is better. No bullets, no marketing words.' } }, submit),
     ];

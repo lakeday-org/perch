@@ -81,7 +81,8 @@ is run once on the original, and one that already failed there is ignored rather
 than blamed. At most 6 runs.
 
 **`submit(source, summary, notes)`** — refused unless `measure`, `rescan` and
-`run_tests` have all passed that exact source. The summary is the commit line,
+`run_tests` have all passed that exact source, and refused if the rewrite breaks
+one of the project's **gates**. The summary is the commit line,
 under 72 characters, imperative. The notes are two or three sentences of plain
 technical English for the reviewer: what was wrong, what changed, what is better
 now. Bullets are refused, so are marketing words and openings like "This
@@ -142,13 +143,42 @@ the same model is not retried until it changes.
 * If the checkout changes underneath a run, the run aborts — and so does the
   rest of the batch, since the same will be true of every finding after it.
 
-## Finding the tests
+## Gates
 
-How the project runs its tests is discovered from the tree at `HEAD`: candidate
-commands from `package.json` and its lockfile, `pyproject.toml`, `Cargo.toml`,
-`go.mod`, `Makefile`, `justfile`, and `run:` lines in GitHub workflows. When
-there is more than one candidate, System One picks; the choice is cached under
-`<out>/projects/<commit>.json`.
+The tests that reach a method are not the whole of what a project considers
+correct. A rewrite can pass them and still leave an unused parameter, a type
+error, or a lint failure — a broken build, whatever the scan says.
+
+So the project's own checks run once, at `submit`, on the source that already
+passed everything else. They are whole-tree commands and slow on a large
+repository, which is why they run there rather than on each of the six rescans.
+A gate that was already failing on the original is ignored, not blamed, the same
+rule the tests get.
+
+## Finding the commands
+
+Reading the tree at `HEAD` finds the commands: every script in `package.json`,
+every target in a `Makefile` or `justfile`, every `run:` step in a GitHub
+workflow, and the conventional ones implied by `pyproject.toml`, `Cargo.toml`
+and `go.mod`.
+
+It does not decide what they are for. `npm run check` could be a linter, a type
+checker, or a deploy, and no amount of matching on the word "test" tells you
+which. Every command found goes to System One as a `choice`, and it says which
+of these each one is:
+
+| Role | |
+| --- | --- |
+| `suite` | Runs the whole test suite |
+| `single` | Runs one test file, named by `{file}` or `{dir}` |
+| `install` | Installs dependencies in a fresh checkout |
+| `gate` | Reads the code and fails when it is wrong, and changes nothing outside the checkout |
+| `none` | Publishes, deploys, benchmarks, formats, or is not a check at all |
+
+The likeliest command takes each of the first three; every command answered
+`gate` becomes one. A command answered `none` is never run — that is what keeps
+a `run: ./deploy.sh` in a workflow from being executed as if it were a check.
+The answers are cached under `<out>/projects/<commit>.json`.
 
 Commands run in your checkout with your installed dependencies, each in its own
 process group with a timeout and bounded output. `perch scan` runs none of this.
