@@ -399,7 +399,7 @@ export function formatFinding(finding, { width = WIDTH(), color = COLOR() } = {}
     add('Exposed', finding.exposed === undefined ? '' : percent(finding.exposed));
     add('Vulnerability', spread(securities(finding)));
     add('Claims', finding.does_what_it_claims === undefined ? ''
-      : `does what it claims ${percent(finding.does_what_it_claims)}  misdocumented ${percent(finding.misdocumented)}`);
+      : `does what it claims ${percent(finding.does_what_it_claims)}  documented ${percent(finding.documented)}`);
     add('Refactor', spread(finding.refactor?.probabilities, 2));
     add('Calls', [...(finding.callees ?? []).map(shortId),
       ...(finding.misuse ?? []).filter(item => item.probability > 0.5).map(item => `misuses ${shortId(item.callee)} ${percent(item.probability)}`)].join('  '));

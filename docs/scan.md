@@ -116,7 +116,7 @@ distribution over its levels.
 | `misuse_N` | noul per callee | Does this call violate the callee's evident contract? |
 | `misused_by_N` | noul per caller | Does the caller violate this method's contract? |
 | `does_what_it_claims` | noul | Does the behavior match the name, parameters, and comment? |
-| `misdocumented` | noul | Could a caller not learn the contract from the comment? |
+| `documented` | noul | Could a caller learn what it promises from the comment? |
 | `refactor` | choice over 7 | `split`, `flatten`, `simplify_conditions`, `deduplicate`, `rename`, `remove_dead_code`, `none`. |
 | `follow` | choice over neighbors | Which related method to examine next. |
 

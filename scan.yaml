@@ -74,26 +74,35 @@
 - name: does_what_it_claims
   each: method
   where: "**/*"
-  ask: Does `method` do what its name, parameters, and `leading_comment` claim it
-    does?
-  true: Its behavior matches what a reader would expect from its name and comment
-  false: It does something different from, less than, or more than its name and
-    comment promise
-  issue: { type: misaligned, label: does_not_do_what_it_claims, on: false }
+  ask: >-
+    Does `method` do what its name, its parameters and its `leading_comment` say
+    it does?
+  true: It behaves the way its name and its comment say it does
+  false: >-
+    It does something different from, less than, or more than its name and
+    comment say, so one of the two is wrong
+  issue:
+    type: defect
+    label: does_not_do_what_it_claims
+    on: false
   min: 70
 
-- name: misdocumented
+- name: documented
   each: method
   where: "**/*"
-  ask: >
-    Is `method` undocumented or misdocumented for what it does, given its
-    `leading_comment` and its callers?
-  true: >
-    A caller could not learn its contract, edge cases, or side effects from the
-    comment, or the comment is wrong
-  false: The comment, or the code itself for a trivial method, states the contract
-    accurately
-  issue: { type: docs, label: docs }
+  ask: >-
+    Could a caller learn what `method` promises from its `leading_comment`, or
+    from the code itself where it is small enough to read?
+  true: >-
+    Its contract, its edge cases and its side effects are all there to be read
+  false: >-
+    A caller could not learn what it promises without reading it through. A
+    comment that says something untrue is misaligned rather than this: this is
+    what is missing.
+  issue:
+    type: docs
+    label: docs
+    on: false
   min: 75
 
 # A gate. It raises nothing itself; `when: exposed` multiplies a class by it.
@@ -285,7 +294,9 @@
     undefined or the write lands somewhere nothing reads, which is harder to
     notice rather than safer.
   false: Nothing in `method` does this.
-  issue: { type: security, label: self, pick: strongest }
+  issue:
+    type: defect
+    label: self
   min: 70
 
 - name: use_after_free
@@ -298,7 +309,9 @@
     a controller used after abort, a connection used after it went back to the
     pool.
   false: Nothing in `method` does this.
-  issue: { type: security, label: self, pick: strongest }
+  issue:
+    type: defect
+    label: self
   min: 70
 
 - name: uninitialized_use
@@ -311,7 +324,9 @@
     before its declaration runs, or a result used before the work that produces
     it has finished.
   false: Nothing in `method` does this.
-  issue: { type: security, label: self, pick: strongest }
+  issue:
+    type: defect
+    label: self
   min: 70
 
 - name: integer_overflow
@@ -322,7 +337,9 @@
     Arithmetic can wrap, truncate, or change sign, and the result is then used
     as a size, an index, a length, or a permission
   false: Nothing in `method` does this.
-  issue: { type: security, label: self, pick: strongest }
+  issue:
+    type: defect
+    label: self
   min: 70
 
 - name: race_condition
@@ -333,7 +350,9 @@
     Two paths can reach the same state at once without holding anything, or a
     check and the act it guards are separated in a way another path can exploit
   false: Nothing in `method` does this.
-  issue: { type: security, label: self, pick: strongest }
+  issue:
+    type: defect
+    label: self
   min: 70
 
 - name: type_confusion
@@ -345,5 +364,7 @@
     cast, a union read through the wrong member, a parsed object trusted to have
     a shape
   false: Nothing in `method` does this.
-  issue: { type: security, label: self, pick: strongest }
+  issue:
+    type: defect
+    label: self
   min: 70

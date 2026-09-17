@@ -84,7 +84,9 @@ describe('the question grammar', () => {
 
   it('tells a filter what this set can raise, so a typo is answered with the real list', () => {
     const { types, labels } = vocabulary(BUILTIN);
-    expect(types).toEqual(expect.arrayContaining(['defect', 'security', 'refactor', 'docs', 'misaligned']));
+    // A type with one question in it is a label, not a type: what a method does other than what it says is a defect.
+    expect(types).toEqual(expect.arrayContaining(['defect', 'security', 'refactor', 'docs']));
+    expect(types).not.toContain('misaligned');
     // A defect is labelled by the kinds the `kind` choice offers, not by the word "has_bug".
     expect(labels).toContain('boundary');
     expect(labels).not.toContain('has_bug');

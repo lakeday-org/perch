@@ -183,8 +183,8 @@ Every question carries a floor, in percent. Below it, an answer is not listed.
 
 | Floor | Question |
 | --- | --- |
-| 75% | `misdocumented` |
-| 70% | `does_what_it_claims`, and all sixteen vulnerability classes |
+| 75% | `documented` |
+| 70% | `does_what_it_claims`, and every defect and vulnerability class |
 | 60% | `has_bug`, `refactor` |
 
 These are not arbitrary. A model asked four hundred times answers in the

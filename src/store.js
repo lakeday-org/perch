@@ -191,7 +191,9 @@ export function openStore(out) {
     },
     /** Flagged methods at probability `min` or more, most likely first. */
     async findings(min = BELIEVED) {
-      return (await store.issues(min)).filter(event => flagged(event)).sort((a, b) => surest(b, min) - surest(a, min) || issueWeight(b) - issueWeight(a));
+      // Judged at the same threshold the list was built with. Left to its own default it judges at zero, which since --min 0
+      // means every floor is off would call a defect at 0.3 a finding.
+      return (await store.issues(min)).filter(event => flagged(event, min)).sort((a, b) => surest(b, min) - surest(a, min) || issueWeight(b) - issueWeight(a));
     },
     /** The finding with this id or unique id prefix. */
     async findFinding(ref) {

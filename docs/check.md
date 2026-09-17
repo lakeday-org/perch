@@ -24,7 +24,7 @@ target is a method.
 ## Narrowing to what you just changed
 
 `--rules` takes rule names out of `perch.yaml`, or the classes the scan asks
-about: `defect`, `security`, `refactor`, `docs`, `misaligned`.
+about: `defect`, `security`, `refactor`, `docs`.
 
 ```sh
 perch check src/model.js::createModel --rules security

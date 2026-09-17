@@ -44,7 +44,7 @@ describe('perch hunt', () => {
   it('ranks a method by what its problems would cost, not how many it has', () => {
     // Two readings of the same shape: one would lose data, the other would be noticed by nobody.
     const reading = probabilities => ({ has_bug: 0.7, kind: { choice: 'boundary', probability: 1 }, severity: { probabilities },
-      refactor: { choice: 'split', probability: 0.8, probabilities: { split: 0.8 } }, does_what_it_claims: 1, misdocumented: 0 });
+      refactor: { choice: 'split', probability: 0.8, probabilities: { split: 0.8 } }, does_what_it_claims: 1, documented: 1 });
     const harmful = reading({ 0: 0, 1: 0, 2: 0, 3: 1 }), harmless = reading({ 0: 1, 1: 0, 2: 0, 3: 0 });
     expect(issueWeight(harmful)).toBeGreaterThan(issueWeight(harmless));
     // The whole distribution counts, so a band that only just won does not rank as if it were certain.
@@ -57,7 +57,7 @@ describe('perch hunt', () => {
 
   it('walks every method once from riskiest down, logs each, and skips unchanged methods next time', async () => {
     const repo = await fixture();
-    const systemOne = scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.9, where: 'L0004', kind: 'boundary', severity: 2, refactor: 'split', misdocumented: 0.7 } });
+    const systemOne = scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.9, where: 'L0004', kind: 'boundary', severity: 2, refactor: 'split', documented: 0.3 } });
     const seen = [];
     const hunt = await scanRepository(await withRevision(repo, { systemOne, onFile: (path, findings) => seen.push({ path, findings }) }));
 
@@ -67,7 +67,7 @@ describe('perch hunt', () => {
     expect(hunt.visited.map(visit => visit.method)[0]).toBe('src/a.js::f');
     expect(new Set(hunt.visited.map(visit => visit.method))).toEqual(new Set(['src/a.js::f', 'src/a.js::g', 'src/b.js::h', 'src/b.js::k']));
     const f = hunt.visited.find(visit => visit.method === 'src/a.js::f');
-    expect(f).toMatchObject({ status: 'read', id: expect.stringMatching(/^[0-9a-f]{8}$/), has_bug: 0.9, where: { line: 4 }, kind: { choice: 'boundary', probability: 0.8 }, severity: { level: 'P1' }, misdocumented: 0.7, refactor: { choice: 'split' }, callees: expect.arrayContaining(['src/a.js::g', 'src/b.js::h']) });
+    expect(f).toMatchObject({ status: 'read', id: expect.stringMatching(/^[0-9a-f]{8}$/), has_bug: 0.9, where: { line: 4 }, kind: { choice: 'boundary', probability: 0.8 }, severity: { level: 'P1' }, documented: 0.3, refactor: { choice: 'split' }, callees: expect.arrayContaining(['src/a.js::g', 'src/b.js::h']) });
     expect(f.kind.probabilities.boundary).toBe(0.8);
     expect(f.callers).toEqual([]);
 

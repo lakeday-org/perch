@@ -87,7 +87,7 @@ recorded, so run it on work in progress. Exits 1 if something is wrong.
 
 | Flag | |
 | --- | --- |
-| `--rules a,b` | Ask only these: rule names, or `defect`, `security`, `refactor`, `docs`, `misaligned`. |
+| `--rules a,b` | Ask only these: rule names, or `defect`, `security`, `refactor`, `docs`. |
 | `--out DIR` | Results directory. Default `.perch`. |
 | `--json` | Print JSON instead of a summary. |
 | `--verbose` | Show every file, method, model call, and command. |

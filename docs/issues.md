@@ -33,7 +33,7 @@ comment and a refactor is one row carrying three issues.
 | `ID` | Stable for as long as the method's source is unchanged. It is what `issues`, `check`, `close` and `reopen` take. |
 | `Method` | The qualified name. Nested functions read as `versionAssets.walk`. |
 | `Location` | The file and the line. For a defect it is the line the model pointed at, not the method's first line. |
-| `Type` | The class the row leads with: `defect`, `security`, `refactor`, `misaligned`, `docs`, or `lint`. |
+| `Type` | The class the row leads with: `defect`, `security`, `refactor`, `docs`, or `lint`. |
 | `Kind` | The issues themselves, likeliest first, with how sure perch is of each. |
 | `Severity` | How much a caller would feel it. Empty on a row carrying neither a defect nor a vulnerability, since those are the two the rubric weighs. |
 
@@ -68,7 +68,7 @@ $ perch issues 723a2685
   Severity       P1 83%  P2 12%  P0 4%  P3 1%
   Exposed        44%
   Vulnerability  type_confusion 68%  uninitialized_use 34%  resource_exhaustion 33%  +13 more
-  Claims         does what it claims 80%  misdocumented 75%
+  Claims         does what it claims 80%  documented 25%
   Refactor       too_big 80%  tangled_conditions 16%  +2 more
   Calls          buildGraph.resolve  buildGraph.link  buildGraph.callees  buildGraph.callers  resolveRust.has
   Called by      lintRepository  scanRepository  methodContext

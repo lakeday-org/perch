@@ -91,7 +91,8 @@ describe('cli', () => {
     await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne({}) }));
     const { out, io } = capture();
     const count = text => text.split('\n').length - 1;
-    expect(await main(['issues', '--out', repo.out, '--filter', 'type=defect'], io)).toBe(0);
+    // Filtered on something the fixture carries, or the comparison below is two empty lists agreeing.
+    expect(await main(['issues', '--out', repo.out, '--filter', 'type=docs'], io)).toBe(0);
     const filtered = count(out.at(-1));
     expect(await main(['issues', '--out', repo.out, '--all'], io)).toBe(0);
     // A filter names what you want, so it is not cut down: it prints what --all would, minus what the filter dropped.
@@ -273,7 +274,7 @@ describe('cli', () => {
     const repoRoot = await makeGraphFixture();
     cleanups.push(repoRoot);
     const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
-    const answers = { 'src/a.js::f': { has_bug: 0.9, kind: 'wrong_return', misdocumented: 0.8, severity: 2 } };
+    const answers = { 'src/a.js::f': { has_bug: 0.9, kind: 'wrong_return', documented: 0.2, severity: 2 } };
     const hunt = await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne(answers) }));
     const f = hunt.visited.find(visit => visit.method === 'src/a.js::f');
     const { out, err, io } = capture();
@@ -300,7 +301,7 @@ describe('cli', () => {
     const repoRoot = await makeGraphFixture();
     cleanups.push(repoRoot);
     const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
-    const quiet = { 'src/a.js::f': { has_bug: 0.1, misdocumented: 0.8 } };
+    const quiet = { 'src/a.js::f': { has_bug: 0.1, documented: 0.2 } };
     const hunt = await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne(quiet) }));
     const f = hunt.visited.find(visit => visit.method === 'src/a.js::f');
     const { out, io } = capture();
@@ -314,7 +315,7 @@ describe('cli', () => {
     await writeFile(join(repoRoot, 'src', 'a.js'), (await readFile(join(repoRoot, 'src', 'a.js'), 'utf8')).replace('x > 10', 'x > 11'));
     await commitAll(repoRoot, 'change f');
     await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), revision: await revision(repoRoot),
-      systemOne: scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.9, kind: 'wrong_return', misdocumented: 0.8, severity: 2 } }) }));
+      systemOne: scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.9, kind: 'wrong_return', documented: 0.2, severity: 2 } }) }));
     expect(await main(['issues', '--out', repo.out], io)).toBe(0);
     const row = out.at(-1).split('\n').find(line => line.startsWith(f.id)) ?? '';
     expect(row).toContain('wrong_return_value');
