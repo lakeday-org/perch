@@ -196,31 +196,6 @@ export function scanTally(findings, min = 0, color = COLOR(), filters = []) {
   return `${red('✖', color)} ${where}, ${failed === count ? 'all' : failed} failing`;
 }
 
-/**
- * The rules a run broke, in one line. Which rule and how many, since that is what you act on; what each rule asks is in
- * `perch rules list` and does not need saying again under every run.
- */
-export function brokenRules(run, { color = COLOR() } = {}) {
-  const broken = run.broken ?? [];
-  if (!broken.length) return '';
-  const counts = new Map();
-  for (const finding of broken) counts.set(finding.rule, (counts.get(finding.rule) ?? 0) + 1);
-  const nowhere = new Set(broken.filter(finding => String(finding.unit ?? '').startsWith('search:')).map(finding => finding.rule));
-  // Worst first, and alphabetical within a count, so two runs over the same code print the same order.
-  const fired = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-
-  const note = name => (nowhere.has(name) ? dim('  nothing has it', color) : '');
-  // Named as the file's, since the names are only useful next to the sentences they stand for, and those are in perch.yaml.
-  const head = `${red(String(broken.length), color)} of them ${broken.length === 1 ? 'breaks' : 'break'}`;
-  // One broken rule is its name; a count and a list under it would say the same thing three times.
-  if (fired.length === 1) return `${head} ${fired[0][0]} in ${RULES_FILE}${note(fired[0][0])}`;
-
-  // Otherwise every rule, one per line. The names are what you act on, so none is worth hiding
-  // behind a "+4 more" to hold a single line that would wrap anyway.
-  const figure = Math.max(...fired.map(([, count]) => String(count).length));
-  const lines = fired.map(([name, count]) => `  ${String(count).padStart(figure)}  ${name}${note(name)}`);
-  return [`${head} ${fired.length} rules in ${RULES_FILE}`, ...lines].join('\n');
-}
 
 /** What a run did, for stderr. */
 export function scanCount(run) {

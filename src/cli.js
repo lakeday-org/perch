@@ -15,7 +15,7 @@ import { runChecks } from './checks.js';
 import { addRule, editRule, KINDS as RULE_KINDS, removeRule } from './rules.js';
 import { allQuestions, SHAPES } from './ask.js';
 import { createMeter, metered } from './meter.js';
-import { brokenRules, formatDoctor, formatFilterKeys, gating, useColor, formatFinding, formatIssues, formatCheck, formatRules, formatScanReport, issueCount, scanCount, scanTally, TOP, visibleFindings } from './report.js';
+import { formatDoctor, formatFilterKeys, gating, useColor, formatFinding, formatIssues, formatCheck, formatRules, formatScanReport, issueCount, scanCount, scanTally, TOP, visibleFindings } from './report.js';
 
 /** Stamped into the bundle at build time so `perch doctor` reports the version that is running, not one read from a stray file. */
 export const VERSION = typeof PERCH_VERSION === 'string' ? PERCH_VERSION : 'dev';
@@ -386,7 +386,7 @@ const commands = {
     const rest = issues.filter(finding => !said.has(finding.path));
     print(io, { run, issues, usage: meter.toJSON() },
       [formatScanReport(rest, { min, filters, summary: false, empty: '' }), scanTally(issues, min, undefined, filters)].filter(Boolean).join('\n\n'));
-    io.note(brokenRules(run), scanCount(run), ...meter.lines());
+    io.note(scanCount(run), ...meter.lines());
     // The scan passes when nothing it gates on came back. Which questions those are is on the questions, so a defect and a
     // vulnerability count the same as a rule you wrote, and a method being large counts as nothing.
     return gating(issues, min).length ? EXIT.found : EXIT.clean;
