@@ -52,7 +52,9 @@ jobs:
     name: perch scan
     needs: check
     runs-on: ubuntu-latest
-    # At the job, so a step can ask whether the key is there. A fork's pull request sees an empty string.
+    # A fork's pull request is given no secrets, so it cannot run this and the whole job is skipped rather than failing over a
+    # key it was never going to have.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     env:
       TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
     steps:
@@ -72,12 +74,5 @@ jobs:
 
       # Defects, vulnerabilities and broken rules, over everything this pull request touched. Not refactors or documentation: a
       # build should fail on something wrong rather than on something large. Exits 1 if a rule in perch.yaml is broken.
-      #
-      # A fork's pull request gets no secrets, so this is skipped rather than failing over a key it was never going to have.
       - name: Defects, vulnerabilities and broken rules
-        if: env.TYPESAFE_API_KEY != ''
         run: node bin/perch.mjs scan --filter type=defect,type=lint,type=security ${{ github.event_name == 'pull_request' && format('--since origin/{0}', github.base_ref) || '' }}
-
-      - name: What perch could not do
-        if: failure() && env.TYPESAFE_API_KEY != ''
-        run: node bin/perch.mjs doctor
