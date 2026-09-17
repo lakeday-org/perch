@@ -42,96 +42,138 @@ perch fix 92c7781e
 Needs Node 22+ and git. `perch fix` commits to the branch you're on and refuses
 main and master.
 
-## Commands
+## The idea
+
+A scanner that says "bug on line 33" is wrong often enough that you stop reading it. perch never
+says that. Every question it asks comes back as a probability, and the probabilities are kept all
+the way through — into what gets listed, what order it is listed in, and whether a fix is allowed to
+land.
+
+Everything below is this repository, scanned by itself.
 
 ```
-perch scan   [<target>] [--paths a,b] [--parallel N] [--force] [--all]
-perch issues [<issue-id>] [--filter k=v] [--types] [--min P] [--limit N] [--page N] [--all] [--closed]
-perch close  <issue-id>... [--reason R]
-perch reopen <issue-id>...
-perch doctor
-perch fix    [<issue-id> | <path>] [--filter k=v] [--budget N] [--min P] [--effort E]
+$ perch scan
+ID        Method          Location        Type      Kind                           Severity  Status
+cbc46523  analyzeTree     src/scan.js:13  docs      docs 88%, +3 more              P1 (1.3)
+272b643c  scanRepository  src/hunt.js:95  refactor  too_big 94%, +2 more           P1 (1.2)  8a60a8c
+538f723f  resolveTarget   …/target.js:16  security  unsafe_deserialization 91%, …  P1 (1.3)
+723a2685  buildGraph      …c/graph.js:41  docs      docs 78%, +2 more              -
+perch at commit 2c437e8: 386 methods, read 386
+386 requests  2.4M tokens in / 319k out  $0.10
 ```
 
-They all take `--out DIR` and `--json`.
+**Severity is a distribution, not a label.** `P1 (1.3)` means the band is P1 and the score landed at
+1.3, drifting toward P2; `P1 (0.9)` is nearly P0. Calling a method P0 because P0 held the largest
+slice of a 33/31/30/6 spread throws away everything the model was unsure about.
 
-| Verb | What it does | Needs |
-| --- | --- | --- |
-| `scan` | Parses every tracked file at HEAD, then reads methods with System One, walking the call graph from the worst-scoring method through its callers and callees. First scan reads everything; later scans only re-read what changed. Prints the table. | `TYPESAFE_API_KEY` |
-| `issues` | The open issues, worst first. With an id, everything known about that one method. | nothing |
-| `close` | Marks issues closed: false positives, or code you've looked at and aren't changing. They stop being listed and `perch fix` skips them. | nothing |
-| `reopen` | Undoes `close`. | nothing |
-| `doctor` | What the last run did and what it couldn't read. Names, paths and error messages only — no source, no answers — so it's safe to paste into a bug report. | nothing |
-| `fix` | Fixes open issues, worst first, up to `--budget`. With a path, only that file or directory. With an id, just that one. One commit per fix. | both keys |
+**Order is what the problems would cost.** A method ranks on its correctness problems weighted by
+that severity, plus its design problems. Not on how many things are wrong with it.
 
-`perch findings` also works, same command.
+**Half is the line for being listed at all.** A probability above a half is the model saying yes, so
+that is what gets claimed. `--min 80` for the obvious ones, `--min 0` for everything it answered.
 
-### The table
+### Reading one method
 
 ```
-ID        Method       Location        Type      Kind                            Severity  Status  Commit
-92c7781e  fixMethod    src/fix.js:224  refactor  too_big 98%, unsafe_deser 87%   P1 (0.9)  open    -
+$ perch issues cbc46523
+cbc46523  analyzeTree  src/scan.js:13-41  at commit 8c68f0d read on 2026-09-17
+Issues: docs 88%, unsafe_deserialization 83%, too_big 58%, +1 more
+Metrics: risk 42, maintainability 46, complexity 3, nesting 1, 26 lines; file risk 56
+Defect: 54%. Points at line 33 (confidence 19%):
+    33| return Promise.race([new Promise(resolve => waiting.set(index, resolve)), reading.then(...)]);
+Kind: error_ignored 53%, leak 17%, bad_state_change 11%, wrong_order 6%, unhandled_null 6%, ...
+Severity: P1 (1.3) (P1 56%, P2 26%, P0 11%, P3 6%)
+Exposed to outside input: 98%. Vulnerability: unsafe_deserialization 85%, uninitialized_use 82%, ...
+Misuses a callee: readBlobs 32%, analyzeFiles 13%, listTree 11%, writeJson 10%, ...
+Misused by a caller: fixIssues 25%, methodContext 23%, openIssues 21%, scanRepository 14%
+Status: open
 ```
 
-- **Type** — `defect`, `security`, `refactor`, `docs` or `misaligned`.
-  Whichever the row leads with.
-- **Kind** — the specific problem and how sure the model is, worst first.
-- **Severity** — the band, plus where the score landed inside it. `P1 (0.9)` is
-  nearly P0, `P1 (1.2)` is closer to P2. Only shown when there's a bug.
+The spread is the information. `error_ignored 53%` with the rest scattered means the model is fairly
+sure something is wrong and unsure what. A vulnerability list that is flat across sixteen classes
+usually means the method is too big to read rather than that it has sixteen holes — worth knowing
+before you go chasing one of them.
 
-Only issues the model is more than 50% sure about get listed. `--min` changes
-that: `--min 80` for the obvious ones, `--min 0` for everything it answered.
+`where` is the model's best guess at a line, with its own confidence attached, because pointing at
+the wrong line confidently is the failure that makes people quit a tool.
 
-`--filter` narrows on the Type, Kind and Severity columns. `--types` prints the
-valid values.
+### Narrowing
 
-Not every finding is worth acting on. `perch close` takes them off the list:
+```
+$ perch issues --filter kind=too_big --min 80
+ID        Method          Location        Type      Kind                  Severity  Status
+272b643c  scanRepository  src/hunt.js:95  refactor  too_big 94%           -         8a60a8c
+a4ef42d9  huntStep        …stions.js:336  refactor  too_big 91%           -
+2cac2cdd  readAnswers     …stions.js:438  refactor  too_big 88%           -
+```
+
+A filter narrows on Type, Kind and Severity, then **ranks by the thing you asked for** and leads each
+row with it. Filtering for vulnerabilities and getting a list ordered by how big the methods are is
+useless, and a row that says `refactor` under a security filter is a row arguing with its own query.
+
+### Fixing
+
+A rewrite is judged by running the scan again over it, not by the model claiming it worked.
+
+```
+$ perch fix 272b643c
+[1/1]  272b643c  scanRepository  src/hunt.js:53
+  Clear   too_big 93%, docs 87%, unsafe_deserialization 82%, bad_state_change 58%
+  ✓ measure  method risk 77 -> 74, 73 -> 44 lines, file risk 87 -> 86       0.0s
+  ✗ rescan   run measure on this exact source first                         0.0s
+  ✓ rescan   too_big 93%, docs 88%, uninitialized_use 74%, off_by_one 54%   0.2s
+  ✓ tests    3 pass                                                          11s
+  ✓ submit                                                                   11s
+✓ 8a60a8c Validate graph ids before scheduling hunt work
+
+  Cleared  unsafe_deserialization 82%, bad_state_change 58%
+  Left     too_big 93% -> 93%, docs 87% -> 88%
+  Added    uninitialized_use 74%, off_by_one 54%
+  Method   risk 77 -> 74, 73 -> 44 lines
+  Tests    test/cli.test.js, test/fix.test.js, test/hunt.test.js pass
+  Cost     $0.02
+```
+
+The test is Pareto: **neither correctness nor design may get worse, and one must get better.** No
+threshold to clear — halving a defect's probability counts for exactly that, and a problem the
+rewrite introduces counts against it by however much the model believes in it. A fix cannot buy
+correctness with shape or shape with bugs.
+
+`Cleared / Left / Added` is the whole point of the report. Two lists of issues before and after would
+leave you to diff them by eye.
+
+`submit` also runs your own lint, typecheck and tests, discovered from your manifests and CI rather
+than guessed from names. A rewrite that passes the tests reaching it can still break the build.
+
+Fixes are refused often. In that same run perch gave up on `fixMethod`, a 246-line method, after
+three attempts no rescan would pass. Refusing is the correct outcome there, and costs about a penny.
+
+### Issues you do not want fixed
 
 ```sh
 perch close e585492e --reason "verifies the HMAC before parsing"
-perch close 3b7c9da1 2cce8403 --reason "pre-existing, well tested, not restructuring"
 ```
 
-A dismissal is about the method as it reads now, so editing that method brings
-the issue back. `--closed` lists them, `perch issues <id>` shows the reason.
+A false positive that comes back every scan makes the whole list worth less. Closed issues stop being
+listed and `perch fix` skips them. The dismissal is recorded against the method as it reads now, so
+editing that method brings the issue back to be judged again — you dismissed the code, not the name.
 
-```sh
-perch issues --filter type=security
-perch issues --filter kind=too_big --min 80
-perch fix --filter severity=P1 --budget 5
-```
+A method perch cannot read is recorded and skipped rather than ending the run; `perch doctor` prints
+what happened, safe to paste into a bug report.
 
-Filtered lists print every match and put the thing you filtered for first in
-each row. Unfiltered lists are cut to 10 unless you pass `--all`.
+## Commands and flags
 
-To walk a long list, `--limit` sets the page size and `--page` picks one. A line
-under the table says where you are:
+`perch --help`, and `perch <command> --help` for one of them.
 
-```sh
-perch issues --limit 25            # 1-25 of 235 open issues. --page 2 for the next
-perch issues --limit 25 --page 4   # 76-100 of 235 open issues. --page 5 for the next
-```
-
-### Flags
-
-| Flag | Meaning |
+| | |
 | --- | --- |
-| `--paths a,b` | Only look at these paths. |
-| `--parallel N` | Methods read at once (default 8). |
-| `--force` | Re-read every method, even unchanged ones. |
-| `--filter k=v` | e.g. `type=security,severity=P1`. |
-| `--types` | Print what `--filter` accepts and exit. |
-| `--min P` | Only issues the model is at least P% sure of (default 50). |
-| `--reason R` | Why you closed something. Kept on the record. |
-| `--budget N` | Fix at most N issues (default 20). |
-| `--effort E` | `none`, `low`, `medium`, `high`, `xhigh`, `max` (default `medium`). |
-| `--limit N` | Rows per page (default 10). |
-| `--page N` | Which page of them, 1 is the first. |
-| `--all` | Print every row instead of the top 10. |
-| `--closed` | Include closed issues. |
-| `--out DIR` | Results directory (default `.perch`). |
-| `--json` | Print the record instead of the table. |
-| `--verbose` | Show every file, method, model call and command. |
+| `perch scan [<target>]` | `<target>` is a directory, or a GitHub repo as `owner/repo` or a URL, cloned under `<out>/repos/`. Defaults to `.`, resolved to its git root. |
+| `perch issues [<issue-id>]` | The 8-character id in the first column. A unique prefix works. |
+| `perch close` / `perch reopen` | Take ids the same way. |
+| `perch fix [<issue-id> \| <path>]` | An id, or a file or directory to work everything under. |
+| `perch doctor` | Takes nothing. |
+
+`perch findings` is another name for `perch issues`.
 
 ### Environment
 
@@ -141,31 +183,6 @@ perch issues --limit 25 --page 4   # 76-100 of 235 open issues. --page 5 for the
 | `OPENAI_API_KEY` | `fix`. |
 | `OPENAI_MODEL` | Which model writes the fix. `--model` overrides it. |
 | `OPENAI_BASE_URL` | Any endpoint that speaks the OpenAI Responses API. |
-
-`<target>` is a directory (default `.`, resolved to its git root) or a GitHub
-repo as `owner/repo` or a URL, which gets cloned under `<out>/repos/`.
-`<issue-id>` is the 8-char id in the first column; a unique prefix works.
-
-### When a scan goes wrong
-
-A method perch can't read — a request too large for the model, a service that
-times out — is recorded against that method and the walk carries on. `perch
-doctor` says what happened:
-
-```
-perch 0.1.0 on node v22.14.0 (linux x64)
-results in .perch
-
-hunt 462cfe79 complete at 2026-09-17T00:36:33
-  49213 methods, read 48967, 0 unchanged, 0 unread, 246 failed
-  243 methods could not be read:
-    241x System One request failed with HTTP 400: max_tokens_exceeded
-        build_response at src/handlers/api.py:1204
-        ...
-```
-
-If nothing can be read — a bad key, a service that's down — the run stops
-instead of spending the rest of the repository finding out.
 
 ## How it works
 
