@@ -86,6 +86,20 @@ describe('cli', () => {
     expect(rows.length - 1).toBeLessThanOrEqual(10);
   });
 
+  it('cuts an unasked-for list to ten rows and a filtered one to none', async () => {
+    const repoRoot = await makeGraphFixture();
+    cleanups.push(repoRoot);
+    const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
+    await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne({}) }));
+    const { out, io } = capture();
+    const count = text => text.split('\n').length - 1;
+    expect(await main(['issues', '--out', repo.out, '--filter', 'type=defect'], io)).toBe(0);
+    const filtered = count(out.at(-1));
+    expect(await main(['issues', '--out', repo.out, '--all'], io)).toBe(0);
+    // A filter names what you want, so it is not cut down: it prints what --all would, minus what the filter dropped.
+    expect(filtered).toBe(count(out.at(-1)));
+  });
+
   it('answers a bad filter with the real values, under the old command name too, without crashing', async () => {
     const { out, err, io } = capture();
     // `findings` is another name for `issues`; a usage error on it must reach that command's help, not an undefined one.

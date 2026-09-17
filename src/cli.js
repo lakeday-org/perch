@@ -123,7 +123,11 @@ const positiveInteger = (flag, value, fallback) => { const number = value === un
 const print = (io, record, text) => io.stdout(io.flags.json ? JSON.stringify(record, null, 2) : text);
 /** Counts and costs: context for a person watching, never part of the output a pipe reads. */
 const noteFrom = (io, stderr) => (...lines) => { if (!io.flags.json) for (const line of lines.filter(Boolean)) stderr(line); };
-const shown = io => (io.flags.all ? Infinity : TOP);
+/**
+ * How many rows to print. The top ten is what an unasked-for list is cut to, because nobody wants 365 rows for typing `perch
+ * issues`. A filter is the asking: you named what you wanted, so you get all of it.
+ */
+const shown = (io, filters = []) => (io.flags.all || filters.length ? Infinity : TOP);
 /** An in-place counter on stderr for interactive runs; silent when piped, verbose, or JSON. */
 function counter(io, noun) {
   const live = process.stderr.isTTY && !io.verbose && !io.flags.json;
@@ -176,7 +180,7 @@ const commands = {
     const { findings: all } = await openIssues(store, min, io);
     const findings = narrow(all, filters, min / 100);
     const closed = Boolean(io.flags.closed);
-    print(io, visibleFindings(findings, { closed }), formatIssues(findings, min / 100, shown(io), { closed, filters }));
+    print(io, visibleFindings(findings, { closed }), formatIssues(findings, min / 100, shown(io, filters), { closed, filters }));
   },
   /** Work the open issues in the checkout the scan ran in; a path narrows them, a finding id names one. */
   async fix(io) {
