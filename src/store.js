@@ -62,7 +62,8 @@ function closures(events) {
   return byId;
 }
 const byCreation = (a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '') || a.id.localeCompare(b.id);
-/** How sure perch is of the worst thing it found here, which is what a list of issues is ordered by. */
+/** Ranked on the worst thing alone. `issuesOf` hands them back strongest first, so the head is that, and a method with one
+ * thing at 90% belongs above a method with five at 60%. */
 const surest = (finding, min) => issuesOf(finding, min)[0]?.probability ?? 0;
 
 export function openStore(out) {
@@ -240,7 +241,10 @@ export function openStore(out) {
     listScans: () => records('scans', 'scan.json'),
     listFixes: () => records('fixes', 'fix.json'),
     async latestRun() { return (await store.listRuns()).at(-1) ?? null; },
-    /** The most recent scan on disk: the code as it was last analyzed. */
+    /**
+     * The tree an issue list is joined against, so a method this does not hold is a method that is gone. Scans are read in the
+     * order they were made, which is what makes the last one the current one.
+     */
     async latestScan() { return (await store.listScans()).at(-1) ?? null; },
   };
   return store;

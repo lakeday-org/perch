@@ -54,7 +54,8 @@ export async function readRules(root, revision) {
   return rules;
 }
 
-/** The entries a scan runs as rules: a yes-or-no with a rule's shape. A question written longhand is asked as a question. */
+/** A question written longhand has no `kind`, and is asked of a method inside the walk rather than run over files and tests
+ * here. So this is the split between the two, not a narrowing of one. */
 export const asRules = questions => questions.filter(question => question.kind);
 
 /** `**\/*.md` and `src/**\/*.js` as a test on a path. Only the two wildcards a rule file ever needs. */

@@ -36,7 +36,8 @@ export const sourceFile = item => item.type === 'blob' && Boolean(languageOf(ite
 
 export const testFile = path => /(^|\/)(tests?|__tests__)(\/|\.)|\.test\.|\.spec\./.test(path);
 
-/** The handful of metrics worth persisting per file and per method. */
+/** Five of the thirty tree-sitter returns. These are the ones read back: the risk a walk orders by, and the line a finding
+ * shows under the code. Keeping the rest would carry a metrics object nothing looks at onto every row of every scan. */
 const trim = metrics => metrics ? { risk_score: metrics.risk_score, maintainability_index: metrics.maintainability_index, cyclomatic_complexity: metrics.cyclomatic_complexity, max_nesting: metrics.max_nesting, sloc: metrics.sloc } : null;
 
 /** Named methods of one file, each with a stable id and a hash of its own source. */

@@ -65,7 +65,10 @@ const labelsRaisedBy = (question, label) => {
   return Object.keys(named.options).some(option => kindLabel(option) === label && option !== question.issue.except);
 };
 
-/** What one read method is written down as. */
+/**
+ * The answers are spread flat onto the row, so every question's name is a column of its own and a question added later widens
+ * the record rather than nesting under it. `key` is what the next run compares against to decide it already has this answer.
+ */
 export const readEvent = ({ node, answers, response, key, runId = null, root, github = null, revision, calleeIds, callerIds }) => ({
   type: 'read', at: new Date().toISOString(), id: findingId(node.id), run_id: runId, root, github, revision, method: node.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line,
   hash: node.hash, key, risk: node.metrics?.risk_score ?? null, model: response.model, ...answers, callees: calleeIds, callers: callerIds });
@@ -126,7 +129,8 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const graph = buildGraph(scan.files);
   if (!scan.candidates.length) throw new Error('No methods to read in this repository');
   const rules = asRules(await readRules(root, revision));
-  // --since says what this run is about: a method outside it is not read and not reported, since nothing is kept from before.
+  // --since and --paths say what this run reads, not what perch knows. A method outside is neither read nor reported here, and
+  // what the last run said about it is carried onto the file at the end rather than dropped.
   const inScope = path => !paths.length || paths.some(item => path === item || path.startsWith(item.replace(/\/$/, '') + '/'));
   const candidates = scan.candidates.filter(candidate => graph.nodes.has(candidate.id) && inScope(graph.nodes.get(candidate.id).path));
   if (!candidates.length) throw new Error('Nothing in scope to read');
@@ -149,8 +153,9 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const path = graph.nodes.get(candidate.id).path;
     inFile.set(path, [...(inFile.get(path) ?? []), candidate.id]);
   }
-  // A rule you closed is not broken. The report reads closures and the tally did not, so a finding you had already looked at
-  // stayed out of the list and still failed the build, which is the worst of both.
+  // A closure covers named kinds rather than the method, so a method you set aside for one thing still reports another. Read
+  // here as well as in the report, because a finding you had already looked at used to stay out of the list and fail the run
+  // anyway, which is the worst of both.
   const setAside = (id, kind) => (dismissals.get(id)?.kinds ?? new Set()).has(kind);
   const done = new Map();
   const finish = (path, event) => {

@@ -356,8 +356,8 @@ const commands = {
     // that already went wrong. perch doctor reads the end of it.
     const write = await openStore(resolved.out).startLog();
     const note = message => { write(message); io.debug(message); };
-    // The client says when it is retrying, which belongs in the log and on the counter both: on the counter because a retry is
-    // the wait that looks like a hang, and in the log because that is what doctor reads afterwards.
+    // On the counter and in the log both. On the counter because a retry is the wait that looks like a hang, and in the log
+    // because the counter is gone by the time anyone asks what the run was doing.
     const retrying = message => { methods.say(message); note(message); };
     const systemOne = metered(createSystemOne({ apiKey: io.env.TYPESAFE_API_KEY, log: retrying }), meter);
     // A file prints the moment it is finished rather than at the end, so a long run says what it is finding while it finds it.
@@ -432,7 +432,10 @@ const commands = {
     print(io, { versions, out: store.out, checks, scan, run, log }, formatDoctor({ versions, scan, run, out: store.out, checks, log }));
     return checks.every(check => check.ok) ? EXIT.clean : EXIT.broke;
   },
-  /** The loop for fixing something: change the code, ask whether the issue is gone, repeat. Nothing is written down. */
+  /**
+   * Reads the file off disk rather than out of a commit, and records nothing. So it answers about work in progress, and
+   * running it twenty times while fixing something does not move the numbers on the issue you are fixing.
+   */
   async check(io) {
     if (!io.argument) throw new UsageError('perch check needs a path, a path::method, or an issue id');
     const meter = createMeter();
