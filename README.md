@@ -57,9 +57,10 @@ perch check 92c7781e
 
 Needs Node 22+ and git. Nothing perch does writes to your working tree.
 
-## Your own rules
+## Semantic linting
 
-Rules you write in `perch.yaml` are questions perch asks beside its own. Two examples:
+Extend perch with your own linting rules, in `perch.yaml`, asked in the same
+reading as its own questions. Two examples:
 
 ```yaml
 - name: env-read-once
@@ -195,7 +196,7 @@ something is still wrong, which is what a loop needs.
 | --- | --- |
 | [Getting started](https://docs.perchscan.com/install/) | Install, the key, the first scan. |
 | [Reading issues](https://docs.perchscan.com/issues/) | The list, the filters, closing what does not matter. |
-| [Your own rules](https://docs.perchscan.com/rules/) | Every field `perch.yaml` takes. |
+| [Semantic linting](https://docs.perchscan.com/rules/) | Every field `perch.yaml` takes. |
 | [Checking a change](https://docs.perchscan.com/check/) | `perch check` on work in progress. |
 | [perch in CI](https://docs.perchscan.com/ci/) | What a build can gate on, and what it cannot. |
 | [Command reference](https://docs.perchscan.com/cli/) | Every verb and every flag. |

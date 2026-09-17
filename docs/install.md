@@ -116,5 +116,5 @@ It exits 1 while something is still wrong, which is what a loop needs.
 ## Next
 
 - [Reading issues](/issues/) for filtering and closing.
-- [Your own rules](/rules/) to put your own questions in the same reading.
+- [Semantic linting](/rules/) to put your own rules in the same reading.
 - [perch in CI](/ci/) for the pull request setup.

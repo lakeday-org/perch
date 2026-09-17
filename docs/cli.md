@@ -131,7 +131,7 @@ An answer that is not yes-or-no is written out:
 | `--when NAME` | Another question this one is only as likely as. The two multiply. |
 | `--issue "type=..,label=.."` | What an answer means: `type`, `label`, `on`, `pick`, `except`. |
 
-The fields are described in [Your own rules](/rules/).
+The fields are described in [Semantic linting](/rules/).
 
 ## perch close
 

@@ -1,17 +1,17 @@
 ---
-title: Your own rules
-nav: Your own rules
+title: Semantic linting
+nav: Semantic linting
 group: Using perch
 order: 4
-summary: Questions you write in perch.yaml, asked in the same reading as perch's own.
+summary: Your own linting rules in perch.yaml, asked in the same reading as perch's own questions.
 ---
 
-# Your own rules
+# Semantic linting
 
-A rule is a claim you make about your own code, written as a sentence and put to
-the model as a question. They cover what a parser cannot prove: whether a comment
-says why, whether a listing honors a filter, whether a test asserts something
-real.
+A linter checks what a parser can prove. This checks what it cannot: whether a
+comment says why, whether a listing honors a filter, whether a test asserts
+something real. You write the rule as a sentence and it is put to the model as a
+question.
 
 They live in `perch.yaml` at the root of the repository.
 
