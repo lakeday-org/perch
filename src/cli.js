@@ -215,7 +215,15 @@ async function openIssues(store, min, io) {
   const scan = root ? await analyzeTree({ root, revision: await gitRevision(root), out: store.out, analyzer: createSourceAnalyzer(), log: io.debug, debug: io.debug }) : null;
   let findings = await store.issues(min / 100, { scan }), gone = 0;
   if (scan) { const { current, stale } = splitStale(findings, scan); findings = current; gone = stale.length; }
-  return { findings, gone, root, scan };
+  // A method edited since the scan read it keeps none of its answers: they are about code that is not there any more. Counted
+  // against the tree rather than against the list, since a finding with nothing left on it never reaches the list.
+  const { latest } = await store.indexes();
+  let edited = 0;
+  for (const file of scan?.files ?? []) for (const method of file.methods) {
+    const reading = latest.get(method.id);
+    if (reading && reading.hash !== method.hash) edited++;
+  }
+  return { findings, gone, edited, root, scan };
 }
 
 /** `--kind docs,too_big` as the labels a closure covers. A name nothing can be listed under closes nothing, so it is a mistake. */
@@ -379,14 +387,14 @@ const commands = {
     }
     const min = threshold(io.flags.min);
     const filters = filtersFrom(io.flags);
-    const { findings: all } = await openIssues(store, min, io);
+    const { findings: all, edited } = await openIssues(store, min, io);
     const findings = narrow(all, filters, min / 100);
     const closed = Boolean(io.flags.closed);
     const rows = visibleFindings(findings, { closed });
     const { from, size } = paging(io, filters);
     const page = rows.slice(from, Number.isFinite(size) ? from + size : undefined);
     print(io, page, formatIssues(page, min / 100, Infinity, { closed, filters }));
-    io.note(issueCount({ open: visibleFindings(all).length, matched: rows.length, from, listed: page.length, size,
+    io.note(issueCount({ open: visibleFindings(all).length, matched: rows.length, from, listed: page.length, size, edited,
       closed: closed ? 0 : all.length - visibleFindings(all).length, filtered: filters.length > 0 }));
   },
   async doctor(io) {

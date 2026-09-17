@@ -187,10 +187,15 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const read = [], broken = [];
   const record = async results => {
     for (const { node, calleeIds, callerIds, rules: own, response, answers, key, carried, skipped } of results) {
-      if (skipped) { run.skipped++; continue; }
+      // A filter narrows which questions are asked, not which code the run is about, so what it did not ask about is what the
+      // last run said rather than nothing at all. Rewriting the file whole with only the answers this run happened to want threw
+      // away every other answer on the same method.
+      const before = filters.length ? earlier.get(node.id) : null;
+      if (skipped) { run.skipped++; if (before) read.push(before); continue; }
       if (carried) run.carried++; else run.calls++;
       run.usage.input_tokens += response?.usage?.input_tokens ?? 0; run.usage.output_tokens += response?.usage?.output_tokens ?? 0;
-      const event = carried ?? readEvent({ node, answers, response, key, runId: id, root, github, revision, calleeIds, callerIds });
+      const fresh = carried ?? readEvent({ node, answers, response, key, runId: id, root, github, revision, calleeIds, callerIds });
+      const event = before ? { ...before, ...fresh } : fresh;
       read.push(event); run.visited.push({ ...event, status: carried ? 'carried' : 'read' });
       finish(node.path, event);
       // A rule asked of this method answered under its own name, and a rule is broken when the answer is no. The answer is
@@ -263,7 +268,11 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     }));
     run.checked = run.calls * questionSet().filter(question => question.each === 'method').length + units.asked + searches.asked;
 
-    await store.recordScan([...read, ...broken]);
+    // Rule checks the filter kept out are carried the same way: this run had nothing to say about them, which is not the same
+    // as saying they passed.
+    const said = new Set(broken.map(check => check.id));
+    const unasked = filters.length ? [...checks.values()].filter(check => !said.has(check.id)) : [];
+    await store.recordScan([...read, ...broken, ...unasked]);
     run.remaining = walk.remaining(); run.status = 'complete'; run.completed_at = new Date().toISOString(); await writeJson(runPath, run); return run;
   } catch (error) { run.status = 'failed'; run.error = error.message; await writeJson(runPath, run).catch(() => {}); throw error; }
 }

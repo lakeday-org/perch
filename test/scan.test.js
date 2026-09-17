@@ -43,7 +43,7 @@ describe('perch hunt', () => {
 
   it('ranks a method by what its problems would cost, not how many it has', () => {
     // Two readings of the same shape: one would lose data, the other would be noticed by nobody.
-    const reading = probabilities => ({ has_bug: 0.5, kind: { choice: 'boundary', probability: 1 }, severity: { probabilities },
+    const reading = probabilities => ({ has_bug: 0.7, kind: { choice: 'boundary', probability: 1 }, severity: { probabilities },
       refactor: { choice: 'split', probability: 0.8, probabilities: { split: 0.8 } }, does_what_it_claims: 1, misdocumented: 0 });
     const harmful = reading({ 0: 0, 1: 0, 2: 0, 3: 1 }), harmless = reading({ 0: 1, 1: 0, 2: 0, 3: 0 });
     expect(issueWeight(harmful)).toBeGreaterThan(issueWeight(harmless));

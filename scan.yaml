@@ -151,13 +151,19 @@
   each: method
   where: "**/*"
   when: exposed
-  ask: >
+  ask: >-
     If `method` handles anything from outside the program: is this true of it?
-    Data from outside is parsed, evaluated, or turned into objects in a way that
-    lets it decide what code or type comes back.
-  true: >
-    Yes: data from outside is parsed, evaluated, or turned into objects in a way
-    that lets it decide what code or type comes back
+    Data from outside is turned into code, or into an object whose type it
+    chose. eval, new Function or a vm run over it; a deserializer that can
+    instantiate arbitrary classes; a YAML or XML parser with tags or entities
+    enabled; a merge that lets it set __proto__ or constructor. Parsing outside
+    data into plain values is not this, however untrusted it is.
+  true: >-
+    Yes: data from outside is turned into code, or into an object whose type it
+    chose. eval, new Function or a vm run over it; a deserializer that can
+    instantiate arbitrary classes; a YAML or XML parser with tags or entities
+    enabled; a merge that lets it set __proto__ or constructor. Parsing outside
+    data into plain values is not this, however untrusted it is.
   false: No, or nothing from outside reaches this method
   issue: { type: security, label: self, pick: strongest }
   min: 70

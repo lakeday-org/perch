@@ -148,10 +148,13 @@ export const askKey = (steps, asked) => sha(JSON.stringify([steps.map(step => st
 
 /**
  * How sure this one has to be before it counts. Both floors apply and the higher wins: a question that hedges sets its own, and
- * `--min` sets one for the run, so asking for 90% does not get you back a 73% because some rule said 70 was enough. Everything
- * that decides whether something is broken reads it here, so a run cannot report one number and count another.
+ * `--min` sets one for the run, so asking for 90% does not get you back a 73% because some rule said 70 was enough.
+ *
+ * `--min 0` is the exception, and means what zero says: every answer, floors and all, which is how you see what a question is
+ * really doing before deciding where its floor belongs. Everything that decides whether something is broken reads this, so a run
+ * cannot report one number and count another.
  */
-export const floorFor = (question, min) => Math.max(min, question?.min == null ? 0 : question.min / 100);
+export const floorFor = (question, min) => (min === 0 ? 0 : Math.max(min, question?.min == null ? 0 : question.min / 100));
 
 /** The questions asked of a method, as System One takes them. Only the shape; the state they are asked over is built elsewhere. */
 export function compile(questions) {

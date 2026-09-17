@@ -212,7 +212,7 @@ export function formatIssues(findings, min, shown = TOP, { closed = false, filte
 }
 
 /** "11-20 of 124 open issues match, --page 3 for the next": where you are in the list. Context, so it goes to stderr. */
-export function issueCount({ open, matched, from = 0, listed, size = Infinity, closed = 0, filtered = false }) {
+export function issueCount({ open, matched, from = 0, listed, size = Infinity, closed = 0, edited = 0, filtered = false }) {
   const total = filtered ? matched : open;
   const noun = count => `${count} open ${count === 1 ? 'issue' : 'issues'}`;
   if (!listed && from) {
@@ -221,10 +221,12 @@ export function issueCount({ open, matched, from = 0, listed, size = Infinity, c
   }
   const all = listed === total && !from;
   const head = all ? noun(total) : `${from + 1}-${from + listed} of ${noun(total)}`;
+  // A method changed since the scan read it has no answers worth keeping, and the list is shorter for a reason worth naming.
+  const since = edited ? ` ${edited} ${edited === 1 ? 'method' : 'methods'} changed since the scan, so ${edited === 1 ? 'it is' : 'they are'} not listed; perch scan reads ${edited === 1 ? 'it' : 'them'} again.` : '';
   const parts = [filtered && total !== open ? `${head}${all ? ' match' : ' matching'}, out of ${open}` : head];
   if (from + listed < total) parts.push(Number.isFinite(size) ? `--page ${Math.floor(from / size) + 2} for the next` : '--all for the rest');
   if (closed) parts.push(`${closed} closed, --closed to include`);
-  return parts.join('. ');
+  return parts.join('. ') + since;
 }
 
 /** "584k" rather than "584167": a token count is read to see whether a run was large, never to the digit. */
