@@ -56,10 +56,12 @@ async function remoteWithACommit(root) {
   await writeFile(join(source, 'README.md'), 'fixture\n');
   await runGit(['add', 'README.md'], source);
   await runGit(['commit', '-q', '-m', 'fixture'], source);
-  await runGit(['push', '-q', 'origin', 'HEAD:main'], source).catch(async () => {
-    await runGit(['remote', 'add', 'origin', remote], source);
-    await runGit(['push', '-q', 'origin', 'HEAD:main'], source);
-  });
+  await runGit(['branch', '-M', 'main'], source);
+  await runGit(['remote', 'add', 'origin', remote], source);
+  await runGit(['push', '-q', 'origin', 'main'], source);
+  // A bare repository keeps whatever HEAD git init gave it, which is master on a machine configured that way and main on
+  // another. A clone checks out HEAD, so without this the clone is a .git and an empty tree wherever the two disagree.
+  await runGit(['symbolic-ref', 'HEAD', 'refs/heads/main'], remote);
   return remote;
 }
 

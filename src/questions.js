@@ -85,8 +85,9 @@ export function issuesOf(answers, min = BELIEVED, questions = questionSet()) {
 }
 
 /**
- * Every answer contributes its own probability, so two at 50% weigh what one at 100% weighs and nothing has to cross a line to
- * count. The two sides are apart because only correctness is multiplied by the severity rubric, and design weighs as itself.
+ * Two numbers rather than one, because whoever ranks on them weighs the sides differently and cannot separate them afterwards.
+ * Every answer contributes its own probability, so two at 50% count what one at 100% counts and nothing has to cross a line to
+ * be counted at all: a floor here would make the ranking jump as answers crossed it.
  */
 export function expectedIssues(answers, issues = issuesOf(answers, 0)) {
   const sum = list => list.reduce((total, issue) => total + issue.probability, 0);
