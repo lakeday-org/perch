@@ -5,7 +5,7 @@
  * A price is published for a family and a request comes back naming a version of it, so `jev-1.13.0` is priced as `jev`.
  */
 export const PRICES = {
-  jev: { input: 0.042, cached: 0.042, output: 0 },
+  jev: { input: 0.042, output: 0 },
 };
 
 /** A family nobody published a price for costs an unknown amount, which the summary says rather than guessing. */
@@ -14,30 +14,27 @@ const priceOf = model => PRICES[model] ?? PRICES[String(model).split('-')[0]] ??
 export function createMeter() {
   const models = new Map();
   const meter = {
-    /** Record one call's usage under a model. `usage` may carry input_tokens, output_tokens, and OpenAI's *_details. */
-    add(model, usage, { turns = 0, requests = 1 } = {}) {
+    /** Record one call's usage under a model. System One reports tokens in and tokens out, and nothing else is counted. */
+    add(model, usage, { requests = 1 } = {}) {
       if (!usage) return;
-      const entry = models.get(model) ?? { requests: 0, turns: 0, input: 0, cached: 0, output: 0, reasoning: 0 };
-      entry.requests += requests; entry.turns += turns;
+      const entry = models.get(model) ?? { requests: 0, input: 0, output: 0 };
+      entry.requests += requests;
       entry.input += usage.input_tokens ?? 0;
-      entry.cached += usage.input_tokens_details?.cached_tokens ?? usage.cached_tokens ?? 0;
       entry.output += usage.output_tokens ?? 0;
-      entry.reasoning += usage.output_tokens_details?.reasoning_tokens ?? usage.reasoning_tokens ?? 0;
       models.set(model, entry);
     },
     /** Dollars for one model's entry, or null when the model's price is unknown. */
     cost(model) {
       const entry = models.get(model), price = priceOf(model);
       if (!entry || !price) return null;
-      return ((entry.input - entry.cached) * price.input + entry.cached * price.cached + entry.output * price.output) / 1e6;
+      return (entry.input * price.input + entry.output * price.output) / 1e6;
     },
     total() { return [...models.keys()].reduce((sum, model) => sum + (meter.cost(model) ?? 0), 0); },
     /** Snapshot for records. */
     toJSON() { return Object.fromEntries([...models].map(([model, entry]) => [model, { ...entry, cost: meter.cost(model) }])); },
 /**
-     * What the run spent, as one line. Which model answered is a detail of the day the run happened: models change, and the two
-     * kinds here are the one that reads code and the one that writes it. The per-model breakdown stays in `toJSON`, which is what
-     * the records keep and `--json` prints.
+     * What the run spent, as one line. Which model answered is a detail of the day the run happened, so the per-model breakdown
+     * stays in `toJSON`, which is what the records keep and `--json` prints.
      */
     lines() {
       const entries = [...models.values()];
@@ -45,10 +42,9 @@ export function createMeter() {
       const sum = key => entries.reduce((total, entry) => total + entry[key], 0);
       const k = value => (value >= 1e6 ? `${(value / 1e6).toFixed(1)}M` : value >= 1000 ? `${Math.round(value / 1000)}k` : String(value));
       const count = (value, noun) => `${value} ${value === 1 ? noun : `${noun}s`}`;
-      const turns = sum('turns'), requests = sum('requests'), cached = sum('cached'), reasoning = sum('reasoning');
       const unpriced = [...models.keys()].some(model => meter.cost(model) === null);
-      return [[turns ? `${count(turns, 'turn')}, ${count(requests, 'request')}` : count(requests, 'request'),
-        `${k(sum('input'))} tokens in${cached ? ` (${k(cached)} cached)` : ''}${sum('output') ? ` / ${k(sum('output'))} out` : ''}${reasoning ? `, ${k(reasoning)} reasoning` : ''}`,
+      return [[count(sum('requests'), 'request'),
+        `${k(sum('input'))} tokens in${sum('output') ? ` / ${k(sum('output'))} out` : ''}`,
         `${money(meter.total())}${unpriced ? ' (some prices unknown)' : ''}`].join('  ')];
     },
     models,
