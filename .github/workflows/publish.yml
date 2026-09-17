@@ -1,5 +1,5 @@
-# Publishes @lakeday/perch to npm when a v* tag is pushed. The package is private to the lakeday org:
-# publishConfig.access is restricted, and NPM_TOKEN is a repository secret, never a file in the tree.
+# Publishes @lakeday/perch to npm when a v* tag is pushed. The package is public, as the repository is;
+# NPM_TOKEN is a repository secret, never a file in the tree.
 name: publish
 
 on:
