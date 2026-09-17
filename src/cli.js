@@ -14,7 +14,7 @@ import { checkTarget } from './check.js';
 import { addRule, editRule, KINDS as RULE_KINDS, removeRule } from './rules.js';
 import { allQuestions, SHAPES } from './ask.js';
 import { createMeter, metered } from './meter.js';
-import { brokenRules, formatDoctor, formatFilterKeys, formatFinding, formatIssues, formatCheck, formatRules, formatScanReport, issueCount, scanCount, scanTally, TOP, visibleFindings } from './report.js';
+import { brokenRules, formatDoctor, formatFilterKeys, useColor, formatFinding, formatIssues, formatCheck, formatRules, formatScanReport, issueCount, scanCount, scanTally, TOP, visibleFindings } from './report.js';
 
 /** Stamped into the bundle at build time so `perch doctor` reports the version that is running, not one read from a stray file. */
 export const VERSION = typeof PERCH_VERSION === 'string' ? PERCH_VERSION : 'dev';
@@ -187,7 +187,9 @@ function liveCounter(io, doing) {
 /** The open issues at HEAD: findings for methods that no longer exist are dropped and counted. */
 async function openIssues(store, min, io) {
   const root = (await store.latestRun())?.root ?? (await store.latestScan())?.root ?? null;
-  const scan = root ? await analyzeTree({ root, revision: await gitRevision(root), out: store.out, analyzer: createSourceAnalyzer(), log: io.debug, debug: io.debug }).catch(() => null) : null;
+  // Parsing the tree is what says which findings are about code that still exists. Swallowing a failure here listed everything
+  // the last scan found as though it were all still there, which is a wrong list rather than a missing one.
+  const scan = root ? await analyzeTree({ root, revision: await gitRevision(root), out: store.out, analyzer: createSourceAnalyzer(), log: io.debug, debug: io.debug }) : null;
   let findings = await store.issues(min / 100, { scan }), gone = 0;
   if (scan) { const { current, stale } = splitStale(findings, scan); findings = current; gone = stale.length; }
   return { findings, gone, root, scan };
@@ -411,6 +413,8 @@ export async function main(argv, { stdout = text => process.stdout.write(text + 
   try { checkFlags(flags, commandName); }
   catch (error) { return wrong(error.message, commandName); }
   const verbose = Boolean(flags.verbose);
+  // The one place that knows what a terminal is and what the environment asked for.
+  useColor(Boolean(process.stdout.isTTY) && !env.NO_COLOR && !flags.json);
   const log = message => { if (verbose || !flags.json) stderr(`[perch] ${message}`); };
   const debug = message => { if (verbose) stderr(`[perch] ${message}`); };
   try {

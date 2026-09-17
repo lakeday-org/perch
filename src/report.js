@@ -1,5 +1,6 @@
 /** Human-readable summaries of scans, issues, and the work done on them. */
 import { join } from 'node:path';
+import { RULES_FILE } from './units.js';
 import { CORRECTNESS } from './ask.js';
 import { alsoKnownAs, filterKeys, issuesFor, issuesOf, label, securities, SEVERITY_BANDS, severityName } from './questions.js';
 
@@ -62,7 +63,13 @@ export const WIDTH = () => (process.stdout.columns >= 60 ? process.stdout.column
  * Color, when there is a terminal to put it on. Piped output and NO_COLOR get none, so a redirect stays greppable and a log stays
  * readable. Padding happens before this is applied: escape codes have width nobody wants counted.
  */
-export const COLOR = () => Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;
+let colored = false;
+/**
+ * Whether to paint. Told once by the command line rather than worked out here: what a terminal is and what NO_COLOR means are
+ * the command line's business, and a formatter that reads the environment cannot be asked for plain text in a test.
+ */
+export const useColor = on => { colored = Boolean(on); };
+export const COLOR = () => colored;
 const paint = code => (text, on = COLOR()) => (on ? `\u001b[${code}m${text}\u001b[0m` : String(text));
 export const bold = paint(1), dim = paint(2), red = paint(31), yellow = paint(33);
 /** How sure, colored by how sure: the ones worth reading first look like it. */
@@ -155,21 +162,25 @@ export function scanTally(findings, min = 0, color = COLOR()) {
   const files = new Set(findings.filter(finding => issuesOf(finding, min).length).map(finding => finding.path)).size;
   if (!count) return `${'✓'} nothing to report`;
   const worst = places.filter(issues => issues.some(issue => issue.probability >= 0.9)).length;
-  const tally = [`${count} ${count === 1 ? 'problem' : 'problems'}`, `${places.length} ${places.length === 1 ? 'place' : 'places'}`, `${files} ${files === 1 ? 'file' : 'files'}`];
-  return `${worst ? red('✖', color) : yellow('!', color)} ${tally.join(' in ')}`;
+  // Two numbers, not three. How many problems and how many files they are in is what a person reads; how many methods carried
+  // them is arithmetic nobody asked for.
+  return `${worst ? red('✖', color) : yellow('!', color)} ${count} ${count === 1 ? 'problem' : 'problems'} in ${files} ${files === 1 ? 'file' : 'files'}`;
 }
 
 /**
  * The rules a run broke, in one line. Which rule and how many, since that is what you act on; what each rule asks is in
  * `perch rules list` and does not need saying again under every run.
  */
-export function brokenRules(run, { color = COLOR() } = {}) {
+export function brokenRules(run, { color = COLOR(), keep = 4 } = {}) {
   const broken = run.broken ?? [];
   if (!broken.length) return '';
   const counts = new Map();
   for (const finding of broken) counts.set(finding.rule, (counts.get(finding.rule) ?? 0) + 1);
   const fired = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  return `${red(`${broken.length} broken`, color)} across ${fired.length} ${fired.length === 1 ? 'rule' : 'rules'}: ${fired.map(([name, count]) => `${name} ${count}`).join(', ')}`;
+  const shown = fired.slice(0, keep).map(([name, count]) => `${name} ${count}`);
+  const rest = fired.length - shown.length;
+  // Whose rules, since perch's own questions raise issues and never break anything: only what you wrote can be broken.
+  return `${red(String(broken.length), color)} of them break a rule in ${RULES_FILE}: ${[...shown, ...(rest ? [`+${rest} more`] : [])].join(', ')}`;
 }
 
 /** What a run did, for stderr. */

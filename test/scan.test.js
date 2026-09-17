@@ -111,7 +111,7 @@ describe('perch hunt', () => {
     expect(shown).toMatch(new RegExp(`^ {2}${f.id} +\\d+ {2}P1 \\(\\d\\.\\d\\) {2}defect +\\d+% {2}off_by_one +f$`, 'm'));
     // A band is about a defect, so a row that is not about one does not claim it, and every column still lines up.
     expect(shown).toMatch(new RegExp(`^ {2}${f.id} +\\d+ {2}- +refactor +\\d+% {2}too_big +f$`, 'm'));
-    expect(shown).toMatch(/^[✖!] \d+ problems in \d+ places? in \d+ files?$/m);
+    expect(shown).toMatch(/^[✖!] \d+ problems in \d+ files?$/m);
     expect(shown).not.toMatch(/^ID +Method/m);
     expect(hunt.to_read).toBe(4);
 

@@ -20,7 +20,7 @@
     A method's comment says what its code cannot. Narrating the steps below it,
     or restating its name as a sentence, breaks this. A one-liner whose name
     says everything needs no comment.
-  min: 70
+  min: 78
 
 - name: closed-never-listed
   where: callers of issues
@@ -69,7 +69,7 @@
     A failure reaches the caller. No catch that returns a default in place of
     the error, and no ?? or || standing in for a call that failed. A default for
     a value that was never set is not this.
-  min: 70
+  min: 85
 
 - name: tests-assert-real-behavior
   where: "test/**/*.js"

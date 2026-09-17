@@ -201,9 +201,15 @@ export function openStore(out) {
       const root = (await store.listRuns()).at(-1)?.root;
       if (!root) return findings;
       const blobs = new Map();
+      // A blob that is not at that revision is an ordinary absence: the file was added since, or renamed. Anything else is git
+      // failing, and a finding printed without the code it is about is worth less than knowing why.
       const linesOf = async finding => {
         const key = `${finding.revision}:${finding.path}`;
-        if (!blobs.has(key)) blobs.set(key, await git(['show', key], root).then(text => text.split('\n')).catch(() => null));
+        if (!blobs.has(key)) {
+          const lines = await git(['show', key], root).then(text => text.split('\n'))
+            .catch(error => { if (/does not exist|unknown revision|no such path/i.test(error.message)) return null; throw error; });
+          blobs.set(key, lines);
+        }
         return blobs.get(key);
       };
       for (const finding of findings) {
