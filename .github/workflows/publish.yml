@@ -1,5 +1,9 @@
-# Publishes @lakeday/perch to npm when a v* tag is pushed. The package is public, as the repository is;
-# NPM_TOKEN is a repository secret, never a file in the tree.
+# Publishes @lakeday/perch to npm when a v* tag is pushed.
+#
+# There is no npm token. The job proves who it is with the OIDC identity GitHub gives it, which npm checks against the trusted
+# publisher configured for the package: this repository, this workflow file. A credential minted for one run and good for minutes
+# cannot leak from a settings page or expire on a Tuesday, and npm attaches a provenance attestation saying which commit and
+# which workflow built the tarball. Renaming this file, or dropping id-token below, stops publishing until npm is told.
 name: publish
 
 on:
@@ -17,6 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # What npm exchanges for a publish credential. Without it the publish is refused, not quietly downgraded.
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -25,6 +31,9 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org/
           cache: npm
+
+      # Trusted publishing needs npm 11.5.1 or later, and Node 22 ships an older one.
+      - run: npm install -g npm@latest
 
       - run: npm ci
 
@@ -45,5 +54,3 @@ jobs:
       - name: Publish
         if: ${{ github.event_name == 'push' || !inputs.dry_run }}
         run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
