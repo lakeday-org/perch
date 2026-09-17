@@ -44,19 +44,34 @@ first, walking out through callers and callees. It prints what it found grouped
 by file, and a count at the end:
 
 ```console
-src/graph.js
-    41  buildGraph          P1 (1.1)  docs 78%, too_big 74%, type_confusion 67%
-    18  resolveRust         -         docs 83%, no-silent-failure 56%
-    59  buildGraph.sameDir  -         tangled_conditions 83%, docs 69%
+$ perch scan
+src/assets/hero.js
+  ID        Line  Severity  Type      Sure  Problem             Method
+  0c0b4209    46  -         docs       80%  docs                render
+  0c0b4209    46  -         refactor   65%  tangled_conditions  render
+  af40565c    61  P2 (1.6)  security   67%  uninitialized_use   play
 
-! 18 problems in 14 places in 2 files
+src/index.html
+  ID        Line  Severity  Type  Sure  Problem             Method
+  99d1b053     7  -         lint   61%  no-narrative-prose  src/index.html
+
+✖ 41 problems in 27 places in 7 files
+1 rule broken.
+
+  Failed  Rule                Description
+       1  no-narrative-prose  A headline and one line, not a paragraph explaining the product.
+perch-cloud at commit 3ddf4d9: 38 methods, read 30, 10 unchanged
+30 requests  171k tokens in / 24k out  $0.0072
 ```
+
+A method whose code, whose neighbours and whose questions are all unchanged since
+the last run is not read again, which is what `10 unchanged` counts.
 
 A first run over a large repository reads every method in scope, so narrow it
 while you are getting a feel for it:
 
 ```sh
-perch scan --paths src/graph.js
+perch scan --paths src
 perch scan --since origin/main
 ```
 
@@ -67,17 +82,17 @@ worst first:
 
 ```console
 $ perch issues
-ID        Method             Location         Type      Kind                              Severity
-723a2685  buildGraph         src/graph.js:41  docs      docs 78%, too_big 74%, +5 more    -
-9a809860  resolveRust        src/graph.js:18  docs      docs 83%, +2 more                 -
-763069db  buildGraph.sameD…  src/graph.js:59  refactor  tangled_conditions 83%, docs 69%  -
-1-3 of 18 open issues. --page 2 for the next
+ID        Method             Location           Type      Kind                              Severity
+3a7c6bfe  build              …ts/build.mjs:183  refactor  too_big 99%, +3 more              P1 (1.4)
+1f235668  docPage            …pts/build.mjs:82  docs      docs 81%, too_big 77%, +1 more    P1 (1.3)
+eb9dfee4  versionAssets      …ts/build.mjs:161  security  resource_exhaustion 80%, +2 more  P1 (1.3)
+1-3 of 27 open issues. --page 2 for the next
 ```
 
 The first column is the id. Give it to `perch issues` to open one up:
 
 ```sh
-perch issues 723a2685
+perch issues 3a7c6bfe
 ```
 
 That prints everything perch answered about the method: the whole severity
@@ -91,9 +106,9 @@ were in view when it read.
 Nothing is recorded, so it is the one to run while you are working:
 
 ```sh
-perch check 723a2685                          # whatever raised that issue
-perch check src/graph.js::buildGraph          # a method, by name
-perch check src/graph.js                      # a whole file
+perch check 3a7c6bfe                          # whatever raised that issue
+perch check scripts/build.mjs::build          # a method, by name
+perch check scripts/build.mjs                 # a whole file
 ```
 
 It exits 1 while something is still wrong, which is what a loop needs.

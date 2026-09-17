@@ -79,7 +79,7 @@ the filesystem:
 ```yaml
 where: "src/**/*.js"           # a glob
 where: callers of issues       # every method that calls issues()
-where: mentions events.jsonl   # every method whose source names that string
+where: mentions scan.jsonl     # every method whose source names that string
 ```
 
 ### `each`
@@ -146,9 +146,9 @@ name in the Kind column:
 
 ```console
 $ perch issues --filter type=lint
-ID        Method       Location          Type  Kind           Severity
-b4e21c7a  createModel  src/model.js:29   lint  env-read-once  -
-9f03d182  git          src/git.js:10     lint  env-read-once  -
+ID        Method          Location          Type  Kind                    Severity
+99d1b053  src/index.html  src/index.html:7  lint  no-narrative-prose 61%  -
+1 open issue match, out of 27
 ```
 
 `perch scan` exits 1 when a rule is broken. A rule is a claim you made about your
