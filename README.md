@@ -43,6 +43,44 @@ perch fix 92c7781e
 Needs Node 22+ and git. `perch fix` commits to the branch you're on and refuses
 main and master.
 
+## Linting your own rules
+
+`perch lint` checks rules you write, in `perch.yaml`, against your code. Two examples:
+
+```yaml
+- name: env-read-once
+  over: "src/**/*.js"
+  except: "src/cli.js"
+  each: method
+  ensure: >
+    This method does not read process.env. Reading the environment is the command
+    line's job, and everything below it is passed the values.
+
+- name: issues-closable
+  behaviour: >
+    An issue can be closed with a reason, and a closed issue stops appearing in
+    the default list.
+  cite: "test/**/*.js"
+```
+
+The first asks a yes-or-no question about every method outside `src/cli.js`. The
+second asks which test asserts the behaviour, and the answer has to be a test you
+can open or `none`.
+
+```
+$ perch lint
+src/model.js
+    29   97%  env-read-once  createModel
+src/git.js
+    10   92%  env-read-once  git
+
+2 problems in 2 files (633 checked, 8 read)
+```
+
+Exits 1 when a rule is broken. `--since origin/main` asks only about what a branch
+changed, which is what CI wants. Answers are cached against the text they were
+given, so a second run over unchanged code costs nothing.
+
 ## Commands
 
 ```
@@ -158,48 +196,6 @@ hunt 462cfe79 complete at 2026-09-17T00:36:33
 
 If nothing can be read — a bad key, a service that's down — the run stops
 instead of spending the rest of the repository finding out.
-
-## Your own rules
-
-`perch lint` checks rules you write, in `perch.yaml`, against your code.
-
-```yaml
-- name: env-read-once
-  over: "src/**/*.js"
-  except: "src/cli.js"
-  each: method
-  ensure: >
-    This method does not read process.env. Reading the environment is the command line's job, and
-    everything below it is passed the values.
-
-- name: issues-closable
-  behaviour: >
-    An issue can be closed with a reason, and a closed issue stops appearing in the default list.
-  cite: "test/**/*.js"
-```
-
-`ensure` is a property of a file or a method. `behaviour` is different: it asks which test asserts the
-thing, and the answer has to be a test you can open or `none`. "Yes, that's tested" is not checkable,
-and a test named `closes an issue` that only checks the exit code will pass review forever.
-
-`where` and `over` say what a rule applies to — a glob, `callers of <method>` from the call graph, or
-`mentions <text>`. `except` spares part of it. `each: method` asks about methods rather than files.
-
-```
-$ perch lint
-src/probe.js
-  2   95%  comment-says-why  collectThings
-  9   97%  env-read-once     tokenFromEnv
-
-2 problems in 1 file (145 checked, 4 read)
-```
-
-Exits 1 when a rule is broken, so CI can use it, and `--since origin/main` asks only about what a
-branch changed. An answer is cached against the exact text it was given, so a second run over
-unchanged code costs nothing. The run above was $0.0001 for 145 checks, because only four were new.
-
-Lint findings stay out of `perch issues`. A rule is yours and the scan's questions are perch's, and a
-rule you are still drafting should not pollute a list you trust.
 
 ## How it works
 

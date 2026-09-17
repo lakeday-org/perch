@@ -169,8 +169,19 @@ export function formatDoctor({ versions, scan, hunt, out, findings = 0 }) {
   return lines.join('\n');
 }
 
-/** One finding as a linter says it: where first, so an editor can jump there. */
-export const lintLine = finding => `  ${String(finding.line).padStart(4)}  ${percent(finding.broken).padStart(4)}  ${finding.rule}${finding.name === finding.path ? '' : `  ${finding.name}`}${finding.cite ? `  cited: ${finding.cite}` : ''}`;
+/**
+ * One file's worth of lint, printed when that file is done. The percentage is the share of its checks that passed, so a clean file
+ * reads 100% the way every other tool in a build reports itself. Under it, the checks that did not.
+ */
+export function formatLintFile({ path, checked, findings }) {
+  const rate = checked ? Math.round(((checked - findings.length) / checked) * 100) : 100;
+  const lines = [`${relative(path)}  ${rate}%  ${checked - findings.length} of ${checked} checks passed`];
+  const width = Math.max(...findings.map(finding => String(finding.line).length), 1);
+  for (const finding of findings) {
+    lines.push(`  ${String(finding.line).padStart(width)}  ${finding.rule}${finding.name === finding.path ? '' : `  ${finding.name}`}${finding.cite ? `  cited: ${finding.cite}` : ''}`);
+  }
+  return lines.join('\n');
+}
 
 /**
  * What a lint run adds up to. The rules that fired are spelled out underneath, because a rule name is an identifier and the
@@ -178,10 +189,12 @@ export const lintLine = finding => `  ${String(finding.line).padStart(4)}  ${per
  */
 export function formatLint(run, { width = WIDTH() } = {}) {
   const count = run.rules.length ?? run.rules;
-  if (!run.findings.length) return `${count} ${count === 1 ? 'rule' : 'rules'}, ${run.checked} checked, no problems`;
+  const passed = run.checked - run.findings.length;
+  const rate = run.checked ? Math.round((passed / run.checked) * 100) : 100;
+  if (!run.findings.length) return `${count} ${count === 1 ? 'rule' : 'rules'}, ${run.checked} checks, all passed`;
   const files = new Set(run.findings.map(finding => finding.path));
-  const fired = (run.rules.filter?.(rule => run.findings.some(finding => finding.rule === rule.name)) ?? []);
-  const lines = [`${run.findings.length} ${run.findings.length === 1 ? 'problem' : 'problems'} in ${files.size} ${files.size === 1 ? 'file' : 'files'} (${run.checked} checked, ${run.asked} read)`, ''];
+  const fired = run.rules.filter?.(rule => run.findings.some(finding => finding.rule === rule.name)) ?? [];
+  const lines = [`${rate}%  ${passed} of ${run.checked} checks passed. ${run.findings.length} failed in ${files.size} ${files.size === 1 ? 'file' : 'files'}.`, ''];
   const label = Math.max(...fired.map(rule => rule.name.length), 0);
   for (const rule of fired) {
     const text = String(rule.ensure ?? rule.behaviour ?? '').replace(/\s+/g, ' ').trim();
@@ -189,7 +202,6 @@ export function formatLint(run, { width = WIDTH() } = {}) {
     lines.push(`  ${rule.name.padEnd(label)}  ${body[0] ?? ''}`.trimEnd());
     for (const line of body.slice(1)) lines.push(`  ${' '.repeat(label)}  ${line}`);
   }
-  lines.push('', 'The percentage is how sure the model is that the rule is broken, not how bad it is.');
   return lines.join('\n');
 }
 

@@ -5,22 +5,19 @@
 - name: prose-not-generated
   where: "**/*.md"
   ensure: >
-    No sentence in this file does any of the following, and one that does breaks the rule however
-    well the rest of the file reads. Trails a dash or a colon to restate what the sentence already
-    said, in the shape "X — the thing that does Y" or "X: the thing that does Y". A list item or a
-    table cell defining a term, as in "- **Type** — what it holds", is not that and is fine. Says the previous
-    sentence again in other words. Announces a point instead of making it, as in "the spread is the
-    information" or "that is the whole point". Stacks three adjectives or three nouns for rhythm.
-    Uses "it's not just X, it's Y", "isn't merely", or "more than just". Reaches for a marketing
-    word: leverage, robust, comprehensive, seamless, streamline, delve, underscore, pivotal, myriad.
+    The file does not sound AI generated
+
+- name: docs-succint
+  where: "**/*.md"
+  ensure: >
+    Documentation is kept succint and deliberate. No follow ups, em-dashes, and meaningless statements
 
 - name: comment-says-why
   where: "src/**/*.js"
   each: method
   ensure: >
-    Either this method has no comment above it, or its comment tells a reader something the code does
-    not already say: why it works this way, what a caller has to know, what it deliberately will not
-    do. A comment that narrates the steps below it, or restates the method's name as a sentence,
+    methods carry a comment that tells a human reader something the code does
+    A comment that narrates the steps below it, or restates the method's name as a sentence,
     breaks this rule.
 
 - name: closed-never-listed
@@ -46,3 +43,4 @@
   behaviour: >
     An issue can be closed with a reason, and a closed issue stops appearing in the default list.
   cite: "test/**/*.js"
+

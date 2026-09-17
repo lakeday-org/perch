@@ -14,7 +14,7 @@ import { changedPaths, lintRepository, RULES_FILE } from './lint.js';
 import { createMeter, metered } from './meter.js';
 import { createShell } from './shell.js';
 import { createUi } from './ui.js';
-import { formatDoctor, formatFilterKeys, formatFinding, formatFix, formatFixes, formatIssues, formatLint, formatScanRun, issueCount, lintLine, scanCount, TOP, visibleFindings } from './report.js';
+import { formatDoctor, formatFilterKeys, formatFinding, formatFix, formatFixes, formatIssues, formatLint, formatLintFile, formatScanRun, issueCount, scanCount, TOP, visibleFindings } from './report.js';
 
 /** Stamped into the bundle at build time so `perch doctor` reports the version that is running, not one read from a stray file. */
 export const VERSION = typeof PERCH_VERSION === 'string' ? PERCH_VERSION : 'dev';
@@ -207,18 +207,18 @@ const commands = {
     const paths = io.flags.since ? await changedPaths(root, io.flags.since) : [];
     if (io.flags.since && !paths.length) { io.stdout(`Nothing changed since ${io.flags.since}.`); return 0; }
     const counter = io.verbose || io.flags.json ? { update: () => {}, clear: () => {} } : liveCounter(io, 'checked');
-    // Said as they are found, the way a linter does, rather than held back until the run ends. A cached answer was found before
-    // this run started and is not streamed; it is in the report at the end with everything else.
-    let open = null;
-    const say = finding => {
+    // A file is printed the moment every rule has been asked of every part of it, rather than the run being held back to the end.
+    let first = true;
+    const say = file => {
+      if (!file.findings.length) return;
       counter.clear();
-      if (open !== finding.path) { io.stdout(open === null ? finding.path : `\n${finding.path}`); open = finding.path; }
-      io.stdout(lintLine(finding));
+      io.stdout(first ? formatLintFile(file) : `\n${formatLintFile(file)}`);
+      first = false;
     };
     let run;
     try {
       run = await lintRepository({ root, revision, out: await resolveOut(io.flags.out), analyzer: createSourceAnalyzer(), systemOne, paths,
-        min: threshold(io.flags.min) / 100, force: Boolean(io.flags.force), onFinding: io.flags.json ? () => {} : say,
+        min: threshold(io.flags.min) / 100, force: Boolean(io.flags.force), onFile: io.flags.json ? () => {} : say,
         progress: counter.update, log: io.debug, debug: io.debug });
     } finally { counter.clear(); }
     if (!io.flags.json && run.findings.length) io.stdout('');

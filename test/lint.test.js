@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { lintRepository, lintStep, matches, readLint, readRules, selectUnits, testTitles } from '../src/lint.js';
-import { formatLint, lintLine } from '../src/report.js';
+import { formatLint, formatLintFile } from '../src/report.js';
 import { commitAll, makeGraphFixture } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
@@ -106,30 +106,30 @@ describe('perch lint', () => {
     const options = { ...repo, analyzer, systemOne: answering(0.1, calls) };
 
     const seen = [];
-    const run = await lintRepository({ ...options, onFinding: finding => seen.push(finding) });
+    const run = await lintRepository({ ...options, onFile: file => seen.push(file) });
     expect(run.rules.map(rule => rule.name)).toEqual(['comment-says-why']);
     expect(run.checked).toBe(4);
     expect(run.asked).toBe(4);
     expect(run.findings).toHaveLength(4);
     expect(run.findings[0].broken).toBeCloseTo(0.9);
 
-    // Findings are handed over as they are answered, in file order, so a run reads like a linter rather than arriving at the end.
-    expect(seen).toHaveLength(4);
-    expect(seen.map(finding => finding.path)).toEqual(['src/a.js', 'src/a.js', 'src/b.js', 'src/b.js']);
-    expect(lintLine(seen[0])).toMatch(/^ +\d+ +90% {2}comment-says-why {2}f$/);
+    // A file is handed over once every rule has been asked of every part of it, so a run reads like a linter.
+    expect(seen.map(file => file.path)).toEqual(['src/a.js', 'src/b.js']);
+    expect(seen[0]).toMatchObject({ checked: 2, findings: [{ name: 'f' }, { name: 'g' }] });
+    // The percentage is the share that passed, so a clean file reads 100% like every other tool in a build.
+    expect(formatLintFile(seen[0])).toMatch(/^src\/a\.js {2}0% {2}0 of 2 checks passed$/m);
+    expect(formatLintFile(seen[0])).toMatch(/^ {2}\d+ {2}comment-says-why {2}f$/m);
+    expect(formatLintFile({ path: 'src/c.js', checked: 4, findings: [] })).toBe('src/c.js  100%  4 of 4 checks passed');
 
-    // The report is the count and what the rules that fired actually demand; the rows have already been said.
     const shown = formatLint(run, { width: 100 });
-    expect(shown).toContain('4 problems in 2 files');
+    expect(shown).toContain('0%  0 of 4 checks passed. 4 failed in 2 files.');
     expect(shown).toContain('comment-says-why  The comment says why.');
-    expect(shown).toContain('how sure the model is that the rule is broken');
-    expect(shown).not.toMatch(/^src\/a\.js$/m);
 
     // Asked once. The same code under the same rule is read from the log.
     const held = [];
-    const again = await lintRepository({ ...options, systemOne: answering(0.1), onFinding: finding => held.push(finding) });
-    // A cached finding is still reported: it was found before this run, not in it.
-    expect(held).toHaveLength(4);
+    const again = await lintRepository({ ...options, systemOne: answering(0.1), onFile: file => held.push(file) });
+    // A cached answer is still reported: it was found before this run, not in it.
+    expect(held.flatMap(file => file.findings)).toHaveLength(4);
     expect(again.asked).toBe(0);
     expect(again.skipped).toBe(4);
     expect(again.findings).toHaveLength(4);
@@ -140,7 +140,7 @@ describe('perch lint', () => {
     const tightened = await lintRepository({ ...options, revision: await revision(repo.root), systemOne: answering(0.9) });
     expect(tightened.asked).toBe(4);
     expect(tightened.findings).toHaveLength(0);
-    expect(formatLint(tightened)).toBe('1 rule, 4 checked, no problems');
+    expect(formatLint(tightened)).toBe('1 rule, 4 checks, all passed');
   });
 
   it('asks only about what a branch changed', async () => {

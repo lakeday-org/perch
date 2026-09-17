@@ -149,7 +149,7 @@ export function readLint(rule, answers) {
  * answered before under the same rule wording and the same code is read from the log rather than asked again.
  */
 export async function lintRepository({ root, revision, out, analyzer, systemOne, paths = [], min = BELIEVED, force = false,
-  onFinding = () => {}, progress = () => {}, log = () => {}, debug = () => {} }) {
+  onFile = () => {}, progress = () => {}, log = () => {}, debug = () => {} }) {
   const rules = await readRules(root, revision);
   if (!rules.length) throw new Error(`no rules: write ${RULES_FILE} or ${RULES_DIR}/*.yaml`);
   const tree = await listTree(root, revision);
@@ -175,13 +175,20 @@ export async function lintRepository({ root, revision, out, analyzer, systemOne,
       const source = await textOf(unit.path);
       const body = unit.method ? bodyOf(source, unit) : source;
       const key = [rule.name, unit.id, rule.hash, sha256(body)].join(' ');
-      if (!force && cache.has(key)) { skipped++; const held = cache.get(key); if (held.broken > min) { findings.push(held); onFinding(held); } continue; }
+      if (!force && cache.has(key)) { skipped++; const held = cache.get(key); if (held.broken > min) findings.push(held); work.push({ rule, unit, key, body, held }); continue; }
       work.push({ rule, unit, key, body });
     }
   }
-  // File order, so a reader watching the run sees one file finished before the next begins rather than rules interleaving.
+  // File order, so a file is finished before the next is started and can be reported the moment it is.
   work.sort((a, b) => a.unit.path.localeCompare(b.unit.path) || a.unit.line - b.unit.line);
-  for (const { rule, unit, key, body } of work) {
+  const checkedIn = new Map();
+  for (const item of work) checkedIn.set(item.unit.path, (checkedIn.get(item.unit.path) ?? 0) + 1);
+  let open = null, found = [];
+  /** A file is only worth reporting once every rule has been asked of every part of it, which is when its pass rate is known. */
+  const closeFile = () => { if (open) onFile({ path: open, checked: checkedIn.get(open) ?? 0, findings: found }); open = null; found = []; };
+  for (const { rule, unit, key, body, held } of work) {
+    if (unit.path !== open) { closeFile(); open = unit.path; }
+    if (held) { if (held.broken > min) found.push(held); continue; }
     const titles = rule.kind === 'behaviour' ? testTitles((await Promise.all(unit.cited.map(textOf))).join('\n')) : [];
     if (rule.kind === 'behaviour' && !titles.length) throw new Error(`${rule.name} (${rule.at}): the cited files hold no tests to name`);
     const { state, question } = lintStep({ rule, unit, source: body, titles });
@@ -192,9 +199,10 @@ export async function lintRepository({ root, revision, out, analyzer, systemOne,
     const line = broken > min && !unit.method && rule.kind === 'ensure' ? await locateBreak({ systemOne, rule, unit, body }) : unit.line;
     const finding = { rule: rule.name, rule_hash: rule.hash, unit: unit.id, path: unit.path, name: unit.name, line, hash: unit.hash, broken, cite, at: new Date().toISOString() };
     fresh.push([key, finding]);
-    if (broken > min) { findings.push(finding); onFinding(finding); }
+    if (broken > min) { findings.push(finding); found.push(finding); }
     progress(++asked, work.length);
   }
+  closeFile();
   await writeCache(out, fresh);
   log(`${rules.length} ${rules.length === 1 ? 'rule' : 'rules'}, ${asked + skipped} checked, ${asked} read, ${skipped} unchanged`);
   // Cached findings were never streamed, so they are sorted in with the rest for the report at the end.
