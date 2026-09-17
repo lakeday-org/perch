@@ -13,7 +13,7 @@ import { formatFix, visibleFindings } from './report.js';
 import { languageOf } from './analysis.js';
 import { analyzeTree } from './scan.js';
 import { buildGraph, resolveModule } from './graph.js';
-import { ANSWERS_VERSION, expectedIssues, huntStep, issuesOf } from './questions.js';
+import { ANSWERS_VERSION, expectedIssues, FIX_LIMITS, FIX_NEIGHBOURS, FIX_STATE_BUDGET, huntStep, huntSteps, issuesOf } from './questions.js';
 import { identity, openStore, readJson, sha256, writeJson } from './store.js';
 import { fixPrompt, goalOf } from './prompts.js';
 import { Abort, DEFAULT_EFFORT, tool } from './model.js';
@@ -186,12 +186,16 @@ export async function methodContext({ finding, root, out, analyzer, revision = f
   for (const callerId of callerIds) { const caller = graph.nodes.get(callerId); callers.push({ node: caller, lines: await linesOf(caller), site: graph.site(callerId, node.id), handover: graph.isDynamic(callerId, node.id) }); }
   const { imports, methods } = graph.files.get(node.path).file;
   const fileLines = await linesOf(node);
-  const step = huntStep({ node, lines: fileLines, imports, methods, callees, callers });
+  const steps = huntSteps({ node, lines: fileLines, imports, methods, callees, callers });
+  const step = steps[0];
+  // What the rewriting model sees is not what System One sees: whole neighbours rather than excerpts, so it is not sent reading
+  // files to find a contract perch already has. The scan's own state stays as it was, or a rescan would not compare like for like.
+  const context = huntStep({ node, lines: fileLines, imports, methods, callees, callers, budget: FIX_STATE_BUDGET, limits: FIX_LIMITS, maxCallees: FIX_NEIGHBOURS, maxCallers: FIX_NEIGHBOURS }).state;
   const method = fileLines.slice(node.line - 1, node.end_line).join('\n');
-  return { scan, graph, node, fileLines, method, callees, callers, calleeIds, callerIds, imports, methods, step, changed: Boolean(finding.hash) && node.hash !== finding.hash };
+  return { scan, graph, node, fileLines, method, callees, callers, calleeIds, callerIds, imports, methods, step, steps, context, changed: Boolean(finding.hash) && node.hash !== finding.hash };
 }
 
-export async function fixMethod({ finding: hunted, root, out, model, systemOne: rawSystemOne, analyzer, shell, ui = plainUi(), meter = createMeter(), position = '', log = () => {}, debug = () => {} }) {
+export async function fixMethod({ finding: hunted, root, out, model, systemOne: rawSystemOne, analyzer, shell, ui = plainUi(), meter = createMeter(), position = '', debug = () => {} }) {
   const store = openStore(out);
   const systemOne = metered(rawSystemOne, meter);
   const id = fixIdentity({ finding: hunted, model: model.id });
@@ -206,7 +210,6 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
   const revision = await gitRevision(root);
   const fix = { id, finding_id: hunted.id, method: hunted.method, path: hunted.path, line: hunted.line, root, branch, revision, hunted_at: hunted.revision, model: model.id, verifier: systemOne.id, out: dir, status: 'running', created_at: new Date().toISOString() };
   await writeJson(fixPath, fix);
-  const pct = value => `${Math.round(value * 100)}%`;
   let finding = hunted;
   const finish = async (status, extra) => {
     Object.assign(fix, { status, completed_at: new Date().toISOString(), ...extra, usage: meter.toJSON() });
@@ -219,14 +222,14 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
   let placed = false;
   try {
     // The method as it reads at HEAD, with the neighborhood the scan showed System One. If it changed since, System One reads it again first.
-    const { scan, graph, node, fileLines, callees, callers, calleeIds, callerIds, imports, methods, step, changed } = await methodContext({ finding: hunted, root, out, analyzer, revision, log: debug });
+    const { scan, graph, node, fileLines, callees, callers, calleeIds, callerIds, imports, methods, steps, context, changed } = await methodContext({ finding: hunted, root, out, analyzer, revision, log: debug });
     const fileOf = () => scan.files.find(file => file.path === node.path);
     finding = { ...hunted, line: node.line, end_line: node.end_line, metrics: node.metrics, file: fileOf()?.metrics ?? null, where: hunted.where ? { ...hunted.where, line: hunted.where.line + node.line - hunted.line } : hunted.where };
     const stale = finding.has_bug !== undefined && (finding.answers_version ?? 1) !== ANSWERS_VERSION;
     if (changed || stale || finding.has_bug === undefined) {
       const why = changed ? ', changed since the scan' : stale ? ', answered before the questions changed' : ' for the first time';
       const reading = ui.task(`reading ${node.qualified_name}${why}`);
-      const { response, answers } = await questionMethod({ systemOne, node, step, lines: fileLines, debug });
+      const { response, answers } = await questionMethod({ systemOne, node, steps, lines: fileLines, debug });
       const event = huntedEvent({ node, answers, response, root, github: hunted.github ?? null, revision, calleeIds, callerIds });
       await store.appendEvent(event);
       finding = { ...event, metrics: node.metrics, file: finding.file };
@@ -260,6 +263,13 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
     if (!checks.length && project.suite) checks.push({ name: project.suite, run: () => shell.run(project.suite, { cwd: root, timeoutMs: 4 * COMMAND_MS, env: workspaceEnv() }) });
     const ignored = new Set();
     fix.checks = checks.map(check => check.name);
+    /**
+     * The project's own lint and typecheck, run once on the way out rather than on every attempt. A rewrite that passes the
+     * tests reaching it can still leave an unused parameter or a type error, and that is a broken build whatever the scan says.
+     * They are whole-tree commands and slow on a large repository, so submit pays for them once instead of six rescans doing it.
+     */
+    const gates = (project.gates ?? []).map(name => ({ name, run: () => shell.run(name, { cwd: root, timeoutMs: 4 * COMMAND_MS, env: workspaceEnv() }) }));
+    fix.gates = gates.map(gate => gate.name);
 
     /**
      * Replace the tracked method's file with candidate source for a test run.
@@ -315,11 +325,13 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
       const shifted = replacementLength - (end - start + 1);
       const patchedMethods = methods.filter(other => other.id !== node.id).map(other => (other.line > end ? { ...other, line: other.line + shifted, end_line: other.end_line + shifted } : other)).concat(inRegion);
       const patchedNode = { ...node, line: kept.line, end_line: kept.end_line, metrics };
-      const patchedStep = huntStep({ node: patchedNode, lines: patchedLines, imports, methods: patchedMethods, callees, callers });
-      const { answers } = await questionMethod({ systemOne, node: patchedNode, step: patchedStep, lines: patchedLines, debug });
+      const patchedSteps = huntSteps({ node: patchedNode, lines: patchedLines, imports, methods: patchedMethods, callees, callers });
+      const { answers } = await questionMethod({ systemOne, node: patchedNode, steps: patchedSteps, lines: patchedLines, debug });
       const reading = { ...answers, metrics, file: fileMetrics };
       const after = issuesOf(reading);
-      const { objections, shift } = improvement(expectedIssues(finding, before), expectedIssues(reading, after));
+      // Judged on everything, listed on what is believed: the objectives are the issues above the floor, but the Pareto test
+      // counts the whole distribution, so halving a 40% defect still counts for exactly that.
+      const { objections, shift } = improvement(expectedIssues(finding), expectedIssues(reading));
       const result = { before: before.map(issue => issue.text), after: after.map(issue => issue.text), expected: shift };
       if (objections.length) return { ok: false, error: objections.join('; '), ...result };
       passed.rescan.set(source, { answers, after, shift });
@@ -363,8 +375,29 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
       if (line.error) return { ok: false, error: line.error };
       const note = plainNotes(notes);
       if (note.error) return { ok: false, error: note.error };
-      accepted = { source, summary: line.text, notes: note.text, ...passed.measure.get(source), ...passed.rescan.get(source), checks: passed.tests.get(source) };
+      const failed = await runGates(source);
+      if (failed) return { ok: false, error: failed };
+      accepted = { source, summary: line.text, notes: note.text, ...passed.measure.get(source), ...passed.rescan.get(source), checks: passed.tests.get(source), gates: fix.gates };
       return { ok: true, done: true };
+    };
+    /** Each gate on the rewrite, and the first one that fails on it but not on the original. One already broken is not this fix's fault. */
+    const runGates = async source => {
+      if (!gates.length) return null;
+      const patched = splice(source).join('\n');
+      await place(patched);
+      try {
+        for (const gate of gates) {
+          if (ignored.has(gate.name)) continue;
+          const result = await gate.run();
+          if (result.exit_code === 0) continue;
+          await restore();
+          const control = await gate.run();
+          await place(patched);
+          if (control.exit_code !== 0) { ignored.add(gate.name); continue; }
+          return `${gate.name} fails on the rewrite and passes on the original:\n${tail(result)}`;
+        }
+      } finally { await restore(); }
+      return null;
     };
     const MAX_READ_LINES = 400;
     const read = async ({ path }) => {
@@ -384,7 +417,7 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
       tool('measure', `Splice the rewrite over lines ${start}-${end} of ${node.path} and measure with tree-sitter: it must parse and still contain ${node.qualified_name}. Sibling helpers in that range are fine. Returns the method and file metrics; improvement is judged by rescan, not here. Call this on every version you write.`, { source: { type: 'string', description: 'replacement for the region: comment, method, and any helpers it needs' } }, measure),
       tool('rescan', 'Run the scan again over the rewrite: the same System One questions with the same neighborhood, plus the metrics. Every issue the scan raised must be gone (no longer listed), a defect gone outright, and nothing new. A tiny probability drop is not enough. Requires measure to have passed this exact source.', { source: { type: 'string' } }, rescan),
       tool('run_tests', `Run the tests that reach ${node.qualified_name}${checks.length ? ` (${checks.map(check => check.name).join(', ')})` : ' (none found; passes trivially)'} against the rewrite. Requires measure to have passed this exact source.`, { source: { type: 'string' } }, runTests),
-      tool('submit', 'Finish with the rewrite. Refused unless measure, rescan, and run_tests have all passed this exact source.',
+      tool('submit', `Finish with the rewrite. Refused unless measure, rescan, and run_tests have all passed this exact source${gates.length ? `, and refused if it breaks ${gates.map(gate => gate.name).join(', ')}, which run here` : ''}.`,
         { source: { type: 'string' }, summary: { type: 'string', description: 'the commit line: imperative, under 72 characters' },
           notes: { type: 'string', description: 'two or three plain sentences for the reviewer: what was wrong, what you changed, why it is better. No bullets, no marketing words.' } }, submit),
     ];
@@ -406,7 +439,7 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
         running.update(`working (turn ${event.turn}, effort ${effort})`);
       }
     };
-    const run = await model.run({ prompt: fixPrompt({ finding, before, fileMetrics: trim(base), budget: fileBudget(base, { security: before.some(issue => issue.type === 'security') }), state: step.state, region, start, end, checks: checks.map(check => check.name) }), tools, effort, onEvent });
+    const run = await model.run({ prompt: fixPrompt({ finding, before, fileMetrics: trim(base), budget: fileBudget(base, { security: before.some(issue => issue.type === 'security') }), state: context, region, start, end, checks: checks.map(check => check.name) }), tools, effort, onEvent });
     meter.add(model.id, run.usage, { turns: run.turns, requests: run.turns });
     Object.assign(fix, { trace: run.trace, turns: run.turns });
     if (!accepted) {

@@ -1,6 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -9,7 +8,7 @@ import { main, parseArgs } from '../src/cli.js';
 import { revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { scanRepository } from '../src/hunt.js';
-import { fixtureOptions, makeFixture, makeGraphFixture, scriptedSystemOne } from './helpers.js';
+import { commitAll, fixtureOptions, makeFixture, makeGraphFixture, scriptedSystemOne } from './helpers.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const cleanups = [];
@@ -34,7 +33,7 @@ describe('cli', () => {
   it('has three commands and prints their usage', async () => {
     const { out, err, io } = capture();
     expect(await main(['--help'], io)).toBe(0);
-    for (const verb of ['scan [target]', 'issues [issue-id]', 'fix [issue-id | path]']) expect(out[0]).toContain(verb);
+    for (const verb of ['scan [target]', 'issues [issue-id]', 'fix [issue-id | path]', 'doctor']) expect(out[0]).toContain(verb);
     for (const gone of ['hunt', 'refactor', 'report', 'publish', 'design']) expect(out[0]).not.toMatch(new RegExp(`^\\s*${gone} `, 'm'));
     expect(await main(['fix', '-h'], io)).toBe(0);
     expect(out.at(-1)).toContain('perch fix: Fix open issues, one commit each');
@@ -132,9 +131,10 @@ describe('cli', () => {
     const { out, err, io } = capture();
     const [f] = hunt.visited;
     expect(await main(['issues', '--out', repo.out], io)).toBe(0);
-    expect(out.at(-1)).toMatch(new RegExp(`^${f.id}  f +src/a.js:\\d+ +defect +wrong_return_value \\d+%.* +P2 \\(1\\.8\\) +open +-`, 'm'));
+    expect(out.at(-1)).toMatch(new RegExp(`^${f.id}  f +src/a.js:\\d+ +defect +wrong_return_value \\d+%.* +P2 \\(1\\.8\\)$`, 'm'));
     // Every column a filter reads is named after it: kind, severity.
-    expect(out.at(-1)).toMatch(/^ID +Method +Location +Type +Kind +Severity +Status +Commit$/m);
+    // Status and Commit are not columns: an open list is all open, and the commit is in `perch issues <id>` and in git log.
+    expect(out.at(-1)).toMatch(/^ID +Method +Location +Type +Kind +Severity$/m);
     // A filter that matches keeps the row; one that does not leaves nothing.
     expect(await main(['findings', '--filter', 'type=defect,severity=P2', '--out', repo.out], io)).toBe(0);
     expect(out.at(-1)).toContain(f.id);
@@ -146,9 +146,11 @@ describe('cli', () => {
     expect(out.at(-1)).toContain('Defect: 80%');
     expect(out.at(-1)).toContain('wrong_return_value');
     expect(out.at(-1)).toContain('Metrics: risk');
-    // --min is a weight, not a probability: no method is expected to have 9 problems.
-    expect(await main(['issues', '--out', repo.out, '--min', '900'], io)).toBe(0);
+    // --min is how sure the scan has to be: nothing is answered at a flat 100%, and over 100 is not a percentage.
+    expect(await main(['issues', '--out', repo.out, '--min', '100'], io)).toBe(0);
     expect(out.at(-1)).toBe('Nothing matches.');
+    expect(await main(['issues', '--out', repo.out, '--min', '900'], io)).toBe(2);
+    expect(err.at(-1)).toContain('--min must be a percentage, 0 to 100');
     expect(await main(['issues', '--out', repo.out, '--json'], io)).toBe(0);
     expect(JSON.parse(out.at(-1))[0].id).toBe(f.id);
   });
@@ -183,6 +185,62 @@ describe('cli', () => {
     expect(unfiltered).not.toMatch(/^\S+ +\S+ +\S+ +security /);
     expect(await main(['issues', '--filter', 'type=security', '--out', repo.out], io)).toBe(0);
     for (const row of out.at(-1).split('\n').slice(1)) expect(row).toMatch(/^\S+ +\S+ +\S+ +security /);
+  });
+
+  it('pages through the list and says where you are', async () => {
+    const repoRoot = await makeGraphFixture();
+    cleanups.push(repoRoot);
+    const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
+    await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne({}), budget: 4 }));
+    const { out, err, io } = capture();
+    const ids = text => text.split('\n').slice(1).map(row => row.slice(0, 8));
+
+    expect(await main(['issues', '--out', repo.out, '--min', '0', '--limit', '2'], io)).toBe(0);
+    const first = ids(out.at(-1));
+    expect(first).toHaveLength(2);
+    expect(err.at(-1)).toMatch(/^1-2 of \d+ open issues\. --page 2 for the next$/);
+
+    expect(await main(['issues', '--out', repo.out, '--min', '0', '--limit', '2', '--page', '2'], io)).toBe(0);
+    // A page is the next slice, not a repeat of the first.
+    expect(ids(out.at(-1)).some(id => first.includes(id))).toBe(false);
+    expect(err.at(-1)).toMatch(/^3-4 of \d+ open issues/);
+
+    expect(await main(['issues', '--out', repo.out, '--min', '0', '--page', '99'], io)).toBe(0);
+    expect(err.at(-1)).toMatch(/^page 99 is past the end\. \d+ open issues, \d+ pages?$/);
+    expect(await main(['issues', '--out', repo.out, '--limit', '0'], io)).toBe(2);
+    expect(err.at(-1)).toContain('--limit must be a positive integer');
+  });
+
+  it('closes an issue, keeps why, and brings it back when the method changes', async () => {
+    const repoRoot = await makeGraphFixture();
+    cleanups.push(repoRoot);
+    const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
+    const hunt = await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.9 } }) }));
+    const [f] = hunt.visited;
+    const { out, err, io } = capture();
+
+    expect(await main(['close', f.id.slice(0, 5), '--reason', 'verifies before it parses', '--out', repo.out], io)).toBe(0);
+    expect(out.at(-1)).toContain(`${f.id}  f  src/a.js:`);
+    // Closed means gone from the list and skipped by fix; --closed shows it with why.
+    expect(await main(['issues', '--out', repo.out], io)).toBe(0);
+    expect(out.at(-1)).not.toContain(f.id);
+    expect(await main(['issues', '--closed', '--out', repo.out], io)).toBe(0);
+    expect(out.at(-1)).toMatch(new RegExp(`^${f.id}.* dismissed$`, 'm'));
+    expect(await main(['issues', f.id, '--out', repo.out], io)).toBe(0);
+    expect(out.at(-1)).toContain('Status: closed');
+    expect(out.at(-1)).toContain('verifies before it parses');
+
+    // Editing the method is a new judgement to make, so the dismissal lapses.
+    await writeFile(join(repoRoot, 'src', 'a.js'), (await readFile(join(repoRoot, 'src', 'a.js'), 'utf8')).replace('x > 10', 'x > 11'));
+    await commitAll(repoRoot, 'change f');
+    await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), revision: await revision(repoRoot), systemOne: scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.9 } }) }));
+    expect(await main(['issues', '--out', repo.out], io)).toBe(0);
+    expect(out.at(-1)).toContain(f.id);
+
+    expect(await main(['close', '--out', repo.out], io)).toBe(2);
+    expect(err.at(-1)).toContain('perch close needs at least one issue id');
+    expect(await main(['reopen', 'zzzz', '--out', repo.out], io)).toBe(1);
+    expect(err.at(-1)).toContain('no finding zzzz');
   });
 
   it('bundles with esbuild into a loadable module', async () => {

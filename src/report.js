@@ -1,7 +1,5 @@
 /** Human-readable summaries of scans, issues, and the work done on them. */
-import { filterKeys, isDesign, issuesFor, issuesOf, label, matchesFilters, SEVERITY_BANDS, severityName } from './questions.js';
-
-const short = revision => revision?.slice(0, 12) ?? '?';
+import { filterKeys, issuesFor, issuesOf, label, SEVERITY_BANDS, severityName } from './questions.js';
 
 /** Prose broken at `width` columns, each line indented; the note under a fix is the only paragraph perch prints. */
 export function wrap(text, width = 92, indent = '  ') {
@@ -21,11 +19,13 @@ function table(header, rows, align) {
 }
 
 const number = value => value === null || value === undefined ? '-' : Math.round(value);
-const relative = path => path.startsWith(process.cwd() + '/') ? path.slice(process.cwd().length + 1) : path;
+/** A path as short as it can be said: the directory's own name when it is where you are, otherwise relative to here. */
+const relative = path => (path === process.cwd() ? path.split('/').at(-1) : path.startsWith(process.cwd() + '/') ? path.slice(process.cwd().length + 1) : path);
 
 const percent = value => `${Math.round(value * 100)}%`;
 const words = label;
 const shortId = id => id.split('::').at(-1);
+const short = revision => (revision ?? '?').slice(0, 7);
 export const TOP = 10;
 
 
@@ -37,35 +37,64 @@ const severityDetail = severity => {
   return ` (${bands.map(([band, p]) => `${band} ${percent(p)}`).join(', ')})`;
 };
 
-/** A finding is closed once its fix was closed (nothing to do) or given up on. */
-export const issueStatus = finding => (finding.fix && finding.fix.status !== 'ready' ? 'closed' : 'open');
-/** The commit that fixed a finding, for the table, or `-`. */
-const commitRef = finding => (finding.fix?.status === 'ready' ? finding.fix.commit?.slice(0, 7) ?? 'done' : '-');
-const statusRow = finding => [issueStatus(finding), commitRef(finding)];
-/** The three the model believes most. Everything it answered is in `perch findings <id>`; a row is not the place for a tail of 9%s. */
+/** A finding is closed once you set it aside, or once its fix was closed (nothing to do) or given up on. */
+export const issueStatus = finding => (finding.dismissed || (finding.fix && finding.fix.status !== 'ready') ? 'closed' : 'open');
+/** What was done to a finding, for the rows that have had anything done to them: the commit it was fixed in, or why it was not. */
+const workedOn = finding => (finding.dismissed ? 'dismissed' : !finding.fix ? '' : finding.fix.status === 'ready' ? finding.fix.commit?.slice(0, 7) ?? 'fixed' : finding.fix.status);
+/** The three the model believes most. Everything it answered is in `perch issues <id>`; a row is not the place for a tail of 9%s. */
 export const SHOWN_PER_ROW = 3;
-const issueCell = issues => {
-  const shown = issues.slice(0, SHOWN_PER_ROW).map(issue => issue.text);
-  return [...shown, ...(issues.length > shown.length ? [`+${issues.length - shown.length} more`] : [])].join(', ');
+/** Whatever fits, whole issues only, then a count of the rest. Cutting a row mid-percentage helps nobody. */
+const issueCell = (issues, width = Infinity) => {
+  const shown = [];
+  for (const issue of issues.slice(0, SHOWN_PER_ROW)) {
+    const rest = issues.length - shown.length - 1;
+    const line = [...shown, issue.text, ...(rest > 0 ? [`+${rest} more`] : [])].join(', ');
+    if (shown.length && line.length > width) break;
+    shown.push(issue.text);
+  }
+  const left = issues.length - shown.length;
+  return [...shown, ...(left > 0 ? [`+${left} more`] : [])].join(', ');
 };
 const locationOf = (finding, issues) => `${finding.path}:${issues[0]?.type === 'defect' ? finding.where.line : finding.line}`;
+/** Cut to `width`, keeping the end: a path's file and line say more than the crates/ it starts with. */
+const keepEnd = (text, width) => (text.length <= width ? text : '…' + text.slice(text.length - width + 1));
+const keepStart = (text, width) => (text.length <= width ? text : text.slice(0, width - 1) + '…');
 
-/** Aligned rows of methods with issues: everything the scan raised about each, defects and design alike. */
-function issueTable(findings, min = 0, filters = []) {
-  const rows = findings.map(finding => {
+/** The width to lay a table out in: the terminal's, or 100 when there isn't one (a pipe, a file, a test). */
+export const WIDTH = () => (process.stdout.columns >= 60 ? process.stdout.columns : 100);
+
+/**
+ * Aligned rows of methods with issues. A real repository has method names and paths long enough to wrap every row twice, so the
+ * three columns that vary are given a share of whatever the terminal has and cut to it: the method from the end, the path from
+ * the front (its file and line matter more than the crate it lives in), and the issues by dropping the weakest.
+ */
+function issueTable(findings, min = 0, filters = [], { width = WIDTH() } = {}) {
+  const cells = findings.map(finding => {
     const issues = issuesFor(finding, min, filters);
     // Severity is asked about a behavioral defect, so a method whose issues are all design or security has none to show.
-    return [finding.id, finding.name, locationOf(finding, issues), issues[0]?.type ?? '-', issueCell(issues),
-      issues.some(issue => issue.type === 'defect') ? severityName(finding.severity) : '-', ...statusRow(finding)];
+    return { id: finding.id, method: shortId(finding.name), location: locationOf(finding, issues), type: issues[0]?.type ?? '-', issues,
+      severity: issues.some(issue => issue.type === 'defect') ? severityName(finding.severity) : '-', status: workedOn(finding) };
   });
+  // Status is only a column when something has been worked. On a list where every row is open and unfixed it says nothing.
+  const worked = cells.some(cell => cell.status);
+  const header = ['ID', 'Method', 'Location', 'Type', 'Kind', 'Severity', ...(worked ? ['Status'] : [])];
+  const longest = (key, floor) => Math.max(floor, ...cells.map(cell => String(cell[key]).length));
+  // What the three variable columns have to share, once the id, the type, the severity and the gaps have taken theirs.
+  const room = Math.max(34, width - 8 - longest('type', 4) - longest('severity', 8) - (worked ? longest('status', 6) : 0) - 2 * (header.length - 1));
+  // The issues are the point of the row, so the other two take a quarter each at most and the rest is theirs.
+  const method = Math.min(longest('method', 6), Math.max(10, Math.round(room * 0.25)));
+  const location = Math.min(longest('location', 8), Math.max(12, Math.round(room * 0.25)));
+  const kind = Math.max(12, room - method - location);
+  const rows = cells.map(cell => [cell.id, keepStart(cell.method, method), keepEnd(cell.location, location), cell.type,
+    keepStart(issueCell(cell.issues, kind), kind), cell.severity, ...(worked ? [cell.status] : [])]);
   // Every column a filter reads is named after it. Type is the class the row leads with, which is the one `--filter type=` ranks by.
-  return table(['ID', 'Method', 'Location', 'Type', 'Kind', 'Severity', 'Status', 'Commit'], rows, ['left', 'left', 'left', 'left', 'left', 'left', 'left', 'left']);
+  return table(header, rows, header.map(() => 'left'));
 }
 
 
 /** What one scan did, then the open issues as `perch issues` lists them. */
-export function formatScanRun(hunt, issues, shown = TOP) {
-  return formatIssues(issues, 0, shown);
+export function formatScanRun(hunt, issues, shown = TOP, min = 0) {
+  return formatIssues(issues, min, shown);
 }
 
 /** What a scan did, for stderr. */
@@ -74,8 +103,9 @@ export function scanCount(hunt) {
   const parts = [`${hunt.methods} methods`, `read ${hunted}`];
   if (hunt.skipped) parts.push(`${hunt.skipped} unchanged`);
   if (hunt.remaining) parts.push(`${hunt.remaining} unread`);
+  if (hunt.failed?.length) parts.push(`${hunt.failed.length} could not be read (perch doctor)`);
   if (hunt.error) parts.push(`error: ${hunt.error}`);
-  return `${relative(hunt.target)} at ${hunt.revision?.slice(0, 7) ?? '?'}: ${parts.join(', ')}`;
+  return `${relative(hunt.target)} at commit ${hunt.revision?.slice(0, 7) ?? '?'}: ${parts.join(', ')}`;
 }
 
 /** "115 open issues, 10 shown (--all for the rest). 6 closed (--closed)." */
@@ -86,10 +116,57 @@ export function visibleFindings(findings, { closed = false } = {}) {
 }
 
 /** The table and nothing else. Counts and hints are progress, and go to stderr. */
-export function formatIssues(findings, min, shown = TOP, { closed = false, filters = [] } = {}) {
+export function formatIssues(findings, min, shown = TOP, { closed = false, filters = [], width = WIDTH() } = {}) {
   const rows = visibleFindings(findings, { closed });
   if (!rows.length) return 'Nothing matches.';
-  return issueTable(rows.slice(0, shown), min, filters).join('\n');
+  return issueTable(rows.slice(0, shown), min, filters, { width }).join('\n');
+}
+
+/** "11-20 of 124 open issues match, --page 3 for the next": where you are in the list. Context, so it goes to stderr. */
+export function issueCount({ open, matched, from = 0, listed, size = Infinity, closed = 0, filtered = false }) {
+  const total = filtered ? matched : open;
+  const noun = count => `${count} open ${count === 1 ? 'issue' : 'issues'}`;
+  if (!listed && from) {
+    const pages = Math.max(1, Math.ceil(total / size));
+    return `page ${Math.floor(from / size) + 1} is past the end. ${noun(total)}${filtered ? ` match, out of ${open}` : ''}, ${pages} ${pages === 1 ? 'page' : 'pages'}`;
+  }
+  const all = listed === total && !from;
+  const head = all ? noun(total) : `${from + 1}-${from + listed} of ${noun(total)}`;
+  const parts = [filtered && total !== open ? `${head}${all ? ' match' : ' matching'}, out of ${open}` : head];
+  if (from + listed < total) parts.push(Number.isFinite(size) ? `--page ${Math.floor(from / size) + 2} for the next` : '--all for the rest');
+  if (closed) parts.push(`${closed} closed, --closed to include`);
+  return parts.join('. ');
+}
+
+/**
+ * What to send someone when their run went wrong. Versions, what the scan did, and every method it could not read with the
+ * message it failed on. No source and no answers: a name, a path, and an error, which is what a bug report needs and all it needs.
+ */
+export function formatDoctor({ versions, scan, hunt, out, findings = 0 }) {
+  const lines = [`perch ${versions.perch} on node ${versions.node} (${versions.platform})`, `results in ${relative(out)}`];
+  if (scan) lines.push('', `scan ${scan.id} of ${relative(scan.target)} at commit ${short(scan.revision)}`,
+    `  ${scan.files?.length ?? 0} files, ${scan.candidates?.length ?? 0} methods, ${scan.coverage?.excluded ?? 0} files excluded`);
+  if (hunt) {
+    const read = (hunt.visited ?? []).filter(visit => visit.status === 'hunted').length;
+    lines.push('', `hunt ${hunt.id} ${hunt.status}${hunt.completed_at ? ` at ${hunt.completed_at.slice(0, 19)}` : ''}`,
+      `  model ${hunt.model}, ${hunt.parallel} at a time${hunt.budget ? `, budget ${hunt.budget}` : ''}${hunt.force ? ', forced' : ''}`,
+      `  ${hunt.methods} methods, read ${read}, ${hunt.skipped ?? 0} unchanged, ${hunt.remaining ?? 0} unread, ${hunt.failed?.length ?? 0} failed`,
+      `  ${hunt.usage?.input_tokens ?? 0} tokens in / ${hunt.usage?.output_tokens ?? 0} out`);
+    if (hunt.error) lines.push(`  the run stopped: ${hunt.error}`);
+    const failed = hunt.failed ?? [];
+    if (failed.length) {
+      const byError = new Map();
+      for (const item of failed) byError.set(item.error, [...(byError.get(item.error) ?? []), item]);
+      lines.push('', `${failed.length} ${failed.length === 1 ? 'method' : 'methods'} could not be read:`);
+      for (const [error, items] of [...byError].sort((a, b) => b[1].length - a[1].length)) {
+        lines.push(`  ${items.length}x ${error}`);
+        for (const item of items.slice(0, 5)) lines.push(`      ${item.name} at ${item.path}:${item.line}`);
+        if (items.length > 5) lines.push(`      and ${items.length - 5} more`);
+      }
+    }
+  }
+  lines.push('', `${findings} open ${findings === 1 ? 'issue' : 'issues'}`);
+  return lines.join('\n');
 }
 
 /** What `--filter` accepts, as a block a reader can copy from. */
@@ -111,7 +188,9 @@ export function formatFinding(finding) {
     if (finding.callees?.length) lines.push(`Calls: ${finding.callees.map(shortId).join(', ')}`);
     if (finding.callers?.length) lines.push(`Called by: ${finding.callers.map(shortId).join(', ')}`);
   }
+  if (finding.read) lines.push(`Read in ${finding.read.passes} passes to line ${finding.read.to_line} of ${finding.read.of_line}: the rest was too long to send`);
   lines.push(`Status: ${issueStatus(finding)}`);
+  if (finding.dismissed) lines.push(`Dismissed on ${finding.dismissed.at.slice(0, 10)}${finding.dismissed.reason ? `: ${finding.dismissed.reason}` : ''}`);
   const fix = finding.fix;
   if (fix?.status === 'ready') lines.push(`Fixed: ${fix.summary ?? ''}`.trimEnd(), ...(fix.notes ? wrap(fix.notes, 92, '    ') : []),
     `    before: ${(fix.before ?? []).map(issue => issue.text).join(', ') || '-'}`, `    after:  ${(fix.after ?? []).map(issue => issue.text).join(', ') || 'no issues'}`,

@@ -1,11 +1,16 @@
 # perch
 
-`perch` reads your codebase with tree-sitter and TypeSafe System One models to
-**triage** it: every method graded by how much trouble it is expected to cause,
-worst first. Then it fixes what it found, one verified commit at a time.
+perch finds bugs and design problems in a repo and fixes them.
 
-Nothing is decided by a cutoff. Every answer is a probability and every method
-is ranked by the arithmetic on those probabilities — see [doc/scan.md](doc/scan.md).
+`perch scan` parses every tracked file with tree-sitter, scores each method, then
+asks a TypeSafe System One model a fixed set of questions about each one: is
+there a bug, where, what kind, how bad, is it a security hole, does it do what
+its name says, does it need refactoring. Answers come back as probabilities.
+Methods are sorted worst first.
+
+`perch fix` takes one of those methods, hands it to an OpenAI model with the
+issues as objectives, and only commits the rewrite if a second scan says it
+improved and your tests still pass.
 
 ## Getting started
 
@@ -16,7 +21,7 @@ npm install -g @lakeday/perch
 # 2. the key that reads code
 export TYPESAFE_API_KEY=...
 
-# 3. grade every method (later runs read only what changed)
+# 3. scan (later runs only re-read methods that changed)
 perch scan
 
 # 4. see what it found
@@ -30,95 +35,142 @@ git checkout -b perch/sweep
 perch fix 92c7781e
 ```
 
-Needs Node 22+ and `git`. `perch fix` commits to the branch you are on and
-refuses `main` and `master`.
-
-Keys can go in a `.env` at your repository root instead of the environment.
+Needs Node 22+ and git. `perch fix` commits to the branch you're on and refuses
+main and master.
 
 ## Commands
 
 ```
 perch scan   [<target>] [--paths a,b] [--parallel N] [--force] [--all]
-perch issues [<issue-id>] [--filter k=v] [--types] [--min P] [--all] [--closed]
+perch issues [<issue-id>] [--filter k=v] [--types] [--min P] [--limit N] [--page N] [--all] [--closed]
+perch close  <issue-id>... [--reason R]
+perch reopen <issue-id>...
+perch doctor
 perch fix    [<issue-id> | <path>] [--filter k=v] [--budget N] [--min P] [--effort E]
 ```
 
-All three take `--out DIR`, `--json` and `--verbose`.
+They all take `--out DIR` and `--json`.
 
 | Verb | What it does | Needs |
 | --- | --- | --- |
-| `scan` | Grades every tracked source file at `HEAD` with tree-sitter, then reads methods with System One, walking the call graph from the riskiest through its callers and callees. The first scan reads every method; later scans read only what changed. Prints the table. | `TYPESAFE_API_KEY` |
-| `issues` | The open issues, worst first: the method, where, what kind of problem and how likely, the predicted severity, and the commit that fixed it. With an id, everything known about that method. | nothing |
-| `fix` | Works the open issues, worst first, up to `--budget`; with a path, only under it; with an id, that one. Each accepted rewrite is one commit. | both keys |
+| `scan` | Parses every tracked file at HEAD, then reads methods with System One, walking the call graph from the worst-scoring method through its callers and callees. First scan reads everything; later scans only re-read what changed. Prints the table. | `TYPESAFE_API_KEY` |
+| `issues` | The open issues, worst first. With an id, everything known about that one method. | nothing |
+| `close` | Marks issues closed: false positives, or code you've looked at and aren't changing. They stop being listed and `perch fix` skips them. | nothing |
+| `reopen` | Undoes `close`. | nothing |
+| `doctor` | What the last run did and what it couldn't read. Names, paths and error messages only — no source, no answers — so it's safe to paste into a bug report. | nothing |
+| `fix` | Fixes open issues, worst first, up to `--budget`. With a path, only that file or directory. With an id, just that one. One commit per fix. | both keys |
 
-`perch findings` is another name for `perch issues`.
+`perch findings` also works, same command.
 
-### Reading the table
+### The table
 
 ```
 ID        Method       Location        Type      Kind                            Severity  Status  Commit
 92c7781e  fixMethod    src/fix.js:224  refactor  too_big 98%, unsafe_deser 87%   P1 (0.9)  open    -
 ```
 
-* **Type** is the class the row leads with, one of `defect`, `security`,
-  `refactor`, `misdocumented`, `misaligned`.
-* **Kind** is the named problem and how sure the model is, strongest first.
-* **Severity** is the band, with where the score actually landed inside it.
-  `P1 (0.9)` is almost `P0`; `P1 (1.2)` is settling toward `P2`. Only a method
-  carrying a defect has one.
+- **Type** — `defect`, `security`, `refactor`, `docs` or `misaligned`.
+  Whichever the row leads with.
+- **Kind** — the specific problem and how sure the model is, worst first.
+- **Severity** — the band, plus where the score landed inside it. `P1 (0.9)` is
+  nearly P0, `P1 (1.2)` is closer to P2. Only shown when there's a bug.
 
-`--filter` narrows on exactly those columns, and `--types` prints everything it
-accepts:
+Only issues the model is more than 50% sure about get listed. `--min` changes
+that: `--min 80` for the obvious ones, `--min 0` for everything it answered.
+
+`--filter` narrows on the Type, Kind and Severity columns. `--types` prints the
+valid values.
+
+Not every finding is worth acting on. `perch close` takes them off the list:
 
 ```sh
-perch issues --filter type=security          # every method carrying a vulnerability
-perch issues --filter kind=too_big --min 80  # the ones it is at least 80% sure are too big
+perch close e585492e --reason "verifies the HMAC before parsing"
+perch close 3b7c9da1 2cce8403 --reason "pre-existing, well tested, not restructuring"
+```
+
+A dismissal is about the method as it reads now, so editing that method brings
+the issue back. `--closed` lists them, `perch issues <id>` shows the reason.
+
+```sh
+perch issues --filter type=security
+perch issues --filter kind=too_big --min 80
 perch fix --filter severity=P1 --budget 5
 ```
 
-A filtered list prints every match and leads each row with what you filtered
-for. An unfiltered one is cut to ten rows unless you pass `--all`.
+Filtered lists print every match and put the thing you filtered for first in
+each row. Unfiltered lists are cut to 10 unless you pass `--all`.
+
+To walk a long list, `--limit` sets the page size and `--page` picks one. A line
+under the table says where you are:
+
+```sh
+perch issues --limit 25            # 1-25 of 235 open issues. --page 2 for the next
+perch issues --limit 25 --page 4   # 76-100 of 235 open issues. --page 5 for the next
+```
 
 ### Flags
 
 | Flag | Meaning |
 | --- | --- |
-| `--paths a,b` | Only consider files under these repository-relative paths. |
-| `--parallel N` | How many methods to read at once (default 8). |
-| `--force` | Read every method again, even ones unchanged since the last scan. |
-| `--filter k=v` | Keep only issues matching, e.g. `type=security,severity=P1`. |
-| `--types` | Print everything `--filter` accepts and stop. |
-| `--min P` | Only methods expected to have more than P problems, where one certain issue is 100 (default 0: everything, ranked). |
-| `--budget N` | Work at most N issues (default 20). |
-| `--effort E` | Reasoning effort: `none`, `low`, `medium`, `high`, `xhigh`, `max` (default `medium`). |
-| `--all` | List every row instead of the top ten. |
+| `--paths a,b` | Only look at these paths. |
+| `--parallel N` | Methods read at once (default 8). |
+| `--force` | Re-read every method, even unchanged ones. |
+| `--filter k=v` | e.g. `type=security,severity=P1`. |
+| `--types` | Print what `--filter` accepts and exit. |
+| `--min P` | Only issues the model is at least P% sure of (default 50). |
+| `--reason R` | Why you closed something. Kept on the record. |
+| `--budget N` | Fix at most N issues (default 20). |
+| `--effort E` | `none`, `low`, `medium`, `high`, `xhigh`, `max` (default `medium`). |
+| `--limit N` | Rows per page (default 10). |
+| `--page N` | Which page of them, 1 is the first. |
+| `--all` | Print every row instead of the top 10. |
 | `--closed` | Include closed issues. |
-| `--out DIR` | Results directory, default `<repo root>/.perch`. |
+| `--out DIR` | Results directory (default `.perch`). |
 | `--json` | Print the record instead of the table. |
-| `--verbose` | Show every file, method, model call, and command. |
+| `--verbose` | Show every file, method, model call and command. |
 
-`<target>` is a local directory (default `.`, resolved to its git root) or a
-GitHub repository as `owner/repo` or a URL, cloned under `<out>/repos/`.
-`<issue-id>` is the 8-character id in the first column; a unique prefix works.
+`<target>` is a directory (default `.`, resolved to its git root) or a GitHub
+repo as `owner/repo` or a URL, which gets cloned under `<out>/repos/`.
+`<issue-id>` is the 8-char id in the first column; a unique prefix works.
+
+### When a scan goes wrong
+
+A method perch can't read — a request too large for the model, a service that
+times out — is recorded against that method and the walk carries on. `perch
+doctor` says what happened:
+
+```
+perch 0.1.0 on node v22.14.0 (linux x64)
+results in .perch
+
+hunt 462cfe79 complete at 2026-09-17T00:36:33
+  49213 methods, read 48967, 0 unchanged, 0 unread, 246 failed
+  243 methods could not be read:
+    241x System One request failed with HTTP 400: max_tokens_exceeded
+        build_response at src/handlers/api.py:1204
+        ...
+```
+
+If nothing can be read — a bad key, a service that's down — the run stops
+instead of spending the rest of the repository finding out.
 
 ## How it works
 
-* [doc/scan.md](doc/scan.md) — the graph walk, the questions, and the
-  arithmetic that turns probabilities into a ranking.
-* [doc/fix.md](doc/fix.md) — the agent, its verifiers, and the Pareto test a
-  rewrite has to pass.
+- [doc/scan.md](doc/scan.md) — the graph walk, the questions, and how
+  probabilities turn into a ranking.
+- [doc/fix.md](doc/fix.md) — the agent, its verifiers, and what a rewrite has to
+  beat to get committed.
 
-Results live in `<out>`: an append-only `events.jsonl` with one line per method
-read and per fix made, plus the scan, hunt and fix records. Nothing is written
-to your working tree except the commits `fix` makes.
+Results go in `<out>`: an append-only `events.jsonl` with one line per method
+read and per fix made, plus scan, hunt and fix records. Nothing else is written
+to your tree except the commits `fix` makes.
 
 ## Development
 
 ```sh
-npm test          # vitest: the CLI, the walk, the fix agent, the analyzer
-npm run typecheck # tsc over src/treesitter/
+npm run check     # lint, typecheck, test
 npm run build     # bundle src/cli.js into dist/cli.mjs
 ```
 
-From a checkout, `npm install && npm run build && npm link` puts `perch` on your
+From a checkout: `npm install && npm run build && npm link` puts `perch` on your
 path.

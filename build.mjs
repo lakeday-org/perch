@@ -1,5 +1,8 @@
+import { readFile } from 'node:fs/promises';
 import { build } from 'esbuild';
+const { version } = JSON.parse(await readFile(new URL('package.json', import.meta.url), 'utf8'));
 await build({
+  define: { PERCH_VERSION: JSON.stringify(version) },
   entryPoints: ['src/cli.js'],
   outfile: 'dist/cli.mjs',
   bundle: true,

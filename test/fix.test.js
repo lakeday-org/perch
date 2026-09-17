@@ -6,14 +6,15 @@ import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { scanRepository } from '../src/hunt.js';
 import { fileBudget, fileObjections, fixIssues, fixMethod, improvement, plainNotes, pendingFixes, regionStart, sameLines, splitStale, underPath } from '../src/fix.js';
-import { huntAnswers } from '../src/prompts.js';
+import { fixPrompt, huntAnswers } from '../src/prompts.js';
+import { FIX_LIMITS, FIX_STATE_BUDGET, huntStep } from '../src/questions.js';
 import { createMeter, money } from '../src/meter.js';
 import { createShell } from '../src/shell.js';
 import { openStore } from '../src/store.js';
 import { ANSWERS_VERSION, issuesOf } from '../src/questions.js';
 import { formatFinding, formatFix, formatFixes, formatIssues } from '../src/report.js';
 import { createUi } from '../src/ui.js';
-import { buggySource, commitAll, documentedSource, fixedMethod, fixedSource, fixtureOptions, leanerSource, makeFixture, scriptedModel, scriptedSystemOne } from './helpers.js';
+import { buggySource, commitAll, fixedMethod, fixedSource, fixtureOptions, makeFixture, scriptedModel, scriptedSystemOne } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
 const shell = createShell();
@@ -78,7 +79,7 @@ describe('perch fix', () => {
     expect(meter.cost('jev-latest')).toBeCloseTo(0.042);
     expect(meter.cost('gpt-5.6-luna')).toBeCloseTo(0.05 * 0.2 + 0.05 * 0.02 + 0.01 * 1.2);
     // One line for the run, not one per model: which model answered is a detail of the day, and toJSON keeps the breakdown.
-    expect(meter.lines()).toEqual(['2 turns, 4 requests  1.1M in (50k cached) / 10k out  $0.07']);
+    expect(meter.lines()).toEqual(['2 turns, 4 requests  1.1M tokens in (50k cached) / 10k out  $0.07']);
     expect(Object.keys(meter.toJSON()).sort()).toEqual(['gpt-5.6-luna', 'jev-latest']);
     expect(createMeter().lines()).toEqual([]);
   });
@@ -122,6 +123,24 @@ describe('perch fix', () => {
     expect(plainNotes('Leveraged a robust approach to the upper bound so that every caller gets a correct value back.')).toMatchObject({ error: expect.stringContaining('"Leveraged"') });
   });
 
+  it('hands the model the neighbourhood whole, once, and without spaces to pay for', () => {
+    const lines = ['/** what it does */', 'export function target(v) {', '  return helper(v);', '}'];
+    const helper = { node: { id: 'src/a.js::helper', qualified_name: 'helper', path: 'src/a.js', line: 1, end_line: 300 }, lines: Array.from({ length: 300 }, (_, index) => `  step(${index});`), calls: [] };
+    const node = { path: 'src/a.js', qualified_name: 'target', line: 2, end_line: 4, metrics: { risk_score: 40 } };
+    const scan = huntStep({ node, lines, callees: [helper], callers: [] }).state;
+    const context = huntStep({ node, lines, callees: [helper], callers: [], budget: FIX_STATE_BUDGET, limits: FIX_LIMITS }).state;
+    // The scan reads an excerpt of a 300-line callee; the model that has to rewrite against it gets the whole thing.
+    expect(scan.calls[0].source).toContain('more lines)');
+    expect(context.calls[0].source).not.toContain('more lines)');
+
+    const prompt = fixPrompt({ finding: { path: 'src/a.js', name: 'target' }, before: [], state: context, region: lines.join('\n'), start: 2, end: 4 });
+    // The method is the ORIGINAL block; a second tagged copy inside the context would be paid for twice.
+    expect(prompt).toContain('export function target(v) {');
+    expect(prompt).not.toContain('L0002| export function target(v) {');
+    // And the context is JSON nobody has to read, so it is not indented.
+    expect(prompt).toContain('"calls":[{');
+  });
+
   it('tells the model everything System One answered, with probabilities', () => {
     const finding = { has_bug: 0.63, where: { line: 48, confidence: 0.71, text: 'return null;' }, kind: { kind: 'swallowed_error', probability: 0.6 }, kinds: { swallowed_error: 0.6, wrong_return: 0.4, boundary: 0.1 },
       severity: { level: 'P1', confidence: 0.55 }, misuse: [{ callee: 'src/gh.js::gh', probability: 0.7 }], misused_by: [{ caller: 'src/cli.js::publish', probability: 0.3 }], does_what_it_claims: 0.8, misdocumented: 0.53, refactor: { refactor: 'split', probabilities: { split: 0.84, none: 0.1, flatten: 0.05 } } };
@@ -146,7 +165,8 @@ describe('perch fix', () => {
     expect(fix.file_before.cyclomatic_complexity).toBe(3);
     expect(fix.turns).toBe(1);
     expect(Object.keys(fix.usage).sort()).toEqual(['scripted-jev', 'scripted-model']);
-    expect(fix.usage['scripted-jev'].requests).toBe(1);
+    // Two readings: the rescan, and the one that works out what the project's commands are for. The second is cached per commit.
+    expect(fix.usage['scripted-jev'].requests).toBe(2);
 
     // The model saw the objectives and everything System One answered; it measured, rescanned, ran the tests, and submitted one source.
     expect(model.calls.map(call => call.name)).toEqual(['measure', 'rescan', 'run_tests', 'submit']);
@@ -158,8 +178,8 @@ describe('perch fix', () => {
     expect(prompt).toContain('reachable behavioral defect: 90%');
     expect(prompt).toContain('ORIGINAL, lines 1-5');
     expect(prompt).toContain('"called_by"');
-    // System One was asked twice: is the line reachable, then the whole question set over the rewrite.
-    expect(systemOne.calls.map(call => Object.keys(call.questions)[0])).toEqual(['has_bug']);
+    // System One was asked what the project's commands do, then the whole question set over the rewrite.
+    expect(systemOne.calls.map(call => Object.keys(call.questions)[0])).toEqual(['role_0', 'has_bug']);
     expect(systemOne.calls.at(-1).state.method.source).toContain('L0003|   if (v > hi) return hi;');
     expect(fix.trace.find(event => event.type === 'tool_result' && event.name === 'rescan').result.expected.correctness).toBeLessThan(0);
 
@@ -174,11 +194,12 @@ describe('perch fix', () => {
 
     // What was printed: the objectives, each tool call as the model's, the result, and the usage.
     expect(lines).toContainEqual(`${finding.id}  clamp  src/clamp.js:1`);
-    expect(lines.some(line => /^ {2}Clear   .*wrong_return_value \d+%/.test(line))).toBe(true);
+    expect(lines.some(line => /^ {2}Clear {3}.*wrong_return_value \d+%/.test(line))).toBe(true);
     // One column of steps, the model named once on the line that runs it. Returning hi instead of v moves no method metric, and
     // the line says so rather than printing four numbers that did not change.
     expect(lines.some(line => /^ {2}✓ measure {2}method unchanged {2}[\d.]+s$/.test(line))).toBe(true);
-    expect(lines.some(line => /^ {2}✓ rescan {3}inverted_condition 20%, /.test(line))).toBe(true);
+    // Everything the rewrite left is below the floor, so the rescan has nothing to report rather than a tail of 20%s.
+    expect(lines.some(line => /^ {2}✓ rescan {3}nothing left {2}[\d.]+s$/.test(line))).toBe(true);
     expect(lines.some(line => /^ {2}✓ tests {4}1 pass {2}[\d.]+s$/.test(line))).toBe(true);
     expect(lines.every(line => !line.includes('▸'))).toBe(true);
     expect(lines.some(line => /^✓ done — 1 turn/.test(line))).toBe(true);
@@ -187,7 +208,7 @@ describe('perch fix', () => {
     expect(lines.some(line => /^✓ [0-9a-f]{7} Return hi when v exceeds the upper bound$/.test(line))).toBe(true);
     // The run tells the story once: the objectives, the steps, and the commit. The report is printed by whoever asked for the fix.
     expect(lines.filter(line => line.startsWith('  Cleared') || line.startsWith('  Left'))).toEqual([]);
-    expect(fix.usage['scripted-jev'].requests).toBe(1);
+    expect(fix.usage['scripted-jev'].requests).toBe(2);
     expect(fix.usage['scripted-model'].turns).toBe(1);
 
     // The record is in the events log, so issues shows the finding fixed with its commit.
@@ -195,13 +216,16 @@ describe('perch fix', () => {
     expect((await store.readEvents()).at(-1)).toMatchObject({ type: 'fixed', id: finding.id, fix_id: fix.id, status: 'ready', commit: fix.commit, branch: 'work' });
     const [listed] = await store.issues();
     expect(listed.fix).toMatchObject({ id: fix.id, status: 'ready', commit: fix.commit });
-    expect(formatIssues([listed], 0.5)).toMatch(new RegExp(`Status  Commit\\n.*open +${fix.commit.slice(0, 7)}`));
+    // A worked finding gets a Status column saying what happened to it; a list where nothing has been worked has no such column.
+    expect(formatIssues([listed], 0.5)).toMatch(new RegExp(`Severity +Status\\n.* ${fix.commit.slice(0, 7)}$`, 'm'));
+    expect(formatIssues([{ ...listed, fix: undefined }], 0.5)).toMatch(/Severity$/m);
     expect(formatFinding(listed)).toContain('Fixed: Return hi when v exceeds the upper bound');
     const text = formatFix(fix);
     expect(text).toContain(`${finding.id}  clamp  src/clamp.js:1  fixed in ${fix.commit.slice(0, 7)} on work`);
-    // What became of each objective, not two lists to diff by eye.
+    // What became of each objective, not two lists to diff by eye. What the rewrite left is all under the floor, so there is
+    // nothing under Left or Added: the row does not claim a 20% maybe as a problem the fix introduced.
     expect(text).toContain('Cleared  wrong_return_value 90%');
-    expect(text).toContain('Added    inverted_condition 20%');
+    expect(text).not.toMatch(/^ {2}(Left|Added) /m);
     expect(text).toContain('The upper bound was returned as the caller');
     expect(text).toContain('Tests    test/clamp.test.js pass');
     expect(fix.usage['scripted-model'].input).toBe(1000);
@@ -313,6 +337,29 @@ describe('perch fix', () => {
     expect(model.calls.find(call => call.name === 'measure').arguments.source).toContain('function above');
     expect(fix.trace.find(event => event.type === 'tool_result' && event.name === 'measure').result.helpers).toEqual(['above']);
     expect(await readFile(join(repo.root, 'src', 'clamp.js'), 'utf8')).toContain('function above');
+  });
+
+  it('refuses a rewrite that breaks a gate, and ignores a gate that was already broken', async () => {
+    const { repo, finding } = await scanned();
+    // Two stand-ins for a linter: one that fails only on what the rewrite adds, one that was failing before perch arrived.
+    await writeFile(join(repo.root, 'package.json'), JSON.stringify({ name: 'fixture', version: '1.0.0', type: 'module',
+      scripts: { test: 'node --test', lint: '! grep -q banned src/clamp.js', typecheck: 'exit 1' } }, null, 2) + '\n');
+    await commitAll(repo.root, 'add gates');
+    const fresh = { ...finding, revision: await revision(repo.root) };
+
+    const dirty = `/** Clamp v into [lo, hi]. */\nexport function clamp(v, lo, hi) {\n  const banned = 1;\n  if (v < lo) return lo;\n  if (v > hi) return hi;\n  return v + banned - 1;\n}`;
+    const model = scriptedModel({ fix: id => (id === 'fix-1' ? proposal(dirty) : proposal(fixedMethod, 'Return hi when v exceeds the upper bound')) });
+    const fix = await fixMethod(options(repo, fresh, { model }));
+
+    expect(fix.gates).toEqual(['npm run lint', 'npm run typecheck']);
+    const submits = fix.trace.filter(event => event.type === 'tool_result' && event.name === 'submit').map(event => event.result.error ?? 'ok');
+    // The first source passed measure, rescan and the tests and was still refused: the project's own check says it is wrong.
+    expect(submits[0]).toContain('npm run lint fails on the rewrite and passes on the original');
+    // The one that was already failing is not this fix's fault, so it is not held against it.
+    expect(submits[0]).not.toContain('typecheck');
+    expect(submits.at(-1)).toBe('ok');
+    expect(fix.status).toBe('ready');
+    expect(await readFile(join(repo.root, 'src', 'clamp.js'), 'utf8')).toContain('if (v > hi) return hi;');
   });
 
   it('refuses a protected branch and a dirty method file, and ignores a test that already fails on the original', async () => {

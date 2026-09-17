@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { appendFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { excludeFromStatus, git, repoRoot } from './git.js';
-import { flagged, issueWeight } from './questions.js';
+import { BELIEVED, flagged, issuesOf, issueWeight } from './questions.js';
 
 export const sha256 = text => createHash('sha256').update(text).digest('hex');
 /** A stable 16-hex-character id derived from everything that determines a record's result. */
@@ -44,6 +44,11 @@ const fixApplies = (fix, finding) => {
   if (fix.status === 'ready' && fix.hash_after === finding.hash) return true;
   return fix.hash ? fix.hash === finding.hash : fix.revision === finding.revision || fix.at >= finding.at;
 };
+/**
+ * A dismissal holds only for the code it was about. Closing a finding is a judgement on a method as it reads now — a false
+ * positive, a size complaint on code you are not restructuring — so editing that method brings it back to be judged again.
+ */
+const dismissalApplies = (event, finding) => event?.type === 'dismissed' && event.hash === finding.hash;
 const summarizeFix = work => ({ id: work.fix_id, status: work.status, notes: work.notes ?? null, at: work.at, summary: work.summary ?? null, commit: work.commit ?? null, branch: work.branch ?? null, patch_path: work.patch_path ?? null, before: work.before ?? null, after: work.after ?? null, reason: work.reason ?? null, error: work.error ?? null, attempts: work.attempts ?? 0 });
 
 const byCreation = (a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '') || a.id.localeCompare(b.id);
@@ -77,14 +82,26 @@ export function openStore(out) {
       const text = await readFile(store.eventsPath, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
       return text.split('\n').filter(Boolean).map(line => JSON.parse(line));
     },
-    /** The latest hunted event and the latest fixed event per method. Events from before findings had ids and per-kind answers are ignored. */
+    /** The latest hunted, fixed, and dismissed-or-reopened event per method. Events from before findings had ids and per-kind answers are ignored. */
     async indexes() {
-      const latest = new Map(), fixes = new Map();
+      const latest = new Map(), fixes = new Map(), dismissals = new Map();
       for (const event of await store.readEvents()) {
         if (event.type === 'hunted' && event.id && event.kinds) latest.set(event.method, event);
         else if (event.type === 'fixed') fixes.set(event.method, event);
+        else if (event.type === 'dismissed' || event.type === 'reopened') dismissals.set(event.method, event);
       }
-      return { latest, fixes };
+      return { latest, fixes, dismissals };
+    },
+    /** Set a finding aside, or put it back. Append-only like everything else: the log keeps who said what and when. */
+    async dismiss(finding, reason) {
+      const event = { type: 'dismissed', at: new Date().toISOString(), id: finding.id, method: finding.method, path: finding.path, name: finding.name, line: finding.line, hash: finding.hash, reason };
+      await store.appendEvent(event);
+      return event;
+    },
+    async reopen(finding) {
+      const event = { type: 'reopened', at: new Date().toISOString(), id: finding.id, method: finding.method, path: finding.path, name: finding.name, line: finding.line, hash: finding.hash };
+      await store.appendEvent(event);
+      return event;
     },
     /** The latest System One reading of each method, carrying the fix made while it still read that way. */
     async latestFindings() {
@@ -103,7 +120,7 @@ export function openStore(out) {
      */
     async issues(min = 0.5, { scan = null, all = false } = {}) {
       const findings = await store.latestFindings();
-      const { fixes } = await store.indexes();
+      const { fixes, dismissals } = await store.indexes();
       scan ??= await store.latestScan();
       const byMethod = new Map(findings.map(finding => [finding.method, finding]));
       const every = [];
@@ -122,11 +139,15 @@ export function openStore(out) {
         }
         for (const finding of findings) if (!seen.has(finding.method)) every.push(finding);
       } else every.push(...findings);
-      // Ranked by how many problems each method is expected to have, correctness first; nothing is cut, the tail just sorts last.
-      return every.filter(event => all || issueWeight(event) > min).sort((a, b) => issueWeight(b) - issueWeight(a));
+      // Listed when the scan believes at least one thing about the method, ranked by what its problems are expected to cost.
+      // The ranking counts every answer at its probability, so a method kept for one issue at 80% still sorts on all of them.
+      return every.map(finding => {
+        const dismissal = dismissals.get(finding.method);
+        return dismissalApplies(dismissal, finding) ? { ...finding, dismissed: { at: dismissal.at, reason: dismissal.reason ?? null } } : finding;
+      }).filter(event => all || issuesOf(event, min).length).sort((a, b) => issueWeight(b) - issueWeight(a));
     },
     /** Flagged methods at probability `min` or more, most likely first. */
-    async findings(min = 0) {
+    async findings(min = BELIEVED) {
       return (await store.issues(min)).filter(event => flagged(event)).sort((a, b) => issueWeight(b) - issueWeight(a));
     },
     /** The finding with this id or unique id prefix. */

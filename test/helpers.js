@@ -156,6 +156,15 @@ const affirmative = new Set(['does_what_it_claims', 'imports_real_method', 'targ
  * A scripted System One: answers every question plausibly, with overrides keyed by what the state is about.
  * A hunt or patch-check state is keyed by method id (`src/a.js::f`), a test check by `test`, a project discovery by `project`.
  */
+/**
+ * What a stand-in says a command is for. The real model reads the project; this reads the string, which is enough for a test and
+ * is exactly the guessing the real thing exists to replace.
+ */
+const standInRole = command => (/\{file\}|\{dir\}/.test(command) ? 'single'
+  : /\b(install|ci|sync|fetch|download|publish|deploy)\b/.test(command) ? (/publish|deploy/.test(command) ? 'none' : 'install')
+  : /\btest\b/.test(command) ? 'suite'
+  : /\b(lint|check|vet|clippy|typecheck|tsc|build|fmt)\b/.test(command) ? 'gate' : 'none');
+
 export function scriptedSystemOne(overrides = {}) {
   const calls = [];
   const keyOf = state => (state.test ? 'test' : state.method ? `${state.method.path}::${state.method.name}` : 'project');
@@ -177,7 +186,7 @@ export function scriptedSystemOne(overrides = {}) {
         }
         else {
           const keys = Object.keys(question.criteria);
-          const choice = own[id] && keys.includes(own[id]) ? own[id] : keys.at(-1);
+          const choice = own[id] && keys.includes(own[id]) ? own[id] : keys.at(-1) === 'none' && question.instructions?.command ? standInRole(question.instructions.command) : keys.at(-1);
           answers[id] = { type: 'choice', choice, confidence: 0.8, probabilities: Object.fromEntries(keys.map(key => [key, key === choice ? 0.8 : 0.2 / Math.max(1, keys.length - 1)])) };
         }
       }

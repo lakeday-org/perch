@@ -1,10 +1,8 @@
 # How a scan works
 
-`perch scan` grades every method in a repository and ranks them by how much
-trouble each is expected to cause. There is no threshold anywhere in it: every
-answer is a probability, an issue at 8% is listed as 8%, and the ranking is
-arithmetic on those probabilities rather than a count of things that crossed a
-line.
+`perch scan` scores every method and ranks them worst first. Every answer is a
+probability, and the ranking is arithmetic over all of them. The only cutoff is
+[the floor](#the-floor) on what gets listed.
 
 ## 1. tree-sitter
 
@@ -69,6 +67,19 @@ scope, the source of up to 8 callees with the names of their own callees, up to
 8 callers with the line where each calls it, and the call edges among all of
 them — trimmed to stay under 48KB.
 
+A method too long for one request is read in **overlapping passes**, each sized
+to what the budget actually holds. Only lines a pass can see are offered to its
+`where` question. The answers merge: the worst defect found anywhere is the
+method's defect, a vulnerability is the likeliest reading from any pass, and the
+first pass — the one carrying the callers and callees — speaks for the method's
+shape and documentation. Eight passes is the cap; a method longer than that is
+read in part and says so, on the record and in `perch issues <id>`.
+
+A method that still cannot be read is recorded against itself and the walk
+carries on; `perch doctor` lists them with the error each one failed on. If
+nothing can be read at all — a bad key, a service that is down — two full
+batches of failures in a row ends the run.
+
 Each question uses the System One primitive that fits it. A `noul` is a
 probability that something is true. A `choice` picks one option and returns the
 distribution over all of them. A `score` grades against a rubric and returns the
@@ -131,7 +142,28 @@ wrong whoever the caller is, and are not gated. Gating them once hid a planted
 double-free scored `use_after_free 95%` behind `exposed 46%`.
 
 **Design issues** are the refactor the `refactor` choice picked, `1 − P(does what
-it claims)`, and `misdocumented`.
+it claims)`, and `docs`.
+
+### The floor
+
+An issue is listed when its probability is over **0.5**. That is not a number
+picked to make the list a nice length. A `noul` is the probability that something
+is true, so above a half is the model saying yes and below it is the model saying
+no; printing everything means printing every method in the repository, because no
+answer ever comes back at zero. On perch itself the floor takes 364 listed
+methods down to 240, and `--filter type=defect` from 354 to 25.
+
+It is a floor on what is claimed, not on the arithmetic:
+
+* **Ranking counts the whole distribution.** An issue at 49% still weighs 0.49 in
+  where its method sorts, so there is no cliff at the boundary — only a line
+  below which perch stops saying it found something.
+* **A fix is judged on the whole distribution too.** Halving a 40% defect counts
+  for exactly that, even though neither the before nor the after is listed. See
+  [fix.md](fix.md).
+
+`--min P` moves the line, in percent. `--min 0` prints everything the scan
+answered.
 
 ## 6. Ranking
 
@@ -187,7 +219,7 @@ repository rather than with whichever method is heaviest overall. Each row also
 reorders to lead with the match, so a row selected for a vulnerability does not
 print `refactor` in its Type column.
 
-Because nothing is filtered by a cutoff, `type=defect` and `type=security` match
-almost everything — every method carries some probability of both. `--min` is
-the lever: `--filter type=security --min 50` is the vulnerabilities more likely
-than not.
+A filter reads the listed issues, so it inherits the floor: `type=security` is
+the methods probably carrying a vulnerability, not every method that scored
+nonzero on one. `--min 80` narrows it further; `--min 0` widens it to everything
+the scan answered.

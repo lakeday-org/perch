@@ -47,7 +47,7 @@ export function createMeter() {
       const turns = sum('turns'), requests = sum('requests'), cached = sum('cached'), reasoning = sum('reasoning');
       const unpriced = [...models.keys()].some(model => meter.cost(model) === null);
       return [[turns ? `${count(turns, 'turn')}, ${count(requests, 'request')}` : count(requests, 'request'),
-        `${k(sum('input'))} in${cached ? ` (${k(cached)} cached)` : ''}${sum('output') ? ` / ${k(sum('output'))} out` : ''}${reasoning ? `, ${k(reasoning)} reasoning` : ''}`,
+        `${k(sum('input'))} tokens in${cached ? ` (${k(cached)} cached)` : ''}${sum('output') ? ` / ${k(sum('output'))} out` : ''}${reasoning ? `, ${k(reasoning)} reasoning` : ''}`,
         `${money(meter.total())}${unpriced ? ' (some prices unknown)' : ''}`].join('  ')];
     },
     models,
