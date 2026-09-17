@@ -96,11 +96,11 @@ export function createModel({
         usage.output_tokens += used.output_tokens ?? 0; usage.reasoning_tokens += used.output_tokens_details?.reasoning_tokens ?? 0;
         emit({ type: 'response', turn: turns, ms: Date.now() - started, status: response.status, usage: used, effort: level });
         if (response.status !== 'completed' && response.status !== 'incomplete') throw new Error(`Model response ended with ${response.status}${response.error?.message ? `: ${response.error.message}` : ''}`);
-        // The model's own items (reasoning, messages, calls) go back to it next turn; each call gets its output appended.
-        const calls = (response.output ?? []).filter(item => item.type === 'function_call');
-        const text = (response.output ?? []).filter(item => item.type === 'message').flatMap(item => item.content ?? []).filter(part => part.type === 'output_text').map(part => part.text).join('');
+        const output = Array.isArray(response.output) ? response.output : [];
+        const calls = output.filter(item => item?.type === 'function_call');
+        const text = output.filter(item => item?.type === 'message').flatMap(item => Array.isArray(item.content) ? item.content : []).filter(part => part?.type === 'output_text').map(part => part.text).join('');
         if (text) emit({ type: 'message', turn: turns, text: text.slice(0, 2000) });
-        input.push(...(response.output ?? []).filter(item => item.type !== 'message' || calls.length === 0 || true));
+        input.push(...output);
         if (!calls.length) {
           if (response.status === 'incomplete') throw new Error(`Model response was cut off (${response.incomplete_details?.reason ?? 'incomplete'})`);
           input.push({ role: 'user', content: 'Continue with a tool call: check your source with the verifiers, then call submit. Prose is not read.' });
@@ -108,7 +108,7 @@ export function createModel({
         }
         for (const call of calls) {
           let args;
-          try { args = JSON.parse(call.arguments || '{}'); } catch { args = null; }
+          try { const value = JSON.parse(call.arguments || '{}'); args = value && typeof value === 'object' && !Array.isArray(value) ? value : null; } catch { args = null; }
           const item = byName.get(call.name);
           emit({ type: 'tool_call', turn: turns, name: call.name, call_id: call.call_id, arguments: args });
           let result;
