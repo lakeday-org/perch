@@ -79,8 +79,6 @@ export function openStore(out) {
     out,
     scanDir: id => join(out, 'scans', id),
     runDir: id => join(out, 'runs', id),
-    fixDir: id => join(out, 'fixes', id),
-    refactorDir: id => join(out, 'refactors', id),
     /** Keep results out of `git status` when they live inside the repository. */
     async exclude(root) {
       if (!out.startsWith(root + '/')) return;
@@ -140,9 +138,11 @@ export function openStore(out) {
      * the closure covers; left out, it covers what the issue carries now, which is what you were looking at when you closed it.
      */
     async decide(type, finding, { kinds = null, reason = null } = {}) {
-      // Closing without naming kinds covers what the issue carries now. Reopening without naming them takes the whole thing back,
-      // so it names none: the kinds it would otherwise list are the live ones, which were never closed.
-      const covers = type === 'dismissed' ? { kinds: kinds ?? issuesOf(finding, 0).map(issue => issue.label), reason } : kinds ? { kinds } : {};
+      // Closing without naming kinds covers what the issue was listing, at the floors a listing reads. Not everything the answers
+      // hold: a one-line function listed for a 67% comment carries a 10% buffer overflow as well, and closing the comment used to
+      // set that aside too, so a real one arriving later would never be shown. Reopening without naming them takes the whole
+      // thing back, so it names none: the kinds it would otherwise list are the live ones, which were never closed.
+      const covers = type === 'dismissed' ? { kinds: kinds ?? issuesOf(finding, BELIEVED).map(issue => issue.label), reason } : kinds ? { kinds } : {};
       const event = { type, at: new Date().toISOString(), id: finding.id, method: finding.method ?? null, path: finding.path, name: finding.name, line: finding.line, ...covers };
       await mkdir(out, { recursive: true });
       await appendFile(store.closedPath, JSON.stringify(event) + '\n');
@@ -239,7 +239,6 @@ export function openStore(out) {
     },
     listRuns: () => records('runs', 'run.json'),
     listScans: () => records('scans', 'scan.json'),
-    listFixes: () => records('fixes', 'fix.json'),
     async latestRun() { return (await store.listRuns()).at(-1) ?? null; },
     /**
      * The tree an issue list is joined against, so a method this does not hold is a method that is gone. Scans are read in the
