@@ -104,7 +104,7 @@ export function openStore(out) {
       await writeFile(store.logPath, `${new Date().toISOString()} perch\n`);
       return line => appendFile(store.logPath, `${new Date().toISOString()} ${line}\n`).catch(() => {});
     },
-    /** The last `count` lines of it, for a report of a run that went wrong. */
+    /** Enough of the end to show what a run was doing when it stopped, which is what doctor prints when one did not finish. */
     async tail(count = 20) {
       const text = await readFile(store.logPath, 'utf8').catch(() => '');
       return text.split('\n').filter(Boolean).slice(-count);

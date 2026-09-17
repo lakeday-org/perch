@@ -304,6 +304,10 @@ export async function searchUnits({ rules, scan, graph, files, tree, revision, s
   };
 
   await Promise.all(running.map(async ({ rule, units, id, key }) => {
+    // A search with nothing to search has nothing to say. Under --since the universe is what the branch touched, so a rule over
+    // test files on a branch that touched none would otherwise report that nobody has the thing, which is a claim it never
+    // tested. perch doctor lists a rule that covered nothing, which is where an empty search belongs.
+    if (!units.length) return;
     // Read in batches rather than one at a time. The answer is the same either way, since the first unit in ranked order that
     // has the thing is the one taken however many were read alongside it; what changes is that a search over four hundred
     // methods is a minute rather than most of an hour. At most one batch is spent past the answer.
