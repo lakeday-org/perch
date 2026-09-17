@@ -133,7 +133,8 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   // what the last run said about it is carried onto the file at the end rather than dropped.
   const inScope = path => !paths.length || paths.some(item => path === item || path.startsWith(item.replace(/\/$/, '') + '/'));
   const candidates = scan.candidates.filter(candidate => graph.nodes.has(candidate.id) && inScope(graph.nodes.get(candidate.id).path));
-  if (!candidates.length) throw new Error('Nothing in scope to read');
+  // No methods in scope is an ordinary run, not a failure: a branch that only touched markdown and a workflow has none, and the
+  // rules about files still cover what it did touch. Erroring here failed the run and skipped those rules as well.
   const candidateIds = candidates.map(candidate => candidate.id);
   const created = new Date().toISOString(), id = identity('scan', revision, created);
   const dir = store.runDir(id), runPath = join(dir, 'run.json');

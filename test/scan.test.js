@@ -156,6 +156,20 @@ describe('perch hunt', () => {
   });
 
 
+  it('scans a branch that touched no code, and still asks the rules about the files it touched', async () => {
+    const repo = await fixture();
+    await writeFile(join(repo.root, 'perch.yaml'), '- name: prose\n  where: "**/*.md"\n  ensure: A person wrote this.\n');
+    await writeFile(join(repo.root, 'README.md'), '# a\n');
+    await commitAll(repo.root, 'docs');
+    // A pull request that only touched markdown has no method in scope. That used to be an error, which failed the run and took
+    // the rules about files down with it, so the one thing it could have checked went unasked.
+    const run = await scanRepository(await withRevision(repo, { systemOne: scriptedSystemOne(), paths: ['README.md'], revision: await revision(repo.root) }));
+    expect(run.status).toBe('complete');
+    expect(run.methods).toBe(0);
+    // And the rule that covers what it did touch was asked.
+    expect(run.coverage.find(item => item.name === 'prose')?.units).toBe(1);
+  });
+
   it('finishes the file it is in, then follows the neighbor the model points at', async () => {
     const repo = await fixture();
     const systemOne = scriptedSystemOne({ 'src/a.js::f': { follow: 'src/b.js::h' }, 'src/b.js::h': { follow: 'src/b.js::k' } });
