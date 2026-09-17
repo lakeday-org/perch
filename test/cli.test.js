@@ -33,40 +33,38 @@ describe('cli', () => {
   it('has three commands and prints their usage', async () => {
     const { out, err, io } = capture();
     expect(await main(['--help'], io)).toBe(0);
-    for (const verb of ['scan [target]', 'issues [issue-id]', 'fix [issue-id | path]', 'doctor']) expect(out[0]).toContain(verb);
-    for (const gone of ['hunt', 'refactor', 'report', 'publish', 'design']) expect(out[0]).not.toMatch(new RegExp(`^\\s*${gone} `, 'm'));
-    expect(await main(['fix', '-h'], io)).toBe(0);
-    expect(out.at(-1)).toContain('perch fix: Fix open issues, one commit each');
-    expect(out.at(-1)).toContain('--budget');
+    for (const verb of ['scan [target]', 'lint', 'issues [issue-id]', 'check <path', 'doctor']) expect(out[0]).toContain(verb);
+    for (const gone of ['hunt', 'refactor', 'report', 'publish', 'design', 'fix']) expect(out[0]).not.toMatch(new RegExp(`^\\s*${gone} `, 'm'));
+    expect(await main(['check', '-h'], io)).toBe(0);
+    expect(out.at(-1)).toContain('perch check: Ask the rules about one piece of code');
+    expect(out.at(-1)).toContain('--rules');
     expect(await main(['scan', '-h'], io)).toBe(0);
     expect(out.at(-1)).toContain('perch scan: Find issues');
-    for (const gone of ['hunt', 'refactor', 'report']) expect(await main([gone], io)).toBe(2);
-    expect(await main(['fix', '--budget', '0'], io)).toBe(2);
-    expect(err.at(-1)).toContain('--budget must be a positive integer');
-    expect(await main(['fix', '--effort', 'ultra'], io)).toBe(2);
-    expect(err.at(-1)).toContain('--effort must be one of none, low, medium, high, xhigh, max');
+    for (const gone of ['hunt', 'refactor', 'report', 'fix']) expect(await main([gone], io)).toBe(2);
+    expect(await main(['issues', '--limit', '0'], io)).toBe(2);
+    expect(err.at(-1)).toContain('--limit must be a positive integer');
+    expect(await main(['check'], io)).toBe(2);
+    expect(err.at(-1)).toContain('perch check needs a path, a path::method, or an issue id');
   });
 
   it('refuses a flag the command does not take, and names the command that does', async () => {
     const { err, io } = capture();
     expect(await main(['scan', '--filter', 'type=security'], io)).toBe(2);
-    expect(err.at(-1)).toContain('perch scan does not take --filter; it belongs to issues, fix');
+    expect(err.at(-1)).toContain('perch scan does not take --filter; it belongs to issues');
     expect(err.at(-1)).toContain('perch scan: Find issues');
-    expect(await main(['scan', '--budget', '5'], io)).toBe(2);
-    expect(err.at(-1)).toContain('perch scan does not take --budget; it belongs to fix');
+    expect(await main(['scan', '--rules', 'a'], io)).toBe(2);
+    expect(err.at(-1)).toContain('perch scan does not take --rules; it belongs to check');
     // An alias is checked against the command it resolves to, and a flag both commands take is fine.
     expect(await main(['findings', '--force'], io)).toBe(2);
     expect(err.at(-1)).toContain('perch issues does not take --force; it belongs to scan');
   });
 
-  it('needs a TypeSafe key for scan and an OpenAI key for fix, but none for issues', async () => {
+  it('needs a TypeSafe key to ask anything, but none to read what it already knows', async () => {
     const repo = await makeFixture();
     cleanups.push(repo);
     const { out, err, io } = capture();
     expect(await main(['scan', repo], io)).toBe(1);
     expect(err.at(-1)).toContain('TYPESAFE_API_KEY');
-    expect(await main(['fix', '--out', join(repo, '.perch')], io)).toBe(1);
-    expect(err.at(-1)).toContain('OPENAI_API_KEY');
     expect(await main(['issues', '--out', join(repo, '.perch')], io)).toBe(0);
     expect(out.at(-1)).toBe('Nothing matches.');
   });
@@ -113,14 +111,9 @@ describe('cli', () => {
     expect(out.at(-1)).toContain('perch issues: List what the scan found');
     expect(await main(['findings', '--types'], io)).toBe(0);
     expect(out.at(-1)).toContain('severity\n  P3\n  P2\n  P1\n  P0');
-    // fix filters on the same vocabulary, so it lists the same values, and reads a bad clause the same way.
-    expect(await main(['fix', '--types'], io)).toBe(0);
-    expect(out.at(-1)).toContain('severity\n  P3\n  P2\n  P1\n  P0');
-    expect(await main(['fix', '--filter', 'issue=p1'], io)).toBe(2);
+    // A filter clause that names nothing is a mistake to correct, whichever command reads it.
+    expect(await main(['issues', '--filter', 'issue=p1'], io)).toBe(2);
     expect(err.at(-1)).toContain('unknown filter "issue"; filter on type, kind, severity');
-    // fix filters on the same vocabulary, so it lists the same values without needing a key.
-    expect(await main(['fix', '--types'], io)).toBe(0);
-    expect(out.at(-1)).toContain('severity\n  P3\n  P2\n  P1\n  P0');
   });
 
   it('lists the issues a scan found, from the results directory', async () => {

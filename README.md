@@ -5,7 +5,7 @@
 [![node](https://img.shields.io/node/v/@lakeday/perch)](https://nodejs.org)
 [![license](https://img.shields.io/npm/l/@lakeday/perch)](LICENSE)
 
-perch finds bugs and design problems in a repo and fixes them.
+perch finds bugs and design problems in a repo. [perchscan.com](https://perchscan.com)
 
 `perch scan` parses every tracked file with tree-sitter, scores each method, then
 asks a TypeSafe System One model a fixed set of questions about each one: is
@@ -13,9 +13,10 @@ there a bug, where, what kind, how bad, is it a security hole, does it do what
 its name says, does it need refactoring. Answers come back as probabilities.
 Methods are sorted worst first.
 
-`perch fix` takes one of those methods, hands it to an OpenAI model with the
-issues as objectives, and only commits the rewrite if a second scan says it
-improved and your tests still pass.
+Rules you write in `perch.yaml` are asked in the same reading, so they cost
+nothing extra on a method perch was reading anyway. `perch check` asks any of it
+about one method or file as it reads on disk, so you can change something and see
+whether it still holds.
 
 ## Getting started
 
@@ -23,7 +24,7 @@ improved and your tests still pass.
 # 1. install
 npm install -g @lakeday/perch
 
-# 2. the key that reads code
+# 2. the key
 export TYPESAFE_API_KEY=...
 
 # 3. scan (later runs only re-read methods that changed)
@@ -32,181 +33,141 @@ perch scan
 # 4. see what it found
 perch issues
 
-# 5. the key that writes code
-export OPENAI_API_KEY=...
+# 5. read one, by the id in the first column
+perch issues 92c7781e
 
-# 6. fix one, by the id in the first column
-git checkout -b perch/sweep
-perch fix 92c7781e
+# 6. change it, then ask whether it still holds
+perch check 92c7781e
 ```
 
-Needs Node 22+ and git. `perch fix` commits to the branch you're on and refuses
-main and master.
+Needs Node 22+ and git. Nothing perch does writes to your working tree.
 
-## Linting your own rules
+## Your own rules
 
-`perch lint` checks rules you write, in `perch.yaml`, against your code. Two examples:
+Rules you write in `perch.yaml` are questions perch asks beside its own. Two examples:
 
 ```yaml
 - name: env-read-once
-  over: "src/**/*.js"
+  where: "src/**/*.js"
   except: "src/cli.js"
   each: method
   ensure: >
     This method does not read process.env. Reading the environment is the command
     line's job, and everything below it is passed the values.
 
-- name: issues-closable
-  behaviour: >
-    An issue can be closed with a reason, and a closed issue stops appearing in
-    the default list.
-  cite: "test/**/*.js"
+- name: tests-assert-real-behavior
+  where: "test/**/*.test.js"
+  each: test
+  sees: calls
+  ensure: >
+    Tests assert on the code under test, not on mocks they set up or values they
+    built.
 ```
 
-The first asks a yes-or-no question about every method outside `src/cli.js`. The
-second asks which test asserts the behaviour, and the answer has to be a test you
-can open or `none`.
+The first asks a yes-or-no question about every method outside `src/cli.js`. It
+rides in that method's own reading, because every question in a request is scored
+against the code by itself and the code is what the request is mostly made of: a
+method covered by five rules is one reading, not six.
+
+The second asks about each test, and `sees: calls` puts the code that test calls in
+front of the model, since the test alone cannot show whether what it asserts is
+real. A method needs no `sees`, because it is always read with its callers and
+callees in view.
+
+`ensure` has to hold everywhere. `ensure_present` and `ensure_absent` are claims
+about the codebase rather than any one file, so they search the likeliest units
+first and stop at the answer.
+
+Broken rules are listed with everything else, under type `lint`:
 
 ```
-$ perch lint
-src/model.js
-    29   97%  env-read-once  createModel
-src/git.js
-    10   92%  env-read-once  git
-
-2 problems in 2 files (633 checked, 8 read)
+$ perch issues --filter type=lint
+ID        Method       Location          Type  Kind           Severity
+b4e21c7a  createModel  src/model.js:29   lint  env-read-once  -
+9f03d182  git          src/git.js:10     lint  env-read-once  -
 ```
 
-Exits 1 when a rule is broken. `--since origin/main` asks only about what a branch
-changed, which is what CI wants. Answers are cached against the text they were
-given, so a second run over unchanged code costs nothing.
+`perch scan` exits 1 when a rule is broken. A rule is a claim you made about your
+own code, so CI can read that; a finding perch turned up on its own is a
+probability, and exiting on one would make every run a coin toss.
+
+`perch rules list`, `add`, `edit` and `remove` change `perch.yaml` without opening
+it, keeping your comments and ordering.
+
+The questions perch ships with are written in the same grammar, in `scan.yaml`, and
+`perch.yaml` can reword one or add a class of its own.
 
 ## Commands
 
-```
-perch scan   [<target>] [--paths a,b] [--parallel N] [--force] [--all]
-perch issues [<issue-id>] [--filter k=v] [--types] [--min P] [--limit N] [--page N] [--all] [--closed]
-perch close  <issue-id>... [--reason R]
-perch reopen <issue-id>...
-perch doctor
-perch fix    [<issue-id> | <path>] [--filter k=v] [--budget N] [--min P] [--effort E]
-```
-
-They all take `--out DIR` and `--json`.
-
 | Verb | What it does | Needs |
 | --- | --- | --- |
-| `scan` | Parses every tracked file at HEAD, then reads methods with System One, walking the call graph from the worst-scoring method through its callers and callees. First scan reads everything; later scans only re-read what changed. Prints the table. | `TYPESAFE_API_KEY` |
+| `scan` | Parses every tracked file at HEAD, then reads methods with System One, walking the call graph from the worst-scoring method through its callers and callees. Asks your rules in the same reading. Every run reads everything it covers; `--paths` and `--since` narrow what that is. Prints the table, and exits 1 if a rule is broken. | `TYPESAFE_API_KEY` |
 | `issues` | The open issues, worst first. With an id, everything known about that one method. | nothing |
-| `close` | Marks issues closed: false positives, or code you've looked at and aren't changing. They stop being listed and `perch fix` skips them. | nothing |
+| `check` | Asks about one file or method as it reads on disk, uncommitted. `--rules` narrows it. Records nothing. | `TYPESAFE_API_KEY` |
+| `rules` | `list`, `add`, `edit`, `remove`: changes `perch.yaml` without opening it. | nothing |
+| `close` | Marks issues closed: false positives, or code you've looked at and aren't changing. They stop being listed. | nothing |
 | `reopen` | Undoes `close`. | nothing |
-| `doctor` | What the last run did and what it couldn't read. Names, paths and error messages only — no source, no answers — so it's safe to paste into a bug report. | nothing |
-| `fix` | Fixes open issues, worst first, up to `--budget`. With a path, only that file or directory. With an id, just that one. One commit per fix. | both keys |
+| `doctor` | What the last run did and what it couldn't read. Names, paths and error messages only, no source and no answers, so it's safe to paste into a bug report. | nothing |
 
 `perch findings` also works, same command.
 
-### The table
+### Issues
 
-```
-ID        Method       Location        Type      Kind                            Severity  Status  Commit
-92c7781e  fixMethod    src/fix.js:224  refactor  too_big 98%, unsafe_deser 87%   P1 (0.9)  open    -
-```
+`perch issues` lists what the scan found, worst first. Each row is one method,
+with the problems the model saw in it and how sure it was. `perch issues <id>`
+opens a single one up.
 
-- **Type** — `defect`, `security`, `refactor`, `docs` or `misaligned`.
-  Whichever the row leads with.
-- **Kind** — the specific problem and how sure the model is, worst first.
-- **Severity** — the band, plus where the score landed inside it. `P1 (0.9)` is
-  nearly P0, `P1 (1.2)` is closer to P2. Only shown when there's a bug.
-
-Only issues the model is more than 50% sure about get listed. `--min` changes
-that: `--min 80` for the obvious ones, `--min 0` for everything it answered.
-
-`--filter` narrows on the Type, Kind and Severity columns. `--types` prints the
-valid values.
-
-Not every finding is worth acting on. `perch close` takes them off the list:
+Not every finding is worth acting on. `perch close` takes one off the list:
 
 ```sh
 perch close e585492e --reason "verifies the HMAC before parsing"
-perch close 3b7c9da1 2cce8403 --reason "pre-existing, well tested, not restructuring"
 ```
 
-A dismissal is about the method as it reads now, so editing that method brings
-the issue back. `--closed` lists them, `perch issues <id>` shows the reason.
+A closure stays closed. Later scans and later edits leave it alone, the way a
+`.eslintignore` entry does, because perch being wrong about something does not
+stop being true when a line above it moves. `perch reopen` is the only thing that
+brings it back, and closing one issue leaves everything else in that file live.
+
+`--filter` narrows a list down to the issues you care about:
 
 ```sh
 perch issues --filter type=security
-perch issues --filter kind=too_big --min 80
-perch fix --filter severity=P1 --budget 5
+perch issues --filter severity=P1
 ```
 
-Filtered lists print every match and put the thing you filtered for first in
-each row. Unfiltered lists are cut to 10 unless you pass `--all`.
+## Checking a change
 
-To walk a long list, `--limit` sets the page size and `--page` picks one. A line
-under the table says where you are:
+`perch check` puts the questions to one point in the code as it reads on disk,
+so you can edit and ask again without committing anything:
 
 ```sh
-perch issues --limit 25            # 1-25 of 235 open issues. --page 2 for the next
-perch issues --limit 25 --page 4   # 76-100 of 235 open issues. --page 5 for the next
+perch check src/model.js::createModel              # every rule that covers it, and the scan's questions
+perch check src/model.js::createModel --rules security
+perch check 92c7781e                               # whatever raised that issue
 ```
 
-### Flags
+`--rules` takes rule names out of `perch.yaml` or the classes the scan asks
+about, so after a security fix you can ask about security alone. It exits 1 while
+something is still wrong, which is what a loop needs.
 
-| Flag | Meaning |
+## Documentation
+
+[docs.perchscan.com](https://docs.perchscan.com)
+
+| | |
 | --- | --- |
-| `--paths a,b` | Only look at these paths. |
-| `--parallel N` | Methods read at once (default 8). |
-| `--force` | Re-read every method, even unchanged ones. |
-| `--filter k=v` | e.g. `type=security,severity=P1`. |
-| `--types` | Print what `--filter` accepts and exit. |
-| `--min P` | Only issues the model is at least P% sure of (default 50). |
-| `--reason R` | Why you closed something. Kept on the record. |
-| `--budget N` | Fix at most N issues (default 20). |
-| `--effort E` | `none`, `low`, `medium`, `high`, `xhigh`, `max` (default `medium`). |
-| `--limit N` | Rows per page (default 10). |
-| `--page N` | Which page of them, 1 is the first. |
-| `--all` | Print every row instead of the top 10. |
-| `--closed` | Include closed issues. |
-| `--out DIR` | Results directory (default `.perch`). |
-| `--json` | Print the record instead of the table. |
-| `--verbose` | Show every file, method, model call and command. |
+| [Getting started](https://docs.perchscan.com/install/) | Install, the key, the first scan. |
+| [Reading issues](https://docs.perchscan.com/issues/) | The list, the filters, closing what does not matter. |
+| [Your own rules](https://docs.perchscan.com/rules/) | Every field `perch.yaml` takes. |
+| [Checking a change](https://docs.perchscan.com/check/) | `perch check` on work in progress. |
+| [perch in CI](https://docs.perchscan.com/ci/) | What a build can gate on, and what it cannot. |
+| [Command reference](https://docs.perchscan.com/cli/) | Every verb and every flag. |
+| [How a scan works](https://docs.perchscan.com/scan/) | The graph walk, the questions, and how probabilities turn into a ranking. |
 
-`<target>` is a directory (default `.`, resolved to its git root) or a GitHub
-repo as `owner/repo` or a URL, which gets cloned under `<out>/repos/`.
-`<issue-id>` is the 8-char id in the first column; a unique prefix works.
-
-### When a scan goes wrong
-
-A method perch can't read — a request too large for the model, a service that
-times out — is recorded against that method and the walk carries on. `perch
-doctor` says what happened:
-
-```
-perch 0.1.0 on node v22.14.0 (linux x64)
-results in .perch
-
-hunt 462cfe79 complete at 2026-09-17T00:36:33
-  49213 methods, read 48967, 0 unchanged, 0 unread, 246 failed
-  243 methods could not be read:
-    241x System One request failed with HTTP 400: max_tokens_exceeded
-        build_response at src/handlers/api.py:1204
-        ...
-```
-
-If nothing can be read — a bad key, a service that's down — the run stops
-instead of spending the rest of the repository finding out.
-
-## How it works
-
-- [doc/scan.md](doc/scan.md) — the graph walk, the questions, and how
-  probabilities turn into a ranking.
-- [doc/fix.md](doc/fix.md) — the agent, its verifiers, and what a rewrite has to
-  beat to get committed.
-
-Results go in `<out>`: an append-only `events.jsonl` with one line per method
-read and per fix made, plus scan, hunt and fix records. Nothing else is written
-to your tree except the commits `fix` makes.
+Results go in `<out>`, which is `.perch` by default: `scan.jsonl` holds what the
+last run found, one line per method read and per rule broken, rewritten whole
+every run. `closed.jsonl` holds what you set aside, which has to survive the next
+run. Nothing else is written to your tree.
 
 ## Development
 

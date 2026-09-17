@@ -2,42 +2,38 @@
 import { join } from 'node:path';
 import { repoRoot, revision as gitRevision } from './git.js';
 import { resolveTarget } from './target.js';
-import { createModel, DEFAULT_EFFORT, DEFAULT_MODEL, EFFORTS } from './model.js';
 import { createSystemOne } from './systemone.js';
 import { createSourceAnalyzer } from './analysis.js';
 import { openStore, resolveOut } from './store.js';
 import { analyzeTree } from './scan.js';
-import { DEFAULT_FIX_BUDGET, DEFAULT_PARALLEL, scanRepository } from './hunt.js';
+import { DEFAULT_PARALLEL, scanRepository } from './hunt.js';
 import { BELIEVED, filterStrength, matchesFilters, parseFilters } from './questions.js';
-import { fixIssues, fixMethod, splitStale, underPath } from './fix.js';
-import { changedPaths, lintRepository, RULES_FILE } from './lint.js';
+import { splitStale } from './context.js';
+import { changedPaths, DEFAULT_PARALLEL as LINT_PARALLEL, lintRepository, RULES_FILE } from './lint.js';
+import { checkTarget } from './check.js';
 import { createMeter, metered } from './meter.js';
-import { createShell } from './shell.js';
-import { createUi } from './ui.js';
-import { formatDoctor, formatFilterKeys, formatFinding, formatFix, formatFixes, formatIssues, formatLint, formatLintFile, formatScanRun, issueCount, scanCount, TOP, visibleFindings } from './report.js';
+import { formatDoctor, formatFilterKeys, formatFinding, formatIssues, formatCheck, formatLint, formatLintFile, formatScanRun, issueCount, lintCount, scanCount, TOP, visibleFindings } from './report.js';
 
 /** Stamped into the bundle at build time so `perch doctor` reports the version that is running, not one read from a stray file. */
 export const VERSION = typeof PERCH_VERSION === 'string' ? PERCH_VERSION : 'dev';
 
 const options = {
   paths: ['--paths a,b', 'Only consider files under these repository paths', ['scan']],
-  budget: ['--budget N', `Work at most N issues (default ${DEFAULT_FIX_BUDGET})`, ['fix']],
-  parallel: ['--parallel N', `How many methods to read at once (default ${DEFAULT_PARALLEL})`, ['scan']],
+  parallel: ['--parallel N', `How many to ask at once (default ${DEFAULT_PARALLEL} scanning, ${LINT_PARALLEL} linting)`, ['scan', 'lint']],
   since: ['--since REF', 'Only what changed since this branch or commit', ['lint']],
   force: ['--force', 'Read every method again, even ones unchanged since an earlier scan', ['scan', 'lint']],
   all: ['--all', 'List every row instead of the top 10', ['scan', 'issues']],
   limit: ['--limit N', `Rows per page (default ${TOP})`, ['issues']],
   page: ['--page N', 'Which page of them, 1 is the first', ['issues']],
   closed: ['--closed', 'Include closed issues (worked and given up on, or nothing left to do)', ['issues']],
-  min: ['--min P', `Only issues the scan is at least P percent sure of (default ${BELIEVED * 100}; --min 0 shows everything it answered)`, ['issues', 'fix', 'lint']],
-  filter: ['--filter k=v', 'Only issues matching, e.g. type=security, kind=too big, severity=P1 (comma-separated)', ['issues', 'fix']],
-  types: ['--types', 'Print everything --filter accepts and stop', ['issues', 'fix']],
-  model: ['--model M', `OpenAI model (default ${DEFAULT_MODEL}, or $OPENAI_MODEL)`, ['fix']],
-  effort: ['--effort E', `Reasoning effort: ${EFFORTS.join(', ')} (default ${DEFAULT_EFFORT})`, ['fix']],
+  min: ['--min P', `Only issues the scan is at least P percent sure of (default ${BELIEVED * 100}; --min 0 shows everything it answered)`, ['issues', 'lint']],
+  filter: ['--filter k=v', 'Only issues matching, e.g. type=security, kind=too big, severity=P1 (comma-separated)', ['issues']],
+  types: ['--types', 'Print everything --filter accepts and stop', ['issues']],
+  rules: ['--rules a,b', 'Ask only these: rule names, or defect, security, refactor, docs, misaligned', ['check']],
   reason: ['--reason R', 'Why you are setting these aside, kept on the record', ['close']],
-  out: ['--out DIR', 'Results directory (default .perch)', ['scan', 'lint', 'issues', 'fix', 'close', 'reopen', 'doctor']],
-  json: ['--json', 'Print JSON instead of a summary', ['scan', 'lint', 'issues', 'fix', 'close', 'reopen', 'doctor']],
-  verbose: ['--verbose', 'Show every file, method, model call, and command', ['scan', 'lint', 'issues', 'fix']],
+  out: ['--out DIR', 'Results directory (default .perch)', ['scan', 'lint', 'issues', 'check', 'close', 'reopen', 'doctor']],
+  json: ['--json', 'Print JSON instead of a summary', ['scan', 'lint', 'issues', 'check', 'close', 'reopen', 'doctor']],
+  verbose: ['--verbose', 'Show every file, method, model call, and command', ['scan', 'lint', 'issues', 'check']],
 };
 
 /** Other names that still work. */
@@ -47,10 +43,10 @@ const commandHelp = {
   scan: { args: '[target]', summary: 'Find issues', detail: 'Scores every method with tree-sitter, then reads them with System One (callers and callees in view). The first scan reads every method; later ones only what changed (--force rereads all). Needs TYPESAFE_API_KEY. target is a directory, owner/repo, or a GitHub URL.' },
   lint: { args: '', summary: 'Check your own rules against the code', detail: `Reads ${RULES_FILE}, or perch/*.yaml, and asks a model each rule about each file or method it names. Rules are the things a parser cannot prove: whether a comment says why, whether a listing honours a filter, whether a behaviour you claim is asserted by a test. Exits 1 when a rule is broken. --since limits it to what a branch changed, which is what CI wants. Needs TYPESAFE_API_KEY.` },
   issues: { args: '[issue-id]', summary: 'List what the scan found, or show one', detail: 'Lists open issues at --min or more, strongest first. --filter narrows them (--types prints what it accepts), --closed includes closed ones, --all lists every row. With an issue id, everything known about that method. perch findings is another name for this command.' },
+  check: { args: '<path | path::method | issue-id>', summary: 'Ask the rules about one piece of code', detail: 'Parses that one file as it reads on disk and puts the questions to the point you named: every rule whose selector covers it, and for a method the scan\'s own questions too. --rules narrows it, and takes rule names out of your rule file or the classes the scan asks about, so after a security fix you can ask about security alone. Nothing is committed and nothing is recorded, so it runs on work in progress; exits 1 when something is wrong. Needs TYPESAFE_API_KEY.' },
   close: { args: '<issue-id>...', summary: 'Set issues aside', detail: 'Marks issues closed so they stop being listed and perch fix skips them: a false positive, or code you have looked at and are not changing. --reason is kept on the record and shown by perch issues <id>. A dismissal is about the method as it reads now, so editing that method brings the issue back.' },
   reopen: { args: '<issue-id>...', summary: 'Put closed issues back', detail: 'Undoes perch close.' },
   doctor: { args: '', summary: 'What the last run did, and what it could not read', detail: 'Prints versions, what the last scan and hunt did, and every method that could not be read with the error it failed on. Method names, paths and error messages only, no source and no answers, so it is safe to paste into a bug report.' },
-  fix: { args: '[issue-id | path]', summary: 'Fix open issues, one commit each', detail: 'Works open issues, most serious first, up to --budget; with a path, only under that path; with an issue id, that one; --filter narrows which ones and works the surest match first (--types prints what it accepts). An OpenAI agent rewrites each method and must pass measure, rescan, and run_tests before submit. Commits on the current branch; refuses main/master. Needs OPENAI_API_KEY and TYPESAFE_API_KEY.' },
 };
 
 /** Help text is read in a terminal, which is 80 columns until proven otherwise. */
@@ -74,7 +70,7 @@ Options:
 ${column([...Object.values(options).filter(([, , verbs]) => verbs.length === Object.keys(commandHelp).length).map(([flag, text]) => [flag, text]), ['-h, --help', 'This help; perch <command> --help for one command']])}
 
 Environment:
-${column([['TYPESAFE_API_KEY', 'scan, fix'], ['OPENAI_API_KEY', 'fix']])}`;
+${column([['TYPESAFE_API_KEY', 'scan, lint, check']])}`;
 
 function usageFor(name) {
   const help = commandHelp[name];
@@ -89,7 +85,7 @@ Options:
 ${column(own.map(([flag, text]) => [flag, text]))}`;
 }
 
-const valued = new Set(['paths', 'budget', 'parallel', 'min', 'filter', 'model', 'effort', 'out', 'reason', 'limit', 'page', 'since']);
+const valued = new Set(['paths', 'budget', 'parallel', 'min', 'filter', 'model', 'effort', 'out', 'reason', 'limit', 'page', 'since', 'rules']);
 const switches = new Set(['force', 'all', 'json', 'verbose', 'closed', 'types', 'help']);
 
 export function parseArgs(argv) {
@@ -123,7 +119,6 @@ function checkFlags(flags, commandName) {
 }
 
 const parsePaths = flags => flags.paths ? flags.paths.split(',').map(path => path.trim()).filter(Boolean) : [];
-const modelFrom = ({ flags, env, log }) => { if (flags.effort !== undefined && !EFFORTS.includes(flags.effort)) throw new UsageError(`--effort must be one of ${EFFORTS.join(', ')}`); return createModel({ apiKey: env.OPENAI_API_KEY, model: flags.model || env.OPENAI_MODEL || DEFAULT_MODEL, effort: flags.effort ?? null, baseUrl: env.OPENAI_BASE_URL || undefined, log }); };
 const storeFrom = async flags => openStore(await resolveOut(flags.out));
 /** `--filter type=security,severity=P1` as tests a finding must pass; a bad clause is a usage error naming the real values. */
 const filtersFrom = flags => { try { return parseFilters(flags.filter ?? ''); } catch (error) { throw new UsageError(error.message); } };
@@ -153,10 +148,6 @@ function liveCounter(io, noun) {
   const live = process.stderr.isTTY && !io.verbose && !io.flags.json;
   return { update: (done, total) => { if (live) process.stderr.write(`\r[perch] ${noun} ${done} of ${total}`); }, clear: () => { if (live) process.stderr.write('\r\x1b[K'); } };
 }
-/** A bare finding id, as opposed to a path: hex only, no separators. */
-const looksLikeId = value => /^[0-9a-f]{4,8}$/.test(value);
-/** Step-by-step progress with spinners and marks on a terminal; plain log lines when piped, verbose, or JSON. */
-const uiFor = io => createUi({ live: Boolean(process.stderr.isTTY) && !io.verbose && !io.flags.json, log: io.log });
 
 /** The open issues at HEAD: findings for methods that no longer exist are dropped and counted. */
 async function openIssues(store, min, io) {
@@ -218,12 +209,12 @@ const commands = {
     let run;
     try {
       run = await lintRepository({ root, revision, out: await resolveOut(io.flags.out), analyzer: createSourceAnalyzer(), systemOne, paths,
-        min: threshold(io.flags.min) / 100, force: Boolean(io.flags.force), onFile: io.flags.json ? () => {} : say,
+        min: threshold(io.flags.min) / 100, force: Boolean(io.flags.force), parallel: positiveInteger('--parallel', io.flags.parallel, LINT_PARALLEL), onFile: io.flags.json ? () => {} : say,
         progress: counter.update, log: io.debug, debug: io.debug });
     } finally { counter.clear(); }
     if (!io.flags.json && run.findings.length) io.stdout('');
     print(io, run, formatLint(run));
-    io.note(...meter.lines());
+    io.note(lintCount(run), ...meter.lines());
     return run.findings.length ? 1 : 0;
   },
   async issues(io) {
@@ -255,33 +246,22 @@ const commands = {
     const versions = { perch: VERSION, node: process.version, platform: `${process.platform} ${process.arch}` };
     print(io, { versions, out: store.out, scan, hunt, findings }, formatDoctor({ versions, scan, hunt, out: store.out, findings }));
   },
+  /** The loop for fixing something: change the code, ask whether the issue is gone, repeat. Nothing is written down. */
+  async check(io) {
+    if (!io.argument) throw new UsageError('perch check needs a path, a path::method, or an issue id');
+    const meter = createMeter();
+    const systemOne = metered(createSystemOne({ apiKey: io.env.TYPESAFE_API_KEY, log: io.debug }), meter);
+    const root = await repoRoot(process.cwd());
+    const only = io.flags.rules ? io.flags.rules.split(',').map(name => name.trim()).filter(Boolean) : [];
+    const checked = await checkTarget({ target: io.argument, root, out: await resolveOut(io.flags.out), analyzer: createSourceAnalyzer(),
+      systemOne, revision: await gitRevision(root), only, debug: io.debug });
+    print(io, checked, formatCheck(checked));
+    io.note(...meter.lines());
+    return checked.clean ? 0 : 1;
+  },
   /** Set issues aside, or put them back: a judgement you make about what the scan found, kept in the same log as everything else. */
   async close(io) { await setAside(io, 'close'); },
   async reopen(io) { await setAside(io, 'reopen'); },
-  /** Work the open issues in the checkout the scan ran in; a path narrows them, a finding id names one. */
-  async fix(io) {
-    if (io.flags.types) { io.stdout(formatFilterKeys()); return; }
-    const budget = positiveInteger('--budget', io.flags.budget, DEFAULT_FIX_BUDGET);
-    const min = threshold(io.flags.min);
-    // Read the filter before anything is built: a clause that names nothing is a mistake to correct, not a missing API key.
-    const filters = filtersFrom(io.flags);
-    const model = modelFrom(io);
-    const systemOne = createSystemOne({ apiKey: io.env.TYPESAFE_API_KEY, log: io.debug });
-    const store = await storeFrom(io.flags);
-    const shared = { out: store.out, model, systemOne, shell: createShell({ verbose: io.verbose, log: io.debug }), analyzer: createSourceAnalyzer(), ui: uiFor(io), log: io.log, debug: io.debug };
-    if (io.argument && looksLikeId(io.argument)) {
-      const finding = await store.findFinding(io.argument);
-      const root = finding.root ?? (await store.latestHunt())?.root ?? await repoRoot(process.cwd());
-      const record = await fixMethod({ finding, root, ...shared });
-      print(io, record, formatFix(record));
-      return;
-    }
-    const { findings: all, root } = await openIssues(store, min, io);
-    const findings = narrow(underPath(all, io.argument), filters, min / 100);
-    if (!findings.length) throw new Error(`nothing to fix${io.argument ? ` under ${io.argument}` : ''}${filters.length ? ' matching that filter' : ''}; perch issues lists what is open`);
-    const batch = await fixIssues({ findings, budget, root: root ?? await repoRoot(process.cwd()), ...shared });
-    print(io, batch, formatFixes(batch));
-  },
 };
 
 /** Load a .env from the enclosing repository root (or the working directory); variables already in the environment win. */

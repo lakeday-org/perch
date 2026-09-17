@@ -134,6 +134,8 @@ export function issuesOf(answers, min = BELIEVED) {
   if (refactor && refactor !== 'none') add('refactor', label(refactor), answers.refactor.probabilities?.[refactor] ?? 0);
   if (answers.does_what_it_claims !== undefined) add('misaligned', 'does_not_do_what_it_claims', 1 - answers.does_what_it_claims);
   if (answers.misdocumented !== undefined) add('docs', 'docs', answers.misdocumented);
+  // A broken rule is an issue like any other, listed under the rule's own name so a filter can name it.
+  if (answers.lint) add('lint', answers.lint.rule, answers.lint.broken);
   return issues.sort((a, b) => b.probability - a.probability);
 }
 
@@ -164,7 +166,7 @@ export const ANSWERS_VERSION = 3;
 
 /** Everything `--filter` understands, so `perch findings --types` can print it and a typo can be answered with the real list. */
 export const filterKeys = () => ({
-  type: ['defect', 'security', 'refactor', 'docs', 'misaligned'],
+  type: ['defect', 'security', 'refactor', 'docs', 'misaligned', 'lint'],
   // The labels a finding is listed under, exactly as a row prints them. parseFilters reads either form, so `kind=too_big` and
   // `kind=too big` both work.
   kind: [...Object.keys(DEFECT_KINDS), ...Object.keys(SECURITY_KINDS), ...Object.keys(REFACTORS).filter(kind => kind !== 'none'), 'docs', 'does_not_do_what_it_claims'].map(label),

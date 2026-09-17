@@ -1,3 +1,11 @@
+---
+title: How a scan works
+nav: How a scan works
+group: Reference
+order: 8
+summary: The graph walk, the questions, and how probabilities turn into a ranking.
+---
+
 # How a scan works
 
 `perch scan` scores every method and ranks them worst first. Every answer is a
@@ -46,20 +54,26 @@ A stack, seeded with the riskiest method by `risk_score`:
 
 1. Pop the riskiest unvisited method and ask about it.
 2. Push its unvisited callees and callers, riskiest on top.
-3. Push the neighbour the model said to follow above all of them.
+3. Push the neighbor the model said to follow above all of them.
 4. When the stack empties, take the next riskiest method overall.
 
 Test methods are analyzed, so they can appear as callers, but never questioned.
 Up to `--parallel` methods are in flight at once.
 
-Each answered method is appended to `events.jsonl` with its hash. A method whose
-hash still matches its last reading is skipped without a request — the walk
-still passes through it to reach its neighbours. Editing it makes it readable
-again; `--force` ignores the log entirely. `ANSWERS_VERSION` does the same when
-the question set itself changes, so a method answered by an older set is read
-again rather than compared against questions that did not exist.
+Every method in scope is read. What scope is comes from `--paths` or `--since`,
+and nothing else: a cap on how many methods a run reads leaves a report that
+looks complete and is not.
+
+Every reading goes into `scan.jsonl`, which is rewritten whole each run. Nothing
+on disk is a cached answer, so what it holds is what the last run said.
 
 ## 4. The questions
+
+The questions are declared in `scan.yaml`, which perch ships and `perch.yaml` can
+reword or add to. Your own rules about a method are asked in that method's
+request, beside perch's: every question in a request is scored against the state
+by itself, and the state is what the request is mostly made of, so a method
+covered by five rules is one reading rather than six.
 
 One HTTP request per method. The state carries the method with its lines tagged
 `L0042|`, the comment above it, its metrics, its file's imports and module
@@ -87,7 +101,7 @@ distribution over its levels.
 
 | Question | Primitive | |
 | --- | --- | --- |
-| `has_bug` | noul | A concrete behavioural defect a caller can reach. |
+| `has_bug` | noul | A concrete behavioral defect a caller can reach. |
 | `where` | choice over line ids | Which line, with confidence. A method longer than 255 lines gets a window chosen first, then a line within it. |
 | `kind` | choice over 8 | `boundary`, `missing_null_handling`, `wrong_return`, `swallowed_error`, `state_mutation`, `ordering`, `resource_leak`, `inverted_condition`. |
 | `severity` | score over 4 levels | The rubric below. |
@@ -95,10 +109,15 @@ distribution over its levels.
 | `security_*` | 16 nouls | `injection`, `path_traversal`, `unsafe_deserialization`, `secret_exposure`, `missing_authorization`, `unvalidated_destination`, `resource_exhaustion`, `unsafe_reflection`, `disabled_safeguard`, `weak_crypto`, `buffer_overflow`, `use_after_free`, `uninitialized_use`, `integer_overflow`, `race_condition`, `type_confusion`. |
 | `misuse_N` | noul per callee | Does this call violate the callee's evident contract? |
 | `misused_by_N` | noul per caller | Does the caller violate this method's contract? |
-| `does_what_it_claims` | noul | Does the behaviour match the name, parameters, and comment? |
+| `does_what_it_claims` | noul | Does the behavior match the name, parameters, and comment? |
 | `misdocumented` | noul | Could a caller not learn the contract from the comment? |
 | `refactor` | choice over 7 | `split`, `flatten`, `simplify_conditions`, `deduplicate`, `rename`, `remove_dead_code`, `none`. |
-| `follow` | choice over neighbours | Which related method to examine next. |
+| `follow` | choice over neighbors | Which related method to examine next. |
+
+The names in that table are the ids written in `scan.yaml`. What a row prints is
+the label they map to, so `boundary` reads as `off_by_one` and
+`missing_null_handling` reads as `unhandled_null`. `perch issues --types` lists
+the labels, which are what `--filter kind=` takes.
 
 System One does not bill output tokens, so asking thirty questions of a method
 costs what asking one costs. That is why the set is wide rather than staged.
@@ -158,9 +177,8 @@ It is a floor on what is claimed, not on the arithmetic:
 * **Ranking counts the whole distribution.** An issue at 49% still weighs 0.49 in
   where its method sorts, so there is no cliff at the boundary — only a line
   below which perch stops saying it found something.
-* **A fix is judged on the whole distribution too.** Halving a 40% defect counts
-  for exactly that, even though neither the before nor the after is listed. See
-  [fix.md](fix.md).
+* **`perch check` reports the whole distribution too.** Halving a 40% defect is
+  visible as that, even though neither the before nor the after is listed.
 
 `--min P` moves the line, in percent. `--min 0` prints everything the scan
 answered.

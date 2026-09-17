@@ -170,38 +170,67 @@ export function formatDoctor({ versions, scan, hunt, out, findings = 0 }) {
 }
 
 /**
- * One file's worth of lint, printed when that file is done. The percentage is the share of its checks that passed, so a clean file
- * reads 100% the way every other tool in a build reports itself. Under it, the checks that did not.
+ * One file's worth of lint, printed when that file is done: aligned columns, the way a linter says it. The rule is named and not
+ * spelled out, because the same sentence under twenty files is twenty copies of one thing; what each rule asks is said once, in
+ * the table at the end. The percentage is the share of checks that passed, so a clean file reads 100%.
  */
 export function formatLintFile({ path, checked, findings }) {
   const rate = checked ? Math.round(((checked - findings.length) / checked) * 100) : 100;
   const lines = [`${relative(path)}  ${rate}%  ${checked - findings.length} of ${checked} checks passed`];
-  const width = Math.max(...findings.map(finding => String(finding.line).length), 1);
-  for (const finding of findings) {
-    lines.push(`  ${String(finding.line).padStart(width)}  ${finding.rule}${finding.name === finding.path ? '' : `  ${finding.name}`}${finding.cite ? `  cited: ${finding.cite}` : ''}`);
+  const rows = [];
+  for (const finding of [...findings].sort((a, b) => a.line - b.line || a.rule.localeCompare(b.rule))) {
+    rows.push([String(finding.line), finding.rule, finding.name === finding.path ? '' : finding.name, finding.cite ? `cited: ${finding.cite}` : '']);
+    if (finding.text) rows.push(['', '', finding.text, '']);
   }
+  const width = [0, 1, 2, 3].map(column => Math.max(...rows.map(row => row[column].length)));
+  for (const row of rows) lines.push(`  ${row[0].padStart(width[0])}  ${row[1].padEnd(width[1])}  ${row[2]}${row[3] ? `  ${row[3]}` : ''}`.trimEnd());
   return lines.join('\n');
 }
 
+/** What a lint run did, for stderr, the way a scan says what it read. Said even when nothing was asked, which is the good case. */
+export function lintCount(run) {
+  const rules = run.rules.length ?? run.rules;
+  const parts = [`${rules} ${rules === 1 ? 'rule' : 'rules'}`, `${run.checked} checks`, `read ${run.asked}`];
+  if (run.skipped) parts.push(`${run.skipped} from the log`);
+  if (run.unchecked) parts.push(`${run.unchecked} never checked`);
+  return parts.join(', ');
+}
+
 /**
- * What a lint run adds up to. The rules that fired are spelled out underneath, because a rule name is an identifier and the
- * sentence it stands for is the actual complaint; printing that sentence against every row would drown the rows.
+ * What a lint run adds up to, and what each rule that fired actually asks for. Said once, at the end, where a reader who wants to
+ * argue with a rule can find its wording without it being repeated over every file it touched.
  */
 export function formatLint(run, { width = WIDTH() } = {}) {
   const count = run.rules.length ?? run.rules;
   const passed = run.checked - run.findings.length;
   const rate = run.checked ? Math.round((passed / run.checked) * 100) : 100;
-  if (!run.findings.length) return `${count} ${count === 1 ? 'rule' : 'rules'}, ${run.checked} checks, all passed`;
+  const never = run.unchecked ? ` ${run.unchecked} never checked.` : '';
+  if (!run.findings.length) return `${count} ${count === 1 ? 'rule' : 'rules'}, ${run.checked} checks, all passed.${never}`;
   const files = new Set(run.findings.map(finding => finding.path));
-  const fired = run.rules.filter?.(rule => run.findings.some(finding => finding.rule === rule.name)) ?? [];
-  const lines = [`${rate}%  ${passed} of ${run.checked} checks passed. ${run.findings.length} failed in ${files.size} ${files.size === 1 ? 'file' : 'files'}.`, ''];
-  const label = Math.max(...fired.map(rule => rule.name.length), 0);
-  for (const rule of fired) {
-    const text = String(rule.ensure ?? rule.behaviour ?? '').replace(/\s+/g, ' ').trim();
-    const body = wrap(text, Math.max(40, width - label - 6), '');
-    lines.push(`  ${rule.name.padEnd(label)}  ${body[0] ?? ''}`.trimEnd());
-    for (const line of body.slice(1)) lines.push(`  ${' '.repeat(label)}  ${line}`);
-  }
+  const counts = new Map();
+  for (const finding of run.findings) counts.set(finding.rule, (counts.get(finding.rule) ?? 0) + 1);
+  const fired = (run.rules.filter?.(rule => counts.has(rule.name)) ?? []).sort((a, b) => counts.get(b.name) - counts.get(a.name));
+  const named = Math.max(...fired.map(rule => rule.name.length), 4);
+  const room = Math.max(30, width - named - 12);
+  const rows = fired.flatMap(rule => {
+    const said = wrap(String(rule.text ?? '').replace(/\s+/g, ' ').trim(), room, '');
+    return said.map((line, index) => [index ? '' : String(counts.get(rule.name)), index ? '' : rule.name, line]);
+  });
+  return [`${rate}%  ${passed} of ${run.checked} checks passed. ${run.findings.length} failed in ${files.size} ${files.size === 1 ? 'file' : 'files'}.${never}`, '',
+    ...table(['Failed', 'Rule', 'What it asks'], rows, ['right', 'left', 'left']).map(line => `  ${line}`)].join('\n');
+}
+
+/** One issue asked again: what it was, what it is now, and whether that is a fix. */
+export function formatCheck(checked, { width = WIDTH() } = {}) {
+  const head = `${relative(checked.path)}:${checked.line}  ${checked.name === checked.path ? '' : checked.name}`.trimEnd();
+  if (checked.clean) return `${head}\n${checked.checked} ${checked.checked === 1 ? 'check' : 'checks'}, nothing to report.`;
+  const lines = [head];
+  const rows = checked.broken.flatMap(item => {
+    const said = wrap(String(item.said ?? '').replace(/\s+/g, ' ').trim(), Math.max(30, width - 34), '');
+    return said.map((line, index) => [index ? '' : percent(item.broken), index ? '' : item.rule, line]);
+  });
+  if (rows.length) lines.push('', ...table(['Sure', 'Rule', 'What it asks'], rows, ['right', 'left', 'left']).map(line => `  ${line}`));
+  if (checked.issues?.length) lines.push('', `  ${checked.issues.map(issue => issue.text).join(', ')}`);
   return lines.join('\n');
 }
 
@@ -211,8 +240,16 @@ export const formatFilterKeys = () => Object.entries(filterKeys()).map(([key, va
 /** The whole distribution for one method, since a row can only carry the top few and the shape of the rest is often the story. */
 export function formatFinding(finding) {
   const probabilities = object => Object.entries(object).sort((a, b) => b[1] - a[1]).map(([key, value]) => `${words(key)} ${percent(value)}`).join(', ');
-  const lines = [`${finding.id}  ${finding.name}  ${finding.path}:${finding.line}-${finding.end_line}  at commit ${finding.revision.slice(0, 7)}${finding.unread ? ' (not yet read by System One)' : ` read on ${finding.at.slice(0, 10)}`}`];
+  const span = finding.end_line && finding.end_line !== finding.line ? `${finding.line}-${finding.end_line}` : finding.line;
+  const lines = [`${finding.id}  ${finding.name}  ${finding.path}:${span}${finding.revision ? `  at commit ${short(finding.revision)}` : ''}${finding.unread ? '  (not yet read)' : `  read on ${(finding.at ?? '').slice(0, 10)}`}`];
   lines.push(`Issues: ${issueCell(issuesOf(finding)) || 'none'}`);
+  if (finding.lint) {
+    lines.push(`Rule: ${finding.lint.rule}${finding.name && finding.name !== finding.path && finding.name !== finding.lint.rule ? ` on ${finding.name}` : ''}`,
+      ...wrap(finding.lint.said ?? '', 92, '  '),
+      `Broken: ${percent(finding.lint.broken)} sure`);
+    if (finding.lint.source) lines.push(finding.lint.source, ...(finding.lint.more ? [`      … ${finding.lint.more} more lines`] : []));
+    else if (finding.lint.text) lines.push(`    ${finding.line}| ${finding.lint.text}`);
+  }
   if (finding.metrics) lines.push(`Metrics: risk ${number(finding.metrics.risk_score)}, maintainability ${number(finding.metrics.maintainability_index)}, complexity ${number(finding.metrics.cyclomatic_complexity)}, nesting ${number(finding.metrics.max_nesting)}, ${number(finding.metrics.sloc)} lines${finding.file ? `; file risk ${number(finding.file.risk_score)}` : ''}`);
   if (finding.has_bug !== undefined) {
     lines.push(`Defect: ${percent(finding.has_bug)}. Points at line ${finding.where.line} (confidence ${percent(finding.where.confidence)}):`, `    ${finding.where.line}| ${finding.where.text ?? ''}`,

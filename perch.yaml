@@ -21,18 +21,18 @@
     breaks this rule.
 
 - name: closed-never-listed
-  over: callers of issues
+  where: callers of issues
   ensure: >
     This method passes the findings through visibleFindings before a person sees them, or it is not
     producing a list for a person to read.
 
 - name: one-way-into-the-log
-  over: writers of events.jsonl
+  where: mentions events.jsonl
   ensure: >
     This method appends through store.appendEvent rather than writing the file itself.
 
 - name: env-read-once
-  over: "src/**/*.js"
+  where: "src/**/*.js"
   except: "src/cli.js"
   each: method
   ensure: >
@@ -40,7 +40,38 @@
     everything below it is passed the values.
 
 - name: issues-closable
-  behaviour: >
-    An issue can be closed with a reason, and a closed issue stops appearing in the default list.
-  cite: "test/**/*.js"
+  where: "test/**/*.js"
+  each: test
+  ensure_exist: >
+    A test that closes an issue with a reason and then asserts it is gone from the default list.
 
+- name: no-dead-command
+  where: "src/**/*.js"
+  each: method
+  ensure_nexist: >
+    A command or flag that is parsed and then never used.
+
+
+- name: no-legacy-fallback
+  where: "src/**/*.js"
+  each: method
+  ensure: >
+    One way of doing the job. No branch kept for an old format, old key, or old signature.
+
+- name: no-silent-failure
+  where: "src/**/*.js"
+  each: method
+  ensure: >
+    Failures reach the caller. No catch returning a default, no ?? hiding a failed read.
+
+- name: tests-assert-real-behaviour
+  where: "test/**/*.js"
+  ensure: >
+    Tests assert on the code under test, not on mocks they set up or values they built.
+
+- name: one-name-per-thing
+  where: "src/**/*.js"
+  each: method
+  ensure: >
+    One name for one thing. No two options, flags, or keys that mean the same, and no alias kept
+    alongside the name it replaced.

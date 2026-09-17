@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
-import { lintRepository, lintStep, matches, readLint, readRules, selectUnits, testTitles } from '../src/lint.js';
+import { lintRepository, lintStep, matches, rank, readLint, readRules, selectUnits, testBlocks } from '../src/lint.js';
 import { formatLint, formatLintFile } from '../src/report.js';
 import { commitAll, makeGraphFixture } from './helpers.js';
 
@@ -51,7 +51,7 @@ describe('perch lint', () => {
     expect(rule.hash).toHaveLength(64);
 
     const missing = await repoWith('- name: nowhere\n  ensure: "Something"\n');
-    await expect(readRules(missing.root, missing.revision)).rejects.toThrow('needs where or over to say what it applies to');
+    await expect(readRules(missing.root, missing.revision)).rejects.toThrow('needs where to say what it applies to');
     const unnamed = await repoWith('- ensure: "Something"\n');
     await expect(readRules(unnamed.root, unnamed.revision)).rejects.toThrow('every rule needs a name');
   });
@@ -74,30 +74,48 @@ describe('perch lint', () => {
     // A file marked as a test is not linted as source.
     expect(at({ where: '**/*.js', each: 'method' }).every(unit => !unit.path.startsWith('test/'))).toBe(true);
     // The graph supplies the callers; h is called by f.
-    expect(at({ over: 'callers of h' }).map(unit => unit.name)).toEqual(['f']);
-    expect(() => at({ over: 'callers of nosuchmethod' })).toThrow('no method named nosuchmethod');
+    expect(at({ where: 'callers of h' }).map(unit => unit.name)).toEqual(['f']);
+    expect(() => at({ where: 'callers of nosuchmethod' })).toThrow('no method named nosuchmethod');
     // mentions is text, and says so: it finds the methods worth asking about.
-    expect(at({ over: 'mentions x - 1' }).map(unit => unit.name)).toEqual(['k']);
+    expect(at({ where: 'mentions x - 1' }).map(unit => unit.name)).toEqual(['k']);
   });
 
-  it('asks a noul for ensure and a choice for behaviour, and reads the answer as how sure it is broken', () => {
-    const rule = { name: 'r', kind: 'ensure', ensure: 'The comment says why.' };
-    const step = lintStep({ rule, unit: { path: 'src/a.js', name: 'f', line: 3, method: true }, source: 'function f() {}' });
+  it('asks a noul either way, and reads it as broken or as found depending on which way the rule was asked', () => {
+    const rule = { name: 'r', kind: 'ensure', text: 'The comment says why.' };
+    const step = lintStep({ rule, unit: { path: 'src/a.js', name: 'f', line: 3, part: true }, source: 'function f() {}' });
     expect(step.question.holds.type).toBe('noul');
-    expect(step.state).toMatchObject({ rule: 'r', path: 'src/a.js', method: 'f', line: 3 });
+    expect(step.state).toMatchObject({ rule: 'r', path: 'src/a.js', name: 'f', line: 3 });
     expect(readLint(rule, { holds: { noul: 0.2 } }).broken).toBeCloseTo(0.8);
 
-    const behaviour = { name: 'b', kind: 'behaviour', behaviour: 'An issue can be closed.' };
-    const cited = lintStep({ rule: behaviour, unit: { path: 'test/a.test.js', name: 'test/a.test.js', line: 1 }, source: '', titles: ['closes an issue'] });
-    expect(cited.question.cite.type).toBe('choice');
-    // The answer has to be a test you can open, or none. "Yes it is tested" is not an answer.
-    expect(Object.keys(cited.question.cite.criteria)).toEqual(['closes an issue', 'none']);
-    expect(readLint(behaviour, { cite: { choice: 'closes an issue', probabilities: { 'closes an issue': 0.9, none: 0.1 } } })).toEqual({ broken: expect.closeTo(0.1), cite: 'closes an issue' });
-    expect(readLint(behaviour, { cite: { choice: 'none', probabilities: { none: 0.8 } } })).toEqual({ broken: 0.8, cite: null });
+    // A search asks whether the thing is here. Wanting it and not wanting it read the same answer opposite ways.
+    const exist = { name: 'e', kind: 'ensure_exist', text: 'A test that closes an issue.' };
+    const nexist = { name: 'n', kind: 'ensure_nexist', text: 'A flag parsed and never used.' };
+    expect(lintStep({ rule: exist, unit: { path: 'test/a.test.js', name: 'test/a.test.js', line: 1 }, source: '' }).question.found.type).toBe('noul');
+    expect(readLint(exist, { found: { noul: 0.9 } })).toMatchObject({ here: 0.9, broken: 0 });
+    expect(readLint(nexist, { found: { noul: 0.9 } })).toMatchObject({ here: 0.9, broken: 0.9 });
   });
 
-  it('finds test titles to cite', () => {
-    expect(testTitles("it('closes an issue', async () => {\n  test.skip('other', () => {})\n  it.each([1])('t %i', () => {})\n")).toEqual(['closes an issue', 'other', 't %i']);
+  it('takes a test as a unit, so a search names the test and not the file it is in', () => {
+    const source = [
+      "describe('issues', () => {",
+      "  it('lists what a scan found', async () => {",
+      '    expect(out).toContain(id);',
+      '  });',
+      "  it.each([1])('closes an issue %i', async () => {",
+      '    await main([`close`, id]);',
+      '  });',
+      '});',
+    ].join('\n');
+    expect(testBlocks(source, 'test/cli.test.js')).toEqual([
+      { id: 'test/cli.test.js::lists what a scan found', path: 'test/cli.test.js', name: 'lists what a scan found', line: 2, end_line: 4, part: true },
+      { id: 'test/cli.test.js::closes an issue %i', path: 'test/cli.test.js', name: 'closes an issue %i', line: 5, end_line: 8, part: true },
+    ]);
+  });
+
+  it('asks the likeliest unit first, so a search that finds its answer stops there', () => {
+    const rule = { name: 'r', kind: 'ensure_exist', text: 'A test that closes an issue with a reason' };
+    const units = [{ path: 'test/graph.test.js', name: 'graph' }, { path: 'test/cli.test.js', name: 'closes an issue' }, { path: 'test/scan.test.js', name: 'scan' }];
+    expect(rank(rule, units)[0].name).toBe('closes an issue');
   });
 
   it('reports what broke, exits on it, and does not ask twice about unchanged code', async () => {
@@ -117,13 +135,18 @@ describe('perch lint', () => {
     expect(seen.map(file => file.path)).toEqual(['src/a.js', 'src/b.js']);
     expect(seen[0]).toMatchObject({ checked: 2, findings: [{ name: 'f' }, { name: 'g' }] });
     // The percentage is the share that passed, so a clean file reads 100% like every other tool in a build.
-    expect(formatLintFile(seen[0])).toMatch(/^src\/a\.js {2}0% {2}0 of 2 checks passed$/m);
-    expect(formatLintFile(seen[0])).toMatch(/^ {2}\d+ {2}comment-says-why {2}f$/m);
+    // Grouped by rule, with the rule's own sentence over its findings: a typed answer carries no message of its own.
+    const block = formatLintFile(seen[0]);
+    expect(block).toMatch(/^src\/a\.js {2}0% {2}0 of 2 checks passed$/m);
+    expect(block).toMatch(/^ {2}\d+ {2}comment-says-why {2}f$/m);
     expect(formatLintFile({ path: 'src/c.js', checked: 4, findings: [] })).toBe('src/c.js  100%  4 of 4 checks passed');
 
-    const shown = formatLint(run, { width: 100 });
+    // The summary counts them; the files already said what each rule wanted.
+    const shown = formatLint(run);
     expect(shown).toContain('0%  0 of 4 checks passed. 4 failed in 2 files.');
-    expect(shown).toContain('comment-says-why  The comment says why.');
+    // The rules that fired are spelled out once, in a table, rather than over every file they touched.
+    expect(shown).toMatch(/^ +Failed {2}Rule +What it asks$/m);
+    expect(shown).toMatch(/^ +4 {2}comment-says-why {2}The comment says why\.$/m);
 
     // Asked once. The same code under the same rule is read from the log.
     const held = [];
@@ -140,7 +163,7 @@ describe('perch lint', () => {
     const tightened = await lintRepository({ ...options, revision: await revision(repo.root), systemOne: answering(0.9) });
     expect(tightened.asked).toBe(4);
     expect(tightened.findings).toHaveLength(0);
-    expect(formatLint(tightened)).toBe('1 rule, 4 checks, all passed');
+    expect(formatLint(tightened)).toBe('1 rule, 4 checks, all passed.');
   });
 
   it('asks only about what a branch changed', async () => {
@@ -151,10 +174,15 @@ describe('perch lint', () => {
     await commitAll(repo.root, 'docs');
     const at = await revision(repo.root);
 
-    const everything = await lintRepository({ ...repo, revision: at, analyzer, systemOne: answering(0.9) });
-    expect(everything.checked).toBe(3);
-    const narrowed = await lintRepository({ ...repo, revision: at, analyzer, systemOne: answering(0.9), paths: ['doc/one.md'], force: true });
-    expect(narrowed.checked).toBe(1);
-    expect(narrowed.findings).toHaveLength(0);
+    // Nothing on record yet, so a narrowed run asks about the one file and says the other two were never checked.
+    const first = await lintRepository({ ...repo, revision: at, analyzer, systemOne: answering(0.1), paths: ['doc/one.md'] });
+    expect(first).toMatchObject({ asked: 1, unchecked: 2 });
+    expect(formatLint(first)).toContain('2 never checked');
+
+    // Now the rest is answered, a narrowed run asks about that file alone and still reports what the others said.
+    await lintRepository({ ...repo, revision: at, analyzer, systemOne: answering(0.1) });
+    const narrowed = await lintRepository({ ...repo, revision: at, analyzer, systemOne: answering(0.1), paths: ['doc/one.md'] });
+    expect(narrowed).toMatchObject({ asked: 0, unchecked: 0, skipped: 3 });
+    expect(narrowed.findings.map(finding => finding.path).sort()).toEqual(['README.md', 'doc/one.md', 'doc/two.md']);
   });
 });

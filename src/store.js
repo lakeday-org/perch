@@ -51,6 +51,8 @@ const fixApplies = (fix, finding) => {
 const dismissalApplies = (event, finding) => event?.type === 'dismissed' && event.hash === finding.hash;
 const summarizeFix = work => ({ id: work.fix_id, status: work.status, notes: work.notes ?? null, at: work.at, summary: work.summary ?? null, commit: work.commit ?? null, branch: work.branch ?? null, patch_path: work.patch_path ?? null, before: work.before ?? null, after: work.after ?? null, reason: work.reason ?? null, error: work.error ?? null, attempts: work.attempts ?? 0 });
 
+/** Lines of a broken rule's unit worth printing; past this it is a file to open, not a thing to read in a terminal. */
+const SOURCE_LINES = 40;
 const byCreation = (a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '') || a.id.localeCompare(b.id);
 
 export function openStore(out) {
@@ -84,13 +86,21 @@ export function openStore(out) {
     },
     /** The latest hunted, fixed, and dismissed-or-reopened event per method. Events from before findings had ids and per-kind answers are ignored. */
     async indexes() {
-      const latest = new Map(), fixes = new Map(), dismissals = new Map();
+      const latest = new Map(), fixes = new Map(), dismissals = new Map(), lint = new Map();
       for (const event of await store.readEvents()) {
         if (event.type === 'hunted' && event.id && event.kinds) latest.set(event.method, event);
         else if (event.type === 'fixed') fixes.set(event.method, event);
         else if (event.type === 'dismissed' || event.type === 'reopened') dismissals.set(event.method, event);
+        // One entry per rule and unit: the newest answer replaces the last, and a run that clears a rule writes `cleared`.
+        else if (event.type === 'linted') { if (event.cleared) lint.delete(event.id); else lint.set(event.id, event); }
       }
-      return { latest, fixes, dismissals };
+      return { latest, fixes, dismissals, lint };
+    },
+    /** What a lint run found, as events, so a broken rule is a finding in the same log as everything else. */
+    async recordLint(findings, cleared = []) {
+      const at = new Date().toISOString();
+      for (const id of cleared) await store.appendEvent({ type: 'linted', at, id, cleared: true });
+      for (const finding of findings) await store.appendEvent({ type: 'linted', at, ...finding });
     },
     /** Set a finding aside, or put it back. Append-only like everything else: the log keeps who said what and when. */
     async dismiss(finding, reason) {
@@ -120,7 +130,7 @@ export function openStore(out) {
      */
     async issues(min = 0.5, { scan = null, all = false } = {}) {
       const findings = await store.latestFindings();
-      const { fixes, dismissals } = await store.indexes();
+      const { fixes, dismissals, lint } = await store.indexes();
       scan ??= await store.latestScan();
       const byMethod = new Map(findings.map(finding => [finding.method, finding]));
       const every = [];
@@ -141,6 +151,8 @@ export function openStore(out) {
       } else every.push(...findings);
       // Listed when the scan believes at least one thing about the method, ranked by what its problems are expected to cost.
       // The ranking counts every answer at its probability, so a method kept for one issue at 80% still sorts on all of them.
+      // A broken rule is its own finding: it may be about a file with no methods at all, so it does not join the scan's list.
+      for (const event of lint.values()) every.push({ ...event, lint: { rule: event.rule, broken: event.broken, text: event.text ?? null, said: event.said ?? null } });
       return every.map(finding => {
         const dismissal = dismissals.get(finding.method);
         return dismissalApplies(dismissal, finding) ? { ...finding, dismissed: { at: dismissal.at, reason: dismissal.reason ?? null } } : finding;
@@ -162,11 +174,21 @@ export function openStore(out) {
       const root = (await store.listHunts()).at(-1)?.root;
       if (!root) return findings;
       const blobs = new Map();
-      for (const finding of findings) {
-        if (finding.where?.text !== undefined || !finding.where?.line) continue;
+      const linesOf = async finding => {
         const key = `${finding.revision}:${finding.path}`;
         if (!blobs.has(key)) blobs.set(key, await git(['show', key], root).then(text => text.split('\n')).catch(() => null));
-        finding.where.text = blobs.get(key)?.[finding.where.line - 1]?.trim() ?? '';
+        return blobs.get(key);
+      };
+      for (const finding of findings) {
+        // A broken rule is read by deciding whether to change the code, so the code it was asked about comes with it.
+        if (finding.lint && !finding.lint.source) {
+          const lines = (await linesOf(finding)) ?? [];
+          const from = finding.line ?? 1, to = Math.min(finding.end_line ?? from, from + SOURCE_LINES - 1);
+          finding.lint.source = lines.slice(from - 1, to).map((text, index) => `${String(from + index).padStart(5)}| ${text}`).join('\n');
+          finding.lint.more = Math.max(0, (finding.end_line ?? from) - to);
+        }
+        if (finding.where?.text !== undefined || !finding.where?.line) continue;
+        finding.where.text = (await linesOf(finding))?.[finding.where.line - 1]?.trim() ?? '';
       }
       return findings;
     },
