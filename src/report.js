@@ -54,10 +54,10 @@ const locationOf = (finding, min) => `${finding.path}:${issuesOf(finding, min)[0
 /** Aligned rows of methods with issues: everything the scan raised about each, defects and design alike. */
 function issueTable(findings, min = 0) {
   // Severity is asked about a behavioral defect, so a method whose issues are all design or security has none to show.
-  const rows = findings.map(finding => [finding.id, finding.name, locationOf(finding, min), issueCell(finding, min),
+  const rows = findings.map(finding => [finding.id, finding.name, locationOf(finding, min), issuesOf(finding, min)[0]?.type ?? '-', issueCell(finding, min),
     issuesOf(finding, min).some(issue => issue.type === 'defect') ? severityName(finding.severity) : '-', ...statusRow(finding)]);
-  // A column is named after the filter that reads it: the cell holds kinds, and `--filter kind=too_big` is how you narrow to one.
-  return table(['ID', 'Method', 'Location', 'Kind', 'Severity', 'Status', 'Commit'], rows, ['left', 'left', 'left', 'left', 'left', 'left', 'left']);
+  // Every column a filter reads is named after it. Type is the class the row leads with, which is the one `--filter type=` ranks by.
+  return table(['ID', 'Method', 'Location', 'Type', 'Kind', 'Severity', 'Status', 'Commit'], rows, ['left', 'left', 'left', 'left', 'left', 'left', 'left', 'left']);
 }
 
 
