@@ -311,7 +311,7 @@ export function formatRules(rules, { width = WIDTH(), own = new Set() } = {}) {
   // A question written out longhand rather than with `ensure` is listed under what it asks for, since that is what it is.
   // The floor is part of what a question asks for, so it is on the row rather than only in the file.
   const asks = rule => (rule.disabled ? 'off' : `${rule.kind ?? rule.type}${rule.min == null ? '' : ` >${rule.min}%`}`);
-  const from = rule => (own.has(rule.name) ? 'yours' : 'perch');
+  const from = rule => (own.has(rule.name) ? RULES_FILE : 'builtin');
   const named = Math.max(4, ...rules.map(rule => rule.name.length));
   const kind = Math.max(4, ...rules.map(rule => asks(rule).length));
   const source = Math.max(4, ...rules.map(rule => from(rule).length));

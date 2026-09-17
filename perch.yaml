@@ -29,10 +29,10 @@
     them, or it is not producing a list for a person to read.
 
 - name: one-way-into-the-log
-  where: mentions events.jsonl
-  ensure: >
-    This method appends through store.appendEvent rather than writing the file
-    itself.
+  where: mentions .jsonl
+  ensure: >-
+    This method reads and writes the results files through the store, not by
+    opening them itself.
 
 - name: env-read-once
   where: "src/**/*.js"
@@ -58,9 +58,11 @@
 - name: no-legacy-fallback
   where: "src/**/*.js"
   each: method
-  ensure: >
-    One way of doing the job. No branch kept for an old format, old key, or old
-    signature.
+  min: 80
+  ensure: >-
+    One way of doing the job. No branch that exists to handle a format, key,
+    option or signature that used to be supported. A default for a value that
+    was never set, or an entry initialised on first use, is not this.
 
 - name: no-silent-failure
   where: "src/**/*.js"
