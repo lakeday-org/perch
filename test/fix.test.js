@@ -78,7 +78,7 @@ describe('perch fix', () => {
     expect(meter.cost('jev-latest')).toBeCloseTo(0.042);
     expect(meter.cost('gpt-5.6-luna')).toBeCloseTo(0.05 * 0.2 + 0.05 * 0.02 + 0.01 * 1.2);
     // One line for the run, not one per model: which model answered is a detail of the day, and toJSON keeps the breakdown.
-    expect(meter.lines()).toEqual(['2 turns, 4 requests  1.1M in (50k cached) / 10k out  $0.07']);
+    expect(meter.lines()).toEqual(['2 turns, 4 requests  1.1M tokens in (50k cached) / 10k out  $0.07']);
     expect(Object.keys(meter.toJSON()).sort()).toEqual(['gpt-5.6-luna', 'jev-latest']);
     expect(createMeter().lines()).toEqual([]);
   });

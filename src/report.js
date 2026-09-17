@@ -19,7 +19,8 @@ function table(header, rows, align) {
 }
 
 const number = value => value === null || value === undefined ? '-' : Math.round(value);
-const relative = path => path.startsWith(process.cwd() + '/') ? path.slice(process.cwd().length + 1) : path;
+/** A path as short as it can be said: the directory's own name when it is where you are, otherwise relative to here. */
+const relative = path => (path === process.cwd() ? path.split('/').at(-1) : path.startsWith(process.cwd() + '/') ? path.slice(process.cwd().length + 1) : path);
 
 const percent = value => `${Math.round(value * 100)}%`;
 const words = label;
@@ -102,7 +103,7 @@ export function scanCount(hunt) {
   if (hunt.skipped) parts.push(`${hunt.skipped} unchanged`);
   if (hunt.remaining) parts.push(`${hunt.remaining} unread`);
   if (hunt.error) parts.push(`error: ${hunt.error}`);
-  return `${relative(hunt.target)} at ${hunt.revision?.slice(0, 7) ?? '?'}: ${parts.join(', ')}`;
+  return `${relative(hunt.target)} at commit ${hunt.revision?.slice(0, 7) ?? '?'}: ${parts.join(', ')}`;
 }
 
 /** "115 open issues, 10 shown (--all for the rest). 6 closed (--closed)." */

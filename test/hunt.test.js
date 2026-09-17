@@ -110,7 +110,7 @@ describe('perch hunt', () => {
     expect(again.calls).toBe(0);
     expect(again.skipped).toBe(4);
     expect(again.to_read).toBe(0);
-    expect(scanCount(again)).toContain('4 methods, read 0, 4 unchanged');
+    expect(scanCount(again)).toMatch(/at commit [0-9a-f]{7}: 4 methods, read 0, 4 unchanged$/);
     expect(formatScanRun(again, [])).toBe('Nothing matches.');
 
     // Changing one method makes only that method huntable again.
