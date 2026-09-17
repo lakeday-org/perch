@@ -263,8 +263,10 @@
   where: "**/*"
   ask: Is this true of `method`?
   true: >-
-    An index, length, or offset can reach past the end of a buffer, string,
-    slice, or array, on a read or a write
+    An index, length or offset reaches past the end of a string, array, buffer
+    or typed array. Where the language does not fault on that, the read returns
+    undefined or the write lands somewhere nothing reads, which is harder to
+    notice rather than safer.
   false: Nothing in `method` does this.
   issue: { type: security, label: self, pick: strongest }
   min: 70
@@ -274,8 +276,10 @@
   where: "**/*"
   ask: Is this true of `method`?
   true: >-
-    Something freed, closed, moved, unlocked, or otherwise finished with is used
-    again, or released twice
+    Something already closed, aborted, destroyed or released is used again, or
+    released twice. A stream written after it ended, a handle read after close,
+    a controller used after abort, a connection used after it went back to the
+    pool.
   false: Nothing in `method` does this.
   issue: { type: security, label: self, pick: strongest }
   min: 70
@@ -285,8 +289,10 @@
   where: "**/*"
   ask: Is this true of `method`?
   true: >-
-    A value is read on a path where nothing has written it yet, so what a caller
-    gets is whatever was there
+    A value is read before anything has written it, so what comes back is
+    undefined where a value was meant to be. A field never set, a binding read
+    before its declaration runs, or a result used before the work that produces
+    it has finished.
   false: Nothing in `method` does this.
   issue: { type: security, label: self, pick: strongest }
   min: 70

@@ -79,9 +79,3 @@
   ensure: >
     Tests assert on the code under test, not on mocks they set up or values they
     built.
-- name: uninitialized_use
-  disabled: true
-- name: buffer_overflow
-  disabled: true
-- name: use_after_free
-  disabled: true
