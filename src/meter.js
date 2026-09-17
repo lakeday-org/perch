@@ -1,12 +1,15 @@
 /** Token usage and cost per model, for the summary at the end of every scan. */
 
-/** Published prices, dollars per million tokens. Output is free on System One, which is the only model perch talks to. */
+/**
+ * Published prices, dollars per million tokens, by family. Output is free on System One, which is the only model perch talks to.
+ * A price is published for a family and a request comes back naming a version of it, so `jev-1.13.0` is priced as `jev`.
+ */
 export const PRICES = {
-  'jev-latest': { input: 0.042, cached: 0.042, output: 0 },
+  jev: { input: 0.042, cached: 0.042, output: 0 },
 };
 
-/** A model nobody published a price for costs an unknown amount, which is worth saying rather than guessing from its name. */
-const priceOf = model => PRICES[model] ?? null;
+/** A family nobody published a price for costs an unknown amount, which the summary says rather than guessing. */
+const priceOf = model => PRICES[model] ?? PRICES[String(model).split('-')[0]] ?? null;
 
 export function createMeter() {
   const models = new Map();
