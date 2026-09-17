@@ -3,3 +3,7 @@ dist/
 .perch/*
 !.perch/closed.jsonl
 .env
+
+# A lock or a half-written rule file, left by a perch that died mid-edit.
+perch.yaml.lock
+perch.yaml.*.tmp

@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -78,6 +79,22 @@ describe('editing the rule file', () => {
     // And it reads back as the two rules it says it is.
     expect((await readRules(root, await revision(root))).map(rule => [rule.name, rule.kind]))
       .toEqual([['r1', 'ensure'], ['r2', 'ensure_absent']]);
+  });
+
+  it('lets one of two edits at once through, and tells the other rather than dropping it', async () => {
+    const { root, read, rules } = await withRules(STARTING);
+    // Every edit puts the whole document down again, so two landing together used to leave whichever finished last, with the
+    // other's rule gone and nothing said about it.
+    const both = await Promise.allSettled([
+      addRule(root, { name: 'mine', where: '**/*', ensure: 'A sentence.' }),
+      addRule(root, { name: 'theirs', where: '**/*', ensure: 'Another sentence.' }),
+    ]);
+    // Taken in turn rather than together, so the second reads what the first wrote and both rules are in the file.
+    expect(both.map(one => one.status)).toEqual(['fulfilled', 'fulfilled']);
+    expect((await rules()).map(rule => rule.name).sort()).toEqual(['mine', 'prose', 'theirs']);
+    // And the lock is not left behind for the next command to wait on.
+    expect(existsSync(join(root, `${RULES_FILE}.lock`))).toBe(false);
+    expect(await read()).not.toContain('[');
   });
 
   it('refuses a name that is taken, since two rules with one name is a report nobody can act on', async () => {

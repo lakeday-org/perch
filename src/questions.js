@@ -194,7 +194,7 @@ export function issuesFor(finding, min = 0, filters = []) {
 export const isDesign = issue => issue.type !== 'defect' && issue.type !== 'security';
 /** Design problems do not count here: a method nobody can break is not flagged for being ugly. */
 export const flagged = (answers, min = 0) => issuesOf(answers, min).some(issue => !isDesign(issue));
-/** The complement of flagged, so a method with neither is one the scan has nothing to say about. */
+/** Not the opposite of flagged: a method can be both wrong and badly shaped, and the two are counted and ranked apart. */
 export const needsDesign = (answers, min = 0) => issuesOf(answers, min).some(isDesign);
 export const hasIssue = (answers, min = 0) => issuesOf(answers, min).length > 0;
 

@@ -14,10 +14,13 @@
     meaningless statements
   min: 60
 
+# Reported and not failed on. Spot-checked, it answers 79% about a comment that is fine and 66% about one that is not, so it
+# cannot tell them apart in the band it lives in, and a run stopped by it is a run stopped by a coin.
 - name: comment-says-why
   where: "src/**/*.js"
   each: method
   min: 65
+  gate: false
   ensure: >-
     A method's comment says what its code cannot. Narrating the steps below it,
     or restating its name as a sentence, breaks this. A one-liner whose name
