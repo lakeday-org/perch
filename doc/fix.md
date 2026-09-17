@@ -26,9 +26,21 @@ simply had no question.
 ## The prompt
 
 Everything the scan knew: every answer with its probability, the flagged line
-and how sure, the severity distribution, which calls and callers look wrong, the
-file's metrics, and the neighbourhood — imports, module scope, the callees'
-source, the callers' source around each call site, the call graph.
+and how sure, the severity distribution, which calls and callers look wrong, and
+the file's metrics.
+
+Then the neighbourhood, as compact JSON: the file's imports and module scope, up
+to 24 callees with their **full** source, up to 24 callers with theirs and the
+line where each calls the method, and the call graph among them. Up to 256KB of
+it, which is five times what System One is given.
+
+That asymmetry is deliberate. A `read` call costs a round trip and seconds of the
+model's own thinking, so a callee cut off at eighty lines saves a few thousand
+tokens and spends a turn fetching the rest. The model should be reading files
+only for what perch did not already gather.
+
+The method's own source is in the prompt once, as the `ORIGINAL` block, verbatim
+and untagged because those are the exact lines being replaced.
 
 Lines `start`–`end` of the file are what the model replaces: the comment above
 the method, the method, and any sibling helpers it needs in that range. The

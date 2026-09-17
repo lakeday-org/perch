@@ -6,7 +6,8 @@ import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { scanRepository } from '../src/hunt.js';
 import { fileBudget, fileObjections, fixIssues, fixMethod, improvement, plainNotes, pendingFixes, regionStart, sameLines, splitStale, underPath } from '../src/fix.js';
-import { huntAnswers } from '../src/prompts.js';
+import { fixPrompt, huntAnswers } from '../src/prompts.js';
+import { FIX_LIMITS, FIX_STATE_BUDGET, huntStep } from '../src/questions.js';
 import { createMeter, money } from '../src/meter.js';
 import { createShell } from '../src/shell.js';
 import { openStore } from '../src/store.js';
@@ -120,6 +121,24 @@ describe('perch fix', () => {
     expect(plainNotes('This change fixes the upper bound branch so that callers get the right value back every time.')).toMatchObject({ error: expect.stringContaining('not "This change"') });
     expect(plainNotes('- the bound was wrong\n- it is right now, which callers depend on for every clamped value')).toMatchObject({ error: 'notes must be sentences, not bullets' });
     expect(plainNotes('Leveraged a robust approach to the upper bound so that every caller gets a correct value back.')).toMatchObject({ error: expect.stringContaining('"Leveraged"') });
+  });
+
+  it('hands the model the neighbourhood whole, once, and without spaces to pay for', () => {
+    const lines = ['/** what it does */', 'export function target(v) {', '  return helper(v);', '}'];
+    const helper = { node: { id: 'src/a.js::helper', qualified_name: 'helper', path: 'src/a.js', line: 1, end_line: 300 }, lines: Array.from({ length: 300 }, (_, index) => `  step(${index});`), calls: [] };
+    const node = { path: 'src/a.js', qualified_name: 'target', line: 2, end_line: 4, metrics: { risk_score: 40 } };
+    const scan = huntStep({ node, lines, callees: [helper], callers: [] }).state;
+    const context = huntStep({ node, lines, callees: [helper], callers: [], budget: FIX_STATE_BUDGET, limits: FIX_LIMITS }).state;
+    // The scan reads an excerpt of a 300-line callee; the model that has to rewrite against it gets the whole thing.
+    expect(scan.calls[0].source).toContain('more lines)');
+    expect(context.calls[0].source).not.toContain('more lines)');
+
+    const prompt = fixPrompt({ finding: { path: 'src/a.js', name: 'target' }, before: [], state: context, region: lines.join('\n'), start: 2, end: 4 });
+    // The method is the ORIGINAL block; a second tagged copy inside the context would be paid for twice.
+    expect(prompt).toContain('export function target(v) {');
+    expect(prompt).not.toContain('L0002| export function target(v) {');
+    // And the context is JSON nobody has to read, so it is not indented.
+    expect(prompt).toContain('"calls":[{');
   });
 
   it('tells the model everything System One answered, with probabilities', () => {

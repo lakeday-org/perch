@@ -13,7 +13,7 @@ import { formatFix, visibleFindings } from './report.js';
 import { languageOf } from './analysis.js';
 import { analyzeTree } from './scan.js';
 import { buildGraph, resolveModule } from './graph.js';
-import { ANSWERS_VERSION, expectedIssues, huntStep, issuesOf } from './questions.js';
+import { ANSWERS_VERSION, expectedIssues, FIX_LIMITS, FIX_NEIGHBOURS, FIX_STATE_BUDGET, huntStep, issuesOf } from './questions.js';
 import { identity, openStore, readJson, sha256, writeJson } from './store.js';
 import { fixPrompt, goalOf } from './prompts.js';
 import { Abort, DEFAULT_EFFORT, tool } from './model.js';
@@ -187,8 +187,11 @@ export async function methodContext({ finding, root, out, analyzer, revision = f
   const { imports, methods } = graph.files.get(node.path).file;
   const fileLines = await linesOf(node);
   const step = huntStep({ node, lines: fileLines, imports, methods, callees, callers });
+  // What the rewriting model sees is not what System One sees: whole neighbours rather than excerpts, so it is not sent reading
+  // files to find a contract perch already has. The scan's own state stays as it was, or a rescan would not compare like for like.
+  const context = huntStep({ node, lines: fileLines, imports, methods, callees, callers, budget: FIX_STATE_BUDGET, limits: FIX_LIMITS, maxCallees: FIX_NEIGHBOURS, maxCallers: FIX_NEIGHBOURS }).state;
   const method = fileLines.slice(node.line - 1, node.end_line).join('\n');
-  return { scan, graph, node, fileLines, method, callees, callers, calleeIds, callerIds, imports, methods, step, changed: Boolean(finding.hash) && node.hash !== finding.hash };
+  return { scan, graph, node, fileLines, method, callees, callers, calleeIds, callerIds, imports, methods, step, context, changed: Boolean(finding.hash) && node.hash !== finding.hash };
 }
 
 export async function fixMethod({ finding: hunted, root, out, model, systemOne: rawSystemOne, analyzer, shell, ui = plainUi(), meter = createMeter(), position = '', debug = () => {} }) {
@@ -218,7 +221,7 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
   let placed = false;
   try {
     // The method as it reads at HEAD, with the neighborhood the scan showed System One. If it changed since, System One reads it again first.
-    const { scan, graph, node, fileLines, callees, callers, calleeIds, callerIds, imports, methods, step, changed } = await methodContext({ finding: hunted, root, out, analyzer, revision, log: debug });
+    const { scan, graph, node, fileLines, callees, callers, calleeIds, callerIds, imports, methods, step, context, changed } = await methodContext({ finding: hunted, root, out, analyzer, revision, log: debug });
     const fileOf = () => scan.files.find(file => file.path === node.path);
     finding = { ...hunted, line: node.line, end_line: node.end_line, metrics: node.metrics, file: fileOf()?.metrics ?? null, where: hunted.where ? { ...hunted.where, line: hunted.where.line + node.line - hunted.line } : hunted.where };
     const stale = finding.has_bug !== undefined && (finding.answers_version ?? 1) !== ANSWERS_VERSION;
@@ -407,7 +410,7 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
         running.update(`working (turn ${event.turn}, effort ${effort})`);
       }
     };
-    const run = await model.run({ prompt: fixPrompt({ finding, before, fileMetrics: trim(base), budget: fileBudget(base, { security: before.some(issue => issue.type === 'security') }), state: step.state, region, start, end, checks: checks.map(check => check.name) }), tools, effort, onEvent });
+    const run = await model.run({ prompt: fixPrompt({ finding, before, fileMetrics: trim(base), budget: fileBudget(base, { security: before.some(issue => issue.type === 'security') }), state: context, region, start, end, checks: checks.map(check => check.name) }), tools, effort, onEvent });
     meter.add(model.id, run.usage, { turns: run.turns, requests: run.turns });
     Object.assign(fix, { trace: run.trace, turns: run.turns });
     if (!accepted) {

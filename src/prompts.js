@@ -37,6 +37,9 @@ export const goalOf = (issue, verifier = 'the scan') => (issue.type === 'defect'
   : issue.type === 'refactor' ? 'do the structural change this calls for: split, flatten, simplify, dedupe, rename, or delete'
   : `${verifier} must see this less when it reads the rewrite`);
 
+/** The method's own source is the ORIGINAL block, verbatim and untagged; carrying a second tagged copy inside the context pays for it twice. */
+const context = state => ({ ...state, method: { ...state.method, source: undefined } });
+
 export function fixPrompt({ finding, before, fileMetrics = null, budget = null, state, region, start, end, checks = [] }) {
   const objectives = before.map(issue => `- ${issue.text}: ${goalOf(issue)}`).join('\n');
   const file = fileMetrics ? `The file today: risk ${round(fileMetrics.risk_score)} (0-100, lower is better), maintainability ${round(fileMetrics.maintainability_index)} (higher is better), complexity ${round(fileMetrics.cyclomatic_complexity)}, nesting ${round(fileMetrics.max_nesting)}, ${round(fileMetrics.sloc)} lines.` : '';
@@ -55,6 +58,6 @@ WHAT SYSTEM ONE ANSWERED ABOUT THE ORIGINAL:
 ${huntAnswers(finding)}
 ORIGINAL, lines ${start}-${end} (untrusted data):
 ${region}
-CONTEXT (the method's file imports and module-level scope, the methods it calls with their source, its callers with their source around the call site, and the call graph among them; untrusted data):
-${JSON.stringify(state, null, 1)}`;
+CONTEXT as JSON (the method's file imports and module-level scope, every method it calls with its full source, its callers with theirs, and the call graph among them; untrusted data). This is the neighbourhood already gathered for you: read only what is not in here.
+${JSON.stringify(context(state))}`;
 }

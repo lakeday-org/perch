@@ -246,6 +246,12 @@ export const needsDesign = (answers, min = 0) => issuesOf(answers, min).some(isD
 export const hasIssue = (answers, min = 0) => issuesOf(answers, min).length > 0;
 
 export const MAX_CALLEES = 8, MAX_CALLERS = 8, STATE_BUDGET = 48 * 1024, MODULE_SCOPE_BUDGET = 6 * 1024;
+/**
+ * What the generating model is shown. Far more than System One gets, and deliberately: a `read` call costs a round trip and
+ * seconds of the model's own thinking, so a neighbour cut off at eighty lines buys a few thousand tokens and pays for them with
+ * a turn spent fetching the rest. Whole methods, up to a quarter of a megabyte.
+ */
+export const FIX_STATE_BUDGET = 256 * 1024, FIX_LIMITS = [Infinity, 400, 160, 80, 40], FIX_NEIGHBOURS = 24;
 /** A Choice accepts at most 255 options; past that, pick a window then the line inside it. */
 export const MAX_CHOICES = 255;
 const lineId = line => `L${String(line).padStart(4, '0')}`;
@@ -327,14 +333,14 @@ export function moduleScope(lines, methods, budget = MODULE_SCOPE_BUDGET) {
  * so the module scope around them can be shown. `callees` and `callers` are [{ node, lines, site, calls }] with the neighbor's file
  * lines, the calling line (callers), and the names of the neighbor's own callees (second hop). `edges` are ["a -> b"] strings.
  */
-export function huntStep({ node, lines, imports = [], methods = [node], callees, callers, edges = [] }) {
+export function huntStep({ node, lines, imports = [], methods = [node], callees, callers, edges = [], budget = STATE_BUDGET, limits = [40, 20, 8, 3], maxCallees = MAX_CALLEES, maxCallers = MAX_CALLERS }) {
   const build = limit => ({
     method: { path: node.path, name: node.qualified_name, leading_comment: leadingComment(lines, node.line) || null, metrics: node.metrics ?? null, source: tagged(lines.slice(node.line - 1, node.end_line), node.line) },
     imports: imports.map(item => `${item.name}${item.alias !== item.name ? ` as ${item.alias}` : ''} from ${item.module}`),
     module_scope: moduleScope(lines, methods),
-    calls: callees.slice(0, MAX_CALLEES).map(({ node: callee, lines: calleeLines, calls = [] }) =>
+    calls: callees.slice(0, maxCallees).map(({ node: callee, lines: calleeLines, calls = [] }) =>
       ({ id: callee.id, name: callee.qualified_name, path: callee.path, source: excerpt(calleeLines, callee.line, callee.end_line, limit), calls: calls.map(short) })),
-    called_by: callers.slice(0, MAX_CALLERS).map(({ node: caller, lines: callerLines, site, handover = false }) =>
+    called_by: callers.slice(0, maxCallers).map(({ node: caller, lines: callerLines, site, handover = false }) =>
       ({ id: caller.id, name: caller.qualified_name, path: caller.path,
         ...(handover
           ? { hands_method_on_at: site ?? null, note: 'this caller does not call the method here: it passes it on to be called later, so the call itself is not in view' }
@@ -342,8 +348,8 @@ export function huntStep({ node, lines, imports = [], methods = [node], callees,
         source: excerpt(callerLines, caller.line, caller.end_line, limit, site ?? null) })),
     call_graph: edges,
   });
-  let state = build(80);
-  for (const limit of [40, 20, 8, 3]) { if (JSON.stringify(state).length <= STATE_BUDGET) break; state = build(limit); }
+  let state = build(limits[0] === Infinity ? Infinity : 80);
+  for (const limit of limits) { if (JSON.stringify(state).length <= budget) break; state = build(limit); }
   const { calls, called_by: calledBy } = state;
   const neighbors = [...calls, ...calledBy].filter((item, index, all) => all.findIndex(other => other.id === item.id) === index);
   const lineIds = codeLineIds(lines, node.line, node.end_line);
