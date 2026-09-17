@@ -199,12 +199,6 @@ export const needsDesign = (answers, min = 0) => issuesOf(answers, min).some(isD
 export const hasIssue = (answers, min = 0) => issuesOf(answers, min).length > 0;
 
 export const MAX_CALLEES = 8, MAX_CALLERS = 8, STATE_BUDGET = 48 * 1024, MODULE_SCOPE_BUDGET = 6 * 1024;
-/**
- * What the generating model is shown. Far more than System One gets, and deliberately: a `read` call costs a round trip and
- * seconds of the model's own thinking, so a neighbor cut off at eighty lines buys a few thousand tokens and pays for them with
- * a turn spent fetching the rest. Whole methods, up to a quarter of a megabyte.
- */
-export const FIX_STATE_BUDGET = 256 * 1024, FIX_LIMITS = [Infinity, 400, 160, 80, 40], FIX_NEIGHBOURS = 24;
 /** A Choice accepts at most 255 options; past that, pick a window then the line inside it. */
 export const MAX_CHOICES = 255;
 export const lineId = line => `L${String(line).padStart(4, '0')}`;

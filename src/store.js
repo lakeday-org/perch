@@ -34,12 +34,6 @@ async function entries(dir) {
   catch (error) { if (error.code === 'ENOENT') return []; throw error; }
 }
 
-/** A fix counts for a finding when the method read the same when it was made as when it was read by System One. */
-/**
- * Whether a recorded fix still describes this method: the code it was about, or, for one that landed, the code it produced.
- * Anything else means the method has moved on since, and it is workable again.
- */
-
 /** Lines of a broken rule's unit worth printing; past this it is a file to open, not a thing to read in a terminal. */
 const SOURCE_LINES = 40;
 /**

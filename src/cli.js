@@ -1,4 +1,4 @@
-/** perch command line: scan, issues, fix. */
+/** perch command line: scan, issues, check, close, rules, doctor. */
 import { join } from 'node:path';
 import { repoRoot, revision as gitRevision } from './git.js';
 import { resolveTarget } from './target.js';
