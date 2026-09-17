@@ -41,6 +41,7 @@
   ensure: >
     This method does not read process.env. Reading the environment is the
     command line's job, and everything below it is passed the values.
+  min: 80
 
 - name: issues-closable
   where: "test/**/*.js"
