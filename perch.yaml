@@ -1,0 +1,76 @@
+# Rules perch checks on a scan. Each one is a question put to a model about one file or one method, so these are the
+# things a parser cannot prove: whether a comment says why, whether a listing honors a filter, whether a behavior is asserted
+# anywhere. Editing a rule's wording re-asks it; leaving it alone costs nothing.
+
+- name: prose-not-generated
+  where: "**/*.md"
+  ensure: >
+    The file does not sound AI generated
+
+- name: docs-succinct
+  where: "**/*.md"
+  ensure: >
+    Documentation is kept succinct and deliberate. No follow ups, em-dashes, and
+    meaningless statements
+
+- name: comment-says-why
+  where: "src/**/*.js"
+  each: method
+  ensure_absent: >-
+    A comment that narrates the steps below it, or restates the method's name as
+    a sentence.
+
+- name: closed-never-listed
+  where: callers of issues
+  ensure: >
+    This method passes the findings through visibleFindings before a person sees
+    them, or it is not producing a list for a person to read.
+
+- name: one-way-into-the-log
+  where: mentions .jsonl
+  ensure: >-
+    This method reads and writes the results files through the store, not by
+    opening them itself.
+
+- name: env-read-once
+  where: "src/**/*.js"
+  except: "src/cli.js"
+  each: method
+  ensure: >-
+    This method does not read configuration out of process.env. Reading the
+    environment is the command line's job, and everything below it is passed the
+    values. Handing the environment to a child process is not this.
+
+- name: issues-closable
+  where: "test/**/*.js"
+  each: test
+  ensure_present: >
+    A test that closes an issue with a reason and then asserts it is gone from
+    the default list.
+
+- name: no-dead-command
+  where: "src/**/*.js"
+  each: method
+  ensure_absent: >
+    A command or flag that is parsed and then never used.
+
+- name: no-legacy-fallback
+  where: "src/**/*.js"
+  each: method
+  ensure_absent: >-
+    A branch kept to handle a format, key, option or signature that used to be
+    supported.
+
+- name: no-silent-failure
+  where: "src/**/*.js"
+  each: method
+  ensure_absent: >-
+    A catch that returns a default in place of the error, or a ?? or || standing
+    in for a call that failed. A default for a value that was never set is not
+    this.
+
+- name: tests-assert-real-behavior
+  where: "test/**/*.js"
+  ensure: >
+    Tests assert on the code under test, not on mocks they set up or values they
+    built.

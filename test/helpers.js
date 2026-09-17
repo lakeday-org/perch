@@ -31,7 +31,7 @@ test('clamp enforces the lower bound', () => {
 const author = ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com'];
 
 /** A fresh repository on `main` with a committed tree, then checked out on a feature branch, since fix and refactor commit to the current branch. */
-async function initRepo(root) {
+export async function initRepo(root) {
   await git(['init', '-q', '-b', 'main', '.'], root);
   await git(['config', 'user.name', 'Fixture'], root);
   await git(['config', 'user.email', 'fixture@example.com'], root);

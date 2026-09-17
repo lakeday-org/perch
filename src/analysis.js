@@ -69,7 +69,10 @@ export async function analyzeFiles(files, { analyzer, readSource, progress = () 
   const analyzed = [], candidates = [];
   for (const [index, file] of files.entries()) {
     const source = await readSource(file, index);
-    progress(index + 1, files.length);
+    progress(functions, null);
+    // Parsing is synchronous, so a whole tree of it holds the loop and nothing on a clock runs. One yield per file is the
+    // difference between a counter that looks alive and one that looks hung.
+    await new Promise(resolve => setImmediate(resolve));
     const analysis = await analyzer.analyzeSource(source, languageOf(file.path));
     if (!['parsed', 'parse-error'].includes(analysis.parser_status)) throw new Error(`Parser unavailable for ${file.path}: ${analysis.parser_message}`);
     if (analysis.parser_status !== 'parsed') {

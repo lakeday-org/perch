@@ -16,11 +16,12 @@
     "perch": "bin/perch.mjs"
   },
   "files": [
+    "LICENSE",
+    "README.md",
     "bin",
     "dist",
-    "doc",
-    "README.md",
-    "LICENSE"
+    "docs",
+    "scan.yaml"
   ],
   "publishConfig": {
     "access": "public",
@@ -39,7 +40,8 @@
   },
   "dependencies": {
     "tree-sitter-wasm": "2.0.1",
-    "web-tree-sitter": "0.27.0"
+    "web-tree-sitter": "0.27.0",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -1,3 +1,11 @@
+---
+title: How a scan works
+nav: How a scan works
+group: Reference
+order: 8
+summary: The graph walk, the questions, and how probabilities turn into a ranking.
+---
+
 # How a scan works
 
 `perch scan` scores every method and ranks them worst first. Every answer is a
@@ -46,20 +54,31 @@ A stack, seeded with the riskiest method by `risk_score`:
 
 1. Pop the riskiest unvisited method and ask about it.
 2. Push its unvisited callees and callers, riskiest on top.
-3. Push the neighbour the model said to follow above all of them.
+3. Push the neighbor the model said to follow above all of them.
 4. When the stack empties, take the next riskiest method overall.
 
 Test methods are analyzed, so they can appear as callers, but never questioned.
 Up to `--parallel` methods are in flight at once.
 
-Each answered method is appended to `events.jsonl` with its hash. A method whose
-hash still matches its last reading is skipped without a request — the walk
-still passes through it to reach its neighbours. Editing it makes it readable
-again; `--force` ignores the log entirely. `ANSWERS_VERSION` does the same when
-the question set itself changes, so a method answered by an older set is read
-again rather than compared against questions that did not exist.
+Every method in scope is read. What scope is comes from `--paths` or `--since`,
+and nothing else: a cap on how many methods a run reads leaves a report that
+looks complete and is not.
+
+Every reading goes into `scan.jsonl`, rewritten whole each run, so what it holds
+is what this run says about this commit and nothing older. A reading carries
+forward when the request that produced it would go out word for word the same:
+the method's source, the neighbours in the state, and the wording of every
+question including your rules. That is a hash on each reading, compared before
+anything is sent. A rescan of untouched code costs nothing and reads the same to
+the percentage, so an issue you looked at yesterday has not moved.
 
 ## 4. The questions
+
+The questions are declared in `scan.yaml`, which perch ships and `perch.yaml` can
+reword or add to. Your own rules about a method are asked in that method's
+request, beside perch's: every question in a request is scored against the state
+by itself, and the state is what the request is mostly made of, so a method
+covered by five rules is one reading rather than six.
 
 One HTTP request per method. The state carries the method with its lines tagged
 `L0042|`, the comment above it, its metrics, its file's imports and module
@@ -87,7 +106,7 @@ distribution over its levels.
 
 | Question | Primitive | |
 | --- | --- | --- |
-| `has_bug` | noul | A concrete behavioural defect a caller can reach. |
+| `has_bug` | noul | A concrete behavioral defect a caller can reach. |
 | `where` | choice over line ids | Which line, with confidence. A method longer than 255 lines gets a window chosen first, then a line within it. |
 | `kind` | choice over 8 | `boundary`, `missing_null_handling`, `wrong_return`, `swallowed_error`, `state_mutation`, `ordering`, `resource_leak`, `inverted_condition`. |
 | `severity` | score over 4 levels | The rubric below. |
@@ -95,10 +114,15 @@ distribution over its levels.
 | `security_*` | 16 nouls | `injection`, `path_traversal`, `unsafe_deserialization`, `secret_exposure`, `missing_authorization`, `unvalidated_destination`, `resource_exhaustion`, `unsafe_reflection`, `disabled_safeguard`, `weak_crypto`, `buffer_overflow`, `use_after_free`, `uninitialized_use`, `integer_overflow`, `race_condition`, `type_confusion`. |
 | `misuse_N` | noul per callee | Does this call violate the callee's evident contract? |
 | `misused_by_N` | noul per caller | Does the caller violate this method's contract? |
-| `does_what_it_claims` | noul | Does the behaviour match the name, parameters, and comment? |
-| `misdocumented` | noul | Could a caller not learn the contract from the comment? |
+| `does_what_it_claims` | noul | Does the behavior match the name, parameters, and comment? |
+| `documented` | noul | Could a caller learn what it promises from the comment? |
 | `refactor` | choice over 7 | `split`, `flatten`, `simplify_conditions`, `deduplicate`, `rename`, `remove_dead_code`, `none`. |
-| `follow` | choice over neighbours | Which related method to examine next. |
+| `follow` | choice over neighbors | Which related method to examine next. |
+
+The names in that table are the ids written in `scan.yaml`. What a row prints is
+the label they map to, so `boundary` reads as `off_by_one` and
+`missing_null_handling` reads as `unhandled_null`. `perch issues --types` lists
+the labels, which are what `--filter kind=` takes.
 
 System One does not bill output tokens, so asking thirty questions of a method
 costs what asking one costs. That is why the set is wide rather than staged.
@@ -158,9 +182,8 @@ It is a floor on what is claimed, not on the arithmetic:
 * **Ranking counts the whole distribution.** An issue at 49% still weighs 0.49 in
   where its method sorts, so there is no cliff at the boundary — only a line
   below which perch stops saying it found something.
-* **A fix is judged on the whole distribution too.** Halving a 40% defect counts
-  for exactly that, even though neither the before nor the after is listed. See
-  [fix.md](fix.md).
+* **`perch check` reports the whole distribution too.** Halving a 40% defect is
+  visible as that, even though neither the before nor the after is listed.
 
 `--min P` moves the line, in percent. `--min 0` prints everything the scan
 answered.
@@ -174,25 +197,53 @@ at 50% weigh what one at 100% weighs and nothing has to cross a line to count.
 A method is ranked by what its problems would cost, not how many it has:
 
 ```
-weight = correctness × predicted_severity + design
+weight = correctness × mean + design
 ```
 
-`predicted_severity` is the mean of the severity score's distribution, 0 to 3.
-This is the only weighting in the ranking, and it is measured rather than
-chosen — the number it replaced was a `× 2` somebody made up.
+`mean` is the severity distribution's mean, worked out below. This is the only
+weighting in the ranking, and it is measured rather than chosen: the number it
+replaced was a `× 2` somebody made up.
 
 Design problems weigh as themselves. They are the ones the rubric's own bottom
 level describes: no caller would notice.
 
-### Reading the severity column
+### The severity formula
 
-The band is the mean, rounded. The number beside it is the mean itself, on the
-same scale:
+The score comes back as a distribution over the four levels, not a level. Level
+0 is "no caller would notice" and level 3 is "data lost, corrupted, or exposed,
+or a check that should stop someone bypassed". The bands run the other way, so
+level 0 is `P3` and level 3 is `P0`.
+
+Three numbers come out of that distribution:
 
 ```
-P1 (0.9)   almost P0
-P1 (1.2)   settling toward P2
+mean  = Σ level × p(level)                  0 to 3, worst at 3
+band  = [P3, P2, P1, P0][round(mean)]       the label
+shown = 3 − mean                            the same number on the P scale
 ```
+
+`mean` is what the ranking multiplies by. `band` is the label a filter matches.
+`shown` is the number in brackets, on the scale the bands are named in, where 0
+is worst and 3 is harmless.
+
+Worked, on the `buildGraph` distribution from
+[reading the issues](issues.md), which perch prints as `P1 (1.1)`:
+
+```
+Severity   P1 83%   P2 12%   P0 4%   P3 1%
+             ↓        ↓        ↓       ↓
+  level      2        1        3       0
+
+mean  = 2(0.83) + 1(0.12) + 3(0.04) + 0(0.01) = 1.90
+band  = [P3, P2, P1, P0][round(1.90)] = [P3, P2, P1, P0][2] = P1
+shown = 3 − 1.90 = 1.1
+```
+
+Which is why `P1 (0.9)` is nearly a `P0` and `P1 (1.2)` is settling toward `P2`.
+
+The rubric is about how much a caller would feel whatever is wrong, not about
+defects alone: its top level is a vulnerability in so many words. A defect and a
+vulnerability are both weighed by it, and both carry the band.
 
 Naming a method by the band holding the most probability throws the rest away.
 A spread of P0 33% / P1 31% / P2 30% / P3 6% is called `P0` on the strength of a

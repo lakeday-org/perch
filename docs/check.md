@@ -1,0 +1,64 @@
+---
+title: Checking a change
+nav: Checking a change
+group: Using perch
+order: 5
+summary: perch check asks the same questions of code as it reads on disk, records nothing, and exits 1 while something is still wrong.
+---
+
+# Checking a change
+
+`perch scan` reads the repository at `HEAD` and writes down what it found.
+`perch check` reads one point in the code as it is on disk right now, answers,
+and records nothing. It is the one to run while you are working.
+
+```sh
+perch check src/model.js::createModel   # a method, by name
+perch check src/model.js                # a whole file
+perch check 92c7781e                    # whatever raised that issue
+```
+
+It asks every rule that covers the target, plus the scan's own questions when the
+target is a method.
+
+## Narrowing to what you just changed
+
+`--rules` takes rule names out of `perch.yaml`, or the classes the scan asks
+about: `defect`, `security`, `refactor`, `docs`.
+
+```sh
+perch check src/model.js::createModel --rules security
+perch check src/model.js --rules env-read-once,no-silent-failure
+```
+
+After a security fix, asking about security alone is one question against one
+method, which is fast and cheap enough to sit in a loop.
+
+## The loop
+
+`perch check` exits 1 while something it asked about is still wrong, and 0 when
+nothing is:
+
+```sh
+until perch check src/model.js::createModel --rules security; do
+  $EDITOR src/model.js
+done
+```
+
+Because it reads from disk rather than from git, it sees uncommitted work, staged
+or not.
+
+## Reading the answer
+
+`check` prints the whole distribution, not only what clears the floor. Halving a
+40 percent defect is visible as that, even though neither the before nor the
+after would be listed by `perch issues`.
+
+That is the difference worth keeping in mind: `issues` is a list of claims, so it
+has a floor. `check` is an answer to a question you asked, so it has none.
+
+## What it does not do
+
+It writes nothing. The issue that sent you there stays open in `.perch` until the
+next `perch scan` re-reads that method and finds it gone. `check` passing is not
+the same as the issue being closed, and it is not meant to be.

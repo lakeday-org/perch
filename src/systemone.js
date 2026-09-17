@@ -3,7 +3,7 @@
 export const DEFAULT_SYSTEM_ONE_MODEL = 'jev-latest';
 
 export function createSystemOne({
-  apiKey = process.env.TYPESAFE_API_KEY,
+  apiKey,
   model = DEFAULT_SYSTEM_ONE_MODEL,
   fetchImpl = globalThis.fetch,
   baseUrl = 'https://api.typesafe.ai/v1',
@@ -11,7 +11,7 @@ export function createSystemOne({
   sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
   log = () => {},
 } = {}) {
-  if (!apiKey) throw new Error('TYPESAFE_API_KEY is not set. Export a TypeSafe API key before running perch hunt.');
+  if (!apiKey) throw new Error('TYPESAFE_API_KEY is not set. Export a TypeSafe API key before running perch scan.');
 
   async function request(body) {
     for (let attempt = 0; ; attempt++) {
