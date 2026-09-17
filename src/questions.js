@@ -9,14 +9,28 @@ export const SEVERITY_LEVELS = [
 ];
 export const SEVERITY_BANDS = ['P3', 'P2', 'P1', 'P0'];
 
-/** The band the score puts most weight on, that weight, and the mean of the rubric. A score carries its whole distribution. */
+/**
+ * Where the score actually lands, on the P scale the bands are written in. A score carries its whole distribution, and naming a
+ * method by the band holding the most of it throws that away: a spread of 33/31/30/6 is called P0 on the strength of a third of
+ * the mass, and reads as worse than a method with 54% on P1 and 29% on P0 that is in fact expected to do more damage.
+ *
+ * So the rubric's mean is what a method is called. The rubric runs 0 (no caller would notice) to 3 (data lost or a check
+ * bypassed) and the bands run P3 to P0, so a mean of 2.1 is P0.9: nearly as bad as it gets, and visibly worse than the P1.1
+ * beside it. The band a method files under is that number rounded, and `likeliest` is still the single band holding the most.
+ */
 export function severityOf(severity) {
   const probabilities = severity?.probabilities;
-  if (!probabilities) return severity?.level ? { band: severity.level, probability: null, expected: null } : null;
-  const [band, probability] = Object.entries(probabilities).map(([level, p]) => [SEVERITY_BANDS[Number(level)] ?? level, p]).sort((a, b) => b[1] - a[1])[0];
-  return { band, probability, expected: Object.entries(probabilities).reduce((total, [level, p]) => total + Number(level) * p, 0) };
+  if (!probabilities) return severity?.level ? { band: severity.level, likeliest: severity.level, predicted: null, probability: null, expected: null } : null;
+  const entries = Object.entries(probabilities).map(([level, p]) => [Number(level), p]);
+  const [likeliest, probability] = entries.sort((a, b) => b[1] - a[1])[0];
+  const expected = entries.reduce((total, [level, p]) => total + level * p, 0);
+  return { band: SEVERITY_BANDS[Math.round(expected)] ?? SEVERITY_BANDS[likeliest], likeliest: SEVERITY_BANDS[likeliest] ?? String(likeliest),
+    predicted: 3 - expected, probability, expected };
 }
-export const severityName = severity => severityOf(severity)?.band ?? '-';
+/** What a row prints: the predicted severity to one decimal, so two rows can be compared without reading their distributions. */
+export const severityName = severity => { const score = severityOf(severity); return !score ? '-' : score.predicted === null ? score.band : `P${score.predicted.toFixed(1)}`; };
+/** The band a method files under, which is what `--filter severity=` reads. */
+export const severityBand = severity => severityOf(severity)?.band ?? '-';
 
 /** The questions one hunt step asks about a method, the state they are asked over, and how the answers are read. */
 
@@ -148,6 +162,8 @@ export const filterKeys = () => ({
 });
 
 const canon = value => String(value).trim().toLowerCase().replace(/[_-]+/g, ' ');
+/** How much of the score's mass sits in the band the method files under: how sure the filter's answer is. */
+const bandWeight = severity => severity?.probabilities?.[SEVERITY_BANDS.indexOf(severityBand(severity))] ?? 1;
 
 /** `type=security,kind=too big` as a list of tests; an unknown key or value is an error naming what is allowed. */
 export function parseFilters(text) {
@@ -171,7 +187,7 @@ export function matchesFilters(finding, filters, min = 0.5) {
   const byKey = new Map();
   for (const { key, value } of filters) byKey.set(key, [...(byKey.get(key) ?? []), value]);
   for (const [key, values] of byKey) {
-    const ok = key === 'severity' ? values.includes(canon(severityName(finding.severity))) && issues.some(issue => issue.type === 'defect')
+    const ok = key === 'severity' ? values.includes(canon(severityBand(finding.severity))) && issues.some(issue => issue.type === 'defect')
       : key === 'type' ? issues.some(issue => values.includes(issue.type))
       : issues.some(issue => values.includes(canon(issue.label)));
     if (!ok) return false;
@@ -192,11 +208,24 @@ export function filterStrength(finding, filters) {
   let joint = 1;
   for (const [key, values] of byKey) {
     const likeliest = key === 'severity'
-      ? (values.includes(canon(severityName(finding.severity))) ? (severityOf(finding.severity)?.probability ?? 1) * (finding.has_bug ?? 0) : 0)
+      ? (values.includes(canon(severityBand(finding.severity))) ? bandWeight(finding.severity) * (finding.has_bug ?? 0) : 0)
       : issues.filter(issue => values.includes(key === 'type' ? issue.type : canon(issue.label))).reduce((top, issue) => Math.max(top, issue.probability), 0);
     joint *= likeliest;
   }
   return joint;
+}
+
+/**
+ * A finding's issues, the ones a filter named first. Filtering narrows the list and ranks it by the problem asked for, so the row
+ * has to read that way too: `--filter type=security` on a method whose loudest problem is its size must still show the
+ * vulnerability, or the row contradicts the filter that selected it. A severity clause names the defect, since that is the
+ * question severity is asked about. Order within each group is unchanged, so the likeliest still comes first.
+ */
+export function issuesFor(finding, min = 0, filters = []) {
+  const issues = issuesOf(finding, min);
+  if (!filters.length) return issues;
+  const named = issue => filters.some(({ key, value }) => (key === 'type' ? issue.type === value : key === 'kind' ? canon(issue.label) === value : issue.type === 'defect'));
+  return [...issues.filter(named), ...issues.filter(issue => !named(issue))];
 }
 
 export const isDesign = issue => issue.type !== 'defect' && issue.type !== 'security';
@@ -353,7 +382,7 @@ export function readAnswers(answers, { calls, calledBy, neighbors }) {
     where: { line: Number(answers.where.choice.slice(1)), confidence: answers.where.confidence },
     kind: { kind: topKind, probability: topProbability },
     kinds,
-    severity: { probabilities: answers.severity.probabilities, score: answers.severity.score, confidence: answers.severity.confidence, level: severityOf(answers.severity)?.band ?? null },
+    severity: { probabilities: answers.severity.probabilities, score: answers.severity.score, confidence: answers.severity.confidence, level: severityOf(answers.severity)?.band ?? null, predicted: severityOf(answers.severity)?.predicted ?? null },
     exposed: answers.exposed.noul,
     security: { kind: topSecurity, probability: topSecurityProbability },
     securities: securityKinds,

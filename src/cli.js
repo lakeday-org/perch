@@ -176,7 +176,7 @@ const commands = {
     const { findings: all } = await openIssues(store, min, io);
     const findings = narrow(all, filters, min / 100);
     const closed = Boolean(io.flags.closed);
-    print(io, visibleFindings(findings, { closed }), formatIssues(findings, min / 100, shown(io), { closed }));
+    print(io, visibleFindings(findings, { closed }), formatIssues(findings, min / 100, shown(io), { closed, filters }));
   },
   /** Work the open issues in the checkout the scan ran in; a path narrows them, a finding id names one. */
   async fix(io) {

@@ -118,7 +118,7 @@ describe('cli', () => {
     const { out, err, io } = capture();
     const [f] = hunt.visited;
     expect(await main(['issues', '--out', repo.out], io)).toBe(0);
-    expect(out.at(-1)).toMatch(new RegExp(`^${f.id}  f +src/a.js:\\d+ +defect +wrong_return_value \\d+%.* +P2 +open +-`, 'm'));
+    expect(out.at(-1)).toMatch(new RegExp(`^${f.id}  f +src/a.js:\\d+ +defect +wrong_return_value \\d+%.* +P1\\.\\d +open +-`, 'm'));
     // Every column a filter reads is named after it: kind, severity.
     expect(out.at(-1)).toMatch(/^ID +Method +Location +Type +Kind +Severity +Status +Commit$/m);
     // A filter that matches keeps the row; one that does not leaves nothing.
@@ -156,11 +156,19 @@ describe('cli', () => {
     expect(await main(['findings', '--out', repo.out], io)).toBe(0);
     expect(idsOf(out.at(-1))[0]).toBe(f);
     // Filtering for injection puts the likeliest injection first, not the method carrying the most of everything else.
-    expect(await main(['findings', '--filter', 'kind=injection', '--out', repo.out], io)).toBe(0);
+    expect(await main(['issues', '--filter', 'kind=injection', '--out', repo.out], io)).toBe(0);
     expect(idsOf(out.at(-1))[0]).toBe(h);
     // Filtering on what f leads with puts f back on top.
-    expect(await main(['findings', '--filter', 'type=defect', '--out', repo.out], io)).toBe(0);
+    expect(await main(['issues', '--filter', 'type=defect', '--out', repo.out], io)).toBe(0);
     expect(idsOf(out.at(-1))[0]).toBe(f);
+
+    // A filtered row leads with what was filtered for: f's loudest problem is not security, but under a security filter its row
+    // must say security, or it contradicts the filter that selected it.
+    expect(await main(['issues', '--out', repo.out], io)).toBe(0);
+    const unfiltered = out.at(-1).split('\n').find(row => row.startsWith(f));
+    expect(unfiltered).not.toMatch(/^\S+ +\S+ +\S+ +security /);
+    expect(await main(['issues', '--filter', 'type=security', '--out', repo.out], io)).toBe(0);
+    for (const row of out.at(-1).split('\n').slice(1)) expect(row).toMatch(/^\S+ +\S+ +\S+ +security /);
   });
 
   it('bundles with esbuild into a loadable module', async () => {
