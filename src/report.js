@@ -237,8 +237,6 @@ export function issueCount({ open, matched, from = 0, listed, size = Infinity, c
   return parts.join('. ') + since;
 }
 
-/** "584k" rather than "584167": a token count is read to see whether a run was large, never to the digit. */
-const compact = value => (value >= 1e6 ? `${(value / 1e6).toFixed(1)}M` : value >= 1000 ? `${Math.round(value / 1000)}k` : String(value ?? 0));
 /** How long ago, in the largest unit that still says something. */
 function since(at) {
   if (!at) return '';
@@ -254,8 +252,18 @@ function since(at) {
  * Facts in columns, not sentences: this is read to find the one line that explains a failure, and pasted into a bug report as it
  * stands. Everything here is a name, a path, a count or an error message, never source.
  */
-export function formatDoctor({ versions, scan, run, out, findings = 0, log = [] }) {
-  const lines = [`perch ${versions.perch}  node ${versions.node}  ${versions.platform}`, relative(out)];
+export function formatDoctor({ versions, scan, run, out, checks = [], log = [], color = COLOR() }) {
+  const lines = [`perch ${versions.perch}  node ${versions.node}  ${versions.platform}`];
+
+  // Whether perch can run at all, first and always. A report about the last run is no use to someone who has never had one
+  // because their key is missing: what they need is the sentence saying so and what to do.
+  if (checks.length) {
+    const named = Math.max(...checks.map(check => check.name.length));
+    lines.push('', ...checks.map(check => `${check.ok ? '✓' : red('✗', color)} ${check.name.padEnd(named)}  ${check.found}`));
+    const broken = checks.filter(check => !check.ok);
+    if (broken.length) lines.push('', ...broken.map(check => `  ${check.name}: ${check.fix}`));
+  }
+
   if (!run) return [...lines, '', 'No run yet. perch scan is what reads your code.'].join('\n');
 
   const read = (run.visited ?? []).filter(visit => visit.status === 'read').length;
@@ -266,13 +274,12 @@ export function formatDoctor({ versions, scan, run, out, findings = 0, log = [] 
     ['paths', run.paths?.length ? run.paths.join(' ') : 'everything'],
     ['methods', `${run.methods} in scope, ${read} read, ${run.carried ?? 0} unchanged, ${failed.length} failed`],
     ['rules', `${run.rules ?? 0} in ${RULES_FILE}, ${(run.broken ?? []).length} broken`],
-    ['tokens', `${compact(run.usage?.input_tokens)} in, ${compact(run.usage?.output_tokens)} out`],
     ['model', `${run.model}, ${run.parallel} at a time`],
-    ['issues', `${findings} open`],
     ['log', relative(join(out, 'scan.log'))],
   ];
   if (run.error) facts.push(['error', run.error]);
-  if (scan && scan.revision !== run.revision) facts.push(['stale', `the tree was last parsed at ${short(scan.revision)}`]);
+  // The tree was parsed at one commit and read at another, so what is listed is about code that has moved since.
+  if (scan && scan.revision !== run.revision) facts.push(['stale', `parsed at ${short(scan.revision)}, read at ${short(run.revision)}; perch scan again`]);
   const named = Math.max(...facts.map(([key]) => key.length));
   lines.push('', ...facts.map(([key, value]) => `${key.padEnd(named)}  ${value}`));
 

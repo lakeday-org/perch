@@ -11,6 +11,7 @@ import { BELIEVED, filterKeys, filterStrength, matchesFilters, parseFilters } fr
 import { splitStale } from './context.js';
 import { changedPaths, readRules, RULES_FILE, UNIT_PARALLEL } from './units.js';
 import { checkTarget } from './check.js';
+import { runChecks } from './checks.js';
 import { addRule, editRule, KINDS as RULE_KINDS, removeRule } from './rules.js';
 import { allQuestions, SHAPES } from './ask.js';
 import { createMeter, metered } from './meter.js';
@@ -63,7 +64,7 @@ const commandHelp = {
   check: { args: '<path | path::method | issue-id>', summary: 'Ask the rules about one piece of code', detail: 'Reads that one file off disk and asks about the point you named: every rule that covers it, plus the scan\'s own questions for a method. --rules narrows it to specific rules, or to defect, security, refactor or docs. Nothing is committed or recorded, so run it on work in progress. Exits 1 if something is wrong. Needs TYPESAFE_API_KEY.' },
   close: { args: '<issue-id>...', summary: 'Set issues aside', detail: 'Stops an issue being listed: a false positive, or code you have looked at and are not changing. --reason is kept and shown by perch issues <id>. It stays closed through later scans and later edits, and perch reopen is the only thing that brings it back.\n\nIt covers the kinds on that issue now, so a defect found in the method later is a new thing and is listed. --kind closes some of them and leaves the rest:\n\n  perch close 2638fb16 --kind docs' },
   reopen: { args: '<issue-id>...', summary: 'Put closed issues back', detail: 'Undoes perch close, all of it, or the kinds --kind names.' },
-  doctor: { args: '', summary: 'Debug a scan that went wrong', detail: 'What the last run did and every method it could not read, with the error. Names, paths, counts and error messages only, never source, so it can be pasted into a bug report as it stands.' },
+  doctor: { args: '', summary: 'Check perch can run, and what the last run did', detail: 'First whether perch can run here at all: node, your key, git, the repository, somewhere to write, and whether perch.yaml parses. Anything that fails says what to do about it, and the command exits 1.\n\nThen the last run, every method it could not read with the error, every question it asked and what each raised, and the end of the log when a run did not finish. Names, paths, counts and error messages only, never source, so it can be pasted into a bug report as it stands.' },
 };
 
 /** Help at 80 columns. A blank line stays a blank line, and an indented line is an example, left exactly as written. */
@@ -399,12 +400,16 @@ const commands = {
   },
   async doctor(io) {
     const store = await storeFrom(io.flags);
-    const [scan, run] = [await store.latestScan(), await store.latestRun()];
-    const findings = scan ? visibleFindings(await store.issues(BELIEVED, { scan })).length : 0;
     const versions = { perch: VERSION, node: process.version, platform: `${process.platform} ${process.arch}` };
+    // Whether perch can run here, worked out before anything that assumes it can. A machine where nothing works still gets an
+    // answer, which is the whole reason this command has this name.
+    const root = await repoRoot(process.cwd()).catch(() => process.cwd());
+    const checks = await runChecks({ root, out: store.out, env: io.env, versions });
+    const [scan, run] = [await store.latestScan().catch(() => null), await store.latestRun().catch(() => null)];
     // The end of the log, on a run that did not finish cleanly. On one that did, the path to it is enough.
     const log = run && run.status !== 'complete' ? await store.tail(20) : [];
-    print(io, { versions, out: store.out, scan, run, findings, log }, formatDoctor({ versions, scan, run, out: store.out, findings, log }));
+    print(io, { versions, out: store.out, checks, scan, run, log }, formatDoctor({ versions, scan, run, out: store.out, checks, log }));
+    return checks.every(check => check.ok) ? 0 : 1;
   },
   /** The loop for fixing something: change the code, ask whether the issue is gone, repeat. Nothing is written down. */
   async check(io) {

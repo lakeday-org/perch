@@ -173,11 +173,18 @@ describe('perch hunt', () => {
     // The other three were read and are listed; the failure is on the record, not in the results.
     expect((await openStore(repo.out).findings(0)).some(finding => finding.name === 'h')).toBe(false);
     // What doctor is for: what the run was doing, and the methods it could not read with the error, grouped by the error.
-    const doctor = formatDoctor({ versions: { perch: '0.1.0', node: 'v22', platform: 'test' }, scan: null, run, out: repo.out, findings: 3 });
+    const doctor = formatDoctor({ versions: { perch: '0.1.0', node: 'v22', platform: 'test' }, scan: null, run, out: repo.out, color: false,
+      checks: [{ name: 'key', ok: true, found: 'TYPESAFE_API_KEY, 8 characters' }, { name: 'git', ok: false, found: 'not on the path', fix: 'install git' }] });
+    // Whether perch can run at all comes first, with what to do about anything that cannot.
+    expect(doctor).toMatch(/^✓ key {2}TYPESAFE_API_KEY, 8 characters$/m);
+    expect(doctor).toMatch(/^✗ git {2}not on the path$/m);
+    expect(doctor).toMatch(/^ {2}git: install git$/m);
     // Facts in columns, not sentences: this is read to find the one line that explains a failure.
     expect(doctor).toMatch(/^run +[0-9a-f]{8} {2}complete {2}\d+[smhd] ago$/m);
     expect(doctor).toMatch(/^methods {2}4 in scope, 3 read, \d+ unchanged, 1 failed$/m);
-    expect(doctor).toMatch(/^issues {3}3 open$/m);
+    // What perch could and could not do, not what it found: a count of issues is what perch issues is for.
+    expect(doctor).not.toMatch(/^issues /m);
+    expect(doctor).not.toMatch(/^tokens /m);
     expect(doctor).toMatch(/^log {6}\S*scan\.log$/m);
     // Every method it could not read, with the error beside it.
     expect(doctor).toMatch(/^could not read$/m);
