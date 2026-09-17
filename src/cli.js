@@ -66,7 +66,6 @@ const commandHelp = {
   doctor: { args: '', summary: 'Debug a scan that went wrong', detail: 'What the last run did and every method it could not read, with the error. Names, paths, counts and error messages only, never source, so it can be pasted into a bug report as it stands.' },
 };
 
-/** Help text is read in a terminal, which is 80 columns until proven otherwise. */
 /** Help at 80 columns. A blank line stays a blank line, and an indented line is an example, left exactly as written. */
 const wrap = text => String(text).split(/\n\s*\n/).map(paragraph => paragraph.startsWith(' ') ? paragraph : paragraph.split(/\s+/).filter(Boolean).reduce((lines, word) => {
   if (lines.length && (lines.at(-1) + ' ' + word).length <= 80) lines[lines.length - 1] += ' ' + word;

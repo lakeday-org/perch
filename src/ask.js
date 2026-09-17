@@ -112,7 +112,9 @@ export function merge(...sets) {
 }
 
 export function parseQuestions(text, at, noun = 'question') {
-  const list = parse(text) ?? [];
+  // An empty file has no questions in it. A file with something in it that reads as nothing is a file someone wrote wrong, and
+  // answering that with an empty list asks none of their rules and never says so.
+  const list = text.trim() ? parse(text) : [];
   if (!Array.isArray(list)) throw new Error(`${at}: expected a list of ${noun}s`);
   return list.map((question, index) => check(question, `${at} ${noun} ${index + 1}`, noun));
 }

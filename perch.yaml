@@ -36,10 +36,10 @@
   where: "src/**/*.js"
   except: "src/cli.js"
   each: method
-  ensure: >
-    This method does not read process.env. Reading the environment is the
-    command line's job, and everything below it is passed the values.
-  min: 80
+  ensure: >-
+    This method does not read configuration out of process.env. Reading the
+    environment is the command line's job, and everything below it is passed the
+    values. Handing the environment to a child process is not this.
 
 - name: issues-closable
   where: "test/**/*.js"
