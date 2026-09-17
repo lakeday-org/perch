@@ -395,9 +395,4 @@ export function readAnswers(answers, { calls, calledBy, neighbors }) {
   };
 }
 
-const noul = (instructions, yes, no) => ({ type: 'noul', instructions, criteria: { true: yes, false: no } });
-
-/** The flagged defect as a state entry: kind, the line id used in `method.source`, and the code on it. */
-const defectOf = finding => ({ kind: finding.kind.kind, description: DEFECT_KINDS[finding.kind.kind] ?? '', line: lineId(finding.where.line), code: finding.where.text ?? '', method: finding.name, path: finding.path });
-
 

@@ -191,7 +191,7 @@ export async function methodContext({ finding, root, out, analyzer, revision = f
   return { scan, graph, node, fileLines, method, callees, callers, calleeIds, callerIds, imports, methods, step, changed: Boolean(finding.hash) && node.hash !== finding.hash };
 }
 
-export async function fixMethod({ finding: hunted, root, out, model, systemOne: rawSystemOne, analyzer, shell, ui = plainUi(), meter = createMeter(), position = '', log = () => {}, debug = () => {} }) {
+export async function fixMethod({ finding: hunted, root, out, model, systemOne: rawSystemOne, analyzer, shell, ui = plainUi(), meter = createMeter(), position = '', debug = () => {} }) {
   const store = openStore(out);
   const systemOne = metered(rawSystemOne, meter);
   const id = fixIdentity({ finding: hunted, model: model.id });
@@ -206,7 +206,6 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
   const revision = await gitRevision(root);
   const fix = { id, finding_id: hunted.id, method: hunted.method, path: hunted.path, line: hunted.line, root, branch, revision, hunted_at: hunted.revision, model: model.id, verifier: systemOne.id, out: dir, status: 'running', created_at: new Date().toISOString() };
   await writeJson(fixPath, fix);
-  const pct = value => `${Math.round(value * 100)}%`;
   let finding = hunted;
   const finish = async (status, extra) => {
     Object.assign(fix, { status, completed_at: new Date().toISOString(), ...extra, usage: meter.toJSON() });

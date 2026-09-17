@@ -1,7 +1,5 @@
 /** Human-readable summaries of scans, issues, and the work done on them. */
-import { filterKeys, isDesign, issuesFor, issuesOf, label, matchesFilters, SEVERITY_BANDS, severityName } from './questions.js';
-
-const short = revision => revision?.slice(0, 12) ?? '?';
+import { filterKeys, issuesFor, issuesOf, label, SEVERITY_BANDS, severityName } from './questions.js';
 
 /** Prose broken at `width` columns, each line indented; the note under a fix is the only paragraph perch prints. */
 export function wrap(text, width = 92, indent = '  ') {

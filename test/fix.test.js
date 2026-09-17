@@ -13,7 +13,7 @@ import { openStore } from '../src/store.js';
 import { ANSWERS_VERSION, issuesOf } from '../src/questions.js';
 import { formatFinding, formatFix, formatFixes, formatIssues } from '../src/report.js';
 import { createUi } from '../src/ui.js';
-import { buggySource, commitAll, documentedSource, fixedMethod, fixedSource, fixtureOptions, leanerSource, makeFixture, scriptedModel, scriptedSystemOne } from './helpers.js';
+import { buggySource, commitAll, fixedMethod, fixedSource, fixtureOptions, makeFixture, scriptedModel, scriptedSystemOne } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
 const shell = createShell();
@@ -174,7 +174,7 @@ describe('perch fix', () => {
 
     // What was printed: the objectives, each tool call as the model's, the result, and the usage.
     expect(lines).toContainEqual(`${finding.id}  clamp  src/clamp.js:1`);
-    expect(lines.some(line => /^ {2}Clear   .*wrong_return_value \d+%/.test(line))).toBe(true);
+    expect(lines.some(line => /^ {2}Clear {3}.*wrong_return_value \d+%/.test(line))).toBe(true);
     // One column of steps, the model named once on the line that runs it. Returning hi instead of v moves no method metric, and
     // the line says so rather than printing four numbers that did not change.
     expect(lines.some(line => /^ {2}✓ measure {2}method unchanged {2}[\d.]+s$/.test(line))).toBe(true);

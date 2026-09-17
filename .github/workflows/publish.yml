@@ -35,6 +35,7 @@ jobs:
           version="$(node -p 'require("./package.json").version')"
           test "$tag" = "$version" || { echo "tag $GITHUB_REF_NAME does not match package version $version"; exit 1; }
 
+      - run: npm run lint
       - run: npm run typecheck
       - run: npm test
 

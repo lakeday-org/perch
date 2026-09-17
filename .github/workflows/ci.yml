@@ -1,0 +1,45 @@
+# Every push to main and every pull request, including one from a fork. Nothing here needs a secret, so a fork's PR runs the same
+# checks the branch does. These are the checks main is protected on.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to a PR cancels the run still going for the previous one.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: The bundle builds and loads
+        run: npm run build
+
+      - name: Nothing in the package that should not ship
+        run: npm pack --dry-run
