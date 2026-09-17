@@ -1,12 +1,7 @@
-/** The questions one hunt step asks about a method, the state they are asked over, and how the answers are read. */
+/** The state one method is asked over, the questions perch adds to whatever the question set declares, and how answers are read. */
+import { compile, floorFor, issues, questionSet, readAnswer, setHash, vocabulary } from './ask.js';
 
-/** The rubric severity is scored on, weakest first. The bands run the other way, so P0 is the worst. */
-export const SEVERITY_LEVELS = [
-  'No caller would notice',
-  'A wrong result in a rare case, or one the caller can see and recover from',
-  'A wrong result or wrong state in ordinary use',
-  'Data lost, corrupted, or exposed, or a check that should stop someone bypassed',
-];
+/** The bands a severity score is named by, worst last, matching the rubric declared in the question set. */
 export const SEVERITY_BANDS = ['P3', 'P2', 'P1', 'P0'];
 
 /**
@@ -32,73 +27,21 @@ export const severityName = severity => { const score = severityOf(severity); re
 /** The band a method files under, which is what `--filter severity=` reads. */
 export const severityBand = severity => severityOf(severity)?.band ?? '-';
 
-/** The questions one hunt step asks about a method, the state they are asked over, and how the answers are read. */
-
-export const DEFECT_KINDS = {
-  boundary: 'An off-by-one, a wrong comparison, or a mishandled edge of a range',
-  missing_null_handling: 'A null, undefined, empty, or absent value is not handled',
-  wrong_return: 'The wrong value, or a value of the wrong shape, is returned for some input',
-  swallowed_error: 'An error is caught, ignored, or turned into a misleading result',
-  state_mutation: 'Shared or input state is mutated when it should not be, or left stale when it should change',
-  ordering: 'Operations run in the wrong order, or rely on an order that is not guaranteed',
-  resource_leak: 'A handle, lock, timer, process, or connection is not released on some path',
-  inverted_condition: 'A condition, sign, or boolean is the wrong way round',
-};
-
-/**
- * Vulnerability classes, asked of a method the model says touches something outside the program. They are separate from
- * DEFECT_KINDS because a vulnerability is not a wrong answer to a caller: the code does what it was written to do, and that is the problem.
- * Every class is asked of every language rather than chosen by one, since a repository mixes them and a memory-safety question
- * answered about JavaScript costs an answer nobody reads, while a missing one costs a bug nobody finds.
- */
-export const SECURITY_KINDS = {
-  injection: 'A value from outside is put into a shell command, a query, a path of execution, or anything that gets evaluated, without being escaped or parameterised',
-  path_traversal: 'A name from outside is used to build a filesystem path, URL, or key without being confined to the place it is meant to reach',
-  unsafe_deserialization: 'Data from outside is parsed, evaluated, or turned into objects in a way that lets it decide what code or type comes back',
-  secret_exposure: 'A password, token, key, or other credential is written into the source, logged, returned to a caller, or sent somewhere it need not go',
-  missing_authorization: 'An action that should check who is asking, or what they may touch, does not check, or checks after it has already acted',
-  weak_crypto: 'Security rests on predictable randomness, a home-made scheme, a broken algorithm, or a comparison that leaks timing',
-  unvalidated_destination: 'An address, host, or redirect target from outside decides where a request or a user is sent',
-  resource_exhaustion: 'Input from outside decides how much memory, recursion, time, or work happens, with nothing bounding it',
-  unsafe_reflection: 'A name from outside chooses which function, class, field, or module is reached, so the caller picks the code that runs',
-  disabled_safeguard: 'A check that exists is turned off or weakened: certificate verification skipped, a permission widened, a warning suppressed, a sandbox opened',
-  buffer_overflow: 'An index, length, or offset can reach past the end of a buffer, string, slice, or array, on a read or a write',
-  use_after_free: 'Something freed, closed, moved, unlocked, or otherwise finished with is used again, or released twice',
-  uninitialized_use: 'A value is read on a path where nothing has written it yet, so what a caller gets is whatever was there',
-  integer_overflow: 'Arithmetic can wrap, truncate, or change sign, and the result is then used as a size, an index, a length, or a permission',
-  race_condition: 'Two paths can reach the same state at once without holding anything, or a check and the act it guards are separated in a way another path can exploit',
-  type_confusion: 'A value is treated as a type, shape, or variant it may not be: an unchecked cast, a union read through the wrong member, a parsed object trusted to have a shape',
-};
-
-/**
- * The classes that only matter when something from outside reaches the method. The rest are wrong on their own terms: a value
- * freed twice or an index past the end of a buffer is a hole whoever the caller is, and gating those on exposure hid a
- * use-after-free the model had rated at 95% behind a method it was only 46% sure took outside input.
- */
-export const EXPOSURE_GATED = new Set(['injection', 'path_traversal', 'unsafe_deserialization', 'secret_exposure', 'missing_authorization', 'unvalidated_destination', 'resource_exhaustion', 'unsafe_reflection']);
-
-/** The strongest vulnerability the answers support. A class that needs outside input is only as likely as that: the two multiply. */
-export function securityOf(answers) {
-  const exposed = answers.exposed ?? 1;
-  const entries = Object.entries(answers.securities ?? (answers.security ? { [answers.security.kind]: answers.security.probability } : {}));
-  const joint = entries.map(([kind, probability]) => [kind, EXPOSURE_GATED.has(kind) ? probability * exposed : probability]).sort((a, b) => b[1] - a[1])[0];
-  return joint && joint[1] > 0 ? { kind: joint[0], probability: joint[1] } : null;
+/** The strongest vulnerability the answers support, already discounted by whatever each class is gated on. */
+export function securityOf(answers, questions = questionSet()) {
+  const found = issues(answers, 0, questions, label).find(issue => issue.type === 'security');
+  return found ? { kind: found.label, probability: found.probability } : null;
 }
 
-export const REFACTORS = {
-  split: 'Does too many things; split it into smaller methods with one job each',
-  flatten: 'Nested too deeply; flatten with early returns or extracted helpers',
-  simplify_conditions: 'Conditions are hard to follow; simplify or name them',
-  deduplicate: 'Repeats logic that exists elsewhere in the shown code; reuse it',
-  rename: 'The name or parameters misdescribe what it does; rename them',
-  remove_dead_code: 'Contains unreachable or unused code; remove it',
-  none: 'No refactor needed',
-};
-
+/** Every vulnerability class and how likely it is, for a detail view that shows the whole distribution rather than the winner. */
+export const securities = (answers, questions = questionSet()) =>
+  Object.fromEntries(questions.filter(question => question.issue?.type === 'security' && answers[question.name] !== undefined)
+    .map(question => [label(question.name), answers[question.name] * (question.when ? answers[question.when] ?? 1 : 1)]));
 
 /**
- * Plain names for the defect kinds and refactors. A label is written the way `--filter` takes it, underscores and all, so what a
- * row shows is what you can type back at the command: `too_big 78%` is filtered with `--filter kind=too_big`.
+ * How a class is displayed, where that differs from the name it is declared under in the question set. A label is written the way
+ * `--filter` takes it, underscores and all, so what a row shows is what you can type back at the command: `too_big 78%` is
+ * filtered with `--filter kind=too_big`.
  */
 export const KIND_LABELS = { boundary: 'off_by_one', missing_null_handling: 'unhandled_null', wrong_return: 'wrong_return_value', swallowed_error: 'error_ignored', state_mutation: 'bad_state_change', ordering: 'wrong_order', resource_leak: 'leak', inverted_condition: 'inverted_condition',
   split: 'too_big', flatten: 'too_nested', simplify_conditions: 'tangled_conditions', deduplicate: 'duplicated_logic', rename: 'misnamed', remove_dead_code: 'dead_code', none: 'none' };
@@ -123,20 +66,22 @@ export const BELIEVED = 0.5;
  * is the problem and another only names it, the naming answer does not discount it. Nothing is filtered out: an issue at 8% is
  * listed as 8% and sorts to the bottom, where it belongs.
  */
-export function issuesOf(answers, min = BELIEVED) {
-  const issues = [];
-  const add = (type, label, probability) => { if (probability > min) issues.push({ type, label, probability, text: `${label} ${percent(probability)}` }); };
-  // The chance of a defect is has_bug; the kind is the label the choice puts most weight on, not a second hurdle to clear.
-  if (answers.has_bug !== undefined) add('defect', label(answers.kind?.kind ?? 'defect'), answers.has_bug);
-  const vulnerability = securityOf(answers);
-  if (vulnerability) add('security', label(vulnerability.kind), vulnerability.probability);
-  const refactor = answers.refactor?.refactor;
-  if (refactor && refactor !== 'none') add('refactor', label(refactor), answers.refactor.probabilities?.[refactor] ?? 0);
-  if (answers.does_what_it_claims !== undefined) add('misaligned', 'does_not_do_what_it_claims', 1 - answers.does_what_it_claims);
-  if (answers.misdocumented !== undefined) add('docs', 'docs', answers.misdocumented);
-  // A broken rule is an issue like any other, listed under the rule's own name so a filter can name it.
-  if (answers.lint) add('lint', answers.lint.rule, answers.lint.broken);
-  return issues.sort((a, b) => b.probability - a.probability);
+export function issuesOf(answers, min = BELIEVED, questions = questionSet()) {
+  const found = issues(answers, min, questions, label);
+  // A broken rule arrives as a finding of its own rather than as answers, since it may be about a file with no methods at all,
+  // and a report of it must read the same whether or not the rule is still in the set that declared it.
+  if (answers.lint) {
+    const rule = questions.find(question => question.name === answers.lint.rule);
+    const floor = floorFor(rule, min);
+    if (answers.lint.broken > floor) {
+      found.push({ type: 'lint', label: answers.lint.rule, probability: answers.lint.broken, floor, text: `${answers.lint.rule} ${percent(answers.lint.broken)}` });
+      found.sort((a, b) => b.probability - a.probability);
+    }
+  }
+  // What you have closed is not what the scan found, it is what you decided about it, so it comes off here rather than at the
+  // point of printing: a closed kind must not rank a method either.
+  const closed = new Set(answers.closed?.kinds ?? []);
+  return closed.size ? found.filter(issue => !closed.has(issue.label)) : found;
 }
 
 /**
@@ -159,21 +104,26 @@ export const issueWeight = answers => {
   return correctness * (severityOf(answers.severity)?.expected ?? 1) + design;
 };
 /**
- * Bumped whenever the question set changes. A finding answered by an older set is read again before it is worked: its answers
- * cannot contain a kind that did not exist yet, so every rewrite would look like it introduced one.
+ * What `--filter` understands, read from the questions themselves, so `perch issues --types` prints what this repository can
+ * actually raise and a typo is answered with the real list. A question set with a class added has it here without anything
+ * being told about it twice.
  */
-export const ANSWERS_VERSION = 3;
-
-/** Everything `--filter` understands, so `perch findings --types` can print it and a typo can be answered with the real list. */
-export const filterKeys = () => ({
-  type: ['defect', 'security', 'refactor', 'docs', 'misaligned', 'lint'],
-  // The labels a finding is listed under, exactly as a row prints them. parseFilters reads either form, so `kind=too_big` and
-  // `kind=too big` both work.
-  kind: [...Object.keys(DEFECT_KINDS), ...Object.keys(SECURITY_KINDS), ...Object.keys(REFACTORS).filter(kind => kind !== 'none'), 'docs', 'does_not_do_what_it_claims'].map(label),
-  severity: [...SEVERITY_BANDS],
-});
+export const filterKeys = (questions = questionSet()) => {
+  const { types, labels } = vocabulary(questions, label);
+  // `lint` is a type no question in the set declares: a rule raises it, and a rule may be added between a run and a report of it.
+  return { type: [...new Set([...types, 'lint'])], kind: labels, severity: [...SEVERITY_BANDS] };
+};
 
 const canon = value => String(value).trim().toLowerCase().replace(/[_-]+/g, ' ');
+/**
+ * Words that name a type without being the name it is filed under. A defect is a bug, and typing the word everyone uses should
+ * not be a mistake to correct. This reads input and nothing else: a row still prints the one name the type has, so there is one
+ * name for the thing and one spelling of it in anything a pipe reads.
+ */
+const ALSO_KNOWN = { bug: 'defect' };
+export const meaning = value => ALSO_KNOWN[canon(value)] ?? canon(value);
+/** The other words for a type, so a listing of what a filter takes can say them rather than let you find out by being wrong. */
+export const alsoKnownAs = type => Object.keys(ALSO_KNOWN).filter(word => ALSO_KNOWN[word] === type);
 /** How much of the score's mass sits in the band the method files under: how sure the filter's answer is. */
 const bandWeight = severity => severity?.probabilities?.[SEVERITY_BANDS.indexOf(severityBand(severity))] ?? 1;
 
@@ -182,7 +132,7 @@ export function parseFilters(text) {
   const keys = filterKeys(), filters = [];
   for (const clause of String(text).split(',').map(part => part.trim()).filter(Boolean)) {
     const [key, ...rest] = clause.split('=');
-    const name = canon(key), value = canon(rest.join('='));
+    const name = canon(key), value = name === 'type' ? meaning(rest.join('=')) : canon(rest.join('='));
     if (!Object.hasOwn(keys, name)) throw new Error(`unknown filter "${key.trim()}"; filter on ${Object.keys(keys).join(', ')}`);
     if (!rest.length || !value) throw new Error(`filter ${name} needs a value: one of ${keys[name].join(', ')}`);
     const allowed = keys[name].map(canon);
@@ -250,7 +200,7 @@ export const hasIssue = (answers, min = 0) => issuesOf(answers, min).length > 0;
 export const MAX_CALLEES = 8, MAX_CALLERS = 8, STATE_BUDGET = 48 * 1024, MODULE_SCOPE_BUDGET = 6 * 1024;
 /**
  * What the generating model is shown. Far more than System One gets, and deliberately: a `read` call costs a round trip and
- * seconds of the model's own thinking, so a neighbour cut off at eighty lines buys a few thousand tokens and pays for them with
+ * seconds of the model's own thinking, so a neighbor cut off at eighty lines buys a few thousand tokens and pays for them with
  * a turn spent fetching the rest. Whole methods, up to a quarter of a megabyte.
  */
 export const FIX_STATE_BUDGET = 256 * 1024, FIX_LIMITS = [Infinity, 400, 160, 80, 40], FIX_NEIGHBOURS = 24;
@@ -335,7 +285,7 @@ export function moduleScope(lines, methods, budget = MODULE_SCOPE_BUDGET) {
  * so the module scope around them can be shown. `callees` and `callers` are [{ node, lines, site, calls }] with the neighbor's file
  * lines, the calling line (callers), and the names of the neighbor's own callees (second hop). `edges` are ["a -> b"] strings.
  */
-export function huntStep({ node, lines, imports = [], methods = [node], callees, callers, edges = [], budget = STATE_BUDGET, limits = [40, 20, 8, 3], maxCallees = MAX_CALLEES, maxCallers = MAX_CALLERS }) {
+export function methodStep({ node, lines, imports = [], methods = [node], callees, callers, edges = [], budget = STATE_BUDGET, limits = [40, 20, 8, 3], maxCallees = MAX_CALLEES, maxCallers = MAX_CALLERS, asked = questionSet().filter(question => question.each === 'method') }) {
   const build = (limit, own = Infinity, scope = true) => ({
     method: { path: node.path, name: node.qualified_name, leading_comment: leadingComment(lines, node.line) || null, metrics: node.metrics ?? null,
       source: excerpt(lines, node.line, node.end_line, own) },
@@ -354,7 +304,7 @@ export function huntStep({ node, lines, imports = [], methods = [node], callees,
   const over = () => JSON.stringify(state).length > budget;
   let state = build(limits[0] === Infinity ? Infinity : 80);
   for (const limit of limits) { if (!over()) break; state = build(limit); }
-  // A method can be big enough on its own that no amount of trimming its neighbours helps. Drop the module scope, then work out
+  // A method can be big enough on its own that no amount of trimming its neighbors helps. Drop the module scope, then work out
   // how many of its lines fit in what is left rather than guessing: the rest is read in the next pass, so every line here is one
   // fewer request. A request that cannot be sent reads nothing at all.
   if (over()) {
@@ -376,35 +326,22 @@ export function huntStep({ node, lines, imports = [], methods = [node], callees,
   const visible = new Set(shown.map(line => lineId(line)));
   const lineIds = codeLineIds(lines, node.line, node.end_line).filter(id => visible.has(id));
   const windows = lineWindows(lineIds);
+  // The questions themselves are declared, not written here: what perch asks of a method is data, so a repository can reword a
+  // class or add one without this function hearing about it. What stays is what is not a question about your code — which line
+  // the defect is on, and which method to read next — because both are built from this method's own neighbourhood.
   const questions = {
-    has_bug: { type: 'noul', instructions: 'Does `method` contain a concrete behavioral defect that a caller can reach?',
-      criteria: { true: 'For some input a caller can pass, the method returns a wrong result, leaves wrong state, throws when it should not, or fails to throw when it should', false: 'The method behaves correctly for every input its callers can pass; style, performance, and hypothetical misuse do not count' } },
+    ...compile(asked),
     ...(windows ? { where_window: whereWindowQuestion(windows) } : { where: whereQuestion(lineIds) }),
-    severity: { type: 'score', instructions: 'If `method` has a defect, how much would a caller feel it?', criteria: SEVERITY_LEVELS },
-    kind: { type: 'choice', instructions: 'If `method` has a defect, which kind is it?', criteria: DEFECT_KINDS },
     follow: { type: 'choice', instructions: 'Which related method most likely holds or reveals a defect connected to `method`, and is worth examining next?',
       criteria: { ...Object.fromEntries(neighbors.map(item => [item.id, `${item.name} in ${item.path}`])), none: 'No related method is worth following' } },
   };
-  Object.assign(questions, {
-    does_what_it_claims: { type: 'noul', instructions: 'Does `method` do what its name, parameters, and `leading_comment` claim it does?',
-      criteria: { true: 'Its behavior matches what a reader would expect from its name and comment', false: 'It does something different from, less than, or more than its name and comment promise' } },
-    misdocumented: { type: 'noul', instructions: 'Is `method` undocumented or misdocumented for what it does, given its `leading_comment` and its callers?',
-      criteria: { true: 'A caller could not learn its contract, edge cases, or side effects from the comment, or the comment is wrong', false: 'The comment, or the code itself for a trivial method, states the contract accurately' } },
-    exposed: { type: 'noul', instructions: 'Does `method` handle anything that comes from outside the program, or act on the world outside it?',
-      criteria: { true: 'It takes or passes on a request, a file, an environment variable, a database row, a command line, a message, or a response from another service; or it runs a command, builds a query, touches the filesystem, sends a request, or decides what someone is allowed to do',
-        false: 'Everything it works on comes from inside the program, and it changes nothing outside it' } },
-    refactor: { type: 'choice', instructions: 'Judging from `method`, its `metrics` (risk_score and maintainability_index run 0-100, cyclomatic_complexity and max_nesting are counts), and how its callers use it, what does it most need?', criteria: REFACTORS },
-  });
-  for (const [kind, description] of Object.entries(SECURITY_KINDS))
-    questions[`security_${kind}`] = { type: 'noul', instructions: `If \`method\` handles anything from outside the program: is this true of it? ${description}.`,
-      criteria: { true: `Yes: ${description.toLowerCase()}`, false: 'No, or nothing from outside reaches this method' } };
   for (const [index, call] of calls.entries())
     questions[`misuse_${index}`] = { type: 'noul', instructions: { callee: call.id, question: 'Does `method` call `callee` in a way that violates the contract evident from the callee\'s source: wrong argument order, type, or shape, an unchecked result, or an ignored error?' },
       criteria: { true: 'At least one call from method to callee breaks what the callee visibly expects or returns', false: 'Every call matches what the callee expects and handles what it returns' } };
   for (const [index, caller] of calledBy.entries())
     questions[`misused_by_${index}`] = { type: 'noul', instructions: { caller: caller.id, question: 'Does `caller` call `method` in a way that violates the contract evident from the method\'s source, or rely on behavior the method does not guarantee?' },
       criteria: { true: 'The caller passes something the method does not handle, or depends on a result or side effect the method does not reliably provide', false: 'The caller uses the method as its source intends' } };
-  return { state, questions, calls, calledBy, neighbors, windows, covers: { line: shown[0] ?? node.line, end_line: shown.at(-1) ?? node.end_line } };
+  return { state, questions, asked, calls, calledBy, neighbors, windows, covers: { line: shown[0] ?? node.line, end_line: shown.at(-1) ?? node.end_line } };
 }
 
 /** Lines of a method repeated at the start of the next pass, so a defect spanning the seam is in one pass whole. */
@@ -417,15 +354,15 @@ export const MAX_PASSES = 8;
 /**
  * One method as the passes it takes to read it. Most methods are one pass. A method too long to send in a single request used to
  * be cut to its head, which reads 300 lines of a 20,000-line method and answers as if that were the method; instead it is read in
- * overlapping passes until it runs out or hits `MAX_PASSES`. Only the first pass carries the neighbourhood, since the callers and
+ * overlapping passes until it runs out or hits `MAX_PASSES`. Only the first pass carries the neighborhood, since the callers and
  * callees are about the method, not about a slice of it.
  */
-export function huntSteps({ node, lines, imports = [], methods = [node], callees = [], callers = [], edges = [], ...options }) {
+export function methodSteps({ node, lines, imports = [], methods = [node], callees = [], callers = [], edges = [], ...options }) {
   const steps = [];
   let start = node.line;
   while (start <= node.end_line && steps.length < MAX_PASSES) {
     const first = !steps.length;
-    const step = huntStep({ node: { ...node, line: start }, lines, imports: first ? imports : [], methods,
+    const step = methodStep({ node: { ...node, line: start }, lines, imports: first ? imports : [], methods,
       callees: first ? callees : [], callers: first ? callers : [], edges: first ? edges : [], ...options });
     steps.push(step);
     if (step.covers.end_line >= node.end_line) break;
@@ -436,30 +373,21 @@ export function huntSteps({ node, lines, imports = [], methods = [node], callees
   return steps;
 }
 
-/** Typed answers reduced to the fields the walk and the log use. */
-export function readAnswers(answers, { calls, calledBy, neighbors }) {
+/**
+ * Typed answers reduced to what the walk and the log use. Every declared question is kept under its own name, whatever it is, so
+ * a class added to the question set is recorded without this function being told. The rest are the machinery's own answers: where
+ * the defect is, which method to read next, and what the neighbours look like from here.
+ */
+export function readAnswers(answers, { calls, calledBy, neighbors, asked = questionSet().filter(question => question.each === 'method') }) {
   const follow = answers.follow.choice;
-  const kinds = answers.kind.probabilities ?? { [answers.kind.choice]: 1 };
-  const [topKind, topProbability] = [answers.kind.choice, kinds[answers.kind.choice] ?? 1];
-  const securityKinds = Object.fromEntries(Object.keys(SECURITY_KINDS).map(kind => [kind, answers[`security_${kind}`].noul]));
-  const [topSecurity, topSecurityProbability] = Object.entries(securityKinds).sort((a, b) => b[1] - a[1])[0];
+  const read = { answers_set: setHash(asked) };
+  for (const question of asked) read[question.name] = readAnswer(question, answers[question.name]);
   return {
-    answers_version: ANSWERS_VERSION,
-    has_bug: answers.has_bug.noul,
+    ...read,
     where: { line: Number(answers.where.choice.slice(1)), confidence: answers.where.confidence },
-    kind: { kind: topKind, probability: topProbability },
-    kinds,
-    severity: { probabilities: answers.severity.probabilities, score: answers.severity.score, confidence: answers.severity.confidence, level: severityOf(answers.severity)?.band ?? null, predicted: severityOf(answers.severity)?.predicted ?? null },
-    exposed: answers.exposed.noul,
-    security: { kind: topSecurity, probability: topSecurityProbability },
-    securities: securityKinds,
+    severity: { ...read.severity, level: severityOf(read.severity)?.band ?? null, predicted: severityOf(read.severity)?.predicted ?? null },
     misuse: calls.map((call, index) => ({ callee: call.id, probability: answers[`misuse_${index}`].noul })),
     misused_by: calledBy.map((caller, index) => ({ caller: caller.id, probability: answers[`misused_by_${index}`].noul })),
     follow: { method: neighbors.some(item => item.id === follow) ? follow : null, confidence: answers.follow.confidence, probabilities: answers.follow.probabilities },
-    does_what_it_claims: answers.does_what_it_claims.noul,
-    misdocumented: answers.misdocumented.noul,
-    refactor: { refactor: answers.refactor.choice, confidence: answers.refactor.confidence, probabilities: answers.refactor.probabilities },
   };
 }
-
-

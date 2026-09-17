@@ -16,11 +16,12 @@
     "perch": "bin/perch.mjs"
   },
   "files": [
+    "LICENSE",
+    "README.md",
     "bin",
     "dist",
     "docs",
-    "README.md",
-    "LICENSE"
+    "scan.yaml"
   ],
   "publishConfig": {
     "access": "public",

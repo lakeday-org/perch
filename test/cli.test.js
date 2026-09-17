@@ -5,9 +5,10 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { main, parseArgs } from '../src/cli.js';
+import { parseFilters } from '../src/questions.js';
 import { revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
-import { scanRepository } from '../src/hunt.js';
+import { scanRepository } from '../src/scan.js';
 import { commitAll, fixtureOptions, makeFixture, makeGraphFixture, scriptedSystemOne } from './helpers.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -21,42 +22,42 @@ function capture() {
 
 describe('cli', () => {
   it('parses flags and positionals', () => {
-    expect(parseArgs(['scan', 'owner/repo', '--paths', 'src,lib', '--parallel', '3', '--force', '--json'])).toEqual({
-      flags: { paths: 'src,lib', parallel: '3', force: true, json: true }, positional: ['scan', 'owner/repo'] });
-    expect(parseArgs(['fix', 'src/metrics.ts', '--budget', '5', '--effort', 'low'])).toEqual({ flags: { budget: '5', effort: 'low' }, positional: ['fix', 'src/metrics.ts'] });
+    expect(parseArgs(['scan', 'owner/repo', '--paths', 'src,lib', '--parallel', '3', '--json'])).toEqual({
+      flags: { paths: 'src,lib', parallel: '3', json: true }, positional: ['scan', 'owner/repo'] });
+    expect(parseArgs(['lint', 'add', 'no-stale', '--ensure_absent', 'a doc for something deleted', '--where', 'docs/**'])).toEqual({ flags: { ensure_absent: 'a doc for something deleted', where: 'docs/**' }, positional: ['lint', 'add', 'no-stale'] });
     expect(parseArgs(['issues', '--closed', '--all']).flags).toEqual({ closed: true, all: true });
     expect(() => parseArgs(['scan', '--bogus'])).toThrow('unknown option --bogus');
     expect(() => parseArgs(['scan', '--candidates', '2'])).toThrow('unknown option --candidates');
-    expect(() => parseArgs(['fix', '--model'])).toThrow('--model requires a value');
+    expect(() => parseArgs(['lint', 'add', 'x', '--ensure'])).toThrow('--ensure requires a value');
   });
 
-  it('has three commands and prints their usage', async () => {
+  it('lists its commands and prints their usage', async () => {
     const { out, err, io } = capture();
     expect(await main(['--help'], io)).toBe(0);
-    for (const verb of ['scan [target]', 'lint', 'issues [issue-id]', 'check <path', 'doctor']) expect(out[0]).toContain(verb);
-    for (const gone of ['hunt', 'refactor', 'report', 'publish', 'design', 'fix']) expect(out[0]).not.toMatch(new RegExp(`^\\s*${gone} `, 'm'));
+    for (const verb of ['scan [target]', 'rules [list', 'issues [issue-id]', 'check <path', 'doctor']) expect(out[0]).toContain(verb);
+    for (const gone of ['hunt', 'lint', 'refactor', 'report', 'publish', 'design', 'fix']) expect(out[0]).not.toMatch(new RegExp(`^\\s*${gone} `, 'm'));
     expect(await main(['check', '-h'], io)).toBe(0);
     expect(out.at(-1)).toContain('perch check: Ask the rules about one piece of code');
     expect(out.at(-1)).toContain('--rules');
     expect(await main(['scan', '-h'], io)).toBe(0);
     expect(out.at(-1)).toContain('perch scan: Find issues');
-    for (const gone of ['hunt', 'refactor', 'report', 'fix']) expect(await main([gone], io)).toBe(2);
+    for (const gone of ['hunt', 'lint', 'refactor', 'report', 'fix']) expect(await main([gone], io)).toBe(2);
     expect(await main(['issues', '--limit', '0'], io)).toBe(2);
-    expect(err.at(-1)).toContain('--limit must be a positive integer');
+    expect(err.join('\n')).toContain('--limit must be a positive integer');
     expect(await main(['check'], io)).toBe(2);
-    expect(err.at(-1)).toContain('perch check needs a path, a path::method, or an issue id');
+    expect(err.join('\n')).toContain('perch check needs a path, a path::method, or an issue id');
   });
 
   it('refuses a flag the command does not take, and names the command that does', async () => {
     const { err, io } = capture();
     expect(await main(['scan', '--filter', 'type=security'], io)).toBe(2);
-    expect(err.at(-1)).toContain('perch scan does not take --filter; it belongs to issues');
-    expect(err.at(-1)).toContain('perch scan: Find issues');
+    expect(err.join('\n')).toContain('perch scan does not take --filter; it belongs to issues');
+    expect(err.join('\n')).toContain('perch scan --help');
     expect(await main(['scan', '--rules', 'a'], io)).toBe(2);
-    expect(err.at(-1)).toContain('perch scan does not take --rules; it belongs to check');
+    expect(err.join('\n')).toContain('perch scan does not take --rules; it belongs to check');
     // An alias is checked against the command it resolves to, and a flag both commands take is fine.
-    expect(await main(['findings', '--force'], io)).toBe(2);
-    expect(err.at(-1)).toContain('perch issues does not take --force; it belongs to scan');
+    expect(await main(['findings', '--parallel', '2'], io)).toBe(2);
+    expect(err.join('\n')).toContain('perch issues does not take --parallel; it belongs to scan');
   });
 
   it('needs a TypeSafe key to ask anything, but none to read what it already knows', async () => {
@@ -64,7 +65,7 @@ describe('cli', () => {
     cleanups.push(repo);
     const { out, err, io } = capture();
     expect(await main(['scan', repo], io)).toBe(1);
-    expect(err.at(-1)).toContain('TYPESAFE_API_KEY');
+    expect(err.join('\n')).toContain('TYPESAFE_API_KEY');
     expect(await main(['issues', '--out', join(repo, '.perch')], io)).toBe(0);
     expect(out.at(-1)).toBe('Nothing matches.');
   });
@@ -101,19 +102,26 @@ describe('cli', () => {
     const { out, err, io } = capture();
     // `findings` is another name for `issues`; a usage error on it must reach that command's help, not an undefined one.
     expect(await main(['issues', '--filter', 'status=p1'], io)).toBe(2);
-    expect(err.at(-1)).toContain('unknown filter "status"; filter on type, kind, severity');
-    expect(err.at(-1)).toContain('perch issues:');
+    expect(err.join('\n')).toContain('unknown filter "status"; filter on type, kind, severity');
+    expect(err.join('\n')).toContain('perch issues --help');
     expect(await main(['issues', '--filter', 'severity=p9'], io)).toBe(2);
-    expect(err.at(-1)).toContain('severity "p9" is not one of P3, P2, P1, P0');
+    expect(err.join('\n')).toContain('severity "p9" is not one of P3, P2, P1, P0');
     expect(await main(['findings', '--filter', 'kind=nope'], io)).toBe(2);
-    expect(err.at(-1)).toContain('too_big');
+    expect(err.join('\n')).toContain('too_big');
     expect(await main(['findings', '-h'], io)).toBe(0);
     expect(out.at(-1)).toContain('perch issues: List what the scan found');
     expect(await main(['findings', '--types'], io)).toBe(0);
     expect(out.at(-1)).toContain('severity\n  P3\n  P2\n  P1\n  P0');
     // A filter clause that names nothing is a mistake to correct, whichever command reads it.
     expect(await main(['issues', '--filter', 'issue=p1'], io)).toBe(2);
-    expect(err.at(-1)).toContain('unknown filter "issue"; filter on type, kind, severity');
+    expect(err.join('\n')).toContain('unknown filter "issue"; filter on type, kind, severity');
+    // A defect is a bug, and typing the word everyone uses is not a mistake. The listing says so rather than leaving you to
+    // find out by being wrong, and a word that means nothing is still wrong.
+    expect(await main(['issues', '--types'], io)).toBe(0);
+    expect(out.at(-1)).toContain('defect (or bug)');
+    expect(parseFilters('type=bug')).toEqual([{ key: 'type', value: 'defect' }]);
+    expect(parseFilters('type=BUG')).toEqual([{ key: 'type', value: 'defect' }]);
+    expect(() => parseFilters('type=bugz')).toThrow('is not one of');
   });
 
   it('lists the issues a scan found, from the results directory', async () => {
@@ -136,14 +144,19 @@ describe('cli', () => {
     expect(out.at(-1)).not.toContain('Work');
     const code = await main(['issues', f.id.slice(0, 5), '--out', repo.out, '--verbose'], io);
     if (code !== 0) throw new Error(err.join('\n'));
-    expect(out.at(-1)).toContain('Defect: 80%');
-    expect(out.at(-1)).toContain('wrong_return_value');
-    expect(out.at(-1)).toContain('Metrics: risk');
+    // One issue opened up reads in the columns a run prints, with what was asked under it.
+    expect(out.at(-1)).toMatch(/^ {2}Confidence {2}Type +Severity +Problem$/m);
+    expect(out.at(-1)).toMatch(/^ +80% {2}defect {2}P\d \(\d\.\d\) {2}wrong_return_value$/m);
+    expect(out.at(-1)).toMatch(/^ {2}Kind +wrong_return_value \d+%/m);
+    expect(out.at(-1)).toMatch(/^ {2}Code +risk \d+ {2}maintainability \d+/m);
+    // The line it points at, with the code on it.
+    expect(out.at(-1)).toMatch(/^ +\d+ {2}\S/m);
+    expect(out.at(-1)).toMatch(/the line it points at, \d+% sure/);
     // --min is how sure the scan has to be: nothing is answered at a flat 100%, and over 100 is not a percentage.
     expect(await main(['issues', '--out', repo.out, '--min', '100'], io)).toBe(0);
     expect(out.at(-1)).toBe('Nothing matches.');
     expect(await main(['issues', '--out', repo.out, '--min', '900'], io)).toBe(2);
-    expect(err.at(-1)).toContain('--min must be a percentage, 0 to 100');
+    expect(err.join('\n')).toContain('--min must be a percentage, 0 to 100');
     expect(await main(['issues', '--out', repo.out, '--json'], io)).toBe(0);
     expect(JSON.parse(out.at(-1))[0].id).toBe(f.id);
   });
@@ -154,8 +167,8 @@ describe('cli', () => {
     const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
     // f is the heavier method overall; h is the one that is probably injectable.
     const hunt = await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne({
-      'src/a.js::f': { has_bug: 0.9, exposed: 0.9, security_injection: 0.1 },
-      'src/b.js::h': { has_bug: 0.1, exposed: 0.9, security_injection: 0.95 },
+      'src/a.js::f': { has_bug: 0.9, exposed: 0.9, injection: 0.1 },
+      'src/b.js::h': { has_bug: 0.1, exposed: 0.9, injection: 0.95 },
     }) }));
     const f = hunt.visited.find(visit => visit.method === 'src/a.js::f').id;
     const h = hunt.visited.find(visit => visit.method === 'src/b.js::h').id;
@@ -201,10 +214,10 @@ describe('cli', () => {
     expect(await main(['issues', '--out', repo.out, '--min', '0', '--page', '99'], io)).toBe(0);
     expect(err.at(-1)).toMatch(/^page 99 is past the end\. \d+ open issues, \d+ pages?$/);
     expect(await main(['issues', '--out', repo.out, '--limit', '0'], io)).toBe(2);
-    expect(err.at(-1)).toContain('--limit must be a positive integer');
+    expect(err.join('\n')).toContain('--limit must be a positive integer');
   });
 
-  it('closes an issue, keeps why, and brings it back when the method changes', async () => {
+  it('closes an issue, keeps why, and keeps it closed across scans and edits', async () => {
     const repoRoot = await makeGraphFixture();
     cleanups.push(repoRoot);
     const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
@@ -220,20 +233,92 @@ describe('cli', () => {
     expect(await main(['issues', '--closed', '--out', repo.out], io)).toBe(0);
     expect(out.at(-1)).toMatch(new RegExp(`^${f.id}.* dismissed$`, 'm'));
     expect(await main(['issues', f.id, '--out', repo.out], io)).toBe(0);
-    expect(out.at(-1)).toContain('Status: closed');
-    expect(out.at(-1)).toContain('verifies before it parses');
+    expect(out.at(-1)).toMatch(/^\S+ {2}f {2}src\/a\.js:\d/m);
+    expect(out.at(-1)).toContain('closed');
+    // What was closed and why, since a closure covers the kinds it was made about and not the method entire.
+    expect(out.at(-1)).toMatch(/^ {2}Closed {2}.*verifies before it parses$/m);
 
-    // Editing the method is a new judgement to make, so the dismissal lapses.
+    // A closure is a decision, and it holds until it is taken back: scanning again does not put it back on the list.
+    await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.9 } }) }));
+    expect(await main(['issues', '--out', repo.out], io)).toBe(0);
+    expect(out.at(-1)).not.toContain(f.id);
+
+    // Nor does editing the method it was about. Perch was wrong, or you looked and left it, and moving a line says neither.
     await writeFile(join(repoRoot, 'src', 'a.js'), (await readFile(join(repoRoot, 'src', 'a.js'), 'utf8')).replace('x > 10', 'x > 11'));
     await commitAll(repoRoot, 'change f');
     await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), revision: await revision(repoRoot), systemOne: scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.9 } }) }));
     expect(await main(['issues', '--out', repo.out], io)).toBe(0);
+    expect(out.at(-1)).not.toContain(f.id);
+
+    // perch reopen is how it comes back, and only that.
+    expect(await main(['reopen', f.id, '--out', repo.out], io)).toBe(0);
+    expect(await main(['issues', '--out', repo.out], io)).toBe(0);
     expect(out.at(-1)).toContain(f.id);
 
+    // A closure is about the one thing closed. Every other method the scan read is still live.
+    expect(await main(['close', f.id, '--out', repo.out], io)).toBe(0);
+    expect(await main(['issues', '--all', '--min', '0', '--out', repo.out], io)).toBe(0);
+    const listed = out.at(-1).split('\n').filter(line => /^[0-9a-f]{8} {2}/.test(line));
+    expect(listed.length).toBeGreaterThan(1);
+    expect(listed.some(line => line.startsWith(f.id))).toBe(false);
+
     expect(await main(['close', '--out', repo.out], io)).toBe(2);
-    expect(err.at(-1)).toContain('perch close needs at least one issue id');
+    expect(err.join('\n')).toContain('perch close needs at least one issue id');
     expect(await main(['reopen', 'zzzz', '--out', repo.out], io)).toBe(1);
-    expect(err.at(-1)).toContain('no finding zzzz');
+    expect(err.join('\n')).toContain('no finding zzzz');
+  });
+
+
+  it('closes one kind of an issue and leaves the rest of it live', async () => {
+    const repoRoot = await makeGraphFixture();
+    cleanups.push(repoRoot);
+    const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
+    const answers = { 'src/a.js::f': { has_bug: 0.9, kind: 'wrong_return', misdocumented: 0.8, severity: 2 } };
+    const hunt = await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne(answers) }));
+    const f = hunt.visited.find(visit => visit.method === 'src/a.js::f');
+    const { out, err, io } = capture();
+    const row = async () => { await main(['issues', '--out', repo.out], io); return out.at(-1).split('\n').find(line => line.startsWith(f.id)) ?? ''; };
+    expect(await row()).toContain('wrong_return_value');
+    expect(await row()).toContain('docs');
+
+    // Closing the documentation says nothing about the defect, so the defect is still listed and the issue is still open.
+    expect(await main(['close', f.id, '--kind', 'docs', '--out', repo.out], io)).toBe(0);
+    expect(out.at(-1)).toContain('closed  docs');
+    expect(await row()).toContain('wrong_return_value');
+    expect(await row()).not.toContain('docs');
+
+    // And it is only that kind that comes back.
+    expect(await main(['reopen', f.id, '--kind', 'docs', '--out', repo.out], io)).toBe(0);
+    expect(await row()).toContain('docs');
+
+    // A kind nothing can be listed under closes nothing, which is a mistake to say so rather than a closure that does nothing.
+    expect(await main(['close', f.id, '--kind', 'nonsense', '--out', repo.out], io)).toBe(2);
+    expect(err.join('\n')).toContain('nonsense is not a kind');
+  });
+
+  it('closes what an issue carries now, so something found in it later is a new thing', async () => {
+    const repoRoot = await makeGraphFixture();
+    cleanups.push(repoRoot);
+    const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
+    const quiet = { 'src/a.js::f': { has_bug: 0.1, misdocumented: 0.8 } };
+    const hunt = await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne(quiet) }));
+    const f = hunt.visited.find(visit => visit.method === 'src/a.js::f');
+    const { out, io } = capture();
+    expect(await main(['close', f.id, '--out', repo.out], io)).toBe(0);
+    expect(out.at(-1)).toContain('closed  docs');
+    expect(await main(['issues', '--out', repo.out], io)).toBe(0);
+    expect(out.at(-1)).not.toContain(f.id);
+
+    // Closing a method for being undocumented is not a promise that nothing will ever be wrong with it. The method has to change
+    // for anything new to be found in it, since a scan does not ask again about code nothing has touched.
+    await writeFile(join(repoRoot, 'src', 'a.js'), (await readFile(join(repoRoot, 'src', 'a.js'), 'utf8')).replace('x > 10', 'x > 11'));
+    await commitAll(repoRoot, 'change f');
+    await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), revision: await revision(repoRoot),
+      systemOne: scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.9, kind: 'wrong_return', misdocumented: 0.8, severity: 2 } }) }));
+    expect(await main(['issues', '--out', repo.out], io)).toBe(0);
+    const row = out.at(-1).split('\n').find(line => line.startsWith(f.id)) ?? '';
+    expect(row).toContain('wrong_return_value');
+    expect(row).not.toContain('docs');
   });
 
   it('bundles with esbuild into a loadable module', async () => {

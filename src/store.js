@@ -1,4 +1,4 @@
-/** Results directory layout: scans, hunts, issues, and fixes as JSON records under one --out directory. */
+/** Results directory layout: what a scan found, what it did, and what you set aside, under one --out directory. */
 import { createHash } from 'node:crypto';
 import { appendFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -39,21 +39,31 @@ async function entries(dir) {
  * Whether a recorded fix still describes this method: the code it was about, or, for one that landed, the code it produced.
  * Anything else means the method has moved on since, and it is workable again.
  */
-const fixApplies = (fix, finding) => {
-  if (!fix) return false;
-  if (fix.status === 'ready' && fix.hash_after === finding.hash) return true;
-  return fix.hash ? fix.hash === finding.hash : fix.revision === finding.revision || fix.at >= finding.at;
-};
-/**
- * A dismissal holds only for the code it was about. Closing a finding is a judgement on a method as it reads now — a false
- * positive, a size complaint on code you are not restructuring — so editing that method brings it back to be judged again.
- */
-const dismissalApplies = (event, finding) => event?.type === 'dismissed' && event.hash === finding.hash;
-const summarizeFix = work => ({ id: work.fix_id, status: work.status, notes: work.notes ?? null, at: work.at, summary: work.summary ?? null, commit: work.commit ?? null, branch: work.branch ?? null, patch_path: work.patch_path ?? null, before: work.before ?? null, after: work.after ?? null, reason: work.reason ?? null, error: work.error ?? null, attempts: work.attempts ?? 0 });
 
 /** Lines of a broken rule's unit worth printing; past this it is a file to open, not a thing to read in a terminal. */
 const SOURCE_LINES = 40;
+/**
+ * What you have closed, and what that covers. Closing an issue is you saying perch was wrong about this, or that you know and are
+ * not changing it, and neither stops being true because the code around it moved, so a closure holds until you take it back.
+ *
+ * It covers the kinds that were on the issue when you closed it and nothing else. Closing a method for being undocumented is not
+ * a promise that nothing will ever be wrong with it, so a defect that turns up in it later is a new thing and is listed.
+ */
+function closures(events) {
+  const byId = new Map();
+  for (const event of events) {
+    const held = byId.get(event.id) ?? { kinds: new Set(), at: null, reason: null };
+    if (event.type === 'dismissed') Object.assign(held, { at: event.at, reason: event.reason ?? null });
+    for (const kind of event.kinds ?? []) { if (event.type === 'dismissed') held.kinds.add(kind); else held.kinds.delete(kind); }
+    // Reopening without naming a kind takes the whole thing back.
+    if (event.type === 'reopened' && !event.kinds?.length) held.kinds.clear();
+    byId.set(event.id, held);
+  }
+  return byId;
+}
 const byCreation = (a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '') || a.id.localeCompare(b.id);
+/** How sure perch is of the worst thing it found here, which is what a list of issues is ordered by. */
+const surest = (finding, min) => issuesOf(finding, min)[0]?.probability ?? 0;
 
 export function openStore(out) {
   const records = async (kind, file) => {
@@ -67,62 +77,73 @@ export function openStore(out) {
   const store = {
     out,
     scanDir: id => join(out, 'scans', id),
-    huntDir: id => join(out, 'hunts', id),
+    runDir: id => join(out, 'runs', id),
     fixDir: id => join(out, 'fixes', id),
     refactorDir: id => join(out, 'refactors', id),
     /** Keep results out of `git status` when they live inside the repository. */
     async exclude(root) {
       if (out.startsWith(root + '/')) await excludeFromStatus(root, '/' + out.slice(root.length + 1).split('/')[0] + '/');
     },
-    eventsPath: join(out, 'events.jsonl'),
-    /** Append one event to the log that every hunt reads first. */
-    async appendEvent(event) {
+    /**
+     * What the last scan found, rewritten whole every time. Nothing here is a cache of a model answer: a scan asks every question
+     * of everything it covers, so what is on disk is what that run said and nothing older is hiding behind it.
+     *
+     * What you decided is kept apart. A dismissal is a judgement you made and has to survive the next run; an answer does not.
+     */
+    scanPath: join(out, 'scan.jsonl'),
+    closedPath: join(out, 'closed.jsonl'),
+    /** Everything the last run did, written whether or not anyone asked to watch it, which is when you want it. */
+    logPath: join(out, 'scan.log'),
+    async startLog() {
       await mkdir(out, { recursive: true });
-      await appendFile(store.eventsPath, JSON.stringify(event) + '\n');
+      await writeFile(store.logPath, `${new Date().toISOString()} perch\n`);
+      return line => appendFile(store.logPath, `${new Date().toISOString()} ${line}\n`).catch(() => {});
     },
-    async readEvents() {
-      const text = await readFile(store.eventsPath, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
+    /** The last `count` lines of it, for a report of a run that went wrong. */
+    async tail(count = 20) {
+      const text = await readFile(store.logPath, 'utf8').catch(() => '');
+      return text.split('\n').filter(Boolean).slice(-count);
+    },
+    async readLines(path) {
+      const text = await readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
       return text.split('\n').filter(Boolean).map(line => JSON.parse(line));
     },
-    /** The latest hunted, fixed, and dismissed-or-reopened event per method. Events from before findings had ids and per-kind answers are ignored. */
+    async writeLines(path, rows) {
+      await mkdir(out, { recursive: true });
+      await writeFile(path, rows.map(row => JSON.stringify(row)).join('\n') + (rows.length ? '\n' : ''));
+    },
+    /** What the last scan read, every rule it checked, and what you have set aside. */
     async indexes() {
-      const latest = new Map(), fixes = new Map(), dismissals = new Map(), lint = new Map();
-      for (const event of await store.readEvents()) {
-        if (event.type === 'hunted' && event.id && event.kinds) latest.set(event.method, event);
-        else if (event.type === 'fixed') fixes.set(event.method, event);
-        else if (event.type === 'dismissed' || event.type === 'reopened') dismissals.set(event.method, event);
-        // One entry per rule and unit: the newest answer replaces the last, and a run that clears a rule writes `cleared`.
-        else if (event.type === 'linted') { if (event.cleared) lint.delete(event.id); else lint.set(event.id, event); }
+      const latest = new Map(), checks = new Map();
+      for (const event of await store.readLines(store.scanPath)) {
+        // A method reading is keyed by its method so the scan's own list can join to it. A rule checked against a file may be
+        // about a file with no methods at all, so it is keyed by its own id and stands on its own.
+        if (event.rule) checks.set(event.id, event);
+        else if (event.id && event.answers_set) latest.set(event.method, event);
       }
-      return { latest, fixes, dismissals, lint };
+      return { latest, dismissals: closures(await store.readLines(store.closedPath)), checks };
     },
-    /** What a lint run found, as events, so a broken rule is a finding in the same log as everything else. */
-    async recordLint(findings, cleared = []) {
-      const at = new Date().toISOString();
-      for (const id of cleared) await store.appendEvent({ type: 'linted', at, id, cleared: true });
-      for (const finding of findings) await store.appendEvent({ type: 'linted', at, ...finding });
-    },
-    /** Set a finding aside, or put it back. Append-only like everything else: the log keeps who said what and when. */
-    async dismiss(finding, reason) {
-      const event = { type: 'dismissed', at: new Date().toISOString(), id: finding.id, method: finding.method, path: finding.path, name: finding.name, line: finding.line, hash: finding.hash, reason };
-      await store.appendEvent(event);
+    /** One scan's findings, replacing the last scan's. */
+    recordScan(findings) { return store.writeLines(store.scanPath, findings); },
+    /**
+     * Set a finding aside, or put it back. Appended, since it is a decision and the next run must still see it. `kinds` says what
+     * the closure covers; left out, it covers what the issue carries now, which is what you were looking at when you closed it.
+     */
+    async decide(type, finding, { kinds = null, reason = null } = {}) {
+      // Closing without naming kinds covers what the issue carries now. Reopening without naming them takes the whole thing back,
+      // so it names none: the kinds it would otherwise list are the live ones, which were never closed.
+      const covers = type === 'dismissed' ? { kinds: kinds ?? issuesOf(finding, 0).map(issue => issue.label), reason } : kinds ? { kinds } : {};
+      const event = { type, at: new Date().toISOString(), id: finding.id, method: finding.method ?? null, path: finding.path, name: finding.name, line: finding.line, ...covers };
+      await mkdir(out, { recursive: true });
+      await appendFile(store.closedPath, JSON.stringify(event) + '\n');
       return event;
     },
-    async reopen(finding) {
-      const event = { type: 'reopened', at: new Date().toISOString(), id: finding.id, method: finding.method, path: finding.path, name: finding.name, line: finding.line, hash: finding.hash };
-      await store.appendEvent(event);
-      return event;
-    },
-    /** The latest System One reading of each method, carrying the fix made while it still read that way. */
+    dismiss(finding, reason, kinds = null) { return store.decide('dismissed', finding, { kinds, reason }); },
+    reopen(finding, kinds = null) { return store.decide('reopened', finding, { kinds }); },
+    /** The latest System One reading of each method. */
     async latestFindings() {
-      const { latest, fixes } = await store.indexes();
-      return [...latest.values()].map(finding => { const fix = fixes.get(finding.method); return fixApplies(fix, finding) ? { ...finding, fix: summarizeFix(fix) } : { ...finding }; });
-    },
-    /** The hash each method had when it was last hunted in the current format. */
-    async huntedIndex() {
-      const index = new Map();
-      for (const event of await store.latestFindings()) index.set(event.method, event.hash);
-      return index;
+      const { latest } = await store.indexes();
+      return [...latest.values()].map(finding => ({ ...finding }));
     },
     /**
      * Every method with an issue at probability `min` or more, strongest first: System One's answers for the methods it has read, joined
@@ -130,7 +151,7 @@ export function openStore(out) {
      */
     async issues(min = 0.5, { scan = null, all = false } = {}) {
       const findings = await store.latestFindings();
-      const { fixes, dismissals, lint } = await store.indexes();
+      const { dismissals, checks } = await store.indexes();
       scan ??= await store.latestScan();
       const byMethod = new Map(findings.map(finding => [finding.method, finding]));
       const every = [];
@@ -140,27 +161,33 @@ export function openStore(out) {
           if (file.test) continue;
           for (const method of file.methods) {
             seen.add(method.id);
-            const hunted = byMethod.get(method.id);
+            const reading = byMethod.get(method.id);
             const base = { metrics: method.metrics, file: file.metrics };
             // Answers about a method that has since changed are stale; the metrics are always about the code as it is.
-            const fix = fixes.get(method.id);
-            every.push(hunted && hunted.hash === method.hash ? { ...hunted, ...base, ...(fixApplies(fix, method) ? { fix: summarizeFix(fix) } : {}) } : { id: findingId(method.id), method: method.id, path: file.path, name: method.qualified_name, line: method.line, end_line: method.end_line, hash: method.hash, revision: scan.revision, root: scan.root, at: scan.created_at, unread: true, ...base, ...(fixApplies(fix, method) ? { fix: summarizeFix(fix) } : {}) });
+            every.push(reading && reading.hash === method.hash ? { ...reading, ...base } : { id: findingId(method.id), method: method.id, path: file.path, name: method.qualified_name, line: method.line, end_line: method.end_line, hash: method.hash, revision: scan.revision, root: scan.root, at: scan.created_at, unread: true, ...base });
           }
         }
         for (const finding of findings) if (!seen.has(finding.method)) every.push(finding);
       } else every.push(...findings);
       // Listed when the scan believes at least one thing about the method, ranked by what its problems are expected to cost.
       // The ranking counts every answer at its probability, so a method kept for one issue at 80% still sorts on all of them.
-      // A broken rule is its own finding: it may be about a file with no methods at all, so it does not join the scan's list.
-      for (const event of lint.values()) every.push({ ...event, lint: { rule: event.rule, broken: event.broken, text: event.text ?? null, said: event.said ?? null } });
+      // A rule checked against a file is its own finding: it may be about a file with no methods at all, so it does not join
+      // the scan's list. One that passed carries nothing to report and falls out below with everything else that is quiet.
+      for (const event of checks.values()) every.push({ ...event, lint: { rule: event.rule, broken: event.broken, text: event.text ?? null, said: event.said ?? null } });
       return every.map(finding => {
-        const dismissal = dismissals.get(finding.method);
-        return dismissalApplies(dismissal, finding) ? { ...finding, dismissed: { at: dismissal.at, reason: dismissal.reason ?? null } } : finding;
-      }).filter(event => all || issuesOf(event, min).length).sort((a, b) => issueWeight(b) - issueWeight(a));
+        const held = dismissals.get(finding.id);
+        if (!held?.kinds.size) return finding;
+        const closed = { kinds: [...held.kinds], at: held.at, reason: held.reason };
+        // Closed when nothing is left live on it, and still listed by `perch issues --closed` either way, which is why what it
+        // is kept for is counted without the closure rather than with it.
+        return { ...finding, closed, ...(issuesOf({ ...finding, closed }, min).length ? {} : { dismissed: { at: held.at, reason: held.reason } }) };
+      // Surest first. What a method's worst problem is likeliest to be is the thing a list is read for; expected cost breaks the
+      // tie, so two methods perch is equally sure about are ordered by what they would cost.
+      }).filter(event => all || issuesOf({ ...event, closed: null }, min).length).sort((a, b) => surest(b, min) - surest(a, min) || issueWeight(b) - issueWeight(a));
     },
     /** Flagged methods at probability `min` or more, most likely first. */
     async findings(min = BELIEVED) {
-      return (await store.issues(min)).filter(event => flagged(event)).sort((a, b) => issueWeight(b) - issueWeight(a));
+      return (await store.issues(min)).filter(event => flagged(event)).sort((a, b) => surest(b, min) - surest(a, min) || issueWeight(b) - issueWeight(a));
     },
     /** The finding with this id or unique id prefix. */
     async findFinding(ref) {
@@ -171,7 +198,7 @@ export function openStore(out) {
     },
     /** Fill in the pointed-at source line for findings recorded without one, reading it from git at their commit. */
     async withSourceLines(findings) {
-      const root = (await store.listHunts()).at(-1)?.root;
+      const root = (await store.listRuns()).at(-1)?.root;
       if (!root) return findings;
       const blobs = new Map();
       const linesOf = async finding => {
@@ -192,10 +219,10 @@ export function openStore(out) {
       }
       return findings;
     },
-    listHunts: () => records('hunts', 'hunt.json'),
+    listRuns: () => records('runs', 'run.json'),
     listScans: () => records('scans', 'scan.json'),
     listFixes: () => records('fixes', 'fix.json'),
-    async latestHunt() { return (await store.listHunts()).at(-1) ?? null; },
+    async latestRun() { return (await store.listRuns()).at(-1) ?? null; },
     /** The most recent scan on disk: the code as it was last analyzed. */
     async latestScan() { return (await store.listScans()).at(-1) ?? null; },
   };

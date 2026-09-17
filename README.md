@@ -92,6 +92,20 @@ callees in view.
 about the codebase rather than any one file, so they search the likeliest units
 first and stop at the answer.
 
+A question the model hedges on fills a report with coin flips. `min` is how sure
+it has to be before it counts, for that question alone:
+
+```yaml
+- name: comment-says-why
+  where: "src/**/*.js"
+  each: method
+  min: 70
+  ensure: A method's comment says what its code cannot.
+```
+
+`perch rules edit <name> --min 70` writes it. Without one, the run's `--min`
+speaks for it, which is 50.
+
 Broken rules are listed with everything else, under type `lint`:
 
 ```
@@ -187,9 +201,11 @@ something is still wrong, which is what a loop needs.
 | [How a scan works](https://docs.perchscan.com/scan/) | The graph walk, the questions, and how probabilities turn into a ranking. |
 
 Results go in `<out>`, which is `.perch` by default: `scan.jsonl` holds what the
-last run found, one line per method read and per rule broken, rewritten whole
-every run. `closed.jsonl` holds what you set aside, which has to survive the next
-run. Nothing else is written to your tree.
+last run found, one line per method read and per rule checked, rewritten whole
+every run. A reading carries forward when the request that produced it would be
+identical, so a rescan of untouched code costs nothing and says the same thing.
+`closed.jsonl` holds what you set aside, which has to survive the next run.
+Nothing else is written to your tree.
 
 ## Development
 

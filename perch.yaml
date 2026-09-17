@@ -1,5 +1,5 @@
 # Rules perch checks with `perch lint`. Each one is a question put to a model about one file or one method, so these are the
-# things a parser cannot prove: whether a comment says why, whether a listing honours a filter, whether a behaviour is asserted
+# things a parser cannot prove: whether a comment says why, whether a listing honors a filter, whether a behavior is asserted
 # anywhere. Editing a rule's wording re-asks it; leaving it alone costs nothing.
 
 - name: prose-not-generated
@@ -10,68 +10,75 @@
 - name: docs-succint
   where: "**/*.md"
   ensure: >
-    Documentation is kept succint and deliberate. No follow ups, em-dashes, and meaningless statements
+    Documentation is kept succint and deliberate. No follow ups, em-dashes, and
+    meaningless statements
 
 - name: comment-says-why
   where: "src/**/*.js"
   each: method
-  ensure: >
-    methods carry a comment that tells a human reader something the code does
-    A comment that narrates the steps below it, or restates the method's name as a sentence,
-    breaks this rule.
+  ensure: >-
+    A method's comment says what its code cannot. Narrating the steps below it,
+    or restating its name as a sentence, breaks this. A one-liner whose name
+    says everything needs no comment.
+  min: 70
 
 - name: closed-never-listed
   where: callers of issues
   ensure: >
-    This method passes the findings through visibleFindings before a person sees them, or it is not
-    producing a list for a person to read.
+    This method passes the findings through visibleFindings before a person sees
+    them, or it is not producing a list for a person to read.
 
 - name: one-way-into-the-log
   where: mentions events.jsonl
   ensure: >
-    This method appends through store.appendEvent rather than writing the file itself.
+    This method appends through store.appendEvent rather than writing the file
+    itself.
 
 - name: env-read-once
   where: "src/**/*.js"
   except: "src/cli.js"
   each: method
   ensure: >
-    This method does not read process.env. Reading the environment is the command line's job, and
-    everything below it is passed the values.
+    This method does not read process.env. Reading the environment is the
+    command line's job, and everything below it is passed the values.
 
 - name: issues-closable
   where: "test/**/*.js"
   each: test
-  ensure_exist: >
-    A test that closes an issue with a reason and then asserts it is gone from the default list.
+  ensure_present: >
+    A test that closes an issue with a reason and then asserts it is gone from
+    the default list.
 
 - name: no-dead-command
   where: "src/**/*.js"
   each: method
-  ensure_nexist: >
+  ensure_absent: >
     A command or flag that is parsed and then never used.
-
 
 - name: no-legacy-fallback
   where: "src/**/*.js"
   each: method
   ensure: >
-    One way of doing the job. No branch kept for an old format, old key, or old signature.
+    One way of doing the job. No branch kept for an old format, old key, or old
+    signature.
 
 - name: no-silent-failure
   where: "src/**/*.js"
   each: method
-  ensure: >
-    Failures reach the caller. No catch returning a default, no ?? hiding a failed read.
+  ensure: >-
+    A failure reaches the caller. No catch that returns a default in place of
+    the error, and no ?? or || standing in for a call that failed. A default for
+    a value that was never set is not this.
+  min: 70
 
-- name: tests-assert-real-behaviour
+- name: tests-assert-real-behavior
   where: "test/**/*.js"
   ensure: >
-    Tests assert on the code under test, not on mocks they set up or values they built.
-
-- name: one-name-per-thing
-  where: "src/**/*.js"
-  each: method
-  ensure: >
-    One name for one thing. No two options, flags, or keys that mean the same, and no alias kept
-    alongside the name it replaced.
+    Tests assert on the code under test, not on mocks they set up or values they
+    built.
+- name: uninitialized_use
+  disabled: true
+- name: buffer_overflow
+  disabled: true
+- name: use_after_free
+  disabled: true

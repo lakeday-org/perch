@@ -64,8 +64,14 @@ Every method in scope is read. What scope is comes from `--paths` or `--since`,
 and nothing else: a cap on how many methods a run reads leaves a report that
 looks complete and is not.
 
-Every reading goes into `scan.jsonl`, which is rewritten whole each run. Nothing
-on disk is a cached answer, so what it holds is what the last run said.
+Every reading goes into `scan.jsonl`, rewritten whole each run, so what it holds
+is what this run says about this commit and nothing older. A reading carries
+forward when the request that produced it would go out word for word the same:
+the method's source, the neighbours in the state, and the wording of every
+question including your rules. That is a hash on each reading, compared before
+anything is sent. A rescan of untouched code costs nothing and reads the same to
+the percentage, which matters as much as the cost — an issue you looked at
+yesterday should not have moved because a model was asked twice.
 
 ## 4. The questions
 
@@ -192,25 +198,53 @@ at 50% weigh what one at 100% weighs and nothing has to cross a line to count.
 A method is ranked by what its problems would cost, not how many it has:
 
 ```
-weight = correctness × predicted_severity + design
+weight = correctness × mean + design
 ```
 
-`predicted_severity` is the mean of the severity score's distribution, 0 to 3.
-This is the only weighting in the ranking, and it is measured rather than
-chosen — the number it replaced was a `× 2` somebody made up.
+`mean` is the severity distribution's mean, worked out below. This is the only
+weighting in the ranking, and it is measured rather than chosen: the number it
+replaced was a `× 2` somebody made up.
 
 Design problems weigh as themselves. They are the ones the rubric's own bottom
 level describes: no caller would notice.
 
-### Reading the severity column
+### The severity formula
 
-The band is the mean, rounded. The number beside it is the mean itself, on the
-same scale:
+The score comes back as a distribution over the four levels, not a level. Level
+0 is "no caller would notice" and level 3 is "data lost, corrupted, or exposed,
+or a check that should stop someone bypassed". The bands run the other way, so
+level 0 is `P3` and level 3 is `P0`.
+
+Three numbers come out of that distribution:
 
 ```
-P1 (0.9)   almost P0
-P1 (1.2)   settling toward P2
+mean  = Σ level × p(level)                  0 to 3, worst at 3
+band  = [P3, P2, P1, P0][round(mean)]       the label
+shown = 3 − mean                            the same number on the P scale
 ```
+
+`mean` is what the ranking multiplies by. `band` is the label a filter matches.
+`shown` is the number in brackets, on the scale the bands are named in, where 0
+is worst and 3 is harmless.
+
+Worked, on the `buildGraph` distribution from
+[reading the issues](issues.md), which perch prints as `P1 (1.1)`:
+
+```
+Severity   P1 83%   P2 12%   P0 4%   P3 1%
+             ↓        ↓        ↓       ↓
+  level      2        1        3       0
+
+mean  = 2(0.83) + 1(0.12) + 3(0.04) + 0(0.01) = 1.90
+band  = [P3, P2, P1, P0][round(1.90)] = [P3, P2, P1, P0][2] = P1
+shown = 3 − 1.90 = 1.1
+```
+
+Which is why `P1 (0.9)` is nearly a `P0` and `P1 (1.2)` is settling toward `P2`.
+
+The rubric is about how much a caller would feel whatever is wrong, not about
+defects alone: its top level is a vulnerability in so many words. A defect and a
+vulnerability are both weighed by it, and both carry the band.
 
 Naming a method by the band holding the most probability throws the rest away.
 A spread of P0 33% / P1 31% / P2 30% / P3 6% is called `P0` on the strength of a

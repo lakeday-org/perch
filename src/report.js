@@ -1,5 +1,7 @@
 /** Human-readable summaries of scans, issues, and the work done on them. */
-import { filterKeys, issuesFor, issuesOf, label, SEVERITY_BANDS, severityName } from './questions.js';
+import { join } from 'node:path';
+import { CORRECTNESS } from './ask.js';
+import { alsoKnownAs, filterKeys, issuesFor, issuesOf, label, securities, SEVERITY_BANDS, severityName } from './questions.js';
 
 /** Prose broken at `width` columns, each line indented; the note under a fix is the only paragraph perch prints. */
 export function wrap(text, width = 92, indent = '  ') {
@@ -29,13 +31,6 @@ const short = revision => (revision ?? '?').slice(0, 7);
 export const TOP = 10;
 
 
-/** The whole severity distribution, for `perch issues <id>`, where the argmax band alone would hide how close the call was. */
-const severityDetail = severity => {
-  const probabilities = severity?.probabilities;
-  if (!probabilities) return '';
-  const bands = Object.entries(probabilities).map(([level, p]) => [SEVERITY_BANDS[Number(level)] ?? level, p]).sort((a, b) => b[1] - a[1]);
-  return ` (${bands.map(([band, p]) => `${band} ${percent(p)}`).join(', ')})`;
-};
 
 /** Closed covers both judgements: yours, when you set it aside, and the fixer's, when it gave up or found nothing to do. */
 export const issueStatus = finding => (finding.dismissed || (finding.fix && finding.fix.status !== 'ready') ? 'closed' : 'open');
@@ -64,6 +59,16 @@ const keepStart = (text, width) => (text.length <= width ? text : text.slice(0, 
 export const WIDTH = () => (process.stdout.columns >= 60 ? process.stdout.columns : 100);
 
 /**
+ * Color, when there is a terminal to put it on. Piped output and NO_COLOR get none, so a redirect stays greppable and a log stays
+ * readable. Padding happens before this is applied: escape codes have width nobody wants counted.
+ */
+export const COLOR = () => Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;
+const paint = code => (text, on = COLOR()) => (on ? `\u001b[${code}m${text}\u001b[0m` : String(text));
+export const bold = paint(1), dim = paint(2), red = paint(31), yellow = paint(33);
+/** How sure, colored by how sure: the ones worth reading first look like it. */
+export const sureness = (value, on) => (value >= 0.9 ? red(percent(value), on) : value >= 0.7 ? yellow(percent(value), on) : dim(percent(value), on));
+
+/**
  * Aligned rows of methods with issues. A real repository has method names and paths long enough to wrap every row twice, so the
  * three columns that vary are given a share of whatever the terminal has and cut to it: the method from the end, the path from
  * the front (its file and line matter more than the crate it lives in), and the issues by dropping the weakest.
@@ -73,7 +78,9 @@ function issueTable(findings, min = 0, filters = [], { width = WIDTH() } = {}) {
     const issues = issuesFor(finding, min, filters);
     // Severity is asked about a behavioral defect, so a method whose issues are all design or security has none to show.
     return { id: finding.id, method: shortId(finding.name), location: locationOf(finding, issues), type: issues[0]?.type ?? '-', issues,
-      severity: issues.some(issue => issue.type === 'defect') ? severityName(finding.severity) : '-', status: workedOn(finding) };
+      // The rubric is about the harm a caller would feel, which is what a vulnerability is ranked by too. Showing it only on a
+      // defect was the list disagreeing with its own ordering.
+      severity: issues.some(issue => CORRECTNESS.has(issue.type)) ? severityName(finding.severity) : '-', status: workedOn(finding) };
   });
   // Status is only a column when something has been worked. On a list where every row is open and unfixed it says nothing.
   const worked = cells.some(cell => cell.status);
@@ -92,23 +99,89 @@ function issueTable(findings, min = 0, filters = [], { width = WIDTH() } = {}) {
 }
 
 
-/** A scan ends by printing what `perch issues` would print, so the two never drift into showing the same findings differently. */
-export function formatScanRun(hunt, issues, shown = TOP, min = 0) {
-  return formatIssues(issues, min, shown);
+/**
+ * What a scan prints: every file it had something to say about, and under it one line per problem. A run over a repository is a
+ * run over a repository, so it reads the way every other tool that does that reads — the file, the line in it, how bad, and what
+ * is wrong. Which method a line belongs to is the last column, the way a linter puts the rule it broke last.
+ *
+ * One line per problem, not per method: a method carrying five is five things to fix. `perch issues` is where a method is taken
+ * as a whole and ranked against the others.
+ */
+export function formatScanReport(findings, { min = 0, width = WIDTH(), color = COLOR(), summary = true, empty = 'Nothing to report.' } = {}) {
+  const byFile = new Map();
+  for (const finding of findings) {
+    const issues = issuesOf(finding, min);
+    if (!issues.length) continue;
+    const line = issues[0]?.type === 'defect' ? finding.where?.line ?? finding.line : finding.line;
+    if (!byFile.has(finding.path)) byFile.set(finding.path, []);
+    // A band is about a defect the method might have, so it is said on the rows that are about one and left off the rest.
+    for (const issue of issues) byFile.get(finding.path).push({ id: finding.id, line, type: issue.type, said: issue.label, sure: issue.probability,
+      name: shortId(finding.name), severity: CORRECTNESS.has(issue.type) ? severityName(finding.severity) : '-' });
+  }
+  if (!byFile.size) return empty;
+
+  // The id is on every row rather than once per method, so any row you are looking at is one you can act on without hunting up
+  // the block for it: `perch issues <id>` opens it, and `perch close <id> --kind <problem>` sets that one problem aside.
+  // How sure is its own column rather than a suffix on the problem: it is the number you sort by, argue with, and set a floor
+  // against, and reading it means finding it in the same place on every row.
+  const HEAD = ['ID', 'Line', 'Severity', 'Type', 'Confidence', 'Problem', 'Method'];
+  const blocks = [];
+  for (const path of [...byFile.keys()].sort()) {
+    const rows = byFile.get(path).sort((a, b) => a.line - b.line || b.sure - a.sure);
+    const widest = pick => Math.max(...rows.map(row => String(pick(row)).length));
+    const ident = Math.max(HEAD[0].length, widest(row => row.id));
+    const at = Math.max(HEAD[1].length, widest(row => row.line));
+    const band = Math.max(HEAD[2].length, widest(row => row.severity));
+    const type = Math.max(HEAD[3].length, widest(row => row.type));
+    const sure = Math.max(HEAD[4].length, widest(row => percent(row.sure)));
+    const said = Math.max(HEAD[5].length, widest(row => row.said));
+    const named = Math.max(HEAD[6].length, Math.min(widest(row => row.name), Math.max(8, width - ident - at - band - type - sure - said - 14)));
+    // Padded before it is painted: an escape sequence is not a column of anything, and counting it as one bends every row after.
+    const lines = [bold(relative(path), color),
+      dim(`  ${HEAD[0].padEnd(ident)}  ${HEAD[1].padStart(at)}  ${HEAD[2].padEnd(band)}  ${HEAD[3].padEnd(type)}  ${HEAD[4].padStart(sure)}  ${HEAD[5].padEnd(said)}  ${HEAD[6]}`, color)];
+    for (const row of rows) {
+      const severity = row.severity.padEnd(band);
+      lines.push(`  ${row.id.padEnd(ident)}  ${dim(String(row.line).padStart(at), color)}  ${row.severity === '-' ? dim(severity, color) : severity}  ${row.type.padEnd(type)}  ${sureness(row.sure, color).padStart(sure + (color ? 9 : 0))}  ${row.said.padEnd(said)}  ${dim(keepStart(row.name, named), color)}`.trimEnd());
+    }
+    blocks.push(lines.join('\n'));
+  }
+  return (summary ? [...blocks, scanTally(findings, min, color)] : blocks).join('\n\n');
 }
 
-/** What a scan did, for stderr. */
-export function scanCount(hunt) {
-  const hunted = (hunt.visited ?? []).filter(visit => visit.status === 'hunted').length;
-  const parts = [`${hunt.methods} methods`, `read ${hunted}`];
-  if (hunt.skipped) parts.push(`${hunt.skipped} unchanged`);
-  if (hunt.remaining) parts.push(`${hunt.remaining} unread`);
-  if (hunt.failed?.length) parts.push(`${hunt.failed.length} could not be read (perch doctor)`);
-  if (hunt.error) parts.push(`error: ${hunt.error}`);
-  return `${relative(hunt.target)} at commit ${hunt.revision?.slice(0, 7) ?? '?'}: ${parts.join(', ')}`;
+/** "✖ 41 problems in 18 places in 2 files", the line a run ends on. */
+export function scanTally(findings, min = 0, color = COLOR()) {
+  const places = findings.map(finding => issuesOf(finding, min)).filter(issues => issues.length);
+  const count = places.reduce((total, issues) => total + issues.length, 0);
+  const files = new Set(findings.filter(finding => issuesOf(finding, min).length).map(finding => finding.path)).size;
+  if (!count) return `${'✓'} nothing to report`;
+  const worst = places.filter(issues => issues.some(issue => issue.probability >= 0.9)).length;
+  const tally = [`${count} ${count === 1 ? 'problem' : 'problems'}`, `${places.length} ${places.length === 1 ? 'place' : 'places'}`, `${files} ${files === 1 ? 'file' : 'files'}`];
+  return `${worst ? red('✖', color) : yellow('!', color)} ${tally.join(' in ')}`;
 }
 
-/** "115 open issues, 10 shown (--all for the rest). 6 closed (--closed)." */
+/**
+ * The rules a run broke, in one line. Which rule and how many, since that is what you act on; what each rule asks is in
+ * `perch rules list` and does not need saying again under every run.
+ */
+export function brokenRules(run, { color = COLOR() } = {}) {
+  const broken = run.broken ?? [];
+  if (!broken.length) return '';
+  const counts = new Map();
+  for (const finding of broken) counts.set(finding.rule, (counts.get(finding.rule) ?? 0) + 1);
+  const fired = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  return `${red(`${broken.length} broken`, color)} across ${fired.length} ${fired.length === 1 ? 'rule' : 'rules'}: ${fired.map(([name, count]) => `${name} ${count}`).join(', ')}`;
+}
+
+/** What a run did, for stderr. */
+export function scanCount(run) {
+  const read = (run.visited ?? []).filter(visit => visit.status === 'read').length;
+  const parts = [`${run.methods} methods`, `read ${read}`];
+  if (run.carried) parts.push(`${run.carried} unchanged`);
+  if (run.remaining) parts.push(`${run.remaining} unread`);
+  if (run.failed?.length) parts.push(`${run.failed.length} could not be read (perch doctor)`);
+  if (run.error) parts.push(`error: ${run.error}`);
+  return `${relative(run.target)} at commit ${run.revision?.slice(0, 7) ?? '?'}: ${parts.join(', ')}`;
+}
 
 /** Findings to print: closed ones stay off the list unless asked for. */
 export function visibleFindings(findings, { closed = false } = {}) {
@@ -138,140 +211,181 @@ export function issueCount({ open, matched, from = 0, listed, size = Infinity, c
   return parts.join('. ');
 }
 
+/** "584k" rather than "584167": a token count is read to see whether a run was large, never to the digit. */
+const compact = value => (value >= 1e6 ? `${(value / 1e6).toFixed(1)}M` : value >= 1000 ? `${Math.round(value / 1000)}k` : String(value ?? 0));
+/** How long ago, in the largest unit that still says something. */
+function since(at) {
+  if (!at) return '';
+  const seconds = Math.max(0, Math.round((Date.now() - Date.parse(at)) / 1000));
+  if (seconds < 90) return `${seconds}s ago`;
+  if (seconds < 5400) return `${Math.round(seconds / 60)}m ago`;
+  if (seconds < 172800) return `${Math.round(seconds / 3600)}h ago`;
+  return `${Math.round(seconds / 86400)}d ago`;
+}
+
 /**
- * What to send someone when their run went wrong. Versions, what the scan did, and every method it could not read with the
- * message it failed on. No source and no answers: a name, a path, and an error, which is what a bug report needs and all it needs.
+ * What to send when a run goes wrong: what it was doing, what it could not do, and the end of the log it wrote while doing it.
+ * Facts in columns, not sentences: this is read to find the one line that explains a failure, and pasted into a bug report as it
+ * stands. Everything here is a name, a path, a count or an error message, never source.
  */
-export function formatDoctor({ versions, scan, hunt, out, findings = 0 }) {
-  const lines = [`perch ${versions.perch} on node ${versions.node} (${versions.platform})`, `results in ${relative(out)}`];
-  if (scan) lines.push('', `scan ${scan.id} of ${relative(scan.target)} at commit ${short(scan.revision)}`,
-    `  ${scan.files?.length ?? 0} files, ${scan.candidates?.length ?? 0} methods, ${scan.coverage?.excluded ?? 0} files excluded`);
-  if (hunt) {
-    const read = (hunt.visited ?? []).filter(visit => visit.status === 'hunted').length;
-    lines.push('', `hunt ${hunt.id} ${hunt.status}${hunt.completed_at ? ` at ${hunt.completed_at.slice(0, 19)}` : ''}`,
-      `  model ${hunt.model}, ${hunt.parallel} at a time${hunt.budget ? `, budget ${hunt.budget}` : ''}${hunt.force ? ', forced' : ''}`,
-      `  ${hunt.methods} methods, read ${read}, ${hunt.skipped ?? 0} unchanged, ${hunt.remaining ?? 0} unread, ${hunt.failed?.length ?? 0} failed`,
-      `  ${hunt.usage?.input_tokens ?? 0} tokens in / ${hunt.usage?.output_tokens ?? 0} out`);
-    if (hunt.error) lines.push(`  the run stopped: ${hunt.error}`);
-    const failed = hunt.failed ?? [];
-    if (failed.length) {
-      const byError = new Map();
-      for (const item of failed) byError.set(item.error, [...(byError.get(item.error) ?? []), item]);
-      lines.push('', `${failed.length} ${failed.length === 1 ? 'method' : 'methods'} could not be read:`);
-      for (const [error, items] of [...byError].sort((a, b) => b[1].length - a[1].length)) {
-        lines.push(`  ${items.length}x ${error}`);
-        for (const item of items.slice(0, 5)) lines.push(`      ${item.name} at ${item.path}:${item.line}`);
-        if (items.length > 5) lines.push(`      and ${items.length - 5} more`);
-      }
-    }
+export function formatDoctor({ versions, scan, run, out, findings = 0, log = [] }) {
+  const lines = [`perch ${versions.perch}  node ${versions.node}  ${versions.platform}`, relative(out)];
+  if (!run) return [...lines, '', 'No run yet. perch scan is what reads your code.'].join('\n');
+
+  const read = (run.visited ?? []).filter(visit => visit.status === 'read').length;
+  const failed = run.failed ?? [];
+  const facts = [
+    ['run', `${run.id?.slice(0, 8) ?? '?'}  ${run.status}  ${since(run.completed_at ?? run.created_at)}`],
+    ['commit', short(run.revision)],
+    ['paths', run.paths?.length ? run.paths.join(' ') : 'everything'],
+    ['methods', `${run.methods} in scope, ${read} read, ${run.carried ?? 0} unchanged, ${failed.length} failed`],
+    ['rules', `${run.rules ?? 0} asked, ${(run.broken ?? []).length} broken`],
+    ['tokens', `${compact(run.usage?.input_tokens)} in, ${compact(run.usage?.output_tokens)} out`],
+    ['model', `${run.model}, ${run.parallel} at a time`],
+    ['issues', `${findings} open`],
+    ['log', relative(join(out, 'scan.log'))],
+  ];
+  if (run.error) facts.push(['error', run.error]);
+  if (scan && scan.revision !== run.revision) facts.push(['stale', `the tree was last parsed at ${short(scan.revision)}`]);
+  const named = Math.max(...facts.map(([key]) => key.length));
+  lines.push('', ...facts.map(([key, value]) => `${key.padEnd(named)}  ${value}`));
+
+  if (failed.length) {
+    const rows = failed.map(item => [item.name, `${relative(item.path)}:${item.line}`, item.error]);
+    lines.push('', 'could not read', ...table(['method', 'where', 'error'], rows, ['left', 'left', 'left']).map(line => `  ${line}`));
   }
-  lines.push('', `${findings} open ${findings === 1 ? 'issue' : 'issues'}`);
+
+  // Every rule, whether it fired, and how much it covered. A rule covering nothing never fires and never says so, which is the
+  // one kind of broken rule a report of findings cannot show.
+  const coverage = run.coverage ?? [];
+  if (coverage.length) {
+    // The selector only earns a column when a rule covered nothing, which is when you need to see what it was looking at.
+    const empty = coverage.some(rule => !rule.units);
+    const rows = [...coverage].sort((a, b) => b.broken - a.broken || b.units - a.units)
+      .map(rule => [String(rule.broken), String(rule.units), rule.name, ...(empty ? [rule.units ? '' : String(rule.where ?? '')] : [])]);
+    lines.push('', 'rules', ...table(['broken', 'asked', 'rule', ...(empty ? ['covers nothing over'] : [])], rows,
+      ['right', 'right', 'left', 'left']).map(line => `  ${line}`));
+  }
+
+  if (log.length) lines.push('', `log  ${relative(join(out, 'scan.log'))}`, ...log.map(line => `  ${line}`));
   return lines.join('\n');
 }
 
-/**
- * One file's worth of lint, printed when that file is done: aligned columns, the way a linter says it. The rule is named and not
- * spelled out, because the same sentence under twenty files is twenty copies of one thing; what each rule asks is said once, in
- * the table at the end. The percentage is the share of checks that passed, so a clean file reads 100%.
- */
-export function formatLintFile({ path, checked, findings }) {
-  const rate = checked ? Math.round(((checked - findings.length) / checked) * 100) : 100;
-  const lines = [`${relative(path)}  ${rate}%  ${checked - findings.length} of ${checked} checks passed`];
-  const rows = [];
-  for (const finding of [...findings].sort((a, b) => a.line - b.line || a.rule.localeCompare(b.rule))) {
-    rows.push([String(finding.line), finding.rule, finding.name === finding.path ? '' : finding.name, finding.cite ? `cited: ${finding.cite}` : '']);
-    if (finding.text) rows.push(['', '', finding.text, '']);
-  }
-  const width = [0, 1, 2, 3].map(column => Math.max(...rows.map(row => row[column].length)));
-  for (const row of rows) lines.push(`  ${row[0].padStart(width[0])}  ${row[1].padEnd(width[1])}  ${row[2]}${row[3] ? `  ${row[3]}` : ''}`.trimEnd());
-  return lines.join('\n');
-}
 
-/** What a lint run did, for stderr, the way a scan says what it read. Said even when nothing was asked, which is the good case. */
-export function lintCount(run) {
-  const rules = run.rules.length ?? run.rules;
-  const parts = [`${rules} ${rules === 1 ? 'rule' : 'rules'}`, `${run.checked} checks`, `read ${run.asked}`];
-  if (run.skipped) parts.push(`${run.skipped} from the log`);
-  if (run.unchecked) parts.push(`${run.unchecked} never checked`);
-  return parts.join(', ');
-}
-
-/**
- * What a lint run adds up to, and what each rule that fired actually asks for. Said once, at the end, where a reader who wants to
- * argue with a rule can find its wording without it being repeated over every file it touched.
- */
-export function formatLint(run, { width = WIDTH() } = {}) {
-  const count = run.rules.length ?? run.rules;
-  const passed = run.checked - run.findings.length;
-  const rate = run.checked ? Math.round((passed / run.checked) * 100) : 100;
-  const never = run.unchecked ? ` ${run.unchecked} never checked.` : '';
-  if (!run.findings.length) return `${count} ${count === 1 ? 'rule' : 'rules'}, ${run.checked} checks, all passed.${never}`;
-  const files = new Set(run.findings.map(finding => finding.path));
-  const counts = new Map();
-  for (const finding of run.findings) counts.set(finding.rule, (counts.get(finding.rule) ?? 0) + 1);
-  const fired = (run.rules.filter?.(rule => counts.has(rule.name)) ?? []).sort((a, b) => counts.get(b.name) - counts.get(a.name));
-  const named = Math.max(...fired.map(rule => rule.name.length), 4);
-  const room = Math.max(30, width - named - 12);
-  const rows = fired.flatMap(rule => {
-    const said = wrap(String(rule.text ?? '').replace(/\s+/g, ' ').trim(), room, '');
-    return said.map((line, index) => [index ? '' : String(counts.get(rule.name)), index ? '' : rule.name, line]);
-  });
-  return [`${rate}%  ${passed} of ${run.checked} checks passed. ${run.findings.length} failed in ${files.size} ${files.size === 1 ? 'file' : 'files'}.${never}`, '',
-    ...table(['Failed', 'Rule', 'What it asks'], rows, ['right', 'left', 'left']).map(line => `  ${line}`)].join('\n');
-}
 
 /** One issue asked again: what it was, what it is now, and whether that is a fix. */
-export function formatCheck(checked, { width = WIDTH() } = {}) {
+export function formatCheck(checked, { width = WIDTH(), color = COLOR() } = {}) {
   const head = `${relative(checked.path)}:${checked.line}  ${checked.name === checked.path ? '' : checked.name}`.trimEnd();
-  if (checked.clean) return `${head}\n${checked.checked} ${checked.checked === 1 ? 'check' : 'checks'}, nothing to report.`;
+  // What was not asked is said out loud: a count of nothing reads as a clean bill of health for a method nothing was asked about.
+  const unasked = checked.note ? `\n${dim(`The scan's questions were not asked: ${checked.note}.`, color)}` : '';
+  if (checked.clean) return `${head}\n${checked.checked} ${checked.checked === 1 ? 'check' : 'checks'}, nothing to report.${unasked}`;
   const lines = [head];
   const rows = checked.broken.flatMap(item => {
     const said = wrap(String(item.said ?? '').replace(/\s+/g, ' ').trim(), Math.max(30, width - 34), '');
-    return said.map((line, index) => [index ? '' : percent(item.broken), index ? '' : item.rule, line]);
+    return said.map((line, index) => [index ? '' : sureness(item.broken, color), index ? '' : item.rule, line]);
   });
-  if (rows.length) lines.push('', ...table(['Sure', 'Rule', 'What it asks'], rows, ['right', 'left', 'left']).map(line => `  ${line}`));
+  if (rows.length) lines.push('', ...table(['Confidence', 'Rule', 'Description'], rows, ['right', 'left', 'left']).map(line => `  ${line}`));
   if (checked.issues?.length) lines.push('', `  ${checked.issues.map(issue => issue.text).join(', ')}`);
+  if (unasked) lines.push(unasked.trimStart());
   return lines.join('\n');
+}
+
+/**
+ * Every question perch asks of this repository: the ones it ships with and the ones you wrote, in one list, because they are one
+ * thing. `From` says which file to open, and a question this repository has turned off is listed as off rather than left out, so
+ * what is asked and what is not are both answered here.
+ */
+export function formatRules(rules, { width = WIDTH(), own = new Set() } = {}) {
+  if (!rules.length) return 'No questions. perch rules add <name> --ensure "..." --where "src/**/*.js" writes the first one.';
+  // A question written out longhand rather than with `ensure` is listed under what it asks for, since that is what it is.
+  // The floor is part of what a question asks for, so it is on the row rather than only in the file.
+  const asks = rule => (rule.disabled ? 'off' : `${rule.kind ?? rule.type}${rule.min == null ? '' : ` >${rule.min}%`}`);
+  const from = rule => (own.has(rule.name) ? 'yours' : 'perch');
+  const named = Math.max(4, ...rules.map(rule => rule.name.length));
+  const kind = Math.max(4, ...rules.map(rule => asks(rule).length));
+  const source = Math.max(4, ...rules.map(rule => from(rule).length));
+  const over = Math.max(4, ...rules.map(rule => String(rule.where ?? '').length));
+  const room = Math.max(30, width - named - kind - source - over - 14);
+  const rows = rules.flatMap(rule => {
+    const said = wrap(String(rule.text ?? rule.ask ?? '').replace(/\s+/g, ' ').trim(), room, '');
+    const lines = said.length ? said : [''];
+    return lines.map((line, index) => [index ? '' : rule.name, index ? '' : from(rule), index ? '' : asks(rule),
+      index ? '' : String(rule.where ?? ''), line]);
+  });
+  return table(['Question', 'From', 'Asks', 'Over', 'Description'], rows, ['left', 'left', 'left', 'left', 'left']).join('\n');
 }
 
 /** What `--filter` accepts, as a block a reader can copy from. */
-export const formatFilterKeys = () => Object.entries(filterKeys()).map(([key, values]) => `${key}\n${values.map(value => `  ${value}`).join('\n')}`).join('\n\n');
+/** What `--filter` accepts. A value that has another word for it says so, rather than leaving you to find out by being wrong. */
+export const formatFilterKeys = () => Object.entries(filterKeys())
+  .map(([key, values]) => `${key}\n${values.map(value => {
+    const others = key === 'type' ? alsoKnownAs(value) : [];
+    return `  ${value}${others.length ? ` (or ${others.join(', ')})` : ''}`;
+  }).join('\n')}`).join('\n\n');
 
-/** The whole distribution for one method, since a row can only carry the top few and the shape of the rest is often the story. */
-export function formatFinding(finding) {
-  const probabilities = object => Object.entries(object).sort((a, b) => b[1] - a[1]).map(([key, value]) => `${words(key)} ${percent(value)}`).join(', ');
+/** A distribution as a row: the ones worth reading, then a count of the tail. A list of sixteen percentages is not a reading. */
+function spread(map, keep = 3) {
+  const all = Object.entries(map ?? {}).sort((a, b) => b[1] - a[1]).filter(([, value]) => value > 0.005);
+  const shown = all.slice(0, keep).map(([key, value]) => `${words(key)} ${percent(value)}`);
+  return [...shown, ...(all.length > shown.length ? [`+${all.length - shown.length} more`] : [])].join('  ');
+}
+
+/**
+ * One issue opened up. The same columns a run prints, so a row you picked out of a scan reads the same here with the working
+ * shown under it: what was asked, what came back, and what it was asked over. Everything is a name, a number or a line of your
+ * own code, laid out to be read down the page rather than across a sentence.
+ */
+export function formatFinding(finding, { width = WIDTH(), color = COLOR() } = {}) {
   const span = finding.end_line && finding.end_line !== finding.line ? `${finding.line}-${finding.end_line}` : finding.line;
-  const lines = [`${finding.id}  ${finding.name}  ${finding.path}:${span}${finding.revision ? `  at commit ${short(finding.revision)}` : ''}${finding.unread ? '  (not yet read)' : `  read on ${(finding.at ?? '').slice(0, 10)}`}`];
-  lines.push(`Issues: ${issueCell(issuesOf(finding)) || 'none'}`);
+  const when = finding.unread ? 'not read yet' : `read ${(finding.at ?? '').slice(0, 10)}`;
+  const status = issueStatus(finding);
+  const lines = [`${bold(finding.id, color)}  ${finding.name}  ${dim(`${relative(finding.path)}:${span}`, color)}`,
+    dim([short(finding.revision), when, status].filter(Boolean).join('  '), color)];
+
+  // What is wrong, in the columns a run prints it in, so the two listings read as one thing seen at two distances.
+  const issues = issuesOf(finding);
+  if (issues.length) {
+    const rows = issues.map(issue => [percent(issue.probability), issue.type,
+      CORRECTNESS.has(issue.type) ? severityName(finding.severity) : '-', words(issue.label)]);
+    lines.push('', ...table(['Confidence', 'Type', 'Severity', 'Problem'], rows, ['right', 'left', 'left', 'left']).map(line => `  ${line}`));
+  }
+
+  // A broken rule is read by deciding whether to change the code, so what the rule wanted comes with the code it was asked about.
   if (finding.lint) {
-    lines.push(`Rule: ${finding.lint.rule}${finding.name && finding.name !== finding.path && finding.name !== finding.lint.rule ? ` on ${finding.name}` : ''}`,
-      ...wrap(finding.lint.said ?? '', 92, '  '),
-      `Broken: ${percent(finding.lint.broken)} sure`);
-    if (finding.lint.source) lines.push(finding.lint.source, ...(finding.lint.more ? [`      … ${finding.lint.more} more lines`] : []));
-    else if (finding.lint.text) lines.push(`    ${finding.line}| ${finding.lint.text}`);
+    lines.push('', `  ${bold(finding.lint.rule, color)}  ${dim(`${percent(finding.lint.broken)} sure it is broken`, color)}`,
+      ...wrap(finding.lint.said ?? '', Math.min(96, width - 4), '  '));
+    if (finding.lint.source) lines.push('', finding.lint.source, ...(finding.lint.more ? [dim(`      ${finding.lint.more} more lines`, color)] : []));
+    else if (finding.lint.text) lines.push('', `  ${dim(String(finding.line).padStart(5), color)}  ${finding.lint.text}`);
   }
-  if (finding.metrics) lines.push(`Metrics: risk ${number(finding.metrics.risk_score)}, maintainability ${number(finding.metrics.maintainability_index)}, complexity ${number(finding.metrics.cyclomatic_complexity)}, nesting ${number(finding.metrics.max_nesting)}, ${number(finding.metrics.sloc)} lines${finding.file ? `; file risk ${number(finding.file.risk_score)}` : ''}`);
+
   if (finding.has_bug !== undefined) {
-    lines.push(`Defect: ${percent(finding.has_bug)}. Points at line ${finding.where.line} (confidence ${percent(finding.where.confidence)}):`, `    ${finding.where.line}| ${finding.where.text ?? ''}`,
-      `Kind: ${probabilities(finding.kinds ?? { [finding.kind.kind]: finding.kind.probability ?? 0 })}`, `Severity: ${severityName(finding.severity)}${severityDetail(finding.severity)}`);
-    if (finding.securities) lines.push(`Exposed to outside input: ${percent(finding.exposed)}. Vulnerability: ${probabilities(finding.securities)}`);
-  if (finding.does_what_it_claims !== undefined) lines.push(`Does what it claims: ${percent(finding.does_what_it_claims)}. Misdocumented: ${percent(finding.misdocumented)}. Refactor: ${probabilities(finding.refactor.probabilities ?? {})}`);
-    if (finding.misuse?.length) lines.push(`Misuses a callee: ${finding.misuse.map(item => `${shortId(item.callee)} ${percent(item.probability)}`).join(', ')}`);
-    if (finding.misused_by?.length) lines.push(`Misused by a caller: ${finding.misused_by.map(item => `${shortId(item.caller)} ${percent(item.probability)}`).join(', ')}`);
-    if (finding.callees?.length) lines.push(`Calls: ${finding.callees.map(shortId).join(', ')}`);
-    if (finding.callers?.length) lines.push(`Called by: ${finding.callers.map(shortId).join(', ')}`);
+    lines.push('', `  ${dim(String(finding.where.line).padStart(5), color)}  ${finding.where.text ?? ''}`.trimEnd(),
+      dim(`         the line it points at, ${percent(finding.where.confidence)} sure`, color));
+
+    const said = [];
+    const add = (name, value) => { if (value) said.push([name, value]); };
+    add('Kind', spread(finding.kind?.probabilities));
+    add('Severity', spread(Object.fromEntries(Object.entries(finding.severity?.probabilities ?? {}).map(([level, p]) => [SEVERITY_BANDS[Number(level)] ?? level, p])), 4));
+    add('Exposed', finding.exposed === undefined ? '' : percent(finding.exposed));
+    add('Vulnerability', spread(securities(finding)));
+    add('Claims', finding.does_what_it_claims === undefined ? ''
+      : `does what it claims ${percent(finding.does_what_it_claims)}  misdocumented ${percent(finding.misdocumented)}`);
+    add('Refactor', spread(finding.refactor?.probabilities, 2));
+    add('Calls', [...(finding.callees ?? []).map(shortId),
+      ...(finding.misuse ?? []).filter(item => item.probability > 0.5).map(item => `misuses ${shortId(item.callee)} ${percent(item.probability)}`)].join('  '));
+    add('Called by', [...(finding.callers ?? []).map(shortId),
+      ...(finding.misused_by ?? []).filter(item => item.probability > 0.5).map(item => `misused by ${shortId(item.caller)} ${percent(item.probability)}`)].join('  '));
+    if (finding.metrics) add('Code', `risk ${number(finding.metrics.risk_score)}  maintainability ${number(finding.metrics.maintainability_index)}  complexity ${number(finding.metrics.cyclomatic_complexity)}  nesting ${number(finding.metrics.max_nesting)}  ${number(finding.metrics.sloc)} lines`);
+    const named = Math.max(...said.map(([name]) => name.length));
+    lines.push('', ...said.map(([name, value]) => `  ${dim(name.padEnd(named), color)}  ${value}`));
   }
-  if (finding.read) lines.push(`Read in ${finding.read.passes} passes to line ${finding.read.to_line} of ${finding.read.of_line}: the rest was too long to send`);
-  lines.push(`Status: ${issueStatus(finding)}`);
-  if (finding.dismissed) lines.push(`Dismissed on ${finding.dismissed.at.slice(0, 10)}${finding.dismissed.reason ? `: ${finding.dismissed.reason}` : ''}`);
-  const fix = finding.fix;
-  if (fix?.status === 'ready') lines.push(`Fixed: ${fix.summary ?? ''}`.trimEnd(), ...(fix.notes ? wrap(fix.notes, 92, '    ') : []),
-    `    before: ${(fix.before ?? []).map(issue => issue.text).join(', ') || '-'}`, `    after:  ${(fix.after ?? []).map(issue => issue.text).join(', ') || 'no issues'}`,
-    `    commit ${fix.commit?.slice(0, 7) ?? '?'}${fix.branch ? ` on ${fix.branch}` : ''}  ${fix.patch_path}`);
-  else if (fix?.status === 'closed') lines.push(`Closed on ${fix.at.slice(0, 10)}: ${fix.reason}`);
-  else if (fix) lines.push(`No fix on ${fix.at.slice(0, 10)} after ${fix.attempts} model turns; last rejection: ${(fix.error ?? '').split('\n')[0]}`);
+
+  // A method too long to send whole was read in part, which is worth saying rather than letting the answers read as the whole.
+  if (finding.read) lines.push('', dim(`  Read in ${finding.read.passes} passes to line ${finding.read.to_line} of ${finding.read.of_line}; the rest was too long to send.`, color));
+  if (finding.closed?.kinds?.length) lines.push('', `  ${dim('Closed', color)}  ${finding.closed.kinds.join(', ')}${finding.closed.at ? ` on ${finding.closed.at.slice(0, 10)}` : ''}${finding.closed.reason ? `, ${finding.closed.reason}` : ''}`);
   return lines.join('\n');
 }
+
 
 /** What actually moved: "risk 84 -> 28, complexity 55 -> 9, 153 -> 41 lines". Numbers that did not change are left out. */
 export function metricShift(before, after) {
@@ -282,35 +396,6 @@ export function metricShift(before, after) {
   if (number(before.sloc) !== number(after.sloc)) parts.push(`${number(before.sloc)} -> ${number(after.sloc)} lines`);
   return parts.join(', ') || 'unchanged';
 }
-
-/** What one fix cost across every model it used. */
-const spend = usage => {
-  const entries = Object.values(usage ?? {});
-  if (!entries.length || entries.some(entry => entry.cost === null || entry.cost === undefined)) return null;
-  const total = entries.reduce((sum, entry) => sum + entry.cost, 0);
-  return total < 0.01 ? `$${total.toFixed(4)}` : `$${total.toFixed(2)}`;
-};
-
-/** One line per fix, because the full story of each was told as it ran and nobody wants it twice. */
-export function formatFixes(batch) {
-  const stale = batch.stale ? ` ${batch.stale} ${batch.stale === 1 ? 'finding is' : 'findings are'} for methods that no longer exist under that name; scan again to see what replaced them.` : '';
-  if (!batch.fixes.length) return `No open issues to work.${stale}${batch.stopped ? ` Stopped: ${batch.stopped.split('\n')[0]}` : ''}`;
-  const left = batch.remaining ? `, ${batch.remaining} left` : '';
-  const committed = batch.fixes.filter(fix => fix.status === 'ready').length;
-  const rows = batch.fixes.map(fix => [fix.finding_id ?? '?', shortId(fix.method ?? '?'),
-    fix.status === 'ready' ? fix.commit?.slice(0, 7) ?? 'done' : fix.status,
-    fix.status === 'ready' ? fix.summary ?? '' : fix.status === 'closed' ? fix.reason ?? '' : (fix.error ?? '').split('\n')[0]]);
-  const lines = [`Worked ${batch.fixes.length} ${batch.fixes.length === 1 ? 'issue' : 'issues'} (budget ${batch.budget}${left}); ${committed} committed.${stale}${batch.stopped ? ` Stopped early: ${batch.stopped.split('\n')[0]}` : ''}`, '',
-    ...table(['ID', 'Method', 'Result', 'What happened'], rows, ['left', 'left', 'left', 'left'])];
-  if (batch.usage_lines?.length) lines.push('', 'Usage:', ...batch.usage_lines.map(line => `  ${line}`));
-  return lines.join('\n');
-}
-
-/** A row is not the place for a tail of 9%s; everything answered is in `perch issues <id>`. */
-const strongest = (issues = []) => {
-  const shown = issues.slice(0, SHOWN_PER_ROW).map(issue => issue.text);
-  return [...shown, ...(issues.length > shown.length ? [`+${issues.length - shown.length} more`] : [])].join(', ');
-};
 
 /**
  * What became of each objective. Printing the issues before and the issues after leaves the reader to diff two lists in their head;
@@ -324,39 +409,3 @@ export function issueOutcome(before = [], after = []) {
   return { gone, left, added: after.filter(issue => !seen.has(issue.label)) };
 }
 
-/**
- * A reviewer reads this instead of the diff, so the model's own words and the measured numbers are kept apart: the note is a
- * claim, and everything under it was observed by a tool perch ran.
- */
-export function formatFix(fix) {
-  const where = `${fix.path ?? '?'}${fix.line ? `:${fix.line}` : ''}`;
-  const outcome = fix.status === 'ready' ? `fixed in ${fix.commit?.slice(0, 7) ?? '?'} on ${fix.branch ?? '?'}` : fix.status === 'closed' ? 'closed, nothing to do' : 'no fix';
-  const lines = [`${fix.finding_id ?? '?'}  ${shortId(fix.method ?? '?')}  ${where}  ${outcome}`, ''];
-  const was = strongest(fix.before);
-  if (fix.status === 'ready') {
-    if (fix.notes) lines.push(...wrap(fix.notes), '');
-    const { gone, left, added } = issueOutcome(fix.before, fix.after);
-    const rows = [];
-    if (gone.length) rows.push(['Cleared', gone.map(issue => issue.text).join(', ')]);
-    if (left.length) rows.push(['Left', left.map(issue => `${issue.label} ${percent(issue.probability)} -> ${percent(issue.now)}`).join(', ')]);
-    if (added.length) rows.push(['Added', added.map(issue => issue.text).join(', ')]);
-    if (!rows.length) rows.push(['Cleared', 'nothing the scan can see']);
-    // Only the numbers that moved: a defect fix often changes none, and printing "unchanged" twice says nothing.
-    for (const [name, before, after] of [['Method', fix.method_before, fix.method_after], ['File', fix.file_before, fix.file_after]]) {
-      const shift = before && after ? metricShift(before, after) : '-';
-      if (shift !== 'unchanged' && shift !== '-') rows.push([name, shift]);
-    }
-    rows.push(['Tests', fix.checks?.length ? `${fix.checks.join(', ')} pass` : 'none reach this method']);
-    const cost = spend(fix.usage);
-    if (cost) rows.push(['Cost', cost]);
-    const width = Math.max(...rows.map(([name]) => name.length));
-    lines.push(...rows.map(([name, text]) => `  ${name.padEnd(width)}  ${text}`));
-  } else if (fix.status === 'closed') {
-    lines.push(`  ${fix.reason ?? 'nothing to do'}`);
-  } else {
-    lines.push(`  Wanted  ${was || '-'}`, '', ...wrap(`After ${fix.turns ?? 0} ${fix.turns === 1 ? 'turn' : 'turns'} nothing passed every check. Last objection: ${(fix.error ?? 'unknown').split('\n')[0]}`));
-    const cost = spend(fix.usage);
-    if (cost) lines.push('', `  Cost    ${cost}`);
-  }
-  return lines.join('\n');
-}

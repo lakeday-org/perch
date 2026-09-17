@@ -1,10 +1,12 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
-import { lintRepository, lintStep, matches, rank, readLint, readRules, selectUnits, testBlocks } from '../src/lint.js';
-import { formatLint, formatLintFile } from '../src/report.js';
+import { check } from '../src/ask.js';
+import { matches, neighbourhood, rank, readLint, readRules, selectUnits, testBlocks, unitStep } from '../src/units.js';
+import { scanRepository } from '../src/scan.js';
+import { openStore } from '../src/store.js';
 import { commitAll, makeGraphFixture } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
@@ -21,20 +23,24 @@ async function repoWith(rules) {
   return { root, revision: await revision(root), out: join(root, '.perch') };
 }
 
-/** Answers every question the same way: how sure the rule holds, or which test to cite. */
+/** Answers every question in a request the same way: how sure each noul is, and the last option of every choice. */
 const answering = (value, calls = []) => ({
   id: 'scripted-jev', calls,
   async ask(state, questions) {
     calls.push({ state, questions });
-    const [id, question] = Object.entries(questions)[0];
-    if (question.type === 'noul') return { model: 'scripted-jev', answers: { [id]: { type: 'noul', noul: value } }, usage: { input_tokens: 10, output_tokens: 0 } };
-    const keys = Object.keys(question.criteria);
-    const choice = keys.includes(value) ? value : keys.at(-1);
-    return { model: 'scripted-jev', answers: { [id]: { type: 'choice', choice, confidence: 0.9, probabilities: Object.fromEntries(keys.map(key => [key, key === choice ? 0.9 : 0.1 / (keys.length - 1)])) } }, usage: { input_tokens: 10, output_tokens: 0 } };
+    const answers = {};
+    for (const [id, question] of Object.entries(questions)) {
+      if (question.type === 'noul') { answers[id] = { type: 'noul', noul: value }; continue; }
+      if (question.type === 'score') { answers[id] = { type: 'score', score: 1, confidence: 0.6, probabilities: Object.fromEntries(question.criteria.map((_, index) => [index, index === 1 ? 0.7 : 0.1])) }; continue; }
+      const keys = Object.keys(question.criteria);
+      const choice = keys.includes(value) ? value : keys.at(-1);
+      answers[id] = { type: 'choice', choice, confidence: 0.9, probabilities: Object.fromEntries(keys.map(key => [key, key === choice ? 0.9 : 0.1 / (keys.length - 1)])) };
+    }
+    return { model: 'scripted-jev', answers, usage: { input_tokens: 10, output_tokens: 0 } };
   },
 });
 
-describe('perch lint', () => {
+describe('the units a rule is asked about', () => {
   it('matches the two wildcards a rule file needs', () => {
     for (const [glob, path, want] of [
       ['**/*.md', 'README.md', true], ['**/*.md', 'doc/fix.md', true], ['**/*.md', 'src/a.js', false],
@@ -58,7 +64,7 @@ describe('perch lint', () => {
 
   it('selects files, methods, callers and mentions', async () => {
     const repo = await repoWith('- name: r\n  where: "**/*.md"\n  ensure: "x"\n');
-    const { analyzeTree } = await import('../src/scan.js');
+    const { analyzeTree } = await import('../src/analyze.js');
     const { buildGraph } = await import('../src/graph.js');
     const scan = await analyzeTree({ root: repo.root, revision: repo.revision, out: repo.out, analyzer });
     const graph = buildGraph(scan.files);
@@ -80,19 +86,49 @@ describe('perch lint', () => {
     expect(at({ where: 'mentions x - 1' }).map(unit => unit.name)).toEqual(['k']);
   });
 
+  it('shows a file or a test only itself, unless the rule says it needs more', async () => {
+    const repo = await repoWith('- name: r\n  where: "**/*.md"\n  ensure: "x"\n');
+    const { analyzeTree } = await import('../src/analyze.js');
+    const { buildGraph } = await import('../src/graph.js');
+    const scan = await analyzeTree({ root: repo.root, revision: repo.revision, out: repo.out, analyzer });
+    const graph = buildGraph(scan.files);
+    const files = new Map();
+    for (const file of scan.files) files.set(file.path, await readFile(join(repo.root, file.path), 'utf8'));
+    const file = { id: 'README.md', path: 'README.md', name: 'README.md', line: 1 };
+    files.set('README.md', '# graph\n\nCalls f and nothing else.\n');
+
+    // Nothing by default: a claim about one file is answered by that file, and neighbours are more things to answer about by
+    // mistake. A method needs no such key at all, and asking for one is refused rather than ignored.
+    expect(neighbourhood('self', file, { graph, files })).toEqual({});
+    expect(neighbourhood('file', file, { graph, files }).file_source).toContain('Calls f');
+    expect(() => check({ name: 'r', where: 'src/**', each: 'method', sees: 'calls', ensure: 'x' }, 'perch.yaml rule 1'))
+      .toThrow('a method is always asked with its callers and callees in view');
+
+    // A file and a test are not nodes in the call graph, so what they call is found by name in the body.
+    const test = { id: 'test/a.test.js::t', path: 'test/a.test.js', name: 't', line: 1, end_line: 3, part: true };
+    files.set('test/a.test.js', 'it("t", () => { f(1); });');
+    const seen = neighbourhood('calls', test, { graph, files });
+    expect(seen.calls.map(item => item.name)).toContain('f');
+    // What is seen goes in the state beside the source, under a name that says what it is.
+    const rule = check({ name: 't', where: 'test/**', each: 'test', sees: 'calls', ensure: 'x' }, 'perch.yaml rule 1');
+    const { state } = unitStep({ rules: [rule], unit: test, source: 'it("t", () => {});', seen });
+    expect(state.calls[0]).toMatchObject({ name: expect.any(String), path: expect.any(String), source: expect.any(String) });
+  });
+
   it('asks a noul either way, and reads it as broken or as found depending on which way the rule was asked', () => {
-    const rule = { name: 'r', kind: 'ensure', text: 'The comment says why.' };
-    const step = lintStep({ rule, unit: { path: 'src/a.js', name: 'f', line: 3, part: true }, source: 'function f() {}' });
-    expect(step.question.holds.type).toBe('noul');
-    expect(step.state).toMatchObject({ rule: 'r', path: 'src/a.js', name: 'f', line: 3 });
-    expect(readLint(rule, { holds: { noul: 0.2 } }).broken).toBeCloseTo(0.8);
+    // The answer comes back under the rule's own name, since a rule is one entry in the same question set a scan is asked from.
+    const rule = check({ name: 'r', where: '**/*', ensure: 'The comment says why.' }, 'test');
+    const step = unitStep({ rules: [rule], unit: { path: 'src/a.js', name: 'f', line: 3, part: true }, source: 'function f() {}' });
+    expect(step.questions.r.type).toBe('noul');
+    expect(step.state).toMatchObject({ path: 'src/a.js', name: 'f', line: 3 });
+    expect(readLint(rule, { r: { noul: 0.2 } }).broken).toBeCloseTo(0.8);
 
     // A search asks whether the thing is here. Wanting it and not wanting it read the same answer opposite ways.
-    const exist = { name: 'e', kind: 'ensure_exist', text: 'A test that closes an issue.' };
-    const nexist = { name: 'n', kind: 'ensure_nexist', text: 'A flag parsed and never used.' };
-    expect(lintStep({ rule: exist, unit: { path: 'test/a.test.js', name: 'test/a.test.js', line: 1 }, source: '' }).question.found.type).toBe('noul');
-    expect(readLint(exist, { found: { noul: 0.9 } })).toMatchObject({ here: 0.9, broken: 0 });
-    expect(readLint(nexist, { found: { noul: 0.9 } })).toMatchObject({ here: 0.9, broken: 0.9 });
+    const exist = check({ name: 'e', where: '**/*', ensure_present: 'A test that closes an issue.' }, 'test');
+    const nexist = check({ name: 'n', where: '**/*', ensure_absent: 'A flag parsed and never used.' }, 'test');
+    expect(unitStep({ rules: [exist], unit: { path: 'test/a.test.js', name: 'test/a.test.js', line: 1 }, source: '' }).questions.e.type).toBe('noul');
+    expect(readLint(exist, { e: { noul: 0.9 } })).toMatchObject({ here: 0.9, broken: 0 });
+    expect(readLint(nexist, { n: { noul: 0.9 } })).toMatchObject({ here: 0.9, broken: 0.9 });
   });
 
   it('takes a test as a unit, so a search names the test and not the file it is in', () => {
@@ -113,57 +149,51 @@ describe('perch lint', () => {
   });
 
   it('asks the likeliest unit first, so a search that finds its answer stops there', () => {
-    const rule = { name: 'r', kind: 'ensure_exist', text: 'A test that closes an issue with a reason' };
+    const rule = { name: 'r', kind: 'ensure_present', text: 'A test that closes an issue with a reason' };
     const units = [{ path: 'test/graph.test.js', name: 'graph' }, { path: 'test/cli.test.js', name: 'closes an issue' }, { path: 'test/scan.test.js', name: 'scan' }];
     expect(rank(rule, units)[0].name).toBe('closes an issue');
   });
 
-  it('reports what broke, exits on it, and does not ask twice about unchanged code', async () => {
-    const repo = await repoWith('- name: comment-says-why\n  where: "src/*.js"\n  each: method\n  ensure: "The comment says why."\n');
+  it('asks a method rule inside that method\'s own reading, and a file rule on its own', async () => {
+    const repo = await repoWith('- name: comment-says-why\n  where: "src/*.js"\n  each: method\n  ensure: "The comment says why."\n'
+      + '- name: prose\n  where: "**/*.md"\n  ensure: "A person wrote this."\n');
     const calls = [];
-    const options = { ...repo, analyzer, systemOne: answering(0.1, calls) };
+    const run = await scanRepository({ ...repo, analyzer, systemOne: answering(0.1, calls) });
 
-    const seen = [];
-    const run = await lintRepository({ ...options, onFile: file => seen.push(file) });
-    expect(run.rules.map(rule => rule.name)).toEqual(['comment-says-why']);
-    expect(run.checked).toBe(4);
-    expect(run.asked).toBe(4);
-    expect(run.findings).toHaveLength(4);
-    expect(run.findings[0].broken).toBeCloseTo(0.9);
+    // Four methods, each one request carrying perch's questions and the rule together. A rule about a method costs no request.
+    expect(run.calls).toBe(4);
+    expect(calls.filter(call => call.questions['comment-says-why'])).toHaveLength(4);
+    expect(calls.filter(call => call.questions.has_bug && call.questions['comment-says-why'])).toHaveLength(4);
+    // The markdown rule is not about a method, so it is its own reading.
+    const prose = calls.filter(call => call.questions.prose);
+    expect(prose).toHaveLength(1);
+    expect(prose[0].questions.has_bug).toBeUndefined();
 
-    // A file is handed over once every rule has been asked of every part of it, so a run reads like a linter.
-    expect(seen.map(file => file.path)).toEqual(['src/a.js', 'src/b.js']);
-    expect(seen[0]).toMatchObject({ checked: 2, findings: [{ name: 'f' }, { name: 'g' }] });
-    // The percentage is the share that passed, so a clean file reads 100% like every other tool in a build.
-    // Grouped by rule, with the rule's own sentence over its findings: a typed answer carries no message of its own.
-    const block = formatLintFile(seen[0]);
-    expect(block).toMatch(/^src\/a\.js {2}0% {2}0 of 2 checks passed$/m);
-    expect(block).toMatch(/^ {2}\d+ {2}comment-says-why {2}f$/m);
-    expect(formatLintFile({ path: 'src/c.js', checked: 4, findings: [] })).toBe('src/c.js  100%  4 of 4 checks passed');
+    // The run tallies every rule that broke, whatever it was asked about.
+    expect(run.broken.map(finding => finding.rule).sort()).toEqual(['comment-says-why', 'comment-says-why', 'comment-says-why', 'comment-says-why', 'prose']);
+    expect(run.broken[0].broken).toBeCloseTo(0.9);
 
-    // The summary counts them; the files already said what each rule wanted.
-    const shown = formatLint(run);
-    expect(shown).toContain('0%  0 of 4 checks passed. 4 failed in 2 files.');
-    // The rules that fired are spelled out once, in a table, rather than over every file they touched.
-    expect(shown).toMatch(/^ +Failed {2}Rule +What it asks$/m);
-    expect(shown).toMatch(/^ +4 {2}comment-says-why {2}The comment says why\.$/m);
+    // A rule asked inside a method's reading is answered there, so it is not written down a second time: one problem, one row.
+    const store = openStore(repo.out);
+    const rows = await store.readLines(store.scanPath);
+    expect(rows.filter(row => row.answers_set)).toHaveLength(4);
+    expect(rows.filter(row => row.answers_set).every(row => row['comment-says-why'] === 0.1)).toBe(true);
+    // The markdown rule has no reading to sit inside, so it is a finding of its own.
+    expect(rows.filter(row => row.rule).map(row => row.rule)).toEqual(['prose']);
+  });
 
-    // Asked once. The same code under the same rule is read from the log.
-    const held = [];
-    const again = await lintRepository({ ...options, systemOne: answering(0.1), onFile: file => held.push(file) });
-    // A cached answer is still reported: it was found before this run, not in it.
-    expect(held.flatMap(file => file.findings)).toHaveLength(4);
-    expect(again.asked).toBe(0);
-    expect(again.skipped).toBe(4);
-    expect(again.findings).toHaveLength(4);
-
-    // Editing the rule's wording is a different question, so it is asked again.
-    await writeFile(join(repo.root, 'perch.yaml'), '- name: comment-says-why\n  where: "src/*.js"\n  each: method\n  ensure: "The comment says why, and names the caller."\n');
-    await commitAll(repo.root, 'tighten the rule');
-    const tightened = await lintRepository({ ...options, revision: await revision(repo.root), systemOne: answering(0.9) });
-    expect(tightened.asked).toBe(4);
-    expect(tightened.findings).toHaveLength(0);
-    expect(formatLint(tightened)).toBe('1 rule, 4 checks, all passed.');
+  it('asks two rules about one file in one request, and one more only where they differ', async () => {
+    const repo = await repoWith('- name: prose\n  where: "**/*.md"\n  ensure: "A person wrote this."\n'
+      + '- name: terse\n  where: "**/*.md"\n  ensure: "It is short."\n'
+      + '- name: grounded\n  where: "**/*.md"\n  sees: file\n  ensure: "It names something real."\n');
+    const calls = [];
+    await scanRepository({ ...repo, analyzer, systemOne: answering(0.9, calls) });
+    const onReadme = calls.filter(call => call.state.file === 'README.md');
+    // Two rules seeing the same thing share a request; the third wants more, so it is a second context.
+    expect(onReadme).toHaveLength(2);
+    expect(Object.keys(onReadme[0].questions).sort()).toEqual(['prose', 'terse']);
+    expect(Object.keys(onReadme[1].questions)).toEqual(['grounded']);
+    expect(onReadme[1].state.file_source).toContain('A fixture.');
   });
 
   it('asks only about what a branch changed', async () => {
@@ -174,15 +204,11 @@ describe('perch lint', () => {
     await commitAll(repo.root, 'docs');
     const at = await revision(repo.root);
 
-    // Nothing on record yet, so a narrowed run asks about the one file and says the other two were never checked.
-    const first = await lintRepository({ ...repo, revision: at, analyzer, systemOne: answering(0.1), paths: ['doc/one.md'] });
-    expect(first).toMatchObject({ asked: 1, unchecked: 2 });
-    expect(formatLint(first)).toContain('2 never checked');
+    // --since is the universe, not a filter over something kept: a narrowed run asks about those files and reports on them.
+    const narrowed = await scanRepository({ ...repo, revision: at, analyzer, systemOne: answering(0.1), paths: ['src', 'doc/one.md'] });
+    expect(narrowed.broken.map(finding => finding.path)).toEqual(['doc/one.md']);
 
-    // Now the rest is answered, a narrowed run asks about that file alone and still reports what the others said.
-    await lintRepository({ ...repo, revision: at, analyzer, systemOne: answering(0.1) });
-    const narrowed = await lintRepository({ ...repo, revision: at, analyzer, systemOne: answering(0.1), paths: ['doc/one.md'] });
-    expect(narrowed).toMatchObject({ asked: 0, unchecked: 0, skipped: 3 });
-    expect(narrowed.findings.map(finding => finding.path).sort()).toEqual(['README.md', 'doc/one.md', 'doc/two.md']);
+    const everything = await scanRepository({ ...repo, revision: at, analyzer, systemOne: answering(0.1) });
+    expect(everything.broken.map(finding => finding.path).sort()).toEqual(['README.md', 'doc/one.md', 'doc/two.md']);
   });
 });

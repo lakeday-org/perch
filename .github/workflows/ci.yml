@@ -47,21 +47,12 @@ jobs:
       - name: The bundle builds and loads
         run: npm run build
 
-      # The rules in perch.yaml, asked of everything this pull request touched. A fork's pull request gets no secrets, so the
-      # step is skipped rather than failing the build over a key it was never given. Runs after the build, since it runs perch.
-      # Without this every pull request re-asks every rule about every file. The key always restores the newest cache and saves a
-      # new one, so a run starts from whatever the last run knew and only pays for what changed.
-      - name: Answers from earlier runs
+      # Everything perch asks, of everything this pull request touched. Exits 1 if a rule in perch.yaml is broken. A fork's pull
+      # request gets no secrets, so the step is skipped rather than failing the build over a key it was never given. Runs after
+      # the build, since it runs perch.
+      - name: Scan what this branch changed
         if: env.TYPESAFE_API_KEY != ''
-        uses: actions/cache@v4
-        with:
-          path: .perch/lint.jsonl
-          key: perch-lint-${{ github.sha }}
-          restore-keys: perch-lint-
-
-      - name: Check the rules in perch.yaml
-        if: env.TYPESAFE_API_KEY != ''
-        run: node bin/perch.mjs lint ${{ github.event_name == 'pull_request' && format('--since origin/{0}', github.base_ref) || '' }}
+        run: node bin/perch.mjs scan ${{ github.event_name == 'pull_request' && format('--since origin/{0}', github.base_ref) || '' }}
 
       - name: Nothing in the package that should not ship
         run: npm pack --dry-run

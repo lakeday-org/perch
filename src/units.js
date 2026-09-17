@@ -1,21 +1,16 @@
 /**
- * `perch lint`: rules you write, asked of your own code. A linter checks the things a parser can prove; this checks the things it
- * cannot — whether a comment says why, whether a listing honours a filter, whether a behaviour you claim is actually asserted
- * anywhere. Each rule is one typed question put to System One about one unit, so the answer is a probability and the same
- * hash-and-skip that keeps a scan cheap keeps a lint cheap: a unit whose code has not changed, under a rule whose wording has not
- * changed, is not asked about again.
+ * The units a rule is asked about, and how one question about one unit is put and read.
  *
- * Findings do not go into `perch issues`. A rule is yours and a scan's questions are perch's, and mixing them would let a rule you
- * are still drafting pollute a list you trust.
+ * A scan reads methods, and a rule about a method rides along in that method's own request. The rest do not fit there: a rule
+ * about prose is a rule about markdown, which the graph has never heard of, and a rule about a test is about one block inside a
+ * file. Those are selected here and asked here.
  */
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parse } from 'yaml';
 import { git, listTree } from './git.js';
-import { analyzeTree } from './scan.js';
-import { buildGraph } from './graph.js';
+import { askKey, BUILTIN, compile, floorFor, installQuestions, merge, parseQuestions, SEARCHES } from './ask.js';
 import { leadingComment, lineId, lineWindows, locateWhere, tagged, whereQuestion, whereWindowQuestion } from './questions.js';
-import { findingId, openStore, sha256 } from './store.js';
+import { findingId } from './store.js';
 
 /** Where rules live: one file until there are enough to split, then a directory of them. Both are source, both are reviewed. */
 export const RULES_FILE = 'perch.yaml', RULES_DIR = 'perch';
@@ -24,20 +19,14 @@ export const BELIEVED = 0.5;
 /** Units one rule may ask about in a single run, so a mistyped selector cannot spend a repository's worth of requests. */
 export const MAX_UNITS = 400;
 /**
- * Questions in flight at once. A scan reads eight because each of its requests carries a method's whole neighbourhood and thirty
- * questions; a lint request is one question about one unit and a few kilobytes, so it can go far wider. Overshooting a rate limit
- * is not a failure here — the client backs off and retries — so this is set to what the work is worth, not to what is safe.
+ * Questions in flight at once when the unit is not a method. A method's request carries its whole neighborhood and thirty
+ * questions; this is one question about one unit and a few kilobytes, so it can go far wider. Overshooting a rate limit is not a
+ * failure here, since the client backs off and retries, so this is set to what the work is worth rather than to what is safe.
  */
-export const DEFAULT_PARALLEL = 32;
+export const UNIT_PARALLEL = 32;
 
-/**
- * `ensure` is asked of every unit and every unit has to satisfy it. The other two are asked of units in turn until one answers,
- * because the claim is about the codebase and not about any one file: `ensure_exist` passes at the first unit that has the thing,
- * `ensure_nexist` fails at the first unit that has it. Passing an exist rule is cheap and proving a nexist rule is not, which is
- * the right way round — proving an absence is the expensive claim.
- */
-const KINDS = ['ensure', 'ensure_exist', 'ensure_nexist'];
-const SEARCHES = kind => kind === 'ensure_exist' || kind === 'ensure_nexist';
+/** Neighbours one rule may be shown, so `sees: callers` on a method a hundred things call is still one request. */
+export const MAX_SEEN = 8;
 
 /**
  * Rules are read from the working copy, not from the commit. They are what you are editing when you run this, and a linter that
@@ -45,27 +34,28 @@ const SEARCHES = kind => kind === 'ensure_exist' || kind === 'ensure_nexist';
  * comes from the revision, so a finding is still about a commit.
  */
 export async function readRules(root, revision) {
-  const paths = (await listTree(root, revision)).map(item => item.path)
-    .filter(path => path === RULES_FILE || (path.startsWith(`${RULES_DIR}/`) && /\.ya?ml$/.test(path)))
-    .sort();
+  const wanted = path => path === RULES_FILE || (path.startsWith(`${RULES_DIR}/`) && /\.ya?ml$/.test(path));
+  const committed = (await listTree(root, revision)).map(item => item.path).filter(wanted);
+  // A rule file that is on disk and not yet committed is still a rule file. Taking the list from the commit meant `perch rules
+  // add` wrote a rule that nothing asked until someone committed it, and said nothing about why.
+  const here = [RULES_FILE, ...(await readdir(join(root, RULES_DIR)).catch(() => [])).map(name => `${RULES_DIR}/${name}`)].filter(wanted);
+  const paths = [...new Set([...committed, ...here])].sort();
   const rules = [];
   for (const path of paths) {
-    const text = await readFile(join(root, path), 'utf8').catch(() => git(['show', `${revision}:${path}`], root));
-    for (const [index, rule] of (parse(text) ?? []).entries()) rules.push(check(rule, path, index));
+    const text = await readFile(join(root, path), 'utf8').catch(() => git(['show', `${revision}:${path}`], root).catch(() => null));
+    if (text === null) continue;
+    rules.push(...parseQuestions(text, path, 'rule'));
   }
+  // A repository's own file can reword a question perch ships as well as add one, and a report of either has to be able to look
+  // up what raised it, so the set in force is the two together.
+  installQuestions(merge(BUILTIN, rules));
+  // Everything the file holds, including a question written out longhand. `perch rules list` shows what is in there, and a file
+  // that asks something perch will ask must not be able to hide it.
   return rules;
 }
 
-/** A rule that cannot be understood is a mistake to fix now, not a rule to skip quietly at the point it would have caught something. */
-function check(rule, path, index) {
-  const at = `${path} rule ${index + 1}`;
-  if (!rule?.name) throw new Error(`${at}: every rule needs a name`);
-  const kind = KINDS.find(key => rule[key]);
-  if (!kind) throw new Error(`${rule.name} (${at}): needs one of ${KINDS.join(', ')}`);
-  if (!rule.where) throw new Error(`${rule.name} (${at}): needs where to say what it applies to`);
-  if (rule.each && !['file', 'method', 'test'].includes(rule.each)) throw new Error(`${rule.name} (${at}): each is file, method or test, not ${rule.each}`);
-  return { ...rule, kind, text: rule[kind], at, hash: sha256(JSON.stringify([rule[kind], rule.where, rule.except, rule.each])) };
-}
+/** The entries a scan runs as rules: a yes-or-no with a rule's shape. A question written longhand is asked as a question. */
+export const asRules = questions => questions.filter(question => question.kind);
 
 /** `**\/*.md` and `src/**\/*.js` as a test on a path. Only the two wildcards a rule file ever needs. */
 export function matches(glob, path) {
@@ -78,9 +68,13 @@ export function matches(glob, path) {
  * them. It also takes two selectors over what perch already knows: `callers of <method>` from the call graph, and
  * `mentions <text>`, which is a text match and finds the methods worth asking rather than the methods that are guilty.
  */
-export function selectUnits(rule, { scan, graph, files, tree }) {
+export function selectUnits(rule, { scan, graph, files, tree, inScope = () => true }) {
   const source = rule.where;
-  const spared = unit => !rule.except || ![rule.except].flat().some(glob => matches(glob, unit.path));
+  // The rule file is not code. A rule over `**/*` would otherwise be asked about the file that declares it, and answer about the
+  // wording of its own question.
+  const ours = path => path === RULES_FILE || path.startsWith(`${RULES_DIR}/`);
+  // `except` is the rule's own exclusion; `inScope` is the run's, which --since narrows to what a branch changed.
+  const spared = unit => inScope(unit.path) && !ours(unit.path) && (!rule.except || ![rule.except].flat().some(glob => matches(glob, unit.path)));
   const callers = /^callers? of (.+)$/.exec(source ?? '');
   const mentions = /^(?:writers? of|mentions) (.+)$/.exec(source ?? '');
   if (callers) {
@@ -117,7 +111,7 @@ const sourceOf = (node, files) => (files.get(node.path) ?? '').split('\n').slice
 
 /**
  * The tests in a file, as units. A test is what a suite is made of and what a person names when they say where something is
- * asserted, so a rule asking whether a behaviour is tested answers with a test rather than the file it is somewhere inside. A
+ * asserted, so a rule asking whether a behavior is tested answers with a test rather than the file it is somewhere inside. A
  * block runs to the line before the next one starts, which is enough to read one test and cheaper than matching braces.
  */
 export function testBlocks(text, path) {
@@ -138,15 +132,40 @@ export function rank(rule, units) {
   return [...units].sort((a, b) => score(b) - score(a));
 }
 
-/** The state and question for one rule against one unit. */
-export function lintStep({ rule, unit, source }) {
-  const state = { rule: rule.name, path: unit.path, ...(unit.part ? { name: unit.name, line: unit.line } : { file: unit.path }), source };
-  if (SEARCHES(rule.kind)) {
-    return { state, question: { found: { type: 'noul', instructions: { looking_for: rule.text, question: 'Is `looking_for` here, in the code below? Answer about this code alone; somewhere else having it is not this.' },
-      criteria: { true: rule.text, false: `Not here: ${rule.text}` } } } };
-  }
-  return { state, question: { holds: { type: 'noul', instructions: { rule: rule.text, question: 'Is `rule` true of the code below?' },
-    criteria: { true: rule.text, false: `Not so: ${rule.text}` } } } };
+/**
+ * What a rule is shown besides the unit itself. Most rules want nothing else: a claim about one method is answered by that method,
+ * and three neighbours in view are three other methods the model can answer about by mistake. A rule that genuinely spans two
+ * places says so, and `sees:` is how — a test rule that asks whether the code under test is really asserted needs the code under
+ * test, and no amount of rewording gets it from the test alone.
+ *
+ * A method's neighbours come from the call graph. A file's or a test's do not, because neither is a node in it, so what they call
+ * is found by name: a declaration whose short name appears in the body, riskiest first.
+ */
+export function neighbourhood(sees, unit, { graph, files, max = MAX_SEEN }) {
+  if (!sees || sees === 'self') return {};
+  const text = files.get(unit.path) ?? '';
+  if (sees === 'file') return { file_source: text };
+  const body = unit.part ? bodyOf(text, unit) : text;
+  const risk = id => graph.nodes.get(id)?.metrics?.risk_score ?? 0;
+  const show = ids => [...new Set(ids)].sort((a, b) => risk(b) - risk(a)).slice(0, max)
+    .map(id => graph.nodes.get(id)).filter(Boolean)
+    .map(node => ({ name: node.qualified_name, path: node.path, source: sourceOf(node, files) }));
+  // A file and a test are not nodes in the call graph, so what they call is found by name: a declaration whose short name
+  // appears in the body, riskiest first.
+  const named = [...graph.nodes.keys()].filter(id => new RegExp(`\\b${id.split('::').at(-1).split('.').at(-1).replace(/[^\w]/g, '')}\\b`).test(body));
+  const seen = {};
+  if (sees === 'calls' || sees === 'neighbors') seen.calls = show(named);
+  if (sees === 'callers' || sees === 'neighbors') seen.called_by = show([...graph.nodes.keys()].filter(id => sourceOf(graph.nodes.get(id), files).includes(unit.name)));
+  return seen;
+}
+
+/**
+ * The state one context is asked over, and every rule's question about it. Each question is scored against the state on its own,
+ * so asking twelve together answers the same as asking them one at a time and pays for the state once instead of twelve times.
+ */
+export function unitStep({ rules, unit, source, seen = {} }) {
+  const state = { path: unit.path, ...(unit.part ? { name: unit.name, line: unit.line } : { file: unit.path }), source, ...seen };
+  return { state, questions: compile(rules) };
 }
 
 /**
@@ -159,7 +178,7 @@ export async function locateBreak({ systemOne, rule, unit, body }) {
   if (ids.length < 2) return unit.line;
   const windows = lineWindows(ids);
   const state = { rule: rule.name, path: unit.path, source: tagged(lines, 1) };
-  const question = ids => ({ ...whereQuestion(ids), instructions: { rule: rule.ensure, question: 'Which line breaks `rule`? Pick the worst one.' } });
+  const question = ids => ({ ...whereQuestion(ids), instructions: { rule: rule.text, question: 'Which line breaks `rule`? Pick the worst one.' } });
   const questions = windows ? { where_window: whereWindowQuestion(windows) } : { where: question(ids) };
   const { answers } = await locateWhere({ systemOne, state, questions, windows: windows?.map(window => window) });
   const chosen = answers.where?.choice;
@@ -168,176 +187,143 @@ export async function locateBreak({ systemOne, rule, unit, body }) {
 
 /** What one answer means: how sure the rule is broken, and the citation when there is one. */
 export function readLint(rule, answers) {
-  // For a search, the answer is whether the thing is here. What that means for the rule depends on which way it was asked.
-  if (SEARCHES(rule.kind)) return { here: answers.found.noul, broken: rule.kind === 'ensure_nexist' ? answers.found.noul : 0, cite: null };
-  return { broken: 1 - answers.holds.noul, cite: null };
+  const said = answers[rule.name].noul;
+  // For a search, the answer is whether the thing is here. What that means for the rule depends on which way it was asked: a rule
+  // that wants the thing present is not broken by one unit lacking it, only by every unit lacking it, which the search decides.
+  if (SEARCHES(rule.kind)) return { here: said, broken: rule.kind === 'ensure_absent' ? said : 0, cite: null };
+  return { broken: 1 - said, cite: null };
 }
 
 /**
- * Run every rule over the units it selects. `paths` narrows to a diff, so a pull request asks only about what it touched; a unit
- * answered before under the same rule wording and the same code is read from the log rather than asked again.
+ * The rules that cover a method. They ride in that method's own request rather than costing one each: every question in a request
+ * is scored against the state on its own, and the state is what the request is mostly made of, so a method covered by five rules
+ * is one reading and not six.
  */
-export async function lintRepository({ root, revision, out, analyzer, systemOne, paths = [], min = BELIEVED, force = false, parallel = DEFAULT_PARALLEL,
-  onFile = () => {}, progress = () => {}, log = () => {}, debug = () => {} }) {
-  const rules = await readRules(root, revision);
-  if (!rules.length) throw new Error(`no rules: write ${RULES_FILE} or ${RULES_DIR}/*.yaml`);
-  const tree = await listTree(root, revision);
-  const scan = await analyzeTree({ root, revision, out, analyzer, log: debug, debug });
-  const graph = buildGraph(scan.files);
-  const files = new Map();
-  const textOf = async path => {
-    if (!files.has(path)) files.set(path, await git(['show', `${revision}:${path}`], root).catch(() => ''));
-    return files.get(path);
-  };
-  for (const file of scan.files) await textOf(file.path);
+export const rulesForMethod = (rules, node) => rules.filter(rule => rule.kind === 'ensure' && rule.each === 'method'
+  && matches(String(rule.where), node.path)
+  && (!rule.except || ![rule.except].flat().some(glob => matches(glob, node.path))));
 
-  const cache = await readCache(out);
-  const touched = path => !paths.length || paths.some(item => path === item || path.startsWith(item.replace(/\/$/, '') + '/'));
-  const findings = [], recorded = new Map();
-  let asked = 0, skipped = 0, unchecked = 0;
-  const work = [], searches = [];
+/**
+ * One rule asked of one unit, as it is written down: enough to print a row, open the code, and rank it beside everything else. A
+ * check that passed is written down too, with nothing to report, because that is what lets the next run skip asking it.
+ */
+const checkOf = (rule, unit, { broken, line, text, revision, key }) => ({
+  type: 'checked', at: new Date().toISOString(), id: findingId(`${rule.name}::${unit.id}`), rule: rule.name, rule_hash: rule.hash,
+  unit: unit.id, method: unit.method ? unit.id : null, path: unit.path, name: unit.name, line, end_line: unit.end_line ?? null,
+  text, hash: unit.hash, key, revision, said: rule.text, broken,
+  lint: { rule: rule.name, broken, text: rule.text, said: rule.text },
+});
+
+/**
+ * Every rule that is not about a method, asked of every unit it selects. One question, one unit, one request, `parallel` of them
+ * at a time, and a second question to a file that failed about which line failed on it.
+ */
+export async function askUnits({ rules, scan, graph, files, tree, revision, systemOne, inScope, min = BELIEVED,
+  earlier = new Map(), parallel = UNIT_PARALLEL, progress = () => {}, debug = () => {} }) {
+  // One request per context. Two rules about the same file that want to see the same thing are one reading, since every question
+  // in a request is scored against the state by itself.
+  const contexts = new Map();
   for (const rule of rules) {
-    const units = selectUnits(rule, { scan, graph, files, tree }).slice(0, MAX_UNITS);
-    // A search asks its units in turn and stops, so it is ordered by how likely each is to hold the answer and kept apart from
-    // the rules that ask everything. Word overlap is a poor judge and a free one, which beats a request spent on ranking.
-    if (SEARCHES(rule.kind)) { searches.push({ rule, units: rank(rule, units) }); continue; }
-    for (const unit of units) {
-      // The key is the text the model is shown, not the unit's own hash: a method's hash covers its body, so keying on it
-      // would hold an answer about a comment after the comment had been rewritten.
-      const source = await textOf(unit.path);
-      const body = unit.part ? bodyOf(source, unit) : source;
-      const key = [rule.name, unit.id, rule.hash, sha256(body)].join(' ');
-      if (!force && cache.has(shortKey(key))) { skipped++; const held = cache.get(shortKey(key)); if (held.broken > min) findings.push(held); work.push({ rule, unit, key, body, held }); continue; }
-      // `--since` says what to ask about, not what to report. A file the branch did not touch, with no answer on record, is
-      // counted as unchecked and named in the summary; one that has an answer keeps it, so the report covers the repository.
-      if (!touched(unit.path)) { unchecked++; continue; }
-      work.push({ rule, unit, key, body });
+    for (const unit of selectUnits(rule, { scan, graph, files, tree, inScope }).slice(0, MAX_UNITS)) {
+      const key = `${unit.id}\u0000${rule.sees}`;
+      if (!contexts.has(key)) contexts.set(key, { unit, sees: rule.sees, rules: [] });
+      contexts.get(key).rules.push(rule);
     }
   }
-  // File order, so a file is finished before the next is started and can be reported the moment it is.
-  work.sort((a, b) => a.unit.path.localeCompare(b.unit.path) || a.unit.line - b.unit.line);
-  const checkedIn = new Map();
-  for (const item of work) checkedIn.set(item.unit.path, (checkedIn.get(item.unit.path) ?? 0) + 1);
-  let open = null, found = [];
-  /** A file is only worth reporting once every rule has been asked of every part of it, which is when its pass rate is known. */
-  const closeFile = () => { if (open) onFile({ path: open, checked: checkedIn.get(open) ?? 0, findings: found, rules }); open = null; found = []; };
-  /** One rule against one unit: the question, and the second question a failing file gets about which line it failed on. */
-  const askOne = async ({ rule, unit, key, body }) => {
-    const { state, question } = lintStep({ rule, unit, source: body });
-    debug(`${rule.name}: ${unit.name}`);
-    const { answers } = await systemOne.ask(state, question);
-    const { broken, cite } = readLint(rule, answers);
-    // A file that failed is asked which line failed; a method already has one.
-    const located = broken > min && !unit.part && rule.kind === 'ensure';
-    const line = located ? await locateBreak({ systemOne, rule, unit, body }) : unit.line;
-    // The located line, as text. A number alone makes a reader open the file to find out what was objected to. A method's row
-    // already names the method, so repeating its declaration underneath says nothing.
-    const onLine = located ? ((await textOf(unit.path)).split('\n')[line - 1] ?? '').trim() : '';
-    const text = onLine.length > 110 ? `${onLine.slice(0, 110)}…` : onLine || null;
-    return { key, finding: { rule: rule.name, rule_hash: rule.hash, unit: unit.id, path: unit.path, name: unit.name, line, end_line: unit.end_line ?? null, text, hash: unit.hash, broken, cite, at: new Date().toISOString() } };
+  // File order, so a run reads top to bottom and two runs over the same tree ask in the same order.
+  const work = [...contexts.values()].sort((a, b) => a.unit.path.localeCompare(b.unit.path) || a.unit.line - b.unit.line);
+  const askOne = async ({ unit, sees, rules: over }) => {
+    const source = files.get(unit.path) ?? '';
+    const body = unit.part ? bodyOf(source, unit) : source;
+    const { state, questions } = unitStep({ rules: over, unit, source: body, seen: neighbourhood(sees, unit, { graph, files }) });
+    const key = askKey([{ state }], over);
+    // Nothing about this unit or these rules has changed since it was last asked, so the answer cannot have either.
+    const before = over.map(rule => earlier.get(findingId(`${rule.name}::${unit.id}`))).filter(check => check?.key === key);
+    if (before.length === over.length) { debug(`${over.map(rule => rule.name).join(', ')}: ${unit.name} is unchanged`); return { results: before, carried: before.length }; }
+
+    debug(`${over.map(rule => rule.name).join(', ')}: ${unit.name}`);
+    const { answers } = await systemOne.ask(state, questions);
+    // A file that failed is asked which line failed; a method or a test block already has one. One question per broken rule,
+    // since two rules broken in one file are rarely broken on the same line.
+    const results = await Promise.all(over.map(async rule => {
+      const broken = readLint(rule, answers).broken;
+      const failing = broken > floorFor(rule, min);
+      const line = failing && !unit.part ? await locateBreak({ systemOne, rule, unit, body }) : unit.line;
+      const onLine = failing && !unit.part ? (source.split('\n')[line - 1] ?? '').trim() : '';
+      return checkOf(rule, unit, { broken, line, text: onLine.length > 110 ? `${onLine.slice(0, 110)}…` : onLine || null, revision, key });
+    }));
+    return { results, carried: 0 };
   };
 
-  // Asked `parallel` at a time, the way a scan reads methods. The answers are then taken in the order the work was sorted into,
-  // so a file is still finished before the next one starts and the output still reads top to bottom.
+  const results = [], total = work.reduce((count, item) => count + item.rules.length, 0);
+  let asked = 0, carried = 0;
   for (let at = 0; at < work.length; at += parallel) {
     const batch = work.slice(at, at + parallel);
-    const answered = await Promise.all(batch.map(item => (item.held ? null : askOne(item))));
+    const answered = await Promise.all(batch.map(askOne));
     for (const [index, item] of batch.entries()) {
-      if (item.unit.path !== open) { closeFile(); open = item.unit.path; }
-      const finding = item.held ?? answered[index].finding;
-      if (!item.held) { recorded.set(answered[index].key, finding); progress(++asked, work.length); }
-      if (finding.broken > min) { found.push(finding); if (!item.held) findings.push(finding); }
+      asked += item.rules.length;
+      carried += answered[index].carried;
+      progress(asked, total);
+      results.push(...answered[index].results);
     }
   }
-  closeFile();
-
-  // Each search is sequential because it stops at its answer, but one search need not wait on another.
-  await Promise.all(searches.map(async ({ rule, units }) => {
-    const wanted = rule.kind === 'ensure_exist';
-    let settled = null, missed = 0;
-    for (const unit of units) {
-      const source = await textOf(unit.path);
-      const body = unit.part ? bodyOf(source, unit) : source;
-      const key = [rule.name, unit.id, rule.hash, sha256(body)].join(' ');
-      const seen = cache.get(shortKey(key));
-      let here = seen?.here;
-      // Kept whether it was asked now or read from the file: the file is rewritten whole, so an answer left out is an answer lost.
-      if (seen) recorded.set(key, seen);
-      if (here === undefined || force) {
-        if (!touched(unit.path)) { unchecked++; missed++; continue; }
-        const { state, question } = lintStep({ rule, unit, source: body });
-        debug(`${rule.name}: ${unit.name}`);
-        const { answers } = await systemOne.ask(state, question);
-        ({ here } = readLint(rule, answers));
-        recorded.set(key, { rule: rule.name, rule_hash: rule.hash, unit: unit.id, path: unit.path, name: unit.name, line: unit.line, hash: unit.hash, broken: wanted ? 0 : here, here, cite: null, at: new Date().toISOString() });
-        asked++;
-      } else skipped++;
-      if (here > min) { settled = unit; break; }
-    }
-    // An exist rule that found nothing is one finding against the rule; a nexist rule that found something is one against the
-    // unit holding it. Either way it is said once, not once per file that did not answer.
-    // Not finding it among the units this run was allowed to look at is not the same as it not being there. A search that could
-    // not see all its candidates says nothing rather than reporting an absence it did not establish.
-    if (!settled && missed) return;
-    const broken = wanted ? (settled ? 0 : 1) : (settled ? 1 : 0);
-    if (broken > min) {
-      const where = settled ?? { path: rule.where, name: rule.name, line: 1 };
-      const finding = { rule: rule.name, rule_hash: rule.hash, unit: `search:${rule.name}`, path: where.path, name: settled ? where.name : rule.name, line: where.line ?? 1, broken, cite: null, at: new Date().toISOString() };
-      findings.push(finding);
-      onFile({ path: finding.path, checked: 1, findings: [finding], rules });
-    }
-  }));
-
-  // Everything this run could use: what it asked, plus what it read from the file. Anything else is about code or a rule that
-  // no longer exists, and keeping it is how the file grew without bound.
-  for (const item of work) if (item.held && !recorded.has(item.key)) recorded.set(item.key, item.held);
-  await writeCache(out, [...recorded]);
-
-  // Broken rules join the issue log, so one list answers "what is wrong with this repository". A rule a unit no longer breaks is
-  // cleared, or something fixed last week would sit in the list forever.
-  const store = openStore(out);
-  const seen = new Set();
-  const listed = findings.map(finding => {
-    const id = findingId(`${finding.rule}::${finding.unit}`);
-    seen.add(id);
-    return { ...finding, id, revision, end_line: finding.end_line ?? null, said: rules.find(rule => rule.name === finding.rule)?.text ?? null };
-  });
-  await store.recordLint(listed, [...(await store.indexes()).lint.keys()].filter(id => !seen.has(id)));
-  log(`${rules.length} ${rules.length === 1 ? 'rule' : 'rules'}, ${asked + skipped} checked, ${asked} read, ${skipped} from the log${unchecked ? `, ${unchecked} never checked` : ''}`);
-  // Cached findings were never streamed, so they are sorted in with the rest for the report at the end.
-  return { rules, checked: asked + skipped, asked, skipped, unchecked,
-    findings: findings.sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line) };
+  return { results, asked, carried };
 }
 
 /**
- * Answers already given, keyed by the rule, the unit, the rule's wording and the code. Its own file, since a lint finding is not
- * an issue. It is meant to be carried between runs — a CI cache, or committed — so it is written short and rewritten whole each
- * time, keeping only the answers this run could still use. Appending forever cost two megabytes to say four thousand things.
+ * The rules that are claims about the codebase rather than about any one file. Each asks its units in turn, ordered by how likely
+ * each is to hold the answer, and stops at the first that answers. Word overlap is a poor judge of that and a free one, which
+ * beats a request spent on ranking. One search need not wait on another.
  */
-const cachePath = out => join(out, 'lint.jsonl');
-const shortKey = key => sha256(key).slice(0, 16);
-// `here` is what a search asked and is not derivable from `broken`, so it is kept: without it every search re-asks every run.
-const packed = (key, finding) => JSON.stringify([shortKey(key), finding.rule, finding.unit, finding.path, finding.name, finding.line, Number(finding.broken.toFixed(3)), finding.cite ?? null, finding.here === undefined ? null : Number(finding.here.toFixed(3)), finding.text ?? null]);
-const unpacked = line => {
-  const [key, rule, unit, path, name, at, broken, cite, here, text] = JSON.parse(line);
-  return [key, { rule, unit, path, name, line: at, broken, cite, text: text ?? null, ...(here === null || here === undefined ? {} : { here }) }];
-};
-async function readCache(out) {
-  const text = await readFile(cachePath(out), 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
-  const cache = new Map();
-  for (const line of text.split('\n').filter(Boolean)) {
-    // The old shape was one object per line with the whole key in it; read it once so an existing file is not thrown away.
-    if (line.startsWith('{')) { const entry = JSON.parse(line); cache.set(shortKey(entry.key), entry.finding); continue; }
-    const [key, finding] = unpacked(line);
-    cache.set(key, finding);
-  }
-  return cache;
-}
-/** Rewritten whole, keeping only what this run asked or could have asked. An answer to a rule or a line that is gone is dropped. */
-async function writeCache(out, live) {
-  const { mkdir, writeFile } = await import('node:fs/promises');
-  await mkdir(out, { recursive: true });
-  await writeFile(cachePath(out), live.map(([key, finding]) => packed(key, finding)).join('\n') + '\n');
+export async function searchUnits({ rules, scan, graph, files, tree, revision, systemOne, inScope, min = BELIEVED,
+  earlier = new Map(), parallel = UNIT_PARALLEL, progress = () => {}, debug = () => {} }) {
+  // What each search would read, worked out before anything is sent, so the run can say how much there is to get through. A
+  // search stops at its answer, so this is the most it will read and not what it will read.
+  const plans = rules.map(rule => {
+    const units = rank(rule, selectUnits(rule, { scan, graph, files, tree, inScope }).slice(0, MAX_UNITS));
+    // A search is about the codebase, so its answer depends on every unit it would read and not just the one it stops at. The
+    // key is all of them, in the order it would read them. A search that is shown more than its unit is not keyed on what it was
+    // shown, so it is asked again rather than reused on a guess.
+    const id = findingId(`${rule.name}::search`);
+    const key = rule.sees === 'self' ? askKey([{ state: units.map(unit => [unit.id, unit.hash ?? null]) }], [rule]) : null;
+    return { rule, units, id, key, before: earlier.get(id) };
+  });
+  const carrying = plans.filter(plan => plan.key && plan.before?.key === plan.key);
+  const running = plans.filter(plan => !carrying.includes(plan));
+  const most = running.reduce((total, plan) => total + plan.units.length, 0);
+
+  const results = carrying.map(plan => { debug(`${plan.rule.name} has nothing new to search`); return plan.before; });
+  let asked = 0;
+  const askOne = async (rule, unit) => {
+    const source = files.get(unit.path) ?? '';
+    const body = unit.part ? bodyOf(source, unit) : source;
+    const { state, questions } = unitStep({ rules: [rule], unit, source: body, seen: neighbourhood(rule.sees, unit, { graph, files }) });
+    debug(`${rule.name}: ${unit.name}`);
+    const { answers } = await systemOne.ask(state, questions);
+    return readLint(rule, answers).here > min;
+  };
+
+  await Promise.all(running.map(async ({ rule, units, id, key }) => {
+    // Read in batches rather than one at a time. The answer is the same either way, since the first unit in ranked order that
+    // has the thing is the one taken however many were read alongside it; what changes is that a search over four hundred
+    // methods is a minute rather than most of an hour. At most one batch is spent past the answer.
+    let settled = null;
+    for (let at = 0; at < units.length && !settled; at += parallel) {
+      const batch = units.slice(at, at + parallel);
+      const here = await Promise.all(batch.map(unit => askOne(rule, unit)));
+      asked += batch.length;
+      progress(asked, most);
+      const found = here.indexOf(true);
+      if (found >= 0) settled = batch[found];
+    }
+    // A rule wanting the thing present is broken by nobody having it; one wanting it absent is broken by the unit that has it.
+    // Either way it is said once, not once per file that did not answer. Nothing having it means no file to point at, so it is
+    // reported against the rule file, where the claim is, and named for what it looked through.
+    const broken = (rule.kind === 'ensure_present') === Boolean(settled) ? 0 : 1;
+    const where = settled ?? { id: `search:${rule.name}`, path: RULES_FILE, name: String(rule.where), line: 1 };
+    results.push({ ...checkOf(rule, where, { broken, line: where.line ?? 1, text: null, revision, key }), id });
+  }));
+  return { results, asked, carried: carrying.length };
 }
 
 /** The files a pull request touched, so CI asks about the diff rather than the repository. */
