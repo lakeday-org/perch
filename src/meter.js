@@ -1,14 +1,12 @@
-/** Token usage and cost per model, for the summary at the end of every scan and fix. */
+/** Token usage and cost per model, for the summary at the end of every scan. */
 
-/** Published prices, dollars per million tokens. Output is free on System One; cached input is a tenth on OpenAI. */
+/** Published prices, dollars per million tokens. Output is free on System One, which is the only model perch talks to. */
 export const PRICES = {
   'jev-latest': { input: 0.042, cached: 0.042, output: 0 },
-  'gpt-5.6-luna': { input: 0.20, cached: 0.02, output: 1.20 },
-  'gpt-5.6-terra': { input: 2.00, cached: 0.20, output: 12.00 },
-  'gpt-5.6-sol': { input: 4.00, cached: 0.40, output: 20.00 },
 };
 
-const priceOf = model => PRICES[model] ?? PRICES[Object.keys(PRICES).find(name => model.startsWith(name.split('-')[0]))] ?? null;
+/** A model nobody published a price for costs an unknown amount, which is worth saying rather than guessing from its name. */
+const priceOf = model => PRICES[model] ?? null;
 
 export function createMeter() {
   const models = new Map();

@@ -33,8 +33,9 @@ export async function resolveTarget({ target, root, out, analyzer }) {
     path = finding.path;
     name = finding.name === finding.path ? null : finding.name;
   } else if (target.includes('::')) [path, name] = target.split('::');
-  const text = await readFile(join(root, path), 'utf8').catch(() => null);
-  if (text === null) throw new Error(`${path} is not there`);
+  // Why it could not be read is the difference between a typo and a permission, so the reason comes with it.
+  const text = await readFile(join(root, path), 'utf8')
+    .catch(error => { throw new Error(error.code === 'ENOENT' ? `${path} is not there` : `${path} could not be read: ${error.message}`); });
   if (!name) return { path, name: path, line: 1, text, lines: text.split('\n') };
   const language = languageOf(path);
   if (!language) throw new Error(`${path} is not a language perch parses, so it has no methods to point at`);

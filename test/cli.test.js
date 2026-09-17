@@ -37,7 +37,7 @@ describe('cli', () => {
     for (const verb of ['scan [target]', 'rules [list', 'issues [issue-id]', 'check <path', 'doctor']) expect(out[0]).toContain(verb);
     for (const gone of ['hunt', 'lint', 'refactor', 'report', 'publish', 'design', 'fix']) expect(out[0]).not.toMatch(new RegExp(`^\\s*${gone} `, 'm'));
     expect(await main(['check', '-h'], io)).toBe(0);
-    expect(out.at(-1)).toContain('perch check: Ask the rules about one piece of code');
+    expect(out.at(-1)).toContain('perch check: Ask about one piece of code, uncommitted');
     expect(out.at(-1)).toContain('--rules');
     expect(await main(['scan', '-h'], io)).toBe(0);
     expect(out.at(-1)).toContain('perch scan: Find issues');

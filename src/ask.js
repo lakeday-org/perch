@@ -252,7 +252,9 @@ export function questionsFor(questions, filters = [], rename = kind => kind) {
 export function vocabulary(questions = questionSet(), rename = kind => kind) {
   const types = new Set(), labels = new Set();
   for (const question of questions) {
-    if (!question.issue) continue;
+    // A search declares no issue, because whether it is broken is decided over every unit rather than by one answer. It still
+    // ends up on a row under its own name, so a filter and a closure have to be able to say that name.
+    if (!question.issue) { if (SEARCHES(question.kind)) { types.add('lint'); labels.add(rename(question.name)); } continue; }
     types.add(question.issue.type);
     for (const label of labelsOf(question, questions, rename)) labels.add(label);
   }

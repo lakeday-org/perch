@@ -70,8 +70,7 @@ forward when the request that produced it would go out word for word the same:
 the method's source, the neighbours in the state, and the wording of every
 question including your rules. That is a hash on each reading, compared before
 anything is sent. A rescan of untouched code costs nothing and reads the same to
-the percentage, which matters as much as the cost — an issue you looked at
-yesterday should not have moved because a model was asked twice.
+the percentage, so an issue you looked at yesterday has not moved.
 
 ## 4. The questions
 
