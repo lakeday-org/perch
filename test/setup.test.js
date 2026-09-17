@@ -75,6 +75,6 @@ describe('perch setup', () => {
     expect(skill).toMatch(/probabilities/);
     // And a finding is a belief about a method, not a located defect on a line.
     expect(skill).toMatch(/adjacent/i);
-    expect(skill).toMatch(/probability, not a located defect|advisory drawn from a probability/);
+    expect(skill).toMatch(/Not a located defect/);
   });
 });
