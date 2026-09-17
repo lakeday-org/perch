@@ -149,6 +149,9 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const path = graph.nodes.get(candidate.id).path;
     inFile.set(path, [...(inFile.get(path) ?? []), candidate.id]);
   }
+  // A rule you closed is not broken. The report reads closures and the tally did not, so a finding you had already looked at
+  // stayed out of the list and still failed the build, which is the worst of both.
+  const setAside = (id, kind) => (dismissals.get(id)?.kinds ?? new Set()).has(kind);
   const done = new Map();
   const finish = (path, event) => {
     done.set(path, [...(done.get(path) ?? []), event].filter(Boolean));
@@ -212,7 +215,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
       // keeps its own tally, which is what the exit code and the summary read.
       for (const rule of own) {
         const failed = 1 - (event[rule.name] ?? 1);
-        if (failed > floorFor(rule, min)) run.broken.push({ rule: rule.name, path: node.path, name: node.qualified_name, line: node.line, broken: failed, said: rule.text });
+        if (failed > floorFor(rule, min) && !setAside(findingId(node.id), rule.name)) run.broken.push({ rule: rule.name, path: node.path, name: node.qualified_name, line: node.line, broken: failed, said: rule.text });
       }
       const follow = event.follow?.method;
       walk.enqueue([...calleeIds, ...callerIds].filter(other => other !== follow));
@@ -266,7 +269,8 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // A rule about a file or a test has no reading to sit inside, so it is a check of its own. Every one is written down, passed
     // or broken, since a pass is what lets the next run skip asking it; only the broken ones are anything to report.
     broken.push(...units.results, ...searches.results);
-    run.broken.push(...[...units.results, ...searches.results].filter(result => result.broken > floorFor(rules.find(rule => rule.name === result.rule), min)));
+    run.broken.push(...[...units.results, ...searches.results]
+      .filter(result => result.broken > floorFor(rules.find(rule => rule.name === result.rule), min) && !setAside(result.id, result.rule)));
     // Every question the run asked, yours and perch's alike. A question perch ships can cover nothing and raise nothing for the
     // same reasons one you wrote can, and a report of a run that names only half of what it asked is half a report.
     const raised = new Map();

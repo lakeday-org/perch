@@ -347,9 +347,11 @@ const commands = {
     // A file prints the moment it is finished rather than at the end, so a long run says what it is finding while it finds it.
     const said = new Set();
     const say = (path, findings) => {
-      said.add(path);
       const block = formatScanReport(narrow(visibleFindings(findings), filters, min), { min, filters, summary: false, empty: '' });
       if (!block) return;
+      // Only a file that printed counts as said. A file whose methods were quiet still gets findings later, from the rules about
+      // whole files and from the searches, and marking it reported on the way past dropped every one of them.
+      said.add(path);
       methods.clear();
       io.stdout(block + '\n');
     };
