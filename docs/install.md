@@ -1,12 +1,12 @@
 ---
-title: Getting started
-nav: Getting started
-group: Start
+title: Quick start
+nav: Quick start
+group: Introduction
 order: 2
 summary: Install, set the key, scan, and read the first thing it found.
 ---
 
-# Getting started
+# Quick start
 
 ## What you need
 

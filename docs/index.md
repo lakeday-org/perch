@@ -1,7 +1,7 @@
 ---
 title: perch
-nav: What perch is
-group: Start
+nav: Introduction
+group: Introduction
 order: 1
 summary: A model reads every method in your repository, answers the same set of questions about each one, and the answers come back as probabilities.
 ---
@@ -60,7 +60,7 @@ somewhere else with `--out`:
 
 ## Where to go next
 
-- [Getting started](/install/) installs it and walks the first scan.
+- [Quick start](/install/) installs it and walks the first scan.
 - [Reading issues](/issues/) is the list, the filters, and closing what does not matter.
 - [Your own rules](/rules/) is `perch.yaml`.
 - [How a scan works](/scan/) is the graph walk, the questions, and the arithmetic behind the ranking.
