@@ -2,7 +2,7 @@
 #
 # Two jobs, because they fail for different reasons and you want to see which. `check` is the build: lint, types, tests, the
 # bundle, the package. It needs no secret, so a fork's pull request runs exactly what the branch does. `scan` is perch reading
-# the code it just built, which needs a key a fork will not have.
+# the code it just built, which needs a key a fork will not have, and runs on pull requests only.
 name: ci
 
 on:
@@ -52,9 +52,10 @@ jobs:
     name: perch scan
     needs: check
     runs-on: ubuntu-latest
-    # A fork's pull request is given no secrets, so it cannot run this and the whole job is skipped rather than failing over a
-    # key it was never going to have.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # Pull requests and nothing else. A merge to main is code that was scanned as the pull request it arrived in, and scanning it
+    # again says the same thing for the same money. A fork's pull request is given no secrets, so it cannot run this either and
+    # the whole job is skipped rather than failing over a key it was never going to have.
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
     env:
       TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
     steps:
@@ -72,7 +73,7 @@ jobs:
 
       - run: npm run build
 
-      # Everything this pull request touched. The scan comes back 1 on what is wrong and 0 on what is only worth reading, so
+      # Everything this pull request touched. The scan comes back 3 on what is wrong and 0 on what is only worth reading, so
       # there is nothing to filter here: which questions those are is in scan.yaml and perch.yaml, next to the questions.
       - name: perch scan
         run: node bin/perch.mjs scan ${{ github.event_name == 'pull_request' && format('--since origin/{0}', github.base_ref) || '' }}
