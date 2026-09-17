@@ -313,14 +313,19 @@ export function formatCheck(checked, { width = WIDTH(), color = COLOR() } = {}) 
   const head = `${relative(checked.path)}:${checked.line}  ${checked.name === checked.path ? '' : checked.name}`.trimEnd();
   // What was not asked is said out loud: a count of nothing reads as a clean bill of health for a method nothing was asked about.
   const unasked = checked.note ? `\n${dim(`The scan's questions were not asked: ${checked.note}.`, color)}` : '';
-  if (checked.clean) return `${head}\n${checked.checked} ${checked.checked === 1 ? 'check' : 'checks'}, nothing to report.${unasked}`;
-  const lines = [head];
+  // Said the same way whether or not anything broke, because a table on its own is a column of
+  // percentages that could as easily mean the rule held.
+  const asked = `${checked.checked} ${checked.checked === 1 ? 'check' : 'checks'}`;
+  if (checked.clean) return `${head}\n${asked}, nothing to report.${unasked}`;
+
+  const lines = [head, `${asked}, ${red(`${checked.broken.length} broken`, color)}.`];
   const rows = checked.broken.flatMap(item => {
     const said = wrap(String(item.said ?? '').replace(/\s+/g, ' ').trim(), Math.max(30, width - 34), '');
     return said.map((line, index) => [index ? '' : sureness(item.broken, color), index ? '' : item.rule, line]);
   });
   if (rows.length) lines.push('', ...table(['Confidence', 'Rule', 'Description'], rows, ['right', 'left', 'left']).map(line => `  ${line}`));
-  if (checked.issues?.length) lines.push('', `  ${checked.issues.map(issue => issue.text).join(', ')}`);
+  // The scan's own questions are not rules and cannot be broken, so they are named rather than tabled beside them.
+  if (checked.issues?.length) lines.push('', `  ${dim('Also raised:', color)} ${checked.issues.map(issue => issue.text).join(', ')}`);
   if (unasked) lines.push(unasked.trimStart());
   return lines.join('\n');
 }
