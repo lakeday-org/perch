@@ -33,12 +33,15 @@ function split(text) {
 }
 
 /**
- * Cursor's own frontmatter. `alwaysApply` stays false and the description is kept, because this is a rule about a job rather
- * than a rule about the code: a scanner loaded into every chat is a scanner in the way of every chat that is not about scanning.
+ * Cursor's own frontmatter, and always on. The other three pick a skill off a list by its description when they judge it
+ * relevant; Cursor would leave that to whether a description matched the turn, and "fix this bug" does not read as semantic
+ * linting. The cost of being wrong is not symmetric. Loaded when it was not needed, this is a few kilobytes nobody reads.
+ * Not loaded when it was, the assistant either never thinks of perch or runs it out of general knowledge of the shell, which is
+ * where scanning a repository to check one line, and reading exit 3 as a crash, both come from.
  */
 function asCursorRule(text) {
   const { description, body } = split(text);
-  return `---\ndescription: ${description}\nalwaysApply: false\n---\n${body}`;
+  return `---\ndescription: ${description}\nalwaysApply: true\n---\n${body}`;
 }
 
 /**

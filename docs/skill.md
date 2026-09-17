@@ -74,7 +74,13 @@ bootstrap script.
 
 ## Cursor
 
-The Cursor rule is written with `alwaysApply: false`. It is a rule about a job
-rather than a rule about your code, and a scanner loaded into every chat is a
-scanner in the way of every chat that is not about scanning. Cursor loads it when
-the description matches what you asked for.
+The Cursor rule is written with `alwaysApply: true`. Claude Code, Codex and pi
+pick a skill off a list when they judge it relevant. Cursor would instead leave it
+to whether the description matched the turn, and "fix this bug" does not read as
+semantic linting.
+
+The cost of being wrong is not symmetric. Loaded when it was not needed, it is a
+few kilobytes nobody reads. Not loaded when it was, the assistant either never
+thinks of perch or runs it out of general knowledge of the shell, which is where
+scanning a repository to check one line, and reading exit 3 as a crash, both come
+from.

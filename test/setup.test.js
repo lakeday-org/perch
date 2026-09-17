@@ -33,10 +33,10 @@ describe('perch setup', () => {
     }
     // Cursor reads its own frontmatter and ignores a .md, so the body is rewritten under it rather than copied beside it.
     const cursor = await readFile(join(root, TARGETS.cursor.path), 'utf8');
-    expect(cursor).toMatch(/^---\ndescription: .+\nalwaysApply: false\n---\n/);
+    expect(cursor).toMatch(/^---\ndescription: .+\nalwaysApply: true\n---\n/);
     expect(cursor).not.toContain('name: perch');
-    // Not applied to every chat: a scanner in the way of every conversation that is not about scanning.
-    expect(cursor).toContain('alwaysApply: false');
+    // Always on, because a rule Cursor did not happen to match is a rule that cannot stop perch being run without it.
+    expect(cursor).toContain('alwaysApply: true');
   });
 
   it('keeps a skill you have edited until you say otherwise', async () => {
