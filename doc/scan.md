@@ -67,6 +67,19 @@ scope, the source of up to 8 callees with the names of their own callees, up to
 8 callers with the line where each calls it, and the call edges among all of
 them — trimmed to stay under 48KB.
 
+A method too long for one request is read in **overlapping passes**, each sized
+to what the budget actually holds. Only lines a pass can see are offered to its
+`where` question. The answers merge: the worst defect found anywhere is the
+method's defect, a vulnerability is the likeliest reading from any pass, and the
+first pass — the one carrying the callers and callees — speaks for the method's
+shape and documentation. Eight passes is the cap; a method longer than that is
+read in part and says so, on the record and in `perch issues <id>`.
+
+A method that still cannot be read is recorded against itself and the walk
+carries on; `perch doctor` lists them with the error each one failed on. If
+nothing can be read at all — a bad key, a service that is down — two full
+batches of failures in a row ends the run.
+
 Each question uses the System One primitive that fits it. A `noul` is a
 probability that something is true. A `choice` picks one option and returns the
 distribution over all of them. A `score` grades against a rubric and returns the
