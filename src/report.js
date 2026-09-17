@@ -1,5 +1,5 @@
 /** Human-readable summaries of scans, issues, and the work done on them. */
-import { filterKeys, isDesign, issuesOf, label, matchesFilters, SEVERITY_BANDS, severityName } from './questions.js';
+import { filterKeys, isDesign, issuesFor, issuesOf, label, matchesFilters, SEVERITY_BANDS, severityName } from './questions.js';
 
 const short = revision => revision?.slice(0, 12) ?? '?';
 
@@ -44,19 +44,22 @@ const commitRef = finding => (finding.fix?.status === 'ready' ? finding.fix.comm
 const statusRow = finding => [issueStatus(finding), commitRef(finding)];
 /** The three the model believes most. Everything it answered is in `perch findings <id>`; a row is not the place for a tail of 9%s. */
 export const SHOWN_PER_ROW = 3;
-const issueCell = (finding, min) => {
-  const issues = issuesOf(finding, min);
+const issueCell = issues => {
   const shown = issues.slice(0, SHOWN_PER_ROW).map(issue => issue.text);
   return [...shown, ...(issues.length > shown.length ? [`+${issues.length - shown.length} more`] : [])].join(', ');
 };
-const locationOf = (finding, min) => `${finding.path}:${issuesOf(finding, min)[0]?.type === 'defect' ? finding.where.line : finding.line}`;
+const locationOf = (finding, issues) => `${finding.path}:${issues[0]?.type === 'defect' ? finding.where.line : finding.line}`;
 
 /** Aligned rows of methods with issues: everything the scan raised about each, defects and design alike. */
-function issueTable(findings, min = 0) {
-  // Severity is asked about a behavioral defect, so a method whose issues are all design or security has none to show.
-  const rows = findings.map(finding => [finding.id, finding.name, locationOf(finding, min), issueCell(finding, min),
-    issuesOf(finding, min).some(issue => issue.type === 'defect') ? severityName(finding.severity) : '-', ...statusRow(finding)]);
-  return table(['ID', 'Method', 'Location', 'Issues', 'Severity', 'Status', 'Commit'], rows, ['left', 'left', 'left', 'left', 'left', 'left', 'left']);
+function issueTable(findings, min = 0, filters = []) {
+  const rows = findings.map(finding => {
+    const issues = issuesFor(finding, min, filters);
+    // Severity is asked about a behavioral defect, so a method whose issues are all design or security has none to show.
+    return [finding.id, finding.name, locationOf(finding, issues), issues[0]?.type ?? '-', issueCell(issues),
+      issues.some(issue => issue.type === 'defect') ? severityName(finding.severity) : '-', ...statusRow(finding)];
+  });
+  // Every column a filter reads is named after it. Type is the class the row leads with, which is the one `--filter type=` ranks by.
+  return table(['ID', 'Method', 'Location', 'Type', 'Kind', 'Severity', 'Status', 'Commit'], rows, ['left', 'left', 'left', 'left', 'left', 'left', 'left', 'left']);
 }
 
 
@@ -83,10 +86,10 @@ export function visibleFindings(findings, { closed = false } = {}) {
 }
 
 /** The table and nothing else. Counts and hints are progress, and go to stderr. */
-export function formatIssues(findings, min, shown = TOP, { closed = false } = {}) {
+export function formatIssues(findings, min, shown = TOP, { closed = false, filters = [] } = {}) {
   const rows = visibleFindings(findings, { closed });
   if (!rows.length) return 'Nothing matches.';
-  return issueTable(rows.slice(0, shown), min).join('\n');
+  return issueTable(rows.slice(0, shown), min, filters).join('\n');
 }
 
 /** What `--filter` accepts, as a block a reader can copy from. */
@@ -96,7 +99,7 @@ export const formatFilterKeys = () => Object.entries(filterKeys()).map(([key, va
 export function formatFinding(finding) {
   const probabilities = object => Object.entries(object).sort((a, b) => b[1] - a[1]).map(([key, value]) => `${words(key)} ${percent(value)}`).join(', ');
   const lines = [`${finding.id}  ${finding.name}  ${finding.path}:${finding.line}-${finding.end_line}  at commit ${finding.revision.slice(0, 7)}${finding.unread ? ' (not yet read by System One)' : ` read on ${finding.at.slice(0, 10)}`}`];
-  lines.push(`Issues: ${issueCell(finding) || 'none at 50%'}`);
+  lines.push(`Issues: ${issueCell(issuesOf(finding)) || 'none'}`);
   if (finding.metrics) lines.push(`Metrics: risk ${number(finding.metrics.risk_score)}, maintainability ${number(finding.metrics.maintainability_index)}, complexity ${number(finding.metrics.cyclomatic_complexity)}, nesting ${number(finding.metrics.max_nesting)}, ${number(finding.metrics.sloc)} lines${finding.file ? `; file risk ${number(finding.file.risk_score)}` : ''}`);
   if (finding.has_bug !== undefined) {
     lines.push(`Defect: ${percent(finding.has_bug)}. Points at line ${finding.where.line} (confidence ${percent(finding.where.confidence)}):`, `    ${finding.where.line}| ${finding.where.text ?? ''}`,

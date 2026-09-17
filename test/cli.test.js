@@ -34,7 +34,7 @@ describe('cli', () => {
   it('has three commands and prints their usage', async () => {
     const { out, err, io } = capture();
     expect(await main(['--help'], io)).toBe(0);
-    for (const verb of ['scan [target]', 'findings [finding-id]', 'fix [finding-id | path]']) expect(out[0]).toContain(verb);
+    for (const verb of ['scan [target]', 'issues [issue-id]', 'fix [issue-id | path]']) expect(out[0]).toContain(verb);
     for (const gone of ['hunt', 'refactor', 'report', 'publish', 'design']) expect(out[0]).not.toMatch(new RegExp(`^\\s*${gone} `, 'm'));
     expect(await main(['fix', '-h'], io)).toBe(0);
     expect(out.at(-1)).toContain('perch fix: Fix open issues, one commit each');
@@ -51,13 +51,13 @@ describe('cli', () => {
   it('refuses a flag the command does not take, and names the command that does', async () => {
     const { err, io } = capture();
     expect(await main(['scan', '--filter', 'type=security'], io)).toBe(2);
-    expect(err.at(-1)).toContain('perch scan does not take --filter; it belongs to findings, fix');
+    expect(err.at(-1)).toContain('perch scan does not take --filter; it belongs to issues, fix');
     expect(err.at(-1)).toContain('perch scan: Find issues');
     expect(await main(['scan', '--budget', '5'], io)).toBe(2);
     expect(err.at(-1)).toContain('perch scan does not take --budget; it belongs to fix');
     // An alias is checked against the command it resolves to, and a flag both commands take is fine.
-    expect(await main(['issues', '--force'], io)).toBe(2);
-    expect(err.at(-1)).toContain('perch findings does not take --force; it belongs to scan');
+    expect(await main(['findings', '--force'], io)).toBe(2);
+    expect(err.at(-1)).toContain('perch issues does not take --force; it belongs to scan');
   });
 
   it('needs a TypeSafe key for scan and an OpenAI key for fix, but none for issues', async () => {
@@ -86,18 +86,32 @@ describe('cli', () => {
     expect(rows.length - 1).toBeLessThanOrEqual(10);
   });
 
+  it('cuts an unasked-for list to ten rows and a filtered one to none', async () => {
+    const repoRoot = await makeGraphFixture();
+    cleanups.push(repoRoot);
+    const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
+    await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne({}) }));
+    const { out, io } = capture();
+    const count = text => text.split('\n').length - 1;
+    expect(await main(['issues', '--out', repo.out, '--filter', 'type=defect'], io)).toBe(0);
+    const filtered = count(out.at(-1));
+    expect(await main(['issues', '--out', repo.out, '--all'], io)).toBe(0);
+    // A filter names what you want, so it is not cut down: it prints what --all would, minus what the filter dropped.
+    expect(filtered).toBe(count(out.at(-1)));
+  });
+
   it('answers a bad filter with the real values, under the old command name too, without crashing', async () => {
     const { out, err, io } = capture();
-    // `issues` is the older name for `findings`; a usage error on it must reach that command's help, not an undefined one.
+    // `findings` is another name for `issues`; a usage error on it must reach that command's help, not an undefined one.
     expect(await main(['issues', '--filter', 'status=p1'], io)).toBe(2);
     expect(err.at(-1)).toContain('unknown filter "status"; filter on type, kind, severity');
-    expect(err.at(-1)).toContain('perch findings:');
+    expect(err.at(-1)).toContain('perch issues:');
     expect(await main(['issues', '--filter', 'severity=p9'], io)).toBe(2);
     expect(err.at(-1)).toContain('severity "p9" is not one of P3, P2, P1, P0');
     expect(await main(['findings', '--filter', 'kind=nope'], io)).toBe(2);
     expect(err.at(-1)).toContain('too_big');
-    expect(await main(['issues', '-h'], io)).toBe(0);
-    expect(out.at(-1)).toContain('perch findings: List what the scan found');
+    expect(await main(['findings', '-h'], io)).toBe(0);
+    expect(out.at(-1)).toContain('perch issues: List what the scan found');
     expect(await main(['findings', '--types'], io)).toBe(0);
     expect(out.at(-1)).toContain('severity\n  P3\n  P2\n  P1\n  P0');
     // fix filters on the same vocabulary, so it lists the same values, and reads a bad clause the same way.
@@ -118,8 +132,9 @@ describe('cli', () => {
     const { out, err, io } = capture();
     const [f] = hunt.visited;
     expect(await main(['issues', '--out', repo.out], io)).toBe(0);
-    expect(out.at(-1)).toMatch(new RegExp(`^${f.id}  f +src/a.js:\\d+ +wrong_return_value \\d+%.* +P2 +open +-`, 'm'));
-    expect(out.at(-1)).toMatch(/^ID +Method +Location +Issues +Severity +Status +Commit$/m);
+    expect(out.at(-1)).toMatch(new RegExp(`^${f.id}  f +src/a.js:\\d+ +defect +wrong_return_value \\d+%.* +P2 \\(1\\.8\\) +open +-`, 'm'));
+    // Every column a filter reads is named after it: kind, severity.
+    expect(out.at(-1)).toMatch(/^ID +Method +Location +Type +Kind +Severity +Status +Commit$/m);
     // A filter that matches keeps the row; one that does not leaves nothing.
     expect(await main(['findings', '--filter', 'type=defect,severity=P2', '--out', repo.out], io)).toBe(0);
     expect(out.at(-1)).toContain(f.id);
@@ -155,11 +170,19 @@ describe('cli', () => {
     expect(await main(['findings', '--out', repo.out], io)).toBe(0);
     expect(idsOf(out.at(-1))[0]).toBe(f);
     // Filtering for injection puts the likeliest injection first, not the method carrying the most of everything else.
-    expect(await main(['findings', '--filter', 'kind=injection', '--out', repo.out], io)).toBe(0);
+    expect(await main(['issues', '--filter', 'kind=injection', '--out', repo.out], io)).toBe(0);
     expect(idsOf(out.at(-1))[0]).toBe(h);
     // Filtering on what f leads with puts f back on top.
-    expect(await main(['findings', '--filter', 'type=defect', '--out', repo.out], io)).toBe(0);
+    expect(await main(['issues', '--filter', 'type=defect', '--out', repo.out], io)).toBe(0);
     expect(idsOf(out.at(-1))[0]).toBe(f);
+
+    // A filtered row leads with what was filtered for: f's loudest problem is not security, but under a security filter its row
+    // must say security, or it contradicts the filter that selected it.
+    expect(await main(['issues', '--out', repo.out], io)).toBe(0);
+    const unfiltered = out.at(-1).split('\n').find(row => row.startsWith(f));
+    expect(unfiltered).not.toMatch(/^\S+ +\S+ +\S+ +security /);
+    expect(await main(['issues', '--filter', 'type=security', '--out', repo.out], io)).toBe(0);
+    for (const row of out.at(-1).split('\n').slice(1)) expect(row).toMatch(/^\S+ +\S+ +\S+ +security /);
   });
 
   it('bundles with esbuild into a loadable module', async () => {

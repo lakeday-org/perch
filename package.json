@@ -18,6 +18,7 @@
   "files": [
     "bin",
     "dist",
+    "doc",
     "README.md",
     "LICENSE"
   ],

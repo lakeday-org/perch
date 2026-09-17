@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { scanRepository } from '../src/hunt.js';
-import { huntStep, locateWhere, MAX_CHOICES } from '../src/questions.js';
+import { huntStep, issueWeight, locateWhere, MAX_CHOICES } from '../src/questions.js';
 import { openStore } from '../src/store.js';
 import { formatScanRun, scanCount } from '../src/report.js';
 import { commitAll, fixtureOptions, makeGraphFixture, scriptedSystemOne } from './helpers.js';
@@ -38,6 +38,20 @@ describe('perch hunt', () => {
     expect(located.answers.where.choice).toBe('L0400');
     expect(systemOne.calls).toHaveLength(2);
     expect(Object.keys(systemOne.calls[1].questions.where.criteria)).toEqual(step.windows[1]);
+  });
+
+  it('ranks a method by what its problems would cost, not how many it has', () => {
+    // Two readings of the same shape: one would lose data, the other would be noticed by nobody.
+    const reading = probabilities => ({ has_bug: 0.5, kind: { kind: 'boundary', probability: 1 }, severity: { probabilities },
+      refactor: { refactor: 'split', probabilities: { split: 0.5 } }, does_what_it_claims: 1, misdocumented: 0 });
+    const harmful = reading({ 0: 0, 1: 0, 2: 0, 3: 1 }), harmless = reading({ 0: 1, 1: 0, 2: 0, 3: 0 });
+    expect(issueWeight(harmful)).toBeGreaterThan(issueWeight(harmless));
+    // The whole distribution counts, so a band that only just won does not rank as if it were certain.
+    const unsure = reading({ 0: 0.33, 1: 0, 2: 0.33, 3: 0.34 });
+    expect(issueWeight(unsure)).toBeLessThan(issueWeight(harmful));
+    expect(issueWeight(unsure)).toBeGreaterThan(issueWeight(harmless));
+    // Design problems weigh as themselves either way: they are the ones no caller notices.
+    expect(issueWeight(harmless)).toBeCloseTo(0.5);
   });
 
   it('walks every method once from riskiest down, logs each, and skips unchanged methods next time', async () => {
@@ -89,7 +103,7 @@ describe('perch hunt', () => {
     expect(hunt.budget).toBeNull();
     expect(hunt.to_read).toBe(4);
 
-    expect(shown).toMatch(new RegExp(`${f.id}  f +src/a.js:\\d+ +off_by_one \\d+%, too_big \\d+%.* +P1 +open +-`));
+    expect(shown).toMatch(new RegExp(`${f.id}  f +src/a.js:\\d+ +defect +off_by_one \\d+%, too_big \\d+%.* +P1 \\(\\d\\.\\d\\) +open +-`));
 
     // A second hunt skips everything, without a single model call.
     const again = await scanRepository(await withRevision(repo, { systemOne: scriptedSystemOne() }));

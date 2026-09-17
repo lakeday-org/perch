@@ -198,7 +198,7 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
   const dir = store.fixDir(id), fixPath = join(dir, 'fix.json');
   const existing = await readJson(fixPath, null);
   if (existing && ['ready', 'rejected', 'closed'].includes(existing.status)) {
-    ui.say(`${hunted.id}  ${hunted.name}  ${hunted.path}: already ${existing.status} by ${model.id}; reusing`);
+    ui.say(`${hunted.id}  ${hunted.name}  ${hunted.path}: already ${existing.status}; reusing`);
     return existing;
   }
   await store.exclude(root);
@@ -225,7 +225,7 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
     const stale = finding.has_bug !== undefined && (finding.answers_version ?? 1) !== ANSWERS_VERSION;
     if (changed || stale || finding.has_bug === undefined) {
       const why = changed ? ', changed since the scan' : stale ? ', answered before the questions changed' : ' for the first time';
-      const reading = ui.task(`${systemOne.id} reading ${node.qualified_name}${why}`);
+      const reading = ui.task(`reading ${node.qualified_name}${why}`);
       const { response, answers } = await questionMethod({ systemOne, node, step, lines: fileLines, debug });
       const event = huntedEvent({ node, answers, response, root, github: hunted.github ?? null, revision, calleeIds, callerIds });
       await store.appendEvent(event);
@@ -240,7 +240,7 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
     // The objectives, stated up front: one line naming the method, one naming everything that has to be gone. What each issue
     // asks for in words is in the model's prompt, where it does the work; --verbose repeats it here.
     ui.say(`${position}${finding.id}  ${finding.name}  ${finding.path}:${finding.line}`, `  Clear   ${before.map(issue => issue.text).join(', ')}`);
-    for (const issue of before) debug(`${issue.text.padEnd(28)} -> ${goalOf(issue, systemOne.id)}`);
+    for (const issue of before) debug(`${issue.text.padEnd(28)} -> ${goalOf(issue)}`);
 
     fix.before = before;
 
@@ -391,7 +391,7 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
 
     const effort = model.effort ?? DEFAULT_EFFORT;
     const names = { read: 'read', measure: 'measure', rescan: 'rescan', run_tests: 'tests', submit: 'submit' };
-    const running = ui.task(`${model.id} working (effort ${effort})`);
+    const running = ui.task(`working (effort ${effort})`);
     let current = null;
     /** What one tool call is worth saying: the method it moved, the issues it left, the file it read, the tests it ran. */
     const detailOf = r => r.error ?? (r.method ? `method ${r.method}${r.file && r.file !== 'unchanged' ? `, file ${r.file}` : ''}`
@@ -403,19 +403,19 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
       else if (event.type === 'tool_result' && current) {
         const r = event.result ?? {};
         (r.ok ? current.ok : current.fail)(detailOf(r)); current = null;
-        running.update(`${model.id} working (turn ${event.turn}, effort ${effort})`);
+        running.update(`working (turn ${event.turn}, effort ${effort})`);
       }
     };
     const run = await model.run({ prompt: fixPrompt({ finding, before, fileMetrics: trim(base), budget: fileBudget(base, { security: before.some(issue => issue.type === 'security') }), state: step.state, region, start, end, checks: checks.map(check => check.name) }), tools, effort, onEvent });
     meter.add(model.id, run.usage, { turns: run.turns, requests: run.turns });
     Object.assign(fix, { trace: run.trace, turns: run.turns });
     if (!accepted) {
-      running.update(`${model.id} gave up`);
+      running.update('gave up');
       running.fail(`${run.turns} turns`);
       const lastError = [...run.trace].reverse().find(event => event.type === 'tool_result' && event.result?.error)?.result.error ?? 'the model never submitted a verified rewrite';
       return await finish('rejected', { error: lastError });
     }
-    running.update(`${model.id} done`);
+    running.update('done');
     running.ok(`${run.turns} ${run.turns === 1 ? 'turn' : 'turns'}`);
 
     await place(splice(accepted.source).join('\n'));
