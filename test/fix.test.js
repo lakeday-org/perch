@@ -178,7 +178,8 @@ describe('perch fix', () => {
     // One column of steps, the model named once on the line that runs it. Returning hi instead of v moves no method metric, and
     // the line says so rather than printing four numbers that did not change.
     expect(lines.some(line => /^ {2}✓ measure {2}method unchanged {2}[\d.]+s$/.test(line))).toBe(true);
-    expect(lines.some(line => /^ {2}✓ rescan {3}inverted_condition 20%, /.test(line))).toBe(true);
+    // Everything the rewrite left is below the floor, so the rescan has nothing to report rather than a tail of 20%s.
+    expect(lines.some(line => /^ {2}✓ rescan {3}nothing left {2}[\d.]+s$/.test(line))).toBe(true);
     expect(lines.some(line => /^ {2}✓ tests {4}1 pass {2}[\d.]+s$/.test(line))).toBe(true);
     expect(lines.every(line => !line.includes('▸'))).toBe(true);
     expect(lines.some(line => /^✓ done — 1 turn/.test(line))).toBe(true);
@@ -199,9 +200,10 @@ describe('perch fix', () => {
     expect(formatFinding(listed)).toContain('Fixed: Return hi when v exceeds the upper bound');
     const text = formatFix(fix);
     expect(text).toContain(`${finding.id}  clamp  src/clamp.js:1  fixed in ${fix.commit.slice(0, 7)} on work`);
-    // What became of each objective, not two lists to diff by eye.
+    // What became of each objective, not two lists to diff by eye. What the rewrite left is all under the floor, so there is
+    // nothing under Left or Added: the row does not claim a 20% maybe as a problem the fix introduced.
     expect(text).toContain('Cleared  wrong_return_value 90%');
-    expect(text).toContain('Added    inverted_condition 20%');
+    expect(text).not.toMatch(/^ {2}(Left|Added) /m);
     expect(text).toContain('The upper bound was returned as the caller');
     expect(text).toContain('Tests    test/clamp.test.js pass');
     expect(fix.usage['scripted-model'].input).toBe(1000);

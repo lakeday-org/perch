@@ -62,8 +62,8 @@ function issueTable(findings, min = 0, filters = []) {
 
 
 /** What one scan did, then the open issues as `perch issues` lists them. */
-export function formatScanRun(hunt, issues, shown = TOP) {
-  return formatIssues(issues, 0, shown);
+export function formatScanRun(hunt, issues, shown = TOP, min = 0) {
+  return formatIssues(issues, min, shown);
 }
 
 /** What a scan did, for stderr. */

@@ -318,7 +318,9 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
       const { answers } = await questionMethod({ systemOne, node: patchedNode, step: patchedStep, lines: patchedLines, debug });
       const reading = { ...answers, metrics, file: fileMetrics };
       const after = issuesOf(reading);
-      const { objections, shift } = improvement(expectedIssues(finding, before), expectedIssues(reading, after));
+      // Judged on everything, listed on what is believed: the objectives are the issues above the floor, but the Pareto test
+      // counts the whole distribution, so halving a 40% defect still counts for exactly that.
+      const { objections, shift } = improvement(expectedIssues(finding), expectedIssues(reading));
       const result = { before: before.map(issue => issue.text), after: after.map(issue => issue.text), expected: shift };
       if (objections.length) return { ok: false, error: objections.join('; '), ...result };
       passed.rescan.set(source, { answers, after, shift });

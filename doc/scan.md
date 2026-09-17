@@ -1,10 +1,10 @@
 # How a scan works
 
 `perch scan` grades every method in a repository and ranks them by how much
-trouble each is expected to cause. There is no threshold anywhere in it: every
-answer is a probability, an issue at 8% is listed as 8%, and the ranking is
-arithmetic on those probabilities rather than a count of things that crossed a
-line.
+trouble each is expected to cause. Every answer is a probability and the ranking
+is arithmetic on all of them, not a count of things that crossed a line. One
+threshold decides what is *claimed*, and it is the primitive's own: see
+[the floor](#the-floor).
 
 ## 1. tree-sitter
 
@@ -133,6 +133,27 @@ double-free scored `use_after_free 95%` behind `exposed 46%`.
 **Design issues** are the refactor the `refactor` choice picked, `1 − P(does what
 it claims)`, and `misdocumented`.
 
+### The floor
+
+An issue is listed when its probability is over **0.5**. That is not a number
+picked to make the list a nice length. A `noul` is the probability that something
+is true, so above a half is the model saying yes and below it is the model saying
+no; printing everything means printing every method in the repository, because no
+answer ever comes back at zero. On perch itself the floor takes 364 listed
+methods down to 240, and `--filter type=defect` from 354 to 25.
+
+It is a floor on what is claimed, not on the arithmetic:
+
+* **Ranking counts the whole distribution.** An issue at 49% still weighs 0.49 in
+  where its method sorts, so there is no cliff at the boundary — only a line
+  below which perch stops saying it found something.
+* **A fix is judged on the whole distribution too.** Halving a 40% defect counts
+  for exactly that, even though neither the before nor the after is listed. See
+  [fix.md](fix.md).
+
+`--min P` moves the line, in percent. `--min 0` prints everything the scan
+answered.
+
 ## 6. Ranking
 
 Issues split in two. **Correctness** is the defect and the vulnerability;
@@ -187,7 +208,7 @@ repository rather than with whichever method is heaviest overall. Each row also
 reorders to lead with the match, so a row selected for a vulnerability does not
 print `refactor` in its Type column.
 
-Because nothing is filtered by a cutoff, `type=defect` and `type=security` match
-almost everything — every method carries some probability of both. `--min` is
-the lever: `--filter type=security --min 50` is the vulnerabilities more likely
-than not.
+A filter reads the listed issues, so it inherits the floor: `type=security` is
+the methods probably carrying a vulnerability, not every method that scored
+nonzero on one. `--min 80` narrows it further; `--min 0` widens it to everything
+the scan answered.

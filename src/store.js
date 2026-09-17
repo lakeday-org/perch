@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { appendFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { excludeFromStatus, git, repoRoot } from './git.js';
-import { flagged, issueWeight } from './questions.js';
+import { BELIEVED, flagged, issuesOf, issueWeight } from './questions.js';
 
 export const sha256 = text => createHash('sha256').update(text).digest('hex');
 /** A stable 16-hex-character id derived from everything that determines a record's result. */
@@ -122,11 +122,12 @@ export function openStore(out) {
         }
         for (const finding of findings) if (!seen.has(finding.method)) every.push(finding);
       } else every.push(...findings);
-      // Ranked by how many problems each method is expected to have, correctness first; nothing is cut, the tail just sorts last.
-      return every.filter(event => all || issueWeight(event) > min).sort((a, b) => issueWeight(b) - issueWeight(a));
+      // Listed when the scan believes at least one thing about the method, ranked by what its problems are expected to cost.
+      // The ranking counts every answer at its probability, so a method kept for one issue at 80% still sorts on all of them.
+      return every.filter(event => all || issuesOf(event, min).length).sort((a, b) => issueWeight(b) - issueWeight(a));
     },
     /** Flagged methods at probability `min` or more, most likely first. */
-    async findings(min = 0) {
+    async findings(min = BELIEVED) {
       return (await store.issues(min)).filter(event => flagged(event)).sort((a, b) => issueWeight(b) - issueWeight(a));
     },
     /** The finding with this id or unique id prefix. */

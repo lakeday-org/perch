@@ -105,6 +105,16 @@ export const KIND_LABELS = { boundary: 'off_by_one', missing_null_handling: 'unh
 export const label = kind => KIND_LABELS[kind] ?? kind;
 
 const percent = value => `${Math.round(value * 100)}%`;
+/**
+ * The floor an issue has to clear to be worth printing. Half is not a number picked to make the list a nice length: a noul is the
+ * probability that something is true, so above a half is the model saying yes and below it is the model saying no. Listing
+ * everything means listing every method in the repository, because no answer ever comes back at exactly zero.
+ *
+ * It is a floor on what is *shown*, not on the arithmetic. Ranking still counts the whole distribution, so an issue at 49% still
+ * weighs 0.49 in where its method sorts, and there is no cliff at the boundary — only a line below which perch stops claiming to
+ * have found something. `--min` moves it.
+ */
+export const BELIEVED = 0.5;
 /** A method whose tree-sitter risk score is at least this carries a `complex` issue, whether or not System One has read it. */
 
 /**
@@ -113,7 +123,7 @@ const percent = value => `${Math.round(value * 100)}%`;
  * is the problem and another only names it, the naming answer does not discount it. Nothing is filtered out: an issue at 8% is
  * listed as 8% and sorts to the bottom, where it belongs.
  */
-export function issuesOf(answers, min = 0) {
+export function issuesOf(answers, min = BELIEVED) {
   const issues = [];
   const add = (type, label, probability) => { if (probability > min) issues.push({ type, label, probability, text: `${label} ${percent(probability)}` }); };
   // The chance of a defect is has_bug; the kind is the label the choice puts most weight on, not a second hurdle to clear.
@@ -131,7 +141,7 @@ export function issuesOf(answers, min = 0) {
  * The expected number of problems a reading describes, correctness and design counted apart. Every answer contributes its own
  * probability, so two at 50% weigh what one at 100% weighs and nothing has to cross a line to count.
  */
-export function expectedIssues(answers, issues = issuesOf(answers)) {
+export function expectedIssues(answers, issues = issuesOf(answers, 0)) {
   const sum = list => list.reduce((total, issue) => total + issue.probability, 0);
   return { correctness: sum(issues.filter(issue => !isDesign(issue))), design: sum(issues.filter(isDesign)) };
 }

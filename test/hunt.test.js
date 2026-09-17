@@ -125,7 +125,9 @@ describe('perch hunt', () => {
     // --force questions everything again, and issues reports the latest answer per method.
     const forced = scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.3 } });
     expect((await scanRepository(await withRevision(repo, { systemOne: forced, force: true }))).calls).toBe(4);
-    const findings = await openStore(repo.out).findings();
+    // 0.3 is below the floor, so f is no longer listed as a defect; asking for everything shows the answer did change.
+    expect((await openStore(repo.out).findings()).some(finding => finding.method === 'src/a.js::f')).toBe(false);
+    const findings = await openStore(repo.out).findings(0);
     expect(findings[0].method).toBe('src/a.js::f');
     expect(findings[0].has_bug).toBe(0.3);
   });

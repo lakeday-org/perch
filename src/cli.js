@@ -8,7 +8,7 @@ import { createSourceAnalyzer } from './analysis.js';
 import { openStore, resolveOut } from './store.js';
 import { analyzeTree } from './scan.js';
 import { DEFAULT_FIX_BUDGET, DEFAULT_PARALLEL, scanRepository } from './hunt.js';
-import { filterStrength, matchesFilters, parseFilters } from './questions.js';
+import { BELIEVED, filterStrength, matchesFilters, parseFilters } from './questions.js';
 import { fixIssues, fixMethod, splitStale, underPath } from './fix.js';
 import { createMeter, metered } from './meter.js';
 import { createShell } from './shell.js';
@@ -22,7 +22,7 @@ const options = {
   force: ['--force', 'Read every method again, even ones unchanged since an earlier scan', ['scan']],
   all: ['--all', 'List every row instead of the top 10', ['scan', 'issues']],
   closed: ['--closed', 'Include closed issues (worked and given up on, or nothing left to do)', ['issues']],
-  min: ['--min P', 'Only methods expected to have more than P problems, on a scale where one certain issue is 100 (default 0: everything, ranked)', ['issues', 'fix']],
+  min: ['--min P', `Only issues the scan is at least P percent sure of (default ${BELIEVED * 100}; --min 0 shows everything it answered)`, ['issues', 'fix']],
   filter: ['--filter k=v', 'Only issues matching, e.g. type=security, kind=too big, severity=P1 (comma-separated)', ['issues', 'fix']],
   types: ['--types', 'Print everything --filter accepts and stop', ['issues', 'fix']],
   model: ['--model M', `OpenAI model (default ${DEFAULT_MODEL}, or $OPENAI_MODEL)`, ['fix']],
@@ -118,7 +118,7 @@ const filtersFrom = flags => { try { return parseFilters(flags.filter ?? ''); } 
 /** The findings a filter keeps, the surest match first: filtering for one kind of problem should rank by that problem, not by whatever else the method carries. With no filter the scan's own ranking stands. */
 const narrow = (findings, filters, min) => findings.filter(finding => matchesFilters(finding, filters, min))
   .sort((a, b) => filters.length ? filterStrength(b, filters) - filterStrength(a, filters) : 0);
-const threshold = (value, fallback = 0) => { const min = value === undefined ? fallback : Number(value); if (!(min >= 0)) throw new UsageError('--min must be a number of expected problems, 0 or more, where one certain issue is 100'); return min; };
+const threshold = (value, fallback = BELIEVED * 100) => { const min = value === undefined ? fallback : Number(value); if (!(min >= 0 && min <= 100)) throw new UsageError('--min must be a percentage, 0 to 100: how sure the scan has to be of an issue to list it'); return min; };
 const positiveInteger = (flag, value, fallback) => { const number = value === undefined ? fallback : Number(value); if (!Number.isInteger(number) || number < 1) throw new UsageError(`${flag} must be a positive integer`); return number; };
 const print = (io, record, text) => io.stdout(io.flags.json ? JSON.stringify(record, null, 2) : text);
 /** Counts and costs: context for a person watching, never part of the output a pipe reads. */
@@ -161,9 +161,9 @@ const commands = {
     } finally { files.clear(); methods.clear(); }
     const store = openStore(resolved.out);
     const scan = await store.latestScan();
-    const issues = visibleFindings(splitStale(await store.issues(0.5, { scan }), scan).current);
+    const issues = visibleFindings(splitStale(await store.issues(BELIEVED, { scan }), scan).current);
     // The table first. What was read and what it cost is context for a person watching, and reads as a footnote to the table.
-    print(io, { scan: hunt, issues, usage: meter.toJSON() }, formatScanRun(hunt, issues, shown(io)));
+    print(io, { scan: hunt, issues, usage: meter.toJSON() }, formatScanRun(hunt, issues, shown(io), BELIEVED));
     io.note(scanCount(hunt), ...meter.lines());
   },
   async issues(io) {

@@ -4,8 +4,9 @@
 **triage** it: every method graded by how much trouble it is expected to cause,
 worst first. Then it fixes what it found, one verified commit at a time.
 
-Nothing is decided by a cutoff. Every answer is a probability and every method
-is ranked by the arithmetic on those probabilities — see [doc/scan.md](doc/scan.md).
+Every answer is a probability, and a method is ranked by the arithmetic on all of
+them. Only the ones the scan is more sure of than not are listed; `--min` moves
+that line. See [doc/scan.md](doc/scan.md).
 
 ## Getting started
 
@@ -71,8 +72,9 @@ ID        Method       Location        Type      Kind                           
 accepts:
 
 ```sh
-perch issues --filter type=security          # every method carrying a vulnerability
-perch issues --filter kind=too_big --min 80  # the ones it is at least 80% sure are too big
+perch issues --filter type=security          # methods probably carrying a vulnerability
+perch issues --filter kind=too_big --min 80  # only where it is at least 80% sure
+perch issues --min 0                         # everything it answered, tail and all
 perch fix --filter severity=P1 --budget 5
 ```
 
@@ -88,7 +90,7 @@ for. An unfiltered one is cut to ten rows unless you pass `--all`.
 | `--force` | Read every method again, even ones unchanged since the last scan. |
 | `--filter k=v` | Keep only issues matching, e.g. `type=security,severity=P1`. |
 | `--types` | Print everything `--filter` accepts and stop. |
-| `--min P` | Only methods expected to have more than P problems, where one certain issue is 100 (default 0: everything, ranked). |
+| `--min P` | Only issues the scan is at least P percent sure of (default 50; `--min 0` shows everything it answered). |
 | `--budget N` | Work at most N issues (default 20). |
 | `--effort E` | Reasoning effort: `none`, `low`, `medium`, `high`, `xhigh`, `max` (default `medium`). |
 | `--all` | List every row instead of the top ten. |

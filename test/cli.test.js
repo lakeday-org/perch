@@ -145,9 +145,11 @@ describe('cli', () => {
     expect(out.at(-1)).toContain('Defect: 80%');
     expect(out.at(-1)).toContain('wrong_return_value');
     expect(out.at(-1)).toContain('Metrics: risk');
-    // --min is a weight, not a probability: no method is expected to have 9 problems.
-    expect(await main(['issues', '--out', repo.out, '--min', '900'], io)).toBe(0);
+    // --min is how sure the scan has to be: nothing is answered at a flat 100%, and over 100 is not a percentage.
+    expect(await main(['issues', '--out', repo.out, '--min', '100'], io)).toBe(0);
     expect(out.at(-1)).toBe('Nothing matches.');
+    expect(await main(['issues', '--out', repo.out, '--min', '900'], io)).toBe(2);
+    expect(err.at(-1)).toContain('--min must be a percentage, 0 to 100');
     expect(await main(['issues', '--out', repo.out, '--json'], io)).toBe(0);
     expect(JSON.parse(out.at(-1))[0].id).toBe(f.id);
   });

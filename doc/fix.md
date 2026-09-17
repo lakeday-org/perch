@@ -94,6 +94,12 @@ rewrite only as much as it is believed — a new issue at 12% costs 0.12, not a
 veto. A rewrite that moves neither total is rejected for changing nothing the
 scan can see.
 
+The objectives and the test read different lists on purpose. The objectives are
+the issues above [the floor](scan.md#the-floor): the model is not asked to chase
+a 15% maybe. The test counts everything, floor or no floor, so a rewrite gets
+credit for pushing a 40% defect down to 10% and is charged for pushing a 10% one
+up to 40%, neither of which either list ever shows.
+
 This replaced a set of hand-picked pass marks: an issue had to drop below 50%,
 the file's risk score could not rise by more than five points, a 1% improvement
 did not count. Every one of those numbers was invented, and the risk cap alone
