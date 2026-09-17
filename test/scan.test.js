@@ -44,7 +44,7 @@ describe('perch hunt', () => {
   it('ranks a method by what its problems would cost, not how many it has', () => {
     // Two readings of the same shape: one would lose data, the other would be noticed by nobody.
     const reading = probabilities => ({ has_bug: 0.5, kind: { choice: 'boundary', probability: 1 }, severity: { probabilities },
-      refactor: { choice: 'split', probability: 0.5, probabilities: { split: 0.5 } }, does_what_it_claims: 1, misdocumented: 0 });
+      refactor: { choice: 'split', probability: 0.8, probabilities: { split: 0.8 } }, does_what_it_claims: 1, misdocumented: 0 });
     const harmful = reading({ 0: 0, 1: 0, 2: 0, 3: 1 }), harmless = reading({ 0: 1, 1: 0, 2: 0, 3: 0 });
     expect(issueWeight(harmful)).toBeGreaterThan(issueWeight(harmless));
     // The whole distribution counts, so a band that only just won does not rank as if it were certain.
@@ -52,7 +52,7 @@ describe('perch hunt', () => {
     expect(issueWeight(unsure)).toBeLessThan(issueWeight(harmful));
     expect(issueWeight(unsure)).toBeGreaterThan(issueWeight(harmless));
     // Design problems weigh as themselves either way: they are the ones no caller notices.
-    expect(issueWeight(harmless)).toBeCloseTo(0.5);
+    expect(issueWeight(harmless)).toBeCloseTo(0.8);
   });
 
   it('walks every method once from riskiest down, logs each, and skips unchanged methods next time', async () => {
@@ -207,13 +207,14 @@ describe('perch hunt', () => {
 
     // The worst defect anywhere in the method is the method's defect; the first pass still speaks for its shape.
     const whole = { has_bug: 0.2, where: { line: 4 }, kind: { choice: 'boundary' }, exposed: 0.3, injection: 0.1, use_after_free: 0.4, refactor: { choice: 'split' } };
-    const later = { has_bug: 0.8, where: { line: 2600 }, kind: { choice: 'resource_leak' }, exposed: 0.9, injection: 0.7, use_after_free: 0.2, refactor: { choice: 'none' } };
+    const later = { has_bug: 0.8, where: { line: 2600 }, kind: { choice: 'resource_leak' }, exposed: 0.9, injection: 0.9, use_after_free: 0.2, refactor: { choice: 'none' } };
     const merged = mergeAnswers([whole, later]);
     expect(merged).toMatchObject({ has_bug: 0.8, where: { line: 2600 }, kind: { choice: 'resource_leak' }, exposed: 0.9, refactor: { choice: 'split' }, passes: 2 });
     // A class a later pass rated lower keeps the higher reading: a slice that saw less is not evidence of less.
-    expect(merged).toMatchObject({ injection: 0.7, use_after_free: 0.4 });
-    // Gated on exposure, injection is 0.7 x 0.9; use_after_free is wrong on its own terms, so it stands at 0.4.
-    expect(securityOf(merged)).toEqual({ kind: 'injection', probability: 0.7 * 0.9 });
+    expect(merged).toMatchObject({ injection: 0.9, use_after_free: 0.4 });
+    // Gated on exposure, injection is 0.9 x 0.9; use_after_free is wrong on its own terms, but at 0.4 it is under the floor
+    // the class carries, so the vulnerability that stands is the one that cleared it.
+    expect(securityOf(merged)).toEqual({ kind: 'injection', probability: 0.9 * 0.9 });
   });
 
   it('reads everything in scope and never questions test methods', async () => {

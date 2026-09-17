@@ -68,6 +68,7 @@
     remove_dead_code: Contains unreachable or unused code; remove it
     none: No refactor needed
   issue: { type: refactor, label: refactor, except: none }
+  min: 60
 
 - name: does_what_it_claims
   each: method
@@ -78,6 +79,7 @@
   false: It does something different from, less than, or more than its name and
     comment promise
   issue: { type: misaligned, label: does_not_do_what_it_claims, on: false }
+  min: 70
 
 - name: misdocumented
   each: method
@@ -91,20 +93,22 @@
   false: The comment, or the code itself for a trivial method, states the contract
     accurately
   issue: { type: docs, label: docs }
+  min: 75
 
 # A gate. It raises nothing itself; `when: exposed` multiplies a class by it.
 - name: exposed
   each: method
   where: "**/*"
-  ask: Does `method` handle anything that comes from outside the program, or act
-    on the world outside it?
-  true: >
-    It takes or passes on a request, a file, an environment variable, a database
-    row, a command line, a message, or a response from another service; or it
-    runs a command, builds a query, touches the filesystem, sends a request, or
-    decides what someone is allowed to do
-  false: Everything it works on comes from inside the program, and it changes
-    nothing outside it
+  ask: >-
+    Does a value chosen by someone outside this program reach `method`, or does
+    `method` act outside the program on such a value?
+  true: >-
+    Something a person or another system chose reaches it, such as a request, an
+    argument, a message, a row, or a file whose name or contents they control;
+    or it runs, queries, writes or sends using such a value.
+  false: >-
+    Everything it works on was decided by this program, and anything it touches
+    outside is named by this program.
 
 # The vulnerability classes. One noul each, all filed under security, the likeliest one listed. `when: exposed` marks the ones
 # that only matter when something from outside reaches the method; the rest are wrong on their own terms. Gating those once hid a
@@ -125,6 +129,7 @@
     parameterised
   false: No, or nothing from outside reaches this method
   issue: { type: security, label: self, pick: strongest }
+  min: 70
 
 - name: path_traversal
   each: method
@@ -139,6 +144,7 @@
     without being confined to the place it is meant to reach
   false: No, or nothing from outside reaches this method
   issue: { type: security, label: self, pick: strongest }
+  min: 70
 
 - name: unsafe_deserialization
   each: method
@@ -153,6 +159,7 @@
     that lets it decide what code or type comes back
   false: No, or nothing from outside reaches this method
   issue: { type: security, label: self, pick: strongest }
+  min: 70
 
 - name: secret_exposure
   each: method
@@ -167,6 +174,7 @@
     logged, returned to a caller, or sent somewhere it need not go
   false: No, or nothing from outside reaches this method
   issue: { type: security, label: self, pick: strongest }
+  min: 70
 
 - name: missing_authorization
   each: method
@@ -181,6 +189,7 @@
     not check, or checks after it has already acted
   false: No, or nothing from outside reaches this method
   issue: { type: security, label: self, pick: strongest }
+  min: 70
 
 - name: weak_crypto
   each: method
@@ -191,6 +200,7 @@
     algorithm, or a comparison that leaks timing
   false: Nothing in `method` does this.
   issue: { type: security, label: self, pick: strongest }
+  min: 70
 
 - name: unvalidated_destination
   each: method
@@ -205,6 +215,7 @@
     request or a user is sent
   false: No, or nothing from outside reaches this method
   issue: { type: security, label: self, pick: strongest }
+  min: 70
 
 - name: resource_exhaustion
   each: method
@@ -219,6 +230,7 @@
     happens, with nothing bounding it
   false: No, or nothing from outside reaches this method
   issue: { type: security, label: self, pick: strongest }
+  min: 70
 
 - name: unsafe_reflection
   each: method
@@ -233,6 +245,7 @@
     reached, so the caller picks the code that runs
   false: No, or nothing from outside reaches this method
   issue: { type: security, label: self, pick: strongest }
+  min: 70
 
 - name: disabled_safeguard
   each: method
@@ -243,6 +256,7 @@
     skipped, a permission widened, a warning suppressed, a sandbox opened
   false: Nothing in `method` does this.
   issue: { type: security, label: self, pick: strongest }
+  min: 70
 
 - name: buffer_overflow
   each: method
@@ -253,6 +267,7 @@
     slice, or array, on a read or a write
   false: Nothing in `method` does this.
   issue: { type: security, label: self, pick: strongest }
+  min: 70
 
 - name: use_after_free
   each: method
@@ -263,6 +278,7 @@
     again, or released twice
   false: Nothing in `method` does this.
   issue: { type: security, label: self, pick: strongest }
+  min: 70
 
 - name: uninitialized_use
   each: method
@@ -273,6 +289,7 @@
     gets is whatever was there
   false: Nothing in `method` does this.
   issue: { type: security, label: self, pick: strongest }
+  min: 70
 
 - name: integer_overflow
   each: method
@@ -283,6 +300,7 @@
     as a size, an index, a length, or a permission
   false: Nothing in `method` does this.
   issue: { type: security, label: self, pick: strongest }
+  min: 70
 
 - name: race_condition
   each: method
@@ -293,6 +311,7 @@
     check and the act it guards are separated in a way another path can exploit
   false: Nothing in `method` does this.
   issue: { type: security, label: self, pick: strongest }
+  min: 70
 
 - name: type_confusion
   each: method
@@ -304,3 +323,4 @@
     a shape
   false: Nothing in `method` does this.
   issue: { type: security, label: self, pick: strongest }
+  min: 70
