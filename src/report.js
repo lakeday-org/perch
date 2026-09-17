@@ -174,18 +174,26 @@ export function scanTally(findings, min = 0, color = COLOR(), filters = []) {
  * The rules a run broke, in one line. Which rule and how many, since that is what you act on; what each rule asks is in
  * `perch rules list` and does not need saying again under every run.
  */
-export function brokenRules(run, { color = COLOR(), keep = 4 } = {}) {
+export function brokenRules(run, { color = COLOR() } = {}) {
   const broken = run.broken ?? [];
   if (!broken.length) return '';
   const counts = new Map();
   for (const finding of broken) counts.set(finding.rule, (counts.get(finding.rule) ?? 0) + 1);
-  const fired = [...counts.entries()].sort((a, b) => b[1] - a[1]);
   const nowhere = new Set(broken.filter(finding => String(finding.unit ?? '').startsWith('search:')).map(finding => finding.rule));
-  const shown = fired.slice(0, keep).map(([name, count]) => `${name} ${count}${nowhere.has(name) ? ' (nothing has it)' : ''}`);
-  const rest = fired.length - shown.length;
+  // Worst first, and alphabetical within a count, so two runs over the same code print the same order.
+  const fired = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+
+  const note = name => (nowhere.has(name) ? dim('  nothing has it', color) : '');
   // Whose rules, since perch's own questions raise issues and never break anything: only what you wrote can be broken.
-  const named = [...shown, ...(rest ? [`+${rest} more`] : [])].join(', ');
-  return `${red(String(broken.length), color)} of them break a rule in ${RULES_FILE}: ${named}`;
+  const head = `${red(String(broken.length), color)} of them ${broken.length === 1 ? 'breaks' : 'break'}`;
+  // One broken rule is its name; a count and a list under it would say the same thing three times.
+  if (fired.length === 1) return `${head} ${fired[0][0]} in ${RULES_FILE}${note(fired[0][0])}`;
+
+  // Otherwise every rule, one per line. The names are what you act on, so none is worth hiding
+  // behind a "+4 more" to hold a single line that would wrap anyway.
+  const figure = Math.max(...fired.map(([, count]) => String(count).length));
+  const lines = fired.map(([name, count]) => `  ${String(count).padStart(figure)}  ${name}${note(name)}`);
+  return [`${head} ${fired.length} rules in ${RULES_FILE}`, ...lines].join('\n');
 }
 
 /** What a run did, for stderr. */
