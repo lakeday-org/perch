@@ -75,7 +75,7 @@ technical English for the reviewer: what was wrong, what changed, what is better
 now. Bullets are refused, so are marketing words and openings like "This
 change".
 
-## The test: Pareto, not a threshold
+## The test
 
 `rescan` adds up how many problems each reading expects, counting every answer at
 the probability the model gave it, with correctness and design kept apart —
@@ -88,11 +88,10 @@ accept  ⟺  neither total rose  ∧  at least one fell
 Neither kind may go up and one must come down. A rewrite does not get to buy
 correctness with shape, or shape with bugs.
 
-There is no threshold to clear. Halving a defect's probability counts for
-exactly that. An issue the scan names for the first time counts against the
-rewrite only as much as it is believed — a new issue at 12% costs 0.12, not a
-veto. A rewrite that moves neither total is rejected for changing nothing the
-scan can see.
+Nothing has to cross a line. Halving a defect's probability counts as exactly
+that. A new issue costs what it's believed: 12% costs 0.12, it isn't a veto. A
+rewrite that moves neither total is rejected for changing nothing the scan can
+see.
 
 The objectives and the test read different lists on purpose. The objectives are
 the issues above [the floor](scan.md#the-floor): the model is not asked to chase

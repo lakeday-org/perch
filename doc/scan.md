@@ -1,10 +1,8 @@
 # How a scan works
 
-`perch scan` grades every method in a repository and ranks them by how much
-trouble each is expected to cause. Every answer is a probability and the ranking
-is arithmetic on all of them, not a count of things that crossed a line. One
-threshold decides what is *claimed*, and it is the primitive's own: see
-[the floor](#the-floor).
+`perch scan` scores every method and ranks them worst first. Every answer is a
+probability, and the ranking is arithmetic over all of them. The only cutoff is
+[the floor](#the-floor) on what gets listed.
 
 ## 1. tree-sitter
 

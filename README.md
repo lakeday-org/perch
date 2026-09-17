@@ -36,7 +36,7 @@ perch fix 92c7781e
 ```
 
 Needs Node 22+ and git. `perch fix` commits to the branch you're on and refuses
-main and master. Both keys can go in a `.env` at the repo root instead.
+main and master.
 
 ## Commands
 
