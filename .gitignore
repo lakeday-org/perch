@@ -1,4 +1,5 @@
 node_modules/
 dist/
-.perch/
+.perch/*
+!.perch/closed.jsonl
 .env

@@ -82,7 +82,12 @@ export function openStore(out) {
     refactorDir: id => join(out, 'refactors', id),
     /** Keep results out of `git status` when they live inside the repository. */
     async exclude(root) {
-      if (out.startsWith(root + '/')) await excludeFromStatus(root, '/' + out.slice(root.length + 1).split('/')[0] + '/');
+      if (!out.startsWith(root + '/')) return;
+      // Everything under it but not what you decided. Excluding the directory itself would make closed.jsonl unreachable: git
+      // will not re-include a file whose parent is excluded, so a `!` for it anywhere else could never have worked.
+      const dir = out.slice(root.length + 1).split('/')[0];
+      await excludeFromStatus(root, `/${dir}/*`);
+      await excludeFromStatus(root, `!/${dir}/closed.jsonl`);
     },
     /**
      * What the last scan found, rewritten whole every time. Nothing here is a cache of a model answer: a scan asks every question
