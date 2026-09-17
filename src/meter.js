@@ -14,7 +14,7 @@ const priceOf = model => PRICES[model] ?? PRICES[String(model).split('-')[0]] ??
 export function createMeter() {
   const models = new Map();
   const meter = {
-    /** Record one call's usage under a model. System One reports tokens in and tokens out, and nothing else is counted. */
+    /** Kept per model, since a run that spanned a version change has spent at two prices and only the record can say so. */
     add(model, usage, { requests = 1 } = {}) {
       if (!usage) return;
       const entry = models.get(model) ?? { requests: 0, input: 0, output: 0 };

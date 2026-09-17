@@ -340,7 +340,10 @@ const commands = {
     // that already went wrong. perch doctor reads the end of it.
     const write = await openStore(resolved.out).startLog();
     const note = message => { write(message); io.debug(message); };
-    const systemOne = metered(createSystemOne({ apiKey: io.env.TYPESAFE_API_KEY, log: message => { methods.say(message); note(message); } }), meter);
+    // The client says when it is retrying, which belongs in the log and on the counter both: on the counter because a retry is
+    // the wait that looks like a hang, and in the log because that is what doctor reads afterwards.
+    const retrying = message => { methods.say(message); note(message); };
+    const systemOne = metered(createSystemOne({ apiKey: io.env.TYPESAFE_API_KEY, log: retrying }), meter);
     // A file prints the moment it is finished rather than at the end, so a long run says what it is finding while it finds it.
     const said = new Set();
     const say = (path, findings) => {
