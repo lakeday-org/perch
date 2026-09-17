@@ -4,7 +4,7 @@ import { RULES_FILE } from './units.js';
 import { CORRECTNESS, labelsRaised, questionSet } from './ask.js';
 import { alsoKnownAs, filterKeys, issuesFor, issuesOf, label, securities, SEVERITY_BANDS, severityName } from './questions.js';
 
-/** Prose broken at `width` columns, each line indented; the note under a fix is the only paragraph perch prints. */
+/** Prose broken at `width` columns, each line indented; what a rule asked is the only paragraph perch prints. */
 export function wrap(text, width = 92, indent = '  ') {
   const lines = [];
   for (const word of String(text).split(/\s+/).filter(Boolean)) {
@@ -33,10 +33,10 @@ export const TOP = 10;
 
 
 
-/** Closed covers both judgements: yours, when you set it aside, and the fixer's, when it gave up or found nothing to do. */
-export const issueStatus = finding => (finding.dismissed || (finding.fix && finding.fix.status !== 'ready') ? 'closed' : 'open');
-/** Empty for a finding nobody has touched, which is what keeps the Status column off a list where nothing has been worked. */
-const workedOn = finding => (finding.dismissed ? 'dismissed' : !finding.fix ? '' : finding.fix.status === 'ready' ? finding.fix.commit?.slice(0, 7) ?? 'fixed' : finding.fix.status);
+/** Closed is a judgement you made: every kind the issue was listing is one you set aside. */
+export const issueStatus = finding => (finding.dismissed ? 'closed' : 'open');
+/** Empty for a finding nobody has touched, which is what keeps the Status column off a list where nothing has been decided. */
+const workedOn = finding => (finding.dismissed ? 'dismissed' : '');
 /** The three the model believes most. Everything it answered is in `perch issues <id>`; a row is not the place for a tail of 9%s. */
 export const SHOWN_PER_ROW = 3;
 /** Whatever fits, whole issues only, then a count of the rest. Cutting a row mid-percentage helps nobody. */
@@ -89,7 +89,7 @@ function issueTable(findings, min = 0, filters = [], { width = WIDTH() } = {}) {
       // defect was the list disagreeing with its own ordering.
       severity: issues.some(issue => CORRECTNESS.has(issue.type)) ? severityName(finding.severity) : '-', status: workedOn(finding) };
   });
-  // Status is only a column when something has been worked. On a list where every row is open and unfixed it says nothing.
+  // Status is only a column when something has been set aside, which is only ever a --closed listing.
   const worked = cells.some(cell => cell.status);
   const header = ['ID', 'Method', 'Location', 'Type', 'Kind', 'Severity', ...(worked ? ['Status'] : [])];
   const longest = (key, floor) => Math.max(floor, ...cells.map(cell => String(cell[key]).length));
