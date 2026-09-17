@@ -137,6 +137,11 @@ describe('perch hunt', () => {
     const narrowed = await scanRepository(await withRevision(repo, { systemOne: scriptedSystemOne(), paths: ['src/b.js'] }));
     expect(narrowed.methods).toBe(2);
     expect(narrowed.visited.every(visit => visit.path === 'src/b.js')).toBe(true);
+    // But the universe of what a run reads is not the universe of what perch knows. The file is written whole at the end, and
+    // writing it with only what this run touched left a store that knew about one file and had forgotten the rest.
+    expect((await openStore(repo.out).findings(0)).map(finding => finding.method).sort())
+      .toEqual(['src/a.js::f', 'src/a.js::g', 'src/b.js::h', 'src/b.js::k']);
+    expect((await openStore(repo.out).findings(0)).find(finding => finding.method === 'src/a.js::f').has_bug).toBe(0.9);
 
     // Editing a method is a different question, so it is asked again, and the answer that comes back is the one that stands.
     await writeFile(join(repo.root, 'src', 'a.js'), (await readFile(join(repo.root, 'src', 'a.js'), 'utf8')).replace('x > 10', 'x > 11'));

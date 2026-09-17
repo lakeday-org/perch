@@ -195,7 +195,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const { response, answers } = await questionMethod({ systemOne, node, steps, lines: await linesOf(node), rules: own, debug });
     return { node, calleeIds, callerIds, rules: own, response, answers, key };
   };
-  /** Every reading this run made, written whole at the end: the file says what this scan said, not what any scan ever said. */
+  /** Every reading this run made. The file is written whole at the end, so what this run did not cover is carried onto it. */
   const read = [], broken = [];
   const record = async results => {
     for (const { node, calleeIds, callerIds, rules: own, response, answers, key, carried, skipped } of results) {
@@ -292,16 +292,18 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     ];
     run.checked = run.calls * questionSet().filter(question => question.each === 'method').length + units.asked + searches.asked;
 
-    // Rule checks the filter kept out are carried the same way: this run had nothing to say about them, which is not the same
-    // as saying they passed.
+    // What this run did not cover. --paths and --since say which code a run is about, and --filter says which questions it asks;
+    // neither says the rest of the repository stopped existing. Writing the file with only what this run touched threw away
+    // every reading outside it, so `perch scan --paths one/file.js` left a store that knew about one file.
+    const walked = new Set(read.map(event => event.method));
+    const elsewhere = [...earlier.values()].filter(event => !walked.has(event.method) && graph.nodes.has(event.method));
+    // Rule checks are carried the same way, and only while the rule that produced one is still that rule. A rule reworded,
+    // reshaped or deleted since leaves a check describing a question that no longer exists, and a rule asked of every method now
+    // would keep answering as the search it was.
     const said = new Set(broken.map(check => check.id));
-    // Carried only while the rule that produced it is still that rule. One reworded, reshaped or deleted since leaves a check
-    // describing a question that no longer exists, and a rule asked of every method now would keep answering as the search it was.
     const byName = new Map(rules.map(rule => [rule.name, rule]));
-    const unasked = filters.length
-      ? [...checks.values()].filter(check => !said.has(check.id) && byName.get(check.rule)?.hash === check.rule_hash)
-      : [];
-    await store.recordScan([...read, ...broken, ...unasked]);
+    const unasked = [...checks.values()].filter(check => !said.has(check.id) && byName.get(check.rule)?.hash === check.rule_hash);
+    await store.recordScan([...read, ...elsewhere, ...broken, ...unasked]);
     run.remaining = walk.remaining(); run.status = 'complete'; run.completed_at = new Date().toISOString(); await writeJson(runPath, run); return run;
   } catch (error) { run.status = 'failed'; run.error = error.message; await writeJson(runPath, run).catch(() => {}); throw error; }
 }
