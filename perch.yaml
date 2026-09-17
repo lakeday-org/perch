@@ -12,6 +12,7 @@
   ensure: >
     Documentation is kept succinct and deliberate. No follow ups, em-dashes, and
     meaningless statements
+  min: 60
 
 - name: comment-says-why
   where: "src/**/*.js"

@@ -22,7 +22,7 @@ export function severityOf(severity) {
   return { band: SEVERITY_BANDS[Math.round(expected)] ?? SEVERITY_BANDS[likeliest], likeliest: SEVERITY_BANDS[likeliest] ?? String(likeliest),
     predicted: 3 - expected, probability, expected };
 }
-/** What a row prints: the band, and where the score actually landed inside it, so two rows compare without reading their distributions. */
+/** Two rows compare without either being opened, which the band alone does not let them do. */
 export const severityName = severity => { const score = severityOf(severity); return !score ? '-' : score.predicted === null ? score.band : `${score.band} (${score.predicted.toFixed(1)})`; };
 /** The band a method files under, which is what `--filter severity=` reads. */
 export const severityBand = severity => severityOf(severity)?.band ?? '-';
