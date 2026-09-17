@@ -3,7 +3,7 @@
  * should not mean stopping to find the file, and an agent that spots a pattern worth a rule has no business rewriting YAML by
  * string surgery. Comments and the order of what is already there survive every edit.
  */
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseDocument, Scalar } from 'yaml';
 import { BUILTIN, check, ENSURES, SHAPES } from './ask.js';
@@ -37,6 +37,17 @@ async function open(root) {
   return { path, doc };
 }
 
+/**
+ * Written beside the file and moved onto it, the way the store writes everything else. A rule file is parsed by every verb, so a
+ * write killed partway leaves one nobody can list, edit or remove: the wedge the comment over `legible` is about, arrived at from
+ * the other direction. A rename cannot half happen, so the file is either the old set of rules or the new one.
+ */
+async function save(path, doc) {
+  const tmp = `${path}.${process.pid}.tmp`;
+  await writeFile(tmp, String(doc));
+  await rename(tmp, path);
+}
+
 const named = (doc, name) => doc.contents.items.findIndex(item => item.get?.('name') === name);
 
 /** Prose reads as a folded block, the way the rules written by hand do; a path or a word stays on its line. */
@@ -64,7 +75,7 @@ export async function addRule(root, rule) {
   const node = doc.createNode({});
   for (const key of FIELDS) if (rule[key] !== undefined) node.set(key, write(doc, key, rule[key]));
   doc.contents.items.push(node);
-  await writeFile(path, String(doc));
+  await save(path, doc);
   return rule;
 }
 
@@ -99,7 +110,7 @@ export async function editRule(root, name, changes) {
   for (const key of FIELDS) if (changes[key] === null) node.delete(key);
   for (const key of FIELDS) if (changes[key] !== undefined && changes[key] !== null) node.set(key, write(doc, key, changes[key]));
   legible(node.toJSON());
-  await writeFile(path, String(doc));
+  await save(path, doc);
   return name;
 }
 
@@ -115,6 +126,6 @@ export async function removeRule(root, name) {
   if (at < 0 && !shipped) throw new Error(`no question called ${name}; perch rules list shows them`);
   if (at < 0) doc.contents.items.push(doc.createNode({ name, disabled: true }));
   else doc.contents.items.splice(at, 1);
-  await writeFile(path, String(doc));
+  await save(path, doc);
   return { name, turnedOff: at < 0 };
 }

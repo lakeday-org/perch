@@ -205,8 +205,9 @@ export const rulesForMethod = (rules, node) => rules.filter(rule => rule.kind ==
   && (!rule.except || ![rule.except].flat().some(glob => matches(glob, node.path))));
 
 /**
- * One rule asked of one unit, as it is written down: enough to print a row, open the code, and rank it beside everything else. A
- * check that passed is written down too, with nothing to report, because that is what lets the next run skip asking it.
+ * The same verdict twice, flat and under `lint`, because a check has to read two ways: as a row in the issue list beside methods
+ * the scan read, and as the record of a rule having been asked. A check that passed is written down as well, with nothing to
+ * report, since that is what lets the next run skip asking it.
  */
 const checkOf = (rule, unit, { broken, line, text, revision, key }) => ({
   type: 'checked', at: new Date().toISOString(), id: findingId(`${rule.name}::${unit.id}`), rule: rule.name, rule_hash: rule.hash,
