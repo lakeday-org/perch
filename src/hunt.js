@@ -51,12 +51,8 @@ export const huntedEvent = ({ node, answers, response, huntId = null, root, gith
   hash: node.hash, risk: node.metrics?.risk_score ?? null, model: response.model, ...answers, callees: calleeIds, callers: callerIds });
 
 /**
- * Run one repository hunt: analyze the revision, read each changed candidate at most once,
- * append its model result, and continue through graph neighbors. `budget` limits successful
- * readings; failed readings are recorded and do not abort the walk unless two full batches fail.
- * Source is read from the requested revision, progress callbacks are called for every attempt,
- * and the hunt record is updated after each batch. Graph ids supplied by scan data or the model
- * are accepted only when they name a known, non-test node.
+ * The order methods are read in: riskiest neighbour first off the stack, then the next riskiest method overall. An id from the
+ * scan or from the model is taken only when it names a node the graph actually has and is not a test.
  */
 const createWalk = (graph, candidates) => {
   const score = id => graph.nodes.get(id)?.metrics?.risk_score ?? 0;
@@ -91,6 +87,11 @@ const createLineReader = (root, graph) => {
   };
 };
 
+/**
+ * One hunt over a repository: analyze the revision, read every candidate whose code is new or changed since it was last read, and
+ * walk on through its neighbours. `budget` counts readings that succeeded; one that fails is recorded against its method and the
+ * walk carries on, unless two full batches fail in a row. The hunt record is written after every batch.
+ */
 export async function scanRepository({ root, revision, out, analyzer, systemOne, label = root, github = null, paths = [], budget = Infinity, parallel = DEFAULT_PARALLEL, force = false,
   progress = () => {}, scanProgress = () => {}, log = () => {}, debug = () => {} }) {
   const store = openStore(out);
