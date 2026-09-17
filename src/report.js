@@ -11,7 +11,7 @@ export function wrap(text, width = 92, indent = '  ') {
   return lines.map(line => indent + line);
 }
 
-/** Rows rendered as aligned columns: text columns left-aligned, numeric columns right-aligned. */
+/** Columns wide enough for their widest cell. Trailing space is trimmed so a row can be diffed and grepped. */
 function table(header, rows, align) {
   const all = [header, ...rows];
   const widths = header.map((_, column) => Math.max(...all.map(row => String(row[column]).length)));
@@ -19,7 +19,7 @@ function table(header, rows, align) {
 }
 
 const number = value => value === null || value === undefined ? '-' : Math.round(value);
-/** A path as short as it can be said: the directory's own name when it is where you are, otherwise relative to here. */
+/** Absolute paths push the columns that matter off the screen, so a path is said relative to where you are standing. */
 const relative = path => (path === process.cwd() ? path.split('/').at(-1) : path.startsWith(process.cwd() + '/') ? path.slice(process.cwd().length + 1) : path);
 
 const percent = value => `${Math.round(value * 100)}%`;
@@ -29,7 +29,7 @@ const short = revision => (revision ?? '?').slice(0, 7);
 export const TOP = 10;
 
 
-/** What the score put on each band: "P1 62%, P2 24%, P0 9%, P3 5%". */
+/** The whole severity distribution, for `perch issues <id>`, where the argmax band alone would hide how close the call was. */
 const severityDetail = severity => {
   const probabilities = severity?.probabilities;
   if (!probabilities) return '';
@@ -37,9 +37,9 @@ const severityDetail = severity => {
   return ` (${bands.map(([band, p]) => `${band} ${percent(p)}`).join(', ')})`;
 };
 
-/** A finding is closed once you set it aside, or once its fix was closed (nothing to do) or given up on. */
+/** Closed covers both judgements: yours, when you set it aside, and the fixer's, when it gave up or found nothing to do. */
 export const issueStatus = finding => (finding.dismissed || (finding.fix && finding.fix.status !== 'ready') ? 'closed' : 'open');
-/** What was done to a finding, for the rows that have had anything done to them: the commit it was fixed in, or why it was not. */
+/** Empty for a finding nobody has touched, which is what keeps the Status column off a list where nothing has been worked. */
 const workedOn = finding => (finding.dismissed ? 'dismissed' : !finding.fix ? '' : finding.fix.status === 'ready' ? finding.fix.commit?.slice(0, 7) ?? 'fixed' : finding.fix.status);
 /** The three the model believes most. Everything it answered is in `perch issues <id>`; a row is not the place for a tail of 9%s. */
 export const SHOWN_PER_ROW = 3;
@@ -92,7 +92,7 @@ function issueTable(findings, min = 0, filters = [], { width = WIDTH() } = {}) {
 }
 
 
-/** What one scan did, then the open issues as `perch issues` lists them. */
+/** A scan ends by printing what `perch issues` would print, so the two never drift into showing the same findings differently. */
 export function formatScanRun(hunt, issues, shown = TOP, min = 0) {
   return formatIssues(issues, min, shown);
 }
@@ -169,10 +169,34 @@ export function formatDoctor({ versions, scan, hunt, out, findings = 0 }) {
   return lines.join('\n');
 }
 
+/** One finding as a linter says it: where first, so an editor can jump there. */
+export const lintLine = finding => `  ${String(finding.line).padStart(4)}  ${percent(finding.broken).padStart(4)}  ${finding.rule}${finding.name === finding.path ? '' : `  ${finding.name}`}${finding.cite ? `  cited: ${finding.cite}` : ''}`;
+
+/**
+ * What a lint run adds up to. The rules that fired are spelled out underneath, because a rule name is an identifier and the
+ * sentence it stands for is the actual complaint; printing that sentence against every row would drown the rows.
+ */
+export function formatLint(run, { width = WIDTH() } = {}) {
+  const count = run.rules.length ?? run.rules;
+  if (!run.findings.length) return `${count} ${count === 1 ? 'rule' : 'rules'}, ${run.checked} checked, no problems`;
+  const files = new Set(run.findings.map(finding => finding.path));
+  const fired = (run.rules.filter?.(rule => run.findings.some(finding => finding.rule === rule.name)) ?? []);
+  const lines = [`${run.findings.length} ${run.findings.length === 1 ? 'problem' : 'problems'} in ${files.size} ${files.size === 1 ? 'file' : 'files'} (${run.checked} checked, ${run.asked} read)`, ''];
+  const label = Math.max(...fired.map(rule => rule.name.length), 0);
+  for (const rule of fired) {
+    const text = String(rule.ensure ?? rule.behaviour ?? '').replace(/\s+/g, ' ').trim();
+    const body = wrap(text, Math.max(40, width - label - 6), '');
+    lines.push(`  ${rule.name.padEnd(label)}  ${body[0] ?? ''}`.trimEnd());
+    for (const line of body.slice(1)) lines.push(`  ${' '.repeat(label)}  ${line}`);
+  }
+  lines.push('', 'The percentage is how sure the model is that the rule is broken, not how bad it is.');
+  return lines.join('\n');
+}
+
 /** What `--filter` accepts, as a block a reader can copy from. */
 export const formatFilterKeys = () => Object.entries(filterKeys()).map(([key, values]) => `${key}\n${values.map(value => `  ${value}`).join('\n')}`).join('\n\n');
 
-/** Everything known about one method: System One's answers when it has read it, the metrics always, and the work done on it. */
+/** The whole distribution for one method, since a row can only carry the top few and the shape of the rest is often the story. */
 export function formatFinding(finding) {
   const probabilities = object => Object.entries(object).sort((a, b) => b[1] - a[1]).map(([key, value]) => `${words(key)} ${percent(value)}`).join(', ');
   const lines = [`${finding.id}  ${finding.name}  ${finding.path}:${finding.line}-${finding.end_line}  at commit ${finding.revision.slice(0, 7)}${finding.unread ? ' (not yet read by System One)' : ` read on ${finding.at.slice(0, 10)}`}`];
@@ -218,7 +242,7 @@ const spend = usage => {
   return total < 0.01 ? `$${total.toFixed(4)}` : `$${total.toFixed(2)}`;
 };
 
-/** The batch: what was worked, then one line each. The full story for a fix was told as it ran. */
+/** One line per fix, because the full story of each was told as it ran and nobody wants it twice. */
 export function formatFixes(batch) {
   const stale = batch.stale ? ` ${batch.stale} ${batch.stale === 1 ? 'finding is' : 'findings are'} for methods that no longer exist under that name; scan again to see what replaced them.` : '';
   if (!batch.fixes.length) return `No open issues to work.${stale}${batch.stopped ? ` Stopped: ${batch.stopped.split('\n')[0]}` : ''}`;
@@ -233,7 +257,7 @@ export function formatFixes(batch) {
   return lines.join('\n');
 }
 
-/** The three the model believes most, the rest counted. */
+/** A row is not the place for a tail of 9%s; everything answered is in `perch issues <id>`. */
 const strongest = (issues = []) => {
   const shown = issues.slice(0, SHOWN_PER_ROW).map(issue => issue.text);
   return [...shown, ...(issues.length > shown.length ? [`+${issues.length - shown.length} more`] : [])].join(', ');
@@ -252,8 +276,8 @@ export function issueOutcome(before = [], after = []) {
 }
 
 /**
- * One fix, as a reviewer reads it: what was wrong, what the model wrote about the change, what measurably moved, and what proved it.
- * The note is the model's own two or three sentences; everything under it is measured, not claimed.
+ * A reviewer reads this instead of the diff, so the model's own words and the measured numbers are kept apart: the note is a
+ * claim, and everything under it was observed by a tool perch ran.
  */
 export function formatFix(fix) {
   const where = `${fix.path ?? '?'}${fix.line ? `:${fix.line}` : ''}`;

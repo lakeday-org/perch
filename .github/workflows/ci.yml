@@ -19,8 +19,14 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # At the job, so a step can ask whether the key is there. A fork's pull request sees an empty string.
+    env:
+      TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # --since needs the base branch to compare against, which a shallow clone does not have.
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -40,6 +46,12 @@ jobs:
 
       - name: The bundle builds and loads
         run: npm run build
+
+      # The rules in perch.yaml, asked of everything this pull request touched. A fork's pull request gets no secrets, so the
+      # step is skipped rather than failing the build over a key it was never given. Runs after the build, since it runs perch.
+      - name: Check the rules in perch.yaml
+        if: env.TYPESAFE_API_KEY != ''
+        run: node bin/perch.mjs lint ${{ github.event_name == 'pull_request' && format('--since origin/{0}', github.base_ref) || '' }}
 
       - name: Nothing in the package that should not ship
         run: npm pack --dry-run

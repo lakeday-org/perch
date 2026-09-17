@@ -1,0 +1,48 @@
+# Rules perch checks with `perch lint`. Each one is a question put to a model about one file or one method, so these are the
+# things a parser cannot prove: whether a comment says why, whether a listing honours a filter, whether a behaviour is asserted
+# anywhere. Editing a rule's wording re-asks it; leaving it alone costs nothing.
+
+- name: prose-not-generated
+  where: "**/*.md"
+  ensure: >
+    No sentence in this file does any of the following, and one that does breaks the rule however
+    well the rest of the file reads. Trails a dash or a colon to restate what the sentence already
+    said, in the shape "X — the thing that does Y" or "X: the thing that does Y". A list item or a
+    table cell defining a term, as in "- **Type** — what it holds", is not that and is fine. Says the previous
+    sentence again in other words. Announces a point instead of making it, as in "the spread is the
+    information" or "that is the whole point". Stacks three adjectives or three nouns for rhythm.
+    Uses "it's not just X, it's Y", "isn't merely", or "more than just". Reaches for a marketing
+    word: leverage, robust, comprehensive, seamless, streamline, delve, underscore, pivotal, myriad.
+
+- name: comment-says-why
+  where: "src/**/*.js"
+  each: method
+  ensure: >
+    Either this method has no comment above it, or its comment tells a reader something the code does
+    not already say: why it works this way, what a caller has to know, what it deliberately will not
+    do. A comment that narrates the steps below it, or restates the method's name as a sentence,
+    breaks this rule.
+
+- name: closed-never-listed
+  over: callers of issues
+  ensure: >
+    This method passes the findings through visibleFindings before a person sees them, or it is not
+    producing a list for a person to read.
+
+- name: one-way-into-the-log
+  over: writers of events.jsonl
+  ensure: >
+    This method appends through store.appendEvent rather than writing the file itself.
+
+- name: env-read-once
+  over: "src/**/*.js"
+  except: "src/cli.js"
+  each: method
+  ensure: >
+    This method does not read process.env. Reading the environment is the command line's job, and
+    everything below it is passed the values.
+
+- name: issues-closable
+  behaviour: >
+    An issue can be closed with a reason, and a closed issue stops appearing in the default list.
+  cite: "test/**/*.js"

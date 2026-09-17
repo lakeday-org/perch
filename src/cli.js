@@ -10,10 +10,11 @@ import { analyzeTree } from './scan.js';
 import { DEFAULT_FIX_BUDGET, DEFAULT_PARALLEL, scanRepository } from './hunt.js';
 import { BELIEVED, filterStrength, matchesFilters, parseFilters } from './questions.js';
 import { fixIssues, fixMethod, splitStale, underPath } from './fix.js';
+import { changedPaths, lintRepository, RULES_FILE } from './lint.js';
 import { createMeter, metered } from './meter.js';
 import { createShell } from './shell.js';
 import { createUi } from './ui.js';
-import { formatDoctor, formatFilterKeys, formatFinding, formatFix, formatFixes, formatIssues, formatScanRun, issueCount, scanCount, TOP, visibleFindings } from './report.js';
+import { formatDoctor, formatFilterKeys, formatFinding, formatFix, formatFixes, formatIssues, formatLint, formatScanRun, issueCount, lintLine, scanCount, TOP, visibleFindings } from './report.js';
 
 /** Stamped into the bundle at build time so `perch doctor` reports the version that is running, not one read from a stray file. */
 export const VERSION = typeof PERCH_VERSION === 'string' ? PERCH_VERSION : 'dev';
@@ -22,20 +23,21 @@ const options = {
   paths: ['--paths a,b', 'Only consider files under these repository paths', ['scan']],
   budget: ['--budget N', `Work at most N issues (default ${DEFAULT_FIX_BUDGET})`, ['fix']],
   parallel: ['--parallel N', `How many methods to read at once (default ${DEFAULT_PARALLEL})`, ['scan']],
-  force: ['--force', 'Read every method again, even ones unchanged since an earlier scan', ['scan']],
+  since: ['--since REF', 'Only what changed since this branch or commit', ['lint']],
+  force: ['--force', 'Read every method again, even ones unchanged since an earlier scan', ['scan', 'lint']],
   all: ['--all', 'List every row instead of the top 10', ['scan', 'issues']],
   limit: ['--limit N', `Rows per page (default ${TOP})`, ['issues']],
   page: ['--page N', 'Which page of them, 1 is the first', ['issues']],
   closed: ['--closed', 'Include closed issues (worked and given up on, or nothing left to do)', ['issues']],
-  min: ['--min P', `Only issues the scan is at least P percent sure of (default ${BELIEVED * 100}; --min 0 shows everything it answered)`, ['issues', 'fix']],
+  min: ['--min P', `Only issues the scan is at least P percent sure of (default ${BELIEVED * 100}; --min 0 shows everything it answered)`, ['issues', 'fix', 'lint']],
   filter: ['--filter k=v', 'Only issues matching, e.g. type=security, kind=too big, severity=P1 (comma-separated)', ['issues', 'fix']],
   types: ['--types', 'Print everything --filter accepts and stop', ['issues', 'fix']],
   model: ['--model M', `OpenAI model (default ${DEFAULT_MODEL}, or $OPENAI_MODEL)`, ['fix']],
   effort: ['--effort E', `Reasoning effort: ${EFFORTS.join(', ')} (default ${DEFAULT_EFFORT})`, ['fix']],
   reason: ['--reason R', 'Why you are setting these aside, kept on the record', ['close']],
-  out: ['--out DIR', 'Results directory (default .perch)', ['scan', 'issues', 'fix', 'close', 'reopen', 'doctor']],
-  json: ['--json', 'Print JSON instead of a summary', ['scan', 'issues', 'fix', 'close', 'reopen', 'doctor']],
-  verbose: ['--verbose', 'Show every file, method, model call, and command', ['scan', 'issues', 'fix']],
+  out: ['--out DIR', 'Results directory (default .perch)', ['scan', 'lint', 'issues', 'fix', 'close', 'reopen', 'doctor']],
+  json: ['--json', 'Print JSON instead of a summary', ['scan', 'lint', 'issues', 'fix', 'close', 'reopen', 'doctor']],
+  verbose: ['--verbose', 'Show every file, method, model call, and command', ['scan', 'lint', 'issues', 'fix']],
 };
 
 /** Other names that still work. */
@@ -43,6 +45,7 @@ const ALIASES = { findings: 'issues' };
 
 const commandHelp = {
   scan: { args: '[target]', summary: 'Find issues', detail: 'Scores every method with tree-sitter, then reads them with System One (callers and callees in view). The first scan reads every method; later ones only what changed (--force rereads all). Needs TYPESAFE_API_KEY. target is a directory, owner/repo, or a GitHub URL.' },
+  lint: { args: '', summary: 'Check your own rules against the code', detail: `Reads ${RULES_FILE}, or perch/*.yaml, and asks a model each rule about each file or method it names. Rules are the things a parser cannot prove: whether a comment says why, whether a listing honours a filter, whether a behaviour you claim is asserted by a test. Exits 1 when a rule is broken. --since limits it to what a branch changed, which is what CI wants. Needs TYPESAFE_API_KEY.` },
   issues: { args: '[issue-id]', summary: 'List what the scan found, or show one', detail: 'Lists open issues at --min or more, strongest first. --filter narrows them (--types prints what it accepts), --closed includes closed ones, --all lists every row. With an issue id, everything known about that method. perch findings is another name for this command.' },
   close: { args: '<issue-id>...', summary: 'Set issues aside', detail: 'Marks issues closed so they stop being listed and perch fix skips them: a false positive, or code you have looked at and are not changing. --reason is kept on the record and shown by perch issues <id>. A dismissal is about the method as it reads now, so editing that method brings the issue back.' },
   reopen: { args: '<issue-id>...', summary: 'Put closed issues back', detail: 'Undoes perch close.' },
@@ -50,7 +53,7 @@ const commandHelp = {
   fix: { args: '[issue-id | path]', summary: 'Fix open issues, one commit each', detail: 'Works open issues, most serious first, up to --budget; with a path, only under that path; with an issue id, that one; --filter narrows which ones and works the surest match first (--types prints what it accepts). An OpenAI agent rewrites each method and must pass measure, rescan, and run_tests before submit. Commits on the current branch; refuses main/master. Needs OPENAI_API_KEY and TYPESAFE_API_KEY.' },
 };
 
-/** Wrap prose at 80 columns. */
+/** Help text is read in a terminal, which is 80 columns until proven otherwise. */
 const wrap = text => text.split(' ').reduce((lines, word) => {
   if (lines.length && (lines.at(-1) + ' ' + word).length <= 80) lines[lines.length - 1] += ' ' + word;
   else lines.push(word);
@@ -86,7 +89,7 @@ Options:
 ${column(own.map(([flag, text]) => [flag, text]))}`;
 }
 
-const valued = new Set(['paths', 'budget', 'parallel', 'min', 'filter', 'model', 'effort', 'out', 'reason', 'limit', 'page']);
+const valued = new Set(['paths', 'budget', 'parallel', 'min', 'filter', 'model', 'effort', 'out', 'reason', 'limit', 'page', 'since']);
 const switches = new Set(['force', 'all', 'json', 'verbose', 'closed', 'types', 'help']);
 
 export function parseArgs(argv) {
@@ -137,7 +140,7 @@ const noteFrom = (io, stderr) => (...lines) => { if (!io.flags.json) for (const 
  * issues`. A filter is the asking: you named what you wanted, so you get all of it. --limit and --page say it outright.
  */
 const shown = (io, filters = []) => (io.flags.all || filters.length ? Infinity : TOP);
-/** Where to start and how many to take: `--page 3` is the third `--limit`, and `--all` is the lot. */
+/** --page without --limit still needs a page size, so it falls back to the ten an unasked-for list is cut to. */
 function paging(io, filters = []) {
   const limit = io.flags.limit === undefined ? null : positiveInteger('--limit', io.flags.limit);
   const page = io.flags.page === undefined ? null : positiveInteger('--page', io.flags.page);
@@ -146,7 +149,7 @@ function paging(io, filters = []) {
   return { from: page ? (page - 1) * size : 0, size };
 }
 /** An in-place counter on stderr for interactive runs; silent when piped, verbose, or JSON. */
-function counter(io, noun) {
+function liveCounter(io, noun) {
   const live = process.stderr.isTTY && !io.verbose && !io.flags.json;
   return { update: (done, total) => { if (live) process.stderr.write(`\r[perch] ${noun} ${done} of ${total}`); }, clear: () => { if (live) process.stderr.write('\r\x1b[K'); } };
 }
@@ -182,7 +185,7 @@ const commands = {
     const systemOne = metered(createSystemOne({ apiKey: io.env.TYPESAFE_API_KEY, log: io.debug }), meter);
     const parallel = positiveInteger('--parallel', io.flags.parallel, DEFAULT_PARALLEL);
     const resolved = await resolveTarget(io.argument ?? '.', { out: io.flags.out, log: io.log });
-    const files = counter(io, 'analyzed files'), methods = counter(io, 'read methods');
+    const files = liveCounter(io, 'analyzed files'), methods = liveCounter(io, 'read methods');
     let hunt;
     try {
       hunt = await scanRepository({ root: resolved.root, revision: await gitRevision(resolved.root), label: resolved.label, github: resolved.github, out: resolved.out,
@@ -194,6 +197,34 @@ const commands = {
     // The table first. What was read and what it cost is context for a person watching, and reads as a footnote to the table.
     print(io, { scan: hunt, issues, usage: meter.toJSON() }, formatScanRun(hunt, issues, shown(io), BELIEVED));
     io.note(scanCount(hunt), ...meter.lines());
+  },
+  /** Your rules, not perch's questions: a separate verb, a separate log, and an exit code CI can read. */
+  async lint(io) {
+    const meter = createMeter();
+    const systemOne = metered(createSystemOne({ apiKey: io.env.TYPESAFE_API_KEY, log: io.debug }), meter);
+    const root = await repoRoot(process.cwd());
+    const revision = await gitRevision(root);
+    const paths = io.flags.since ? await changedPaths(root, io.flags.since) : [];
+    if (io.flags.since && !paths.length) { io.stdout(`Nothing changed since ${io.flags.since}.`); return 0; }
+    const counter = io.verbose || io.flags.json ? { update: () => {}, clear: () => {} } : liveCounter(io, 'checked');
+    // Said as they are found, the way a linter does, rather than held back until the run ends. A cached answer was found before
+    // this run started and is not streamed; it is in the report at the end with everything else.
+    let open = null;
+    const say = finding => {
+      counter.clear();
+      if (open !== finding.path) { io.stdout(open === null ? finding.path : `\n${finding.path}`); open = finding.path; }
+      io.stdout(lintLine(finding));
+    };
+    let run;
+    try {
+      run = await lintRepository({ root, revision, out: await resolveOut(io.flags.out), analyzer: createSourceAnalyzer(), systemOne, paths,
+        min: threshold(io.flags.min) / 100, force: Boolean(io.flags.force), onFinding: io.flags.json ? () => {} : say,
+        progress: counter.update, log: io.debug, debug: io.debug });
+    } finally { counter.clear(); }
+    if (!io.flags.json && run.findings.length) io.stdout('');
+    print(io, run, formatLint(run));
+    io.note(...meter.lines());
+    return run.findings.length ? 1 : 0;
   },
   async issues(io) {
     if (io.flags.types) { io.stdout(formatFilterKeys()); return; }
@@ -276,8 +307,9 @@ export async function main(argv, { stdout = text => process.stdout.write(text + 
   const log = message => { if (verbose || !flags.json) stderr(`[perch] ${message}`); };
   const debug = message => { if (verbose) stderr(`[perch] ${message}`); };
   try {
-    await command({ argument, args: positional.slice(1), flags, env, stdout, stderr, log, debug, verbose, note: noteFrom({ flags }, stderr) });
-    return 0;
+    // A command that returns a number is saying what the exit code should be; lint fails the build when a rule is broken.
+    const code = await command({ argument, args: positional.slice(1), flags, env, stdout, stderr, log, debug, verbose, note: noteFrom({ flags }, stderr) });
+    return typeof code === 'number' ? code : 0;
   } catch (error) {
     if (error instanceof UsageError) { stderr(`perch: ${error.message}\n${usageFor(commandName)}`); return 2; }
     stderr(`perch: ${error.message}`);

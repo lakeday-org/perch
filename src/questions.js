@@ -239,9 +239,9 @@ export function issuesFor(finding, min = 0, filters = []) {
 }
 
 export const isDesign = issue => issue.type !== 'defect' && issue.type !== 'security';
-/** A hunted method is flagged when it carries a reachable defect at `min`. */
+/** Design problems do not count here: a method nobody can break is not flagged for being ugly. */
 export const flagged = (answers, min = 0) => issuesOf(answers, min).some(issue => !isDesign(issue));
-/** A method needs design work when it carries a refactor, alignment, documentation, or complexity issue at `min`. */
+/** The complement of flagged, so a method with neither is one the scan has nothing to say about. */
 export const needsDesign = (answers, min = 0) => issuesOf(answers, min).some(isDesign);
 export const hasIssue = (answers, min = 0) => issuesOf(answers, min).length > 0;
 
@@ -254,11 +254,11 @@ export const MAX_CALLEES = 8, MAX_CALLERS = 8, STATE_BUDGET = 48 * 1024, MODULE_
 export const FIX_STATE_BUDGET = 256 * 1024, FIX_LIMITS = [Infinity, 400, 160, 80, 40], FIX_NEIGHBOURS = 24;
 /** A Choice accepts at most 255 options; past that, pick a window then the line inside it. */
 export const MAX_CHOICES = 255;
-const lineId = line => `L${String(line).padStart(4, '0')}`;
+export const lineId = line => `L${String(line).padStart(4, '0')}`;
 const windowId = index => `W${String(index + 1).padStart(4, '0')}`;
 const addUsage = (a, b) => !b ? a : { input_tokens: (a?.input_tokens ?? 0) + (b.input_tokens ?? 0), output_tokens: (a?.output_tokens ?? 0) + (b.output_tokens ?? 0) };
 
-/** Code line ids in a method range; blank and comment-only lines are omitted. */
+/** Blanks and comments are dropped so the model cannot point at a line no defect could live on. */
 export function codeLineIds(lines, start, end) {
   const ids = [];
   for (let line = start; line <= end; line++) {
@@ -281,7 +281,7 @@ export const whereQuestion = ids => ({ type: 'choice', instructions: 'Which line
 export const whereWindowQuestion = windows => ({ type: 'choice', instructions: 'Which span of `method` contains the defect? If there is no defect, pick the span most likely to hide one.',
   criteria: Object.fromEntries(windows.map((ids, index) => [windowId(index), `${ids[0]}–${ids.at(-1)}`])) });
 
-/** Ask hunt questions; when the method is longer than MAX_CHOICES, a second Choice ranks the lines in the chosen window. */
+/** A Choice holds 255 options, so a longer method costs a second request: pick the span, then the line inside it. */
 export async function locateWhere({ systemOne, state, questions, windows }) {
   const first = await systemOne.ask(state, questions);
   if (!windows) return first;
@@ -289,7 +289,7 @@ export async function locateWhere({ systemOne, state, questions, windows }) {
   const second = await systemOne.ask(state, { where: whereQuestion(windows[index] ?? windows[0]) });
   return { ...first, answers: { ...first.answers, ...second.answers }, usage: addUsage(first.usage, second.usage) };
 }
-const tagged = (lines, start) => lines.map((text, index) => `${lineId(start + index)}| ${text}`).join('\n');
+export const tagged = (lines, start) => lines.map((text, index) => `${lineId(start + index)}| ${text}`).join('\n');
 /** A method's source, or a window of `limit` lines from it; when a `focus` line is given (a call site) the window is centered there so the call is visible. */
 const excerpt = (lines, start, end, limit, focus = null) => {
   const slice = lines.slice(start - 1, end);
@@ -300,7 +300,7 @@ const excerpt = (lines, start, end, limit, focus = null) => {
 };
 const short = id => id.split('::').at(-1);
 const commentLine = /^\s*(\/\/|\/\*|\*|#|"""|''')/;
-/** The comment block immediately above a method, if any. */
+/** A method's contract is written above it, not inside it, so any question about documentation has to reach up for it. */
 export function leadingComment(lines, line) {
   const block = [];
   for (let index = line - 2; index >= 0 && (commentLine.test(lines[index]) || (block.length && !lines[index].trim())); index--) block.unshift(lines[index]);
@@ -308,8 +308,8 @@ export function leadingComment(lines, line) {
 }
 
 /**
- * The file's top-level code outside every method: constants, regexes, types, module state. What a method's identifiers mean when they
- * are not callees or imports. Blank and comment-only lines are dropped; the result is cut at `budget` bytes.
+ * Without this, an identifier that is neither a callee nor an import is a name the model has to guess at. Cut at `budget` bytes,
+ * because a file's constants are worth less to the reading than its callers are.
  */
 export function moduleScope(lines, methods, budget = MODULE_SCOPE_BUDGET) {
   const inside = new Set();
