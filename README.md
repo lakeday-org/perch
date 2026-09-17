@@ -1,5 +1,10 @@
 # perch
 
+[![npm](https://img.shields.io/npm/v/@lakeday/perch)](https://www.npmjs.com/package/@lakeday/perch)
+[![ci](https://github.com/lakeday-org/perch/actions/workflows/ci.yml/badge.svg)](https://github.com/lakeday-org/perch/actions/workflows/ci.yml)
+[![node](https://img.shields.io/node/v/@lakeday/perch)](https://nodejs.org)
+[![license](https://img.shields.io/npm/l/@lakeday/perch)](LICENSE)
+
 perch finds bugs and design problems in a repo and fixes them.
 
 `perch scan` parses every tracked file with tree-sitter, scores each method, then
