@@ -1,4 +1,4 @@
-# Rules perch checks with `perch lint`. Each one is a question put to a model about one file or one method, so these are the
+# Rules perch checks on a scan. Each one is a question put to a model about one file or one method, so these are the
 # things a parser cannot prove: whether a comment says why, whether a listing honors a filter, whether a behavior is asserted
 # anywhere. Editing a rule's wording re-asks it; leaving it alone costs nothing.
 
@@ -7,10 +7,10 @@
   ensure: >
     The file does not sound AI generated
 
-- name: docs-succint
+- name: docs-succinct
   where: "**/*.md"
   ensure: >
-    Documentation is kept succint and deliberate. No follow ups, em-dashes, and
+    Documentation is kept succinct and deliberate. No follow ups, em-dashes, and
     meaningless statements
 
 - name: comment-says-why
