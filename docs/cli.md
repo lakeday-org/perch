@@ -201,5 +201,11 @@ into a bug report as it stands.
 
 | Code | |
 | --- | --- |
-| `0` | Ran, and nothing you claimed about your code was broken. |
-| `1` | `scan`: a rule in `perch.yaml` was broken. `check`: something it asked about is wrong. Any command: it could not run. |
+| `0` | Ran, and found nothing that fails. |
+| `1` | perch could not run here. `perch doctor` says what is wrong. |
+| `2` | The command line was wrong. |
+| `3` | Something that fails was found: a broken rule, a defect, or a vulnerability. |
+
+What fails is the question's own business. A question is gating by default when it
+raises a defect, a vulnerability or a rule, and `gate: no` on any of them says it
+is worth reading and not worth failing a build over.
