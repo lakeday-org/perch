@@ -27,8 +27,9 @@ const options = {
   types: ['--types', 'Print everything --filter accepts and stop', ['issues', 'fix']],
   model: ['--model M', `OpenAI model (default ${DEFAULT_MODEL}, or $OPENAI_MODEL)`, ['fix']],
   effort: ['--effort E', `Reasoning effort: ${EFFORTS.join(', ')} (default ${DEFAULT_EFFORT})`, ['fix']],
-  out: ['--out DIR', 'Results directory (default .perch)', ['scan', 'issues', 'fix']],
-  json: ['--json', 'Print JSON instead of a summary', ['scan', 'issues', 'fix']],
+  reason: ['--reason R', 'Why you are setting these aside, kept on the record', ['close']],
+  out: ['--out DIR', 'Results directory (default .perch)', ['scan', 'issues', 'fix', 'close', 'reopen']],
+  json: ['--json', 'Print JSON instead of a summary', ['scan', 'issues', 'fix', 'close', 'reopen']],
   verbose: ['--verbose', 'Show every file, method, model call, and command', ['scan', 'issues', 'fix']],
 };
 
@@ -38,6 +39,8 @@ const ALIASES = { findings: 'issues' };
 const commandHelp = {
   scan: { args: '[target]', summary: 'Find issues', detail: 'Scores every method with tree-sitter, then reads them with System One (callers and callees in view). The first scan reads every method; later ones only what changed (--force rereads all). Needs TYPESAFE_API_KEY. target is a directory, owner/repo, or a GitHub URL.' },
   issues: { args: '[issue-id]', summary: 'List what the scan found, or show one', detail: 'Lists open issues at --min or more, strongest first. --filter narrows them (--types prints what it accepts), --closed includes closed ones, --all lists every row. With an issue id, everything known about that method. perch findings is another name for this command.' },
+  close: { args: '<issue-id>...', summary: 'Set issues aside', detail: 'Marks issues closed so they stop being listed and perch fix skips them: a false positive, or code you have looked at and are not changing. --reason is kept on the record and shown by perch issues <id>. A dismissal is about the method as it reads now, so editing that method brings the issue back.' },
+  reopen: { args: '<issue-id>...', summary: 'Put closed issues back', detail: 'Undoes perch close.' },
   fix: { args: '[issue-id | path]', summary: 'Fix open issues, one commit each', detail: 'Works open issues, most serious first, up to --budget; with a path, only under that path; with an issue id, that one; --filter narrows which ones and works the surest match first (--types prints what it accepts). An OpenAI agent rewrites each method and must pass measure, rescan, and run_tests before submit. Commits on the current branch; refuses main/master. Needs OPENAI_API_KEY and TYPESAFE_API_KEY.' },
 };
 
@@ -77,7 +80,7 @@ Options:
 ${column(own.map(([flag, text]) => [flag, text]))}`;
 }
 
-const valued = new Set(['paths', 'budget', 'parallel', 'min', 'filter', 'model', 'effort', 'out']);
+const valued = new Set(['paths', 'budget', 'parallel', 'min', 'filter', 'model', 'effort', 'out', 'reason']);
 const switches = new Set(['force', 'all', 'json', 'verbose', 'closed', 'types', 'help']);
 
 export function parseArgs(argv) {
@@ -147,6 +150,18 @@ async function openIssues(store, min, io) {
   return { findings, gone, root, scan };
 }
 
+/** `perch close a1b2 c3d4 --reason "..."`, and its undo. Ids are the ones in the first column; a unique prefix is enough. */
+async function setAside(io, verb) {
+  if (!io.args.length) throw new UsageError(`perch ${verb} needs at least one issue id; perch issues lists them`);
+  const store = await storeFrom(io.flags);
+  const done = [];
+  for (const ref of io.args) {
+    const finding = await store.findFinding(ref);
+    done.push(verb === 'close' ? await store.dismiss(finding, io.flags.reason ?? null) : await store.reopen(finding));
+  }
+  print(io, done, done.map(event => `${event.id}  ${event.name}  ${event.path}:${event.line ?? ''}`.trimEnd() + `  ${verb === 'close' ? 'closed' : 'reopened'}`).join('\n'));
+}
+
 const commands = {
   async scan(io) {
     const meter = createMeter();
@@ -186,6 +201,9 @@ const commands = {
     io.note(issueCount({ open: visibleFindings(all).length, matched: visibleFindings(findings).length, listed: Math.min(rows.length, limit),
       closed: closed ? 0 : all.length - visibleFindings(all).length, filtered: filters.length > 0 }));
   },
+  /** Set issues aside, or put them back: a judgement you make about what the scan found, kept in the same log as everything else. */
+  async close(io) { await setAside(io, 'close'); },
+  async reopen(io) { await setAside(io, 'reopen'); },
   /** Work the open issues in the checkout the scan ran in; a path narrows them, a finding id names one. */
   async fix(io) {
     if (io.flags.types) { io.stdout(formatFilterKeys()); return; }
@@ -235,7 +253,7 @@ export async function main(argv, { stdout = text => process.stdout.write(text + 
   const log = message => { if (verbose || !flags.json) stderr(`[perch] ${message}`); };
   const debug = message => { if (verbose) stderr(`[perch] ${message}`); };
   try {
-    await command({ argument, flags, env, stdout, stderr, log, debug, verbose, note: noteFrom({ flags }, stderr) });
+    await command({ argument, args: positional.slice(1), flags, env, stdout, stderr, log, debug, verbose, note: noteFrom({ flags }, stderr) });
     return 0;
   } catch (error) {
     if (error instanceof UsageError) { stderr(`perch: ${error.message}\n${usageFor(commandName)}`); return 2; }

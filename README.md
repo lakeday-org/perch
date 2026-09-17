@@ -43,15 +43,19 @@ main and master.
 ```
 perch scan   [<target>] [--paths a,b] [--parallel N] [--force] [--all]
 perch issues [<issue-id>] [--filter k=v] [--types] [--min P] [--all] [--closed]
+perch close  <issue-id>... [--reason R]
+perch reopen <issue-id>...
 perch fix    [<issue-id> | <path>] [--filter k=v] [--budget N] [--min P] [--effort E]
 ```
 
-All three take `--out DIR`, `--json` and `--verbose`.
+They all take `--out DIR` and `--json`.
 
 | Verb | What it does | Needs |
 | --- | --- | --- |
 | `scan` | Parses every tracked file at HEAD, then reads methods with System One, walking the call graph from the worst-scoring method through its callers and callees. First scan reads everything; later scans only re-read what changed. Prints the table. | `TYPESAFE_API_KEY` |
 | `issues` | The open issues, worst first. With an id, everything known about that one method. | nothing |
+| `close` | Marks issues closed: false positives, or code you've looked at and aren't changing. They stop being listed and `perch fix` skips them. | nothing |
+| `reopen` | Undoes `close`. | nothing |
 | `fix` | Fixes open issues, worst first, up to `--budget`. With a path, only that file or directory. With an id, just that one. One commit per fix. | both keys |
 
 `perch findings` also works, same command.
@@ -75,6 +79,16 @@ that: `--min 80` for the obvious ones, `--min 0` for everything it answered.
 `--filter` narrows on the Type, Kind and Severity columns. `--types` prints the
 valid values.
 
+Not every finding is worth acting on. `perch close` takes them off the list:
+
+```sh
+perch close e585492e --reason "verifies the HMAC before parsing"
+perch close 3b7c9da1 2cce8403 --reason "pre-existing, well tested, not restructuring"
+```
+
+A dismissal is about the method as it reads now, so editing that method brings
+the issue back. `--closed` lists them, `perch issues <id>` shows the reason.
+
 ```sh
 perch issues --filter type=security
 perch issues --filter kind=too_big --min 80
@@ -94,6 +108,7 @@ each row. Unfiltered lists are cut to 10 unless you pass `--all`.
 | `--filter k=v` | e.g. `type=security,severity=P1`. |
 | `--types` | Print what `--filter` accepts and exit. |
 | `--min P` | Only issues the model is at least P% sure of (default 50). |
+| `--reason R` | Why you closed something. Kept on the record. |
 | `--budget N` | Fix at most N issues (default 20). |
 | `--effort E` | `none`, `low`, `medium`, `high`, `xhigh`, `max` (default `medium`). |
 | `--all` | Print every row instead of the top 10. |

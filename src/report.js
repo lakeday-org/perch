@@ -36,10 +36,10 @@ const severityDetail = severity => {
   return ` (${bands.map(([band, p]) => `${band} ${percent(p)}`).join(', ')})`;
 };
 
-/** A finding is closed once its fix was closed (nothing to do) or given up on. */
-export const issueStatus = finding => (finding.fix && finding.fix.status !== 'ready' ? 'closed' : 'open');
+/** A finding is closed once you set it aside, or once its fix was closed (nothing to do) or given up on. */
+export const issueStatus = finding => (finding.dismissed || (finding.fix && finding.fix.status !== 'ready') ? 'closed' : 'open');
 /** What was done to a finding, for the rows that have had anything done to them: the commit it was fixed in, or why it was not. */
-const workedOn = finding => (!finding.fix ? '' : finding.fix.status === 'ready' ? finding.fix.commit?.slice(0, 7) ?? 'fixed' : finding.fix.status);
+const workedOn = finding => (finding.dismissed ? 'dismissed' : !finding.fix ? '' : finding.fix.status === 'ready' ? finding.fix.commit?.slice(0, 7) ?? 'fixed' : finding.fix.status);
 /** The three the model believes most. Everything it answered is in `perch issues <id>`; a row is not the place for a tail of 9%s. */
 export const SHOWN_PER_ROW = 3;
 /** Whatever fits, whole issues only, then a count of the rest. Cutting a row mid-percentage helps nobody. */
@@ -148,6 +148,7 @@ export function formatFinding(finding) {
     if (finding.callers?.length) lines.push(`Called by: ${finding.callers.map(shortId).join(', ')}`);
   }
   lines.push(`Status: ${issueStatus(finding)}`);
+  if (finding.dismissed) lines.push(`Dismissed on ${finding.dismissed.at.slice(0, 10)}${finding.dismissed.reason ? `: ${finding.dismissed.reason}` : ''}`);
   const fix = finding.fix;
   if (fix?.status === 'ready') lines.push(`Fixed: ${fix.summary ?? ''}`.trimEnd(), ...(fix.notes ? wrap(fix.notes, 92, '    ') : []),
     `    before: ${(fix.before ?? []).map(issue => issue.text).join(', ') || '-'}`, `    after:  ${(fix.after ?? []).map(issue => issue.text).join(', ') || 'no issues'}`,

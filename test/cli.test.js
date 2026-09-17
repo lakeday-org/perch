@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { rm } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -8,7 +8,7 @@ import { main, parseArgs } from '../src/cli.js';
 import { revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { scanRepository } from '../src/hunt.js';
-import { fixtureOptions, makeFixture, makeGraphFixture, scriptedSystemOne } from './helpers.js';
+import { commitAll, fixtureOptions, makeFixture, makeGraphFixture, scriptedSystemOne } from './helpers.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const cleanups = [];
@@ -185,6 +185,38 @@ describe('cli', () => {
     expect(unfiltered).not.toMatch(/^\S+ +\S+ +\S+ +security /);
     expect(await main(['issues', '--filter', 'type=security', '--out', repo.out], io)).toBe(0);
     for (const row of out.at(-1).split('\n').slice(1)) expect(row).toMatch(/^\S+ +\S+ +\S+ +security /);
+  });
+
+  it('closes an issue, keeps why, and brings it back when the method changes', async () => {
+    const repoRoot = await makeGraphFixture();
+    cleanups.push(repoRoot);
+    const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
+    const hunt = await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.9 } }) }));
+    const [f] = hunt.visited;
+    const { out, err, io } = capture();
+
+    expect(await main(['close', f.id.slice(0, 5), '--reason', 'verifies before it parses', '--out', repo.out], io)).toBe(0);
+    expect(out.at(-1)).toContain(`${f.id}  f  src/a.js:`);
+    // Closed means gone from the list and skipped by fix; --closed shows it with why.
+    expect(await main(['issues', '--out', repo.out], io)).toBe(0);
+    expect(out.at(-1)).not.toContain(f.id);
+    expect(await main(['issues', '--closed', '--out', repo.out], io)).toBe(0);
+    expect(out.at(-1)).toMatch(new RegExp(`^${f.id}.* dismissed$`, 'm'));
+    expect(await main(['issues', f.id, '--out', repo.out], io)).toBe(0);
+    expect(out.at(-1)).toContain('Status: closed');
+    expect(out.at(-1)).toContain('verifies before it parses');
+
+    // Editing the method is a new judgement to make, so the dismissal lapses.
+    await writeFile(join(repoRoot, 'src', 'a.js'), (await readFile(join(repoRoot, 'src', 'a.js'), 'utf8')).replace('x > 10', 'x > 11'));
+    await commitAll(repoRoot, 'change f');
+    await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), revision: await revision(repoRoot), systemOne: scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.9 } }) }));
+    expect(await main(['issues', '--out', repo.out], io)).toBe(0);
+    expect(out.at(-1)).toContain(f.id);
+
+    expect(await main(['close', '--out', repo.out], io)).toBe(2);
+    expect(err.at(-1)).toContain('perch close needs at least one issue id');
+    expect(await main(['reopen', 'zzzz', '--out', repo.out], io)).toBe(1);
+    expect(err.at(-1)).toContain('no finding zzzz');
   });
 
   it('bundles with esbuild into a loadable module', async () => {
