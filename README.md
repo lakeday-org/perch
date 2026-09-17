@@ -63,7 +63,7 @@ ID        Method       Location        Type      Kind                           
 92c7781e  fixMethod    src/fix.js:224  refactor  too_big 98%, unsafe_deser 87%   P1 (0.9)  open    -
 ```
 
-- **Type** — `defect`, `security`, `refactor`, `misdocumented` or `misaligned`.
+- **Type** — `defect`, `security`, `refactor`, `docs` or `misaligned`.
   Whichever the row leads with.
 - **Kind** — the specific problem and how sure the model is, worst first.
 - **Severity** — the band, plus where the score landed inside it. `P1 (0.9)` is

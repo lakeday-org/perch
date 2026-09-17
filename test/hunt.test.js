@@ -103,7 +103,7 @@ describe('perch hunt', () => {
     expect(hunt.budget).toBeNull();
     expect(hunt.to_read).toBe(4);
 
-    expect(shown).toMatch(new RegExp(`${f.id}  f +src/a.js:\\d+ +defect +off_by_one \\d+%, too_big \\d+%.* +P1 \\(\\d\\.\\d\\) +open +-`));
+    expect(shown).toMatch(new RegExp(`${f.id}  f +src/a.js:\\d+ +defect +off_by_one \\d+%, too_big \\d+%.* +P1 \\(\\d\\.\\d\\)$`));
 
     // A second hunt skips everything, without a single model call.
     const again = await scanRepository(await withRevision(repo, { systemOne: scriptedSystemOne() }));

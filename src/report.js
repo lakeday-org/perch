@@ -37,27 +37,56 @@ const severityDetail = severity => {
 
 /** A finding is closed once its fix was closed (nothing to do) or given up on. */
 export const issueStatus = finding => (finding.fix && finding.fix.status !== 'ready' ? 'closed' : 'open');
-/** The commit that fixed a finding, for the table, or `-`. */
-const commitRef = finding => (finding.fix?.status === 'ready' ? finding.fix.commit?.slice(0, 7) ?? 'done' : '-');
-const statusRow = finding => [issueStatus(finding), commitRef(finding)];
-/** The three the model believes most. Everything it answered is in `perch findings <id>`; a row is not the place for a tail of 9%s. */
+/** What was done to a finding, for the rows that have had anything done to them: the commit it was fixed in, or why it was not. */
+const workedOn = finding => (!finding.fix ? '' : finding.fix.status === 'ready' ? finding.fix.commit?.slice(0, 7) ?? 'fixed' : finding.fix.status);
+/** The three the model believes most. Everything it answered is in `perch issues <id>`; a row is not the place for a tail of 9%s. */
 export const SHOWN_PER_ROW = 3;
-const issueCell = issues => {
-  const shown = issues.slice(0, SHOWN_PER_ROW).map(issue => issue.text);
-  return [...shown, ...(issues.length > shown.length ? [`+${issues.length - shown.length} more`] : [])].join(', ');
+/** Whatever fits, whole issues only, then a count of the rest. Cutting a row mid-percentage helps nobody. */
+const issueCell = (issues, width = Infinity) => {
+  const shown = [];
+  for (const issue of issues.slice(0, SHOWN_PER_ROW)) {
+    const rest = issues.length - shown.length - 1;
+    const line = [...shown, issue.text, ...(rest > 0 ? [`+${rest} more`] : [])].join(', ');
+    if (shown.length && line.length > width) break;
+    shown.push(issue.text);
+  }
+  const left = issues.length - shown.length;
+  return [...shown, ...(left > 0 ? [`+${left} more`] : [])].join(', ');
 };
 const locationOf = (finding, issues) => `${finding.path}:${issues[0]?.type === 'defect' ? finding.where.line : finding.line}`;
+/** Cut to `width`, keeping the end: a path's file and line say more than the crates/ it starts with. */
+const keepEnd = (text, width) => (text.length <= width ? text : '…' + text.slice(text.length - width + 1));
+const keepStart = (text, width) => (text.length <= width ? text : text.slice(0, width - 1) + '…');
 
-/** Aligned rows of methods with issues: everything the scan raised about each, defects and design alike. */
-function issueTable(findings, min = 0, filters = []) {
-  const rows = findings.map(finding => {
+/** The width to lay a table out in: the terminal's, or 100 when there isn't one (a pipe, a file, a test). */
+export const WIDTH = () => (process.stdout.columns >= 60 ? process.stdout.columns : 100);
+
+/**
+ * Aligned rows of methods with issues. A real repository has method names and paths long enough to wrap every row twice, so the
+ * three columns that vary are given a share of whatever the terminal has and cut to it: the method from the end, the path from
+ * the front (its file and line matter more than the crate it lives in), and the issues by dropping the weakest.
+ */
+function issueTable(findings, min = 0, filters = [], { width = WIDTH() } = {}) {
+  const cells = findings.map(finding => {
     const issues = issuesFor(finding, min, filters);
     // Severity is asked about a behavioral defect, so a method whose issues are all design or security has none to show.
-    return [finding.id, finding.name, locationOf(finding, issues), issues[0]?.type ?? '-', issueCell(issues),
-      issues.some(issue => issue.type === 'defect') ? severityName(finding.severity) : '-', ...statusRow(finding)];
+    return { id: finding.id, method: shortId(finding.name), location: locationOf(finding, issues), type: issues[0]?.type ?? '-', issues,
+      severity: issues.some(issue => issue.type === 'defect') ? severityName(finding.severity) : '-', status: workedOn(finding) };
   });
+  // Status is only a column when something has been worked. On a list where every row is open and unfixed it says nothing.
+  const worked = cells.some(cell => cell.status);
+  const header = ['ID', 'Method', 'Location', 'Type', 'Kind', 'Severity', ...(worked ? ['Status'] : [])];
+  const longest = (key, floor) => Math.max(floor, ...cells.map(cell => String(cell[key]).length));
+  // What the three variable columns have to share, once the id, the type, the severity and the gaps have taken theirs.
+  const room = Math.max(34, width - 8 - longest('type', 4) - longest('severity', 8) - (worked ? longest('status', 6) : 0) - 2 * (header.length - 1));
+  // The issues are the point of the row, so the other two take a quarter each at most and the rest is theirs.
+  const method = Math.min(longest('method', 6), Math.max(10, Math.round(room * 0.25)));
+  const location = Math.min(longest('location', 8), Math.max(12, Math.round(room * 0.25)));
+  const kind = Math.max(12, room - method - location);
+  const rows = cells.map(cell => [cell.id, keepStart(cell.method, method), keepEnd(cell.location, location), cell.type,
+    keepStart(issueCell(cell.issues, kind), kind), cell.severity, ...(worked ? [cell.status] : [])]);
   // Every column a filter reads is named after it. Type is the class the row leads with, which is the one `--filter type=` ranks by.
-  return table(['ID', 'Method', 'Location', 'Type', 'Kind', 'Severity', 'Status', 'Commit'], rows, ['left', 'left', 'left', 'left', 'left', 'left', 'left', 'left']);
+  return table(header, rows, header.map(() => 'left'));
 }
 
 
@@ -84,10 +113,18 @@ export function visibleFindings(findings, { closed = false } = {}) {
 }
 
 /** The table and nothing else. Counts and hints are progress, and go to stderr. */
-export function formatIssues(findings, min, shown = TOP, { closed = false, filters = [] } = {}) {
+export function formatIssues(findings, min, shown = TOP, { closed = false, filters = [], width = WIDTH() } = {}) {
   const rows = visibleFindings(findings, { closed });
   if (!rows.length) return 'Nothing matches.';
-  return issueTable(rows.slice(0, shown), min, filters).join('\n');
+  return issueTable(rows.slice(0, shown), min, filters, { width }).join('\n');
+}
+
+/** "10 of 240 open, --all for the rest": how much of the list you are looking at. Context, so it goes to stderr under the table. */
+export function issueCount({ open, matched, listed, closed = 0, filtered = false }) {
+  const noun = total => `${total} open ${total === 1 ? 'issue' : 'issues'}`;
+  const parts = [filtered ? `${matched} of ${noun(open)} match` : listed < open ? `${listed} of ${noun(open)}, --all for the rest` : noun(open)];
+  if (closed) parts.push(`${closed} closed, --closed to include`);
+  return parts.join('. ');
 }
 
 /** What `--filter` accepts, as a block a reader can copy from. */

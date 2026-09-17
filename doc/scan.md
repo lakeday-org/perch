@@ -129,7 +129,7 @@ wrong whoever the caller is, and are not gated. Gating them once hid a planted
 double-free scored `use_after_free 95%` behind `exposed 46%`.
 
 **Design issues** are the refactor the `refactor` choice picked, `1 − P(does what
-it claims)`, and `misdocumented`.
+it claims)`, and `docs`.
 
 ### The floor
 

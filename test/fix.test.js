@@ -196,7 +196,9 @@ describe('perch fix', () => {
     expect((await store.readEvents()).at(-1)).toMatchObject({ type: 'fixed', id: finding.id, fix_id: fix.id, status: 'ready', commit: fix.commit, branch: 'work' });
     const [listed] = await store.issues();
     expect(listed.fix).toMatchObject({ id: fix.id, status: 'ready', commit: fix.commit });
-    expect(formatIssues([listed], 0.5)).toMatch(new RegExp(`Status  Commit\\n.*open +${fix.commit.slice(0, 7)}`));
+    // A worked finding gets a Status column saying what happened to it; a list where nothing has been worked has no such column.
+    expect(formatIssues([listed], 0.5)).toMatch(new RegExp(`Severity +Status\\n.* ${fix.commit.slice(0, 7)}$`, 'm'));
+    expect(formatIssues([{ ...listed, fix: undefined }], 0.5)).toMatch(/Severity$/m);
     expect(formatFinding(listed)).toContain('Fixed: Return hi when v exceeds the upper bound');
     const text = formatFix(fix);
     expect(text).toContain(`${finding.id}  clamp  src/clamp.js:1  fixed in ${fix.commit.slice(0, 7)} on work`);

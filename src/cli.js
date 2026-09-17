@@ -13,7 +13,7 @@ import { fixIssues, fixMethod, splitStale, underPath } from './fix.js';
 import { createMeter, metered } from './meter.js';
 import { createShell } from './shell.js';
 import { createUi } from './ui.js';
-import { formatFilterKeys, formatFinding, formatFix, formatFixes, formatIssues, formatScanRun, scanCount, TOP, visibleFindings } from './report.js';
+import { formatFilterKeys, formatFinding, formatFix, formatFixes, formatIssues, formatScanRun, issueCount, scanCount, TOP, visibleFindings } from './report.js';
 
 const options = {
   paths: ['--paths a,b', 'Only consider files under these repository paths', ['scan']],
@@ -180,7 +180,11 @@ const commands = {
     const { findings: all } = await openIssues(store, min, io);
     const findings = narrow(all, filters, min / 100);
     const closed = Boolean(io.flags.closed);
-    print(io, visibleFindings(findings, { closed }), formatIssues(findings, min / 100, shown(io, filters), { closed, filters }));
+    const rows = visibleFindings(findings, { closed });
+    const limit = shown(io, filters);
+    print(io, rows, formatIssues(findings, min / 100, limit, { closed, filters }));
+    io.note(issueCount({ open: visibleFindings(all).length, matched: visibleFindings(findings).length, listed: Math.min(rows.length, limit),
+      closed: closed ? 0 : all.length - visibleFindings(all).length, filtered: filters.length > 0 }));
   },
   /** Work the open issues in the checkout the scan ran in; a path narrows them, a finding id names one. */
   async fix(io) {

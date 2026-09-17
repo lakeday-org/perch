@@ -32,7 +32,7 @@ export function huntAnswers(finding) {
 export const goalOf = (issue, verifier = 'the scan') => (issue.type === 'defect' ? `${verifier} must no longer see this defect when it reads the rewrite`
   : issue.type === 'security' ? 'close the hole: validate, escape, parameterise, confine, or bound the value that comes from outside, without changing what a legitimate caller gets'
   : issue.type === 'complex' ? "this method's tree-sitter risk score must come down"
-  : issue.type === 'misdocumented' ? 'the comment above the method must say what a caller needs: the contract, edge cases, side effects'
+  : issue.type === 'docs' ? 'the comment above the method must say what a caller needs: the contract, edge cases, side effects'
   : issue.type === 'misaligned' ? 'the name and the comment must say what the code actually does'
   : issue.type === 'refactor' ? 'do the structural change this calls for: split, flatten, simplify, dedupe, rename, or delete'
   : `${verifier} must see this less when it reads the rewrite`);

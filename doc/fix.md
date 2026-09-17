@@ -14,7 +14,7 @@ statement of what must be true afterwards:
 | defect | the scan no longer sees it |
 | security | the hole closed — validated, escaped, parameterised, confined or bounded — without changing what a legitimate caller gets |
 | refactor | the structural change actually done: split, flatten, simplify, dedupe, rename, delete |
-| misdocumented | a comment stating the contract, the edge cases, the side effects |
+| docs | a comment stating the contract, the edge cases, the side effects |
 | misaligned | a name and comment that say what the code does |
 
 A method that changed since the scan, or one the metrics flagged that System One
