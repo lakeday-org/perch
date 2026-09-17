@@ -116,8 +116,10 @@ export function parseArgs(argv) {
     const eq = arg.indexOf('=');
     const key = eq < 0 ? arg.slice(2) : arg.slice(2, eq);
     if (valued.has(key)) {
+      // `--min=` is as empty as `--min` with nothing after it, and an empty string reads as zero further down, which would make
+      // it a floor of none rather than a mistake to correct.
       const value = eq < 0 ? argv[++i] : arg.slice(eq + 1);
-      if (value === undefined) throw new Error(`--${key} requires a value`);
+      if (value === undefined || value === '') throw new Error(`--${key} requires a value`);
       flags[key] = value;
     } else if (switches.has(key)) flags[key] = true;
     else throw new Error(`unknown option --${key}`);

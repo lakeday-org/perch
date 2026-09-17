@@ -109,8 +109,12 @@ export function openStore(out) {
       return text.split('\n').filter(Boolean).map(line => JSON.parse(line));
     },
     async writeLines(path, rows) {
+      // Written beside and moved into place, the way writeJson does. A crash partway through a direct write leaves the file every
+      // command reads truncated at whatever line it reached, which reads as a scan that found less rather than as a broken file.
       await mkdir(out, { recursive: true });
-      await writeFile(path, rows.map(row => JSON.stringify(row)).join('\n') + (rows.length ? '\n' : ''));
+      const tmp = `${path}.${process.pid}.tmp`;
+      await writeFile(tmp, rows.map(row => JSON.stringify(row)).join('\n') + (rows.length ? '\n' : ''));
+      await rename(tmp, path);
     },
     /** What the last scan read, every rule it checked, and what you have set aside. */
     async indexes() {
