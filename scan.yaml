@@ -14,11 +14,11 @@
   where: "**/*"
   ask: Does `method` contain a concrete behavioral defect that a caller can reach?
   true: >
-    For some input a caller can pass, the method returns a wrong result, leaves wrong state, throws when it
-    should not, or fails to throw when it should
+    For some input a caller can pass, the method returns a wrong result, leaves
+    wrong state, throws when it should not, or fails to throw when it should
   false: >
-    The method behaves correctly for every input its callers can pass; style, performance, and hypothetical
-    misuse do not count
+    The method behaves correctly for every input its callers can pass; style,
+    performance, and hypothetical misuse do not count
   issue: { type: defect, label: kind }
 
 - name: kind
@@ -31,8 +31,10 @@
     missing_null_handling: A null, undefined, empty, or absent value is not handled
     wrong_return: The wrong value, or a value of the wrong shape, is returned for some input
     swallowed_error: An error is caught, ignored, or turned into a misleading result
-    state_mutation: Shared or input state is mutated when it should not be, or left stale when it should change
-    ordering: Operations run in the wrong order, or rely on an order that is not guaranteed
+    state_mutation: Shared or input state is mutated when it should not be, or left
+      stale when it should change
+    ordering: Operations run in the wrong order, or rely on an order that is not
+      guaranteed
     resource_leak: A handle, lock, timer, process, or connection is not released on some path
     inverted_condition: A condition, sign, or boolean is the wrong way round
 
@@ -46,15 +48,17 @@
     - No caller would notice
     - A wrong result in a rare case, or one the caller can see and recover from
     - A wrong result or wrong state in ordinary use
-    - Data lost, corrupted, or exposed, or a check that should stop someone bypassed
+    - Data lost, corrupted, or exposed, or a check that should stop someone
+      bypassed
 
 - name: refactor
   type: choice
   each: method
   where: "**/*"
   ask: >
-    Judging from `method`, its `metrics` (risk_score and maintainability_index run 0-100, cyclomatic_complexity
-    and max_nesting are counts), and how its callers use it, what does it most need?
+    Judging from `method`, its `metrics` (risk_score and maintainability_index
+    run 0-100, cyclomatic_complexity and max_nesting are counts), and how its
+    callers use it, what does it most need?
   options:
     split: Does too many things; split it into smaller methods with one job each
     flatten: Nested too deeply; flatten with early returns or extracted helpers
@@ -68,31 +72,39 @@
 - name: does_what_it_claims
   each: method
   where: "**/*"
-  ask: Does `method` do what its name, parameters, and `leading_comment` claim it does?
+  ask: Does `method` do what its name, parameters, and `leading_comment` claim it
+    does?
   true: Its behavior matches what a reader would expect from its name and comment
-  false: It does something different from, less than, or more than its name and comment promise
+  false: It does something different from, less than, or more than its name and
+    comment promise
   issue: { type: misaligned, label: does_not_do_what_it_claims, on: false }
 
 - name: misdocumented
   each: method
   where: "**/*"
   ask: >
-    Is `method` undocumented or misdocumented for what it does, given its `leading_comment` and its callers?
+    Is `method` undocumented or misdocumented for what it does, given its
+    `leading_comment` and its callers?
   true: >
-    A caller could not learn its contract, edge cases, or side effects from the comment, or the comment is wrong
-  false: The comment, or the code itself for a trivial method, states the contract accurately
+    A caller could not learn its contract, edge cases, or side effects from the
+    comment, or the comment is wrong
+  false: The comment, or the code itself for a trivial method, states the contract
+    accurately
   issue: { type: docs, label: docs }
 
 # A gate. It raises nothing itself; `when: exposed` multiplies a class by it.
 - name: exposed
   each: method
   where: "**/*"
-  ask: Does `method` handle anything that comes from outside the program, or act on the world outside it?
+  ask: Does `method` handle anything that comes from outside the program, or act
+    on the world outside it?
   true: >
-    It takes or passes on a request, a file, an environment variable, a database row, a command line, a message,
-    or a response from another service; or it runs a command, builds a query, touches the filesystem, sends a
-    request, or decides what someone is allowed to do
-  false: Everything it works on comes from inside the program, and it changes nothing outside it
+    It takes or passes on a request, a file, an environment variable, a database
+    row, a command line, a message, or a response from another service; or it
+    runs a command, builds a query, touches the filesystem, sends a request, or
+    decides what someone is allowed to do
+  false: Everything it works on comes from inside the program, and it changes
+    nothing outside it
 
 # The vulnerability classes. One noul each, all filed under security, the likeliest one listed. `when: exposed` marks the ones
 # that only matter when something from outside reaches the method; the rest are wrong on their own terms. Gating those once hid a
@@ -103,12 +115,14 @@
   where: "**/*"
   when: exposed
   ask: >
-    If `method` handles anything from outside the program: is this true of it? A value from outside is put into
-    a shell command, a query, a path of execution, or anything that gets evaluated, without being escaped or
+    If `method` handles anything from outside the program: is this true of it? A
+    value from outside is put into a shell command, a query, a path of
+    execution, or anything that gets evaluated, without being escaped or
     parameterised.
   true: >
-    Yes: a value from outside is put into a shell command, a query, a path of execution, or anything that gets
-    evaluated, without being escaped or parameterised
+    Yes: a value from outside is put into a shell command, a query, a path of
+    execution, or anything that gets evaluated, without being escaped or
+    parameterised
   false: No, or nothing from outside reaches this method
   issue: { type: security, label: self, pick: strongest }
 
@@ -117,11 +131,12 @@
   where: "**/*"
   when: exposed
   ask: >
-    If `method` handles anything from outside the program: is this true of it? A name from outside is used to
-    build a filesystem path, URL, or key without being confined to the place it is meant to reach.
+    If `method` handles anything from outside the program: is this true of it? A
+    name from outside is used to build a filesystem path, URL, or key without
+    being confined to the place it is meant to reach.
   true: >
-    Yes: a name from outside is used to build a filesystem path, URL, or key without being confined to the place
-    it is meant to reach
+    Yes: a name from outside is used to build a filesystem path, URL, or key
+    without being confined to the place it is meant to reach
   false: No, or nothing from outside reaches this method
   issue: { type: security, label: self, pick: strongest }
 
@@ -130,11 +145,12 @@
   where: "**/*"
   when: exposed
   ask: >
-    If `method` handles anything from outside the program: is this true of it? Data from outside is parsed,
-    evaluated, or turned into objects in a way that lets it decide what code or type comes back.
+    If `method` handles anything from outside the program: is this true of it?
+    Data from outside is parsed, evaluated, or turned into objects in a way that
+    lets it decide what code or type comes back.
   true: >
-    Yes: data from outside is parsed, evaluated, or turned into objects in a way that lets it decide what code
-    or type comes back
+    Yes: data from outside is parsed, evaluated, or turned into objects in a way
+    that lets it decide what code or type comes back
   false: No, or nothing from outside reaches this method
   issue: { type: security, label: self, pick: strongest }
 
@@ -143,11 +159,12 @@
   where: "**/*"
   when: exposed
   ask: >
-    If `method` handles anything from outside the program: is this true of it? A password, token, key, or other
-    credential is written into the source, logged, returned to a caller, or sent somewhere it need not go.
+    If `method` handles anything from outside the program: is this true of it? A
+    password, token, key, or other credential is written into the source,
+    logged, returned to a caller, or sent somewhere it need not go.
   true: >
-    Yes: a password, token, key, or other credential is written into the source, logged, returned to a caller,
-    or sent somewhere it need not go
+    Yes: a password, token, key, or other credential is written into the source,
+    logged, returned to a caller, or sent somewhere it need not go
   false: No, or nothing from outside reaches this method
   issue: { type: security, label: self, pick: strongest }
 
@@ -156,24 +173,23 @@
   where: "**/*"
   when: exposed
   ask: >
-    If `method` handles anything from outside the program: is this true of it? An action that should check who
-    is asking, or what they may touch, does not check, or checks after it has already acted.
+    If `method` handles anything from outside the program: is this true of it?
+    An action that should check who is asking, or what they may touch, does not
+    check, or checks after it has already acted.
   true: >
-    Yes: an action that should check who is asking, or what they may touch, does not check, or checks after it
-    has already acted
+    Yes: an action that should check who is asking, or what they may touch, does
+    not check, or checks after it has already acted
   false: No, or nothing from outside reaches this method
   issue: { type: security, label: self, pick: strongest }
 
 - name: weak_crypto
   each: method
   where: "**/*"
-  ask: >
-    If `method` handles anything from outside the program: is this true of it? Security rests on predictable
-    randomness, a home-made scheme, a broken algorithm, or a comparison that leaks timing.
-  true: >
-    Yes: security rests on predictable randomness, a home-made scheme, a broken algorithm, or a comparison that
-    leaks timing
-  false: No, or nothing from outside reaches this method
+  ask: Is this true of `method`?
+  true: >-
+    Security rests on predictable randomness, a home-made scheme, a broken
+    algorithm, or a comparison that leaks timing
+  false: Nothing in `method` does this.
   issue: { type: security, label: self, pick: strongest }
 
 - name: unvalidated_destination
@@ -181,10 +197,12 @@
   where: "**/*"
   when: exposed
   ask: >
-    If `method` handles anything from outside the program: is this true of it? An address, host, or redirect
-    target from outside decides where a request or a user is sent.
+    If `method` handles anything from outside the program: is this true of it?
+    An address, host, or redirect target from outside decides where a request or
+    a user is sent.
   true: >
-    Yes: an address, host, or redirect target from outside decides where a request or a user is sent
+    Yes: an address, host, or redirect target from outside decides where a
+    request or a user is sent
   false: No, or nothing from outside reaches this method
   issue: { type: security, label: self, pick: strongest }
 
@@ -193,10 +211,12 @@
   where: "**/*"
   when: exposed
   ask: >
-    If `method` handles anything from outside the program: is this true of it? Input from outside decides how
-    much memory, recursion, time, or work happens, with nothing bounding it.
+    If `method` handles anything from outside the program: is this true of it?
+    Input from outside decides how much memory, recursion, time, or work
+    happens, with nothing bounding it.
   true: >
-    Yes: input from outside decides how much memory, recursion, time, or work happens, with nothing bounding it
+    Yes: input from outside decides how much memory, recursion, time, or work
+    happens, with nothing bounding it
   false: No, or nothing from outside reaches this method
   issue: { type: security, label: self, pick: strongest }
 
@@ -205,94 +225,82 @@
   where: "**/*"
   when: exposed
   ask: >
-    If `method` handles anything from outside the program: is this true of it? A name from outside chooses which
-    function, class, field, or module is reached, so the caller picks the code that runs.
+    If `method` handles anything from outside the program: is this true of it? A
+    name from outside chooses which function, class, field, or module is
+    reached, so the caller picks the code that runs.
   true: >
-    Yes: a name from outside chooses which function, class, field, or module is reached, so the caller picks the
-    code that runs
+    Yes: a name from outside chooses which function, class, field, or module is
+    reached, so the caller picks the code that runs
   false: No, or nothing from outside reaches this method
   issue: { type: security, label: self, pick: strongest }
 
 - name: disabled_safeguard
   each: method
   where: "**/*"
-  ask: >
-    If `method` handles anything from outside the program: is this true of it? A check that exists is turned off
-    or weakened: certificate verification skipped, a permission widened, a warning suppressed, a sandbox opened.
-  true: >
-    Yes: a check that exists is turned off or weakened: certificate verification skipped, a permission widened,
-    a warning suppressed, a sandbox opened
-  false: No, or nothing from outside reaches this method
+  ask: Is this true of `method`?
+  true: >-
+    A check that exists is turned off or weakened: certificate verification
+    skipped, a permission widened, a warning suppressed, a sandbox opened
+  false: Nothing in `method` does this.
   issue: { type: security, label: self, pick: strongest }
 
 - name: buffer_overflow
   each: method
   where: "**/*"
-  ask: >
-    If `method` handles anything from outside the program: is this true of it? An index, length, or offset can
-    reach past the end of a buffer, string, slice, or array, on a read or a write.
-  true: >
-    Yes: an index, length, or offset can reach past the end of a buffer, string, slice, or array, on a read or a
-    write
-  false: No, or nothing from outside reaches this method
+  ask: Is this true of `method`?
+  true: >-
+    An index, length, or offset can reach past the end of a buffer, string,
+    slice, or array, on a read or a write
+  false: Nothing in `method` does this.
   issue: { type: security, label: self, pick: strongest }
 
 - name: use_after_free
   each: method
   where: "**/*"
-  ask: >
-    If `method` handles anything from outside the program: is this true of it? Something freed, closed, moved,
-    unlocked, or otherwise finished with is used again, or released twice.
-  true: >
-    Yes: something freed, closed, moved, unlocked, or otherwise finished with is used again, or released twice
-  false: No, or nothing from outside reaches this method
+  ask: Is this true of `method`?
+  true: >-
+    Something freed, closed, moved, unlocked, or otherwise finished with is used
+    again, or released twice
+  false: Nothing in `method` does this.
   issue: { type: security, label: self, pick: strongest }
 
 - name: uninitialized_use
   each: method
   where: "**/*"
-  ask: >
-    If `method` handles anything from outside the program: is this true of it? A value is read on a path where
-    nothing has written it yet, so what a caller gets is whatever was there.
-  true: >
-    Yes: a value is read on a path where nothing has written it yet, so what a caller gets is whatever was there
-  false: No, or nothing from outside reaches this method
+  ask: Is this true of `method`?
+  true: >-
+    A value is read on a path where nothing has written it yet, so what a caller
+    gets is whatever was there
+  false: Nothing in `method` does this.
   issue: { type: security, label: self, pick: strongest }
 
 - name: integer_overflow
   each: method
   where: "**/*"
-  ask: >
-    If `method` handles anything from outside the program: is this true of it? Arithmetic can wrap, truncate, or
-    change sign, and the result is then used as a size, an index, a length, or a permission.
-  true: >
-    Yes: arithmetic can wrap, truncate, or change sign, and the result is then used as a size, an index, a
-    length, or a permission
-  false: No, or nothing from outside reaches this method
+  ask: Is this true of `method`?
+  true: >-
+    Arithmetic can wrap, truncate, or change sign, and the result is then used
+    as a size, an index, a length, or a permission
+  false: Nothing in `method` does this.
   issue: { type: security, label: self, pick: strongest }
 
 - name: race_condition
   each: method
   where: "**/*"
-  ask: >
-    If `method` handles anything from outside the program: is this true of it? Two paths can reach the same
-    state at once without holding anything, or a check and the act it guards are separated in a way another path
-    can exploit.
-  true: >
-    Yes: two paths can reach the same state at once without holding anything, or a check and the act it guards
-    are separated in a way another path can exploit
-  false: No, or nothing from outside reaches this method
+  ask: Is this true of `method`?
+  true: >-
+    Two paths can reach the same state at once without holding anything, or a
+    check and the act it guards are separated in a way another path can exploit
+  false: Nothing in `method` does this.
   issue: { type: security, label: self, pick: strongest }
 
 - name: type_confusion
   each: method
   where: "**/*"
-  ask: >
-    If `method` handles anything from outside the program: is this true of it? A value is treated as a type,
-    shape, or variant it may not be: an unchecked cast, a union read through the wrong member, a parsed object
-    trusted to have a shape.
-  true: >
-    Yes: a value is treated as a type, shape, or variant it may not be: an unchecked cast, a union read through
-    the wrong member, a parsed object trusted to have a shape
-  false: No, or nothing from outside reaches this method
+  ask: Is this true of `method`?
+  true: >-
+    A value is treated as a type, shape, or variant it may not be: an unchecked
+    cast, a union read through the wrong member, a parsed object trusted to have
+    a shape
+  false: Nothing in `method` does this.
   issue: { type: security, label: self, pick: strongest }
