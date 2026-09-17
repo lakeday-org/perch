@@ -65,7 +65,10 @@ const labelsRaisedBy = (question, label) => {
   return Object.keys(named.options).some(option => kindLabel(option) === label && option !== question.issue.except);
 };
 
-/** What one read method is written down as. */
+/**
+ * The answers are spread flat onto the row, so every question's name is a column of its own and a question added later widens
+ * the record rather than nesting under it. `key` is what the next run compares against to decide it already has this answer.
+ */
 export const readEvent = ({ node, answers, response, key, runId = null, root, github = null, revision, calleeIds, callerIds }) => ({
   type: 'read', at: new Date().toISOString(), id: findingId(node.id), run_id: runId, root, github, revision, method: node.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line,
   hash: node.hash, key, risk: node.metrics?.risk_score ?? null, model: response.model, ...answers, callees: calleeIds, callers: callerIds });
@@ -126,7 +129,8 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const graph = buildGraph(scan.files);
   if (!scan.candidates.length) throw new Error('No methods to read in this repository');
   const rules = asRules(await readRules(root, revision));
-  // --since says what this run is about: a method outside it is not read and not reported, since nothing is kept from before.
+  // --since and --paths say what this run reads, not what perch knows. A method outside is neither read nor reported here, and
+  // what the last run said about it is carried onto the file at the end rather than dropped.
   const inScope = path => !paths.length || paths.some(item => path === item || path.startsWith(item.replace(/\/$/, '') + '/'));
   const candidates = scan.candidates.filter(candidate => graph.nodes.has(candidate.id) && inScope(graph.nodes.get(candidate.id).path));
   if (!candidates.length) throw new Error('Nothing in scope to read');
@@ -149,6 +153,10 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const path = graph.nodes.get(candidate.id).path;
     inFile.set(path, [...(inFile.get(path) ?? []), candidate.id]);
   }
+  // A closure covers named kinds rather than the method, so a method you set aside for one thing still reports another. Read
+  // here as well as in the report, because a finding you had already looked at used to stay out of the list and fail the run
+  // anyway, which is the worst of both.
+  const setAside = (id, kind) => (dismissals.get(id)?.kinds ?? new Set()).has(kind);
   const done = new Map();
   const finish = (path, event) => {
     done.set(path, [...(done.get(path) ?? []), event].filter(Boolean));
@@ -192,7 +200,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const { response, answers } = await questionMethod({ systemOne, node, steps, lines: await linesOf(node), rules: own, debug });
     return { node, calleeIds, callerIds, rules: own, response, answers, key };
   };
-  /** Every reading this run made, written whole at the end: the file says what this scan said, not what any scan ever said. */
+  /** Every reading this run made. The file is written whole at the end, so what this run did not cover is carried onto it. */
   const read = [], broken = [];
   const record = async results => {
     for (const { node, calleeIds, callerIds, rules: own, response, answers, key, carried, skipped } of results) {
@@ -212,7 +220,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
       // keeps its own tally, which is what the exit code and the summary read.
       for (const rule of own) {
         const failed = 1 - (event[rule.name] ?? 1);
-        if (failed > floorFor(rule, min)) run.broken.push({ rule: rule.name, path: node.path, name: node.qualified_name, line: node.line, broken: failed, said: rule.text });
+        if (failed > floorFor(rule, min) && !setAside(findingId(node.id), rule.name)) run.broken.push({ rule: rule.name, path: node.path, name: node.qualified_name, line: node.line, broken: failed, said: rule.text });
       }
       const follow = event.follow?.method;
       walk.enqueue([...calleeIds, ...callerIds].filter(other => other !== follow));
@@ -266,7 +274,8 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // A rule about a file or a test has no reading to sit inside, so it is a check of its own. Every one is written down, passed
     // or broken, since a pass is what lets the next run skip asking it; only the broken ones are anything to report.
     broken.push(...units.results, ...searches.results);
-    run.broken.push(...[...units.results, ...searches.results].filter(result => result.broken > floorFor(rules.find(rule => rule.name === result.rule), min)));
+    run.broken.push(...[...units.results, ...searches.results]
+      .filter(result => result.broken > floorFor(rules.find(rule => rule.name === result.rule), min) && !setAside(result.id, result.rule)));
     // Every question the run asked, yours and perch's alike. A question perch ships can cover nothing and raise nothing for the
     // same reasons one you wrote can, and a report of a run that names only half of what it asked is half a report.
     const raised = new Map();
@@ -288,11 +297,18 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     ];
     run.checked = run.calls * questionSet().filter(question => question.each === 'method').length + units.asked + searches.asked;
 
-    // Rule checks the filter kept out are carried the same way: this run had nothing to say about them, which is not the same
-    // as saying they passed.
+    // What this run did not cover. --paths and --since say which code a run is about, and --filter says which questions it asks;
+    // neither says the rest of the repository stopped existing. Writing the file with only what this run touched threw away
+    // every reading outside it, so `perch scan --paths one/file.js` left a store that knew about one file.
+    const walked = new Set(read.map(event => event.method));
+    const elsewhere = [...earlier.values()].filter(event => !walked.has(event.method) && graph.nodes.has(event.method));
+    // Rule checks are carried the same way, and only while the rule that produced one is still that rule. A rule reworded,
+    // reshaped or deleted since leaves a check describing a question that no longer exists, and a rule asked of every method now
+    // would keep answering as the search it was.
     const said = new Set(broken.map(check => check.id));
-    const unasked = filters.length ? [...checks.values()].filter(check => !said.has(check.id)) : [];
-    await store.recordScan([...read, ...broken, ...unasked]);
+    const byName = new Map(rules.map(rule => [rule.name, rule]));
+    const unasked = [...checks.values()].filter(check => !said.has(check.id) && byName.get(check.rule)?.hash === check.rule_hash);
+    await store.recordScan([...read, ...elsewhere, ...broken, ...unasked]);
     run.remaining = walk.remaining(); run.status = 'complete'; run.completed_at = new Date().toISOString(); await writeJson(runPath, run); return run;
   } catch (error) { run.status = 'failed'; run.error = error.message; await writeJson(runPath, run).catch(() => {}); throw error; }
 }

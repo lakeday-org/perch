@@ -14,6 +14,7 @@ import { methodContext } from './context.js';
 import { questionMethod } from './scan.js';
 import { bodyOf, matches, neighbourhood, readLint, readRules, RULES_FILE, unitStep } from './units.js';
 import { BELIEVED, filterKeys, meaning, methodSteps, issuesOf } from './questions.js';
+import { floorFor } from './ask.js';
 import { openStore } from './store.js';
 
 /** A check reads one file off disk, so there is no graph to draw a neighbourhood from: what `sees` can reach is that file. */
@@ -90,9 +91,11 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
     const { state, questions } = unitStep({ rules: together, unit, source: body, seen: neighbourhood(sees, unit, { graph: EMPTY_GRAPH, files: new Map([[unit.path, unit.text]]) }) });
     debug(`${together.map(rule => rule.name).join(', ')}: ${unit.name}`);
     const { answers } = await systemOne.ask(state, questions);
-    return together.map(rule => ({ rule: rule.name, said: rule.text, broken: readLint(rule, answers).broken }));
+    return together.map(rule => ({ rule: rule.name, said: rule.text, broken: readLint(rule, answers).broken, floor: floorFor(rule, BELIEVED) }));
   }))).flat();
-  const broken = asked.filter(item => item.broken > BELIEVED).sort((a, b) => b.broken - a.broken);
+  // Each rule's own floor, the same one a scan reads it by. A flat 50% here called a rule broken that a scan would not list, so
+  // fixing what check said was wrong left the run still green and fixing what the run said left check still red.
+  const broken = asked.filter(item => item.broken > item.floor).sort((a, b) => b.broken - a.broken);
 
   // The scan's questions need the method's callers and callees, which the last scan already knows; only the method itself is
   // re-read. Asked when nothing was named, or when what was named is a class the scan answers about.

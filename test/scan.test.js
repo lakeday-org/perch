@@ -8,7 +8,7 @@ import { mergeAnswers, scanRepository } from '../src/scan.js';
 import { securityOf } from '../src/questions.js';
 import { methodStep, methodSteps, issueWeight, locateWhere, MAX_CHOICES, STATE_BUDGET } from '../src/questions.js';
 import { openStore } from '../src/store.js';
-import { formatDoctor, formatScanReport, scanCount } from '../src/report.js';
+import { formatDoctor, formatScanReport, gating, scanCount } from '../src/report.js';
 import { commitAll, fixtureOptions, makeGraphFixture, scriptedSystemOne } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
@@ -111,9 +111,16 @@ describe('perch hunt', () => {
     expect(shown).toMatch(new RegExp(`^ {2}${f.id} +\\d+ {2}P1 \\(\\d\\.\\d\\) {2}defect +\\d+% {2}off_by_one +f$`, 'm'));
     // A band is about a defect, so a row that is not about one does not claim it, and every column still lines up.
     expect(shown).toMatch(new RegExp(`^ {2}${f.id} +\\d+ {2}- +refactor +\\d+% {2}too_big +f$`, 'm'));
-    expect(shown).toMatch(/^[✖!] \d+ problems in \d+ files?$/m);
+    // The run ends on how many problems there were and how many of them fail it, which is the number the exit code is.
+    expect(shown).toMatch(/^[✖!] \d+ problems in \d+ files?, (\d+|all|none) failing$/m);
     expect(shown).not.toMatch(/^ID +Method/m);
     expect(hunt.to_read).toBe(4);
+
+    // What the run comes back on. The defect fails it and the refactor does not, and both were found by questions perch ships:
+    // whose question raised a finding has nothing to do with whether it stops anything.
+    const failing = gating(await openStore(repo.out).issues());
+    expect(failing.map(issue => issue.label)).toContain('off_by_one');
+    expect(failing.map(issue => issue.label)).not.toContain('too_big');
 
     // A second run over code nothing has touched asks nothing: the same state and the same questions have an answer already, and
     // asking again would spend a request to be told what is on disk while moving the numbers on an issue nobody has touched.
@@ -130,6 +137,11 @@ describe('perch hunt', () => {
     const narrowed = await scanRepository(await withRevision(repo, { systemOne: scriptedSystemOne(), paths: ['src/b.js'] }));
     expect(narrowed.methods).toBe(2);
     expect(narrowed.visited.every(visit => visit.path === 'src/b.js')).toBe(true);
+    // But the universe of what a run reads is not the universe of what perch knows. The file is written whole at the end, and
+    // writing it with only what this run touched left a store that knew about one file and had forgotten the rest.
+    expect((await openStore(repo.out).findings(0)).map(finding => finding.method).sort())
+      .toEqual(['src/a.js::f', 'src/a.js::g', 'src/b.js::h', 'src/b.js::k']);
+    expect((await openStore(repo.out).findings(0)).find(finding => finding.method === 'src/a.js::f').has_bug).toBe(0.9);
 
     // Editing a method is a different question, so it is asked again, and the answer that comes back is the one that stands.
     await writeFile(join(repo.root, 'src', 'a.js'), (await readFile(join(repo.root, 'src', 'a.js'), 'utf8')).replace('x > 10', 'x > 11'));

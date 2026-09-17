@@ -3,7 +3,8 @@
  * should not mean stopping to find the file, and an agent that spots a pattern worth a rule has no business rewriting YAML by
  * string surgery. Comments and the order of what is already there survive every edit.
  */
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { parseDocument, Scalar } from 'yaml';
 import { BUILTIN, check, ENSURES, SHAPES } from './ask.js';
@@ -16,7 +17,7 @@ export { SHAPES };
  * the same way, so this is the whole of it rather than the yes-or-no corner of it.
  */
 export const KINDS = ENSURES;
-export const FIELDS = ['name', 'disabled', 'type', 'each', 'where', 'except', 'sees', 'when', 'min', ...KINDS, 'ask', 'true', 'false', 'options', 'levels', 'issue'];
+export const FIELDS = ['name', 'disabled', 'type', 'each', 'where', 'except', 'sees', 'when', 'min', 'gate', ...KINDS, 'ask', 'true', 'false', 'options', 'levels', 'issue'];
 /** Written out by `ensure`, so a rule that is given one has to lose whatever it had spelled out longhand, and the other way round. */
 const EXPANDED = ['type', 'ask', 'true', 'false', 'options', 'levels'];
 /** Keys whose value is a map or a list rather than a line, so they are built as nodes rather than set as scalars. */
@@ -34,7 +35,45 @@ async function open(root) {
   const text = await readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
   const doc = parseDocument(text);
   if (!doc.contents || !doc.contents.items) doc.contents = doc.createNode([]);
-  return { path, doc };
+  // The text it was parsed from goes back with it, because the write puts the whole document down again and has to know it is
+  // putting it down over the one it picked up.
+  return { path, doc, text };
+}
+
+/**
+ * Every edit reads the whole rule file and writes the whole rule file, so two at once both start from what was there before and
+ * the second puts down a document the first is missing from. Held apart by a lock file, which exists or does not: creating one
+ * with `wx` is the one thing a filesystem will only let a single caller do.
+ *
+ * A lock left by something that died would wedge the file for good, so waiting for one is given up on rather than waited out,
+ * and the message says what to delete.
+ */
+async function withLock(path, work) {
+  const lock = `${path}.lock`;
+  for (let tries = 0; ; tries++) {
+    try { await writeFile(lock, `${process.pid}\n`, { flag: 'wx' }); break; } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      if (tries >= 50) throw new Error(`${RULES_FILE} is being edited by another perch. If none is running, delete ${RULES_FILE}.lock`, { cause: error });
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+  }
+  try { return await work(); } finally { await rm(lock, { force: true }); }
+}
+
+/**
+ * Written beside the file and moved onto it, the way the store writes everything else. A rule file is parsed by every verb, so a
+ * write killed partway leaves one nobody can list, edit or remove: the wedge the comment over `legible` is about, arrived at from
+ * the other direction. A rename cannot half happen, so the file is either the old set of rules or the new one.
+ *
+ * The lock holds other perch commands off, and this holds off everything else: an editor with the file open, a script, a hand.
+ * Read again and refused if it moved, which turns losing somebody's rule into being told to run the command again.
+ */
+async function save(path, doc, was) {
+  const now = await readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
+  if (now !== was) throw new Error(`${RULES_FILE} changed while perch was editing it, so nothing was written. Run that again.`);
+  const tmp = `${path}.${randomUUID().slice(0, 8)}.tmp`;
+  await writeFile(tmp, String(doc));
+  await rename(tmp, path);
 }
 
 const named = (doc, name) => doc.contents.items.findIndex(item => item.get?.('name') === name);
@@ -58,14 +97,16 @@ const legible = rule => check(Object.fromEntries(Object.entries(rule).filter(([,
 
 /** Add a rule, or refuse if that name is taken: two rules with one name is a report nobody can act on. */
 export async function addRule(root, rule) {
-  const { path, doc } = await open(root);
-  if (named(doc, rule.name) >= 0) throw new Error(`${rule.name} is already a rule; perch rules edit ${rule.name} changes it`);
-  legible(rule);
-  const node = doc.createNode({});
-  for (const key of FIELDS) if (rule[key] !== undefined) node.set(key, write(doc, key, rule[key]));
-  doc.contents.items.push(node);
-  await writeFile(path, String(doc));
-  return rule;
+  return withLock(join(root, RULES_FILE), async () => {
+    const { path, doc, text } = await open(root);
+    if (named(doc, rule.name) >= 0) throw new Error(`${rule.name} is already a rule; perch rules edit ${rule.name} changes it`);
+    legible(rule);
+    const node = doc.createNode({});
+    for (const key of FIELDS) if (rule[key] !== undefined) node.set(key, write(doc, key, rule[key]));
+    doc.contents.items.push(node);
+    await save(path, doc, text);
+    return rule;
+  });
 }
 
 /**
@@ -76,31 +117,33 @@ export async function addRule(root, rule) {
  * and you can see in one file everything this repository has decided to say differently.
  */
 export async function editRule(root, name, changes) {
-  const { path, doc } = await open(root);
-  let at = named(doc, name);
-  if (at < 0) {
-    const shipped = BUILTIN.find(question => question.name === name);
-    if (!shipped) throw new Error(`no question called ${name}; perch rules list shows them`);
-    doc.contents.items.push(doc.createNode(shipped.declared));
-    at = doc.contents.items.length - 1;
-  }
-  const node = doc.contents.items[at];
-  // Changing a question that was turned off is asking for it back, worded the new way.
-  if (node.get('disabled') && changes.disabled === undefined) {
-    node.delete('disabled');
-    const shipped = BUILTIN.find(question => question.name === name);
-    if (shipped) for (const [key, value] of Object.entries(shipped.declared)) if (key !== 'name' && node.get(key) === undefined) node.set(key, write(doc, key, value));
-  }
-  // One assertion per rule: naming a different one replaces the one that was there rather than sitting beside it, and takes with
-  // it anything the old one had been written out as. Writing it out longhand does the same to the shorthand.
-  if (KINDS.some(key => changes[key] !== undefined)) for (const key of [...KINDS, ...EXPANDED]) node.delete(key);
-  if (changes.ask !== undefined) for (const key of KINDS) node.delete(key);
-  // null takes a key off, which is how a floor is removed rather than recorded as zero.
-  for (const key of FIELDS) if (changes[key] === null) node.delete(key);
-  for (const key of FIELDS) if (changes[key] !== undefined && changes[key] !== null) node.set(key, write(doc, key, changes[key]));
-  legible(node.toJSON());
-  await writeFile(path, String(doc));
-  return name;
+  return withLock(join(root, RULES_FILE), async () => {
+    const { path, doc, text } = await open(root);
+    let at = named(doc, name);
+    if (at < 0) {
+      const shipped = BUILTIN.find(question => question.name === name);
+      if (!shipped) throw new Error(`no question called ${name}; perch rules list shows them`);
+      doc.contents.items.push(doc.createNode(shipped.declared));
+      at = doc.contents.items.length - 1;
+    }
+    const node = doc.contents.items[at];
+    // Changing a question that was turned off is asking for it back, worded the new way.
+    if (node.get('disabled') && changes.disabled === undefined) {
+      node.delete('disabled');
+      const shipped = BUILTIN.find(question => question.name === name);
+      if (shipped) for (const [key, value] of Object.entries(shipped.declared)) if (key !== 'name' && node.get(key) === undefined) node.set(key, write(doc, key, value));
+    }
+    // One assertion per rule: naming a different one replaces the one that was there rather than sitting beside it, and takes with
+    // it anything the old one had been written out as. Writing it out longhand does the same to the shorthand.
+    if (KINDS.some(key => changes[key] !== undefined)) for (const key of [...KINDS, ...EXPANDED]) node.delete(key);
+    if (changes.ask !== undefined) for (const key of KINDS) node.delete(key);
+    // null takes a key off, which is how a floor is removed rather than recorded as zero.
+    for (const key of FIELDS) if (changes[key] === null) node.delete(key);
+    for (const key of FIELDS) if (changes[key] !== undefined && changes[key] !== null) node.set(key, write(doc, key, changes[key]));
+    legible(node.toJSON());
+    await save(path, doc, text);
+    return name;
+  });
 }
 
 /**
@@ -109,12 +152,14 @@ export async function editRule(root, name, changes) {
  * in this one file.
  */
 export async function removeRule(root, name) {
-  const { path, doc } = await open(root);
-  const at = named(doc, name);
-  const shipped = BUILTIN.find(question => question.name === name);
-  if (at < 0 && !shipped) throw new Error(`no question called ${name}; perch rules list shows them`);
-  if (at < 0) doc.contents.items.push(doc.createNode({ name, disabled: true }));
-  else doc.contents.items.splice(at, 1);
-  await writeFile(path, String(doc));
-  return { name, turnedOff: at < 0 };
+  return withLock(join(root, RULES_FILE), async () => {
+    const { path, doc, text } = await open(root);
+    const at = named(doc, name);
+    const shipped = BUILTIN.find(question => question.name === name);
+    if (at < 0 && !shipped) throw new Error(`no question called ${name}; perch rules list shows them`);
+    if (at < 0) doc.contents.items.push(doc.createNode({ name, disabled: true }));
+    else doc.contents.items.splice(at, 1);
+    await save(path, doc, text);
+    return { name, turnedOff: at < 0 };
+  });
 }

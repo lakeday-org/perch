@@ -15,7 +15,7 @@ import { runChecks } from './checks.js';
 import { addRule, editRule, KINDS as RULE_KINDS, removeRule } from './rules.js';
 import { allQuestions, SHAPES } from './ask.js';
 import { createMeter, metered } from './meter.js';
-import { brokenRules, formatDoctor, formatFilterKeys, useColor, formatFinding, formatIssues, formatCheck, formatRules, formatScanReport, issueCount, scanCount, scanTally, TOP, visibleFindings } from './report.js';
+import { formatDoctor, formatFilterKeys, gating, useColor, formatFinding, formatIssues, formatCheck, formatRules, formatScanReport, issueCount, scanCount, scanTally, TOP, visibleFindings } from './report.js';
 
 /** Stamped into the bundle at build time so `perch doctor` reports the version that is running, not one read from a stray file. */
 export const VERSION = typeof PERCH_VERSION === 'string' ? PERCH_VERSION : 'dev';
@@ -30,6 +30,7 @@ const options = {
   closed: ['--closed', 'Include closed issues (worked and given up on, or nothing left to do)', ['issues']],
   min: ['--min P', `Only issues it is at least P percent sure of (default ${BELIEVED * 100}; --min 0 shows everything). On a rule, the floor for that one alone`, ['scan', 'issues', 'rules']],
   filter: ['--filter k=v', 'Only issues matching, e.g. type=security, kind=too big, severity=P1 (comma-separated)', ['scan', 'issues']],
+  gate: ['--gate yes|no', 'Whether breaking this one fails a scan. Defaults to yes for a defect, a vulnerability or a rule', ['rules']],
   types: ['--types', 'Print everything --filter accepts and stop', ['issues']],
   rules: ['--rules a,b', 'Ask only these: rule names, or defect, security, refactor, docs', ['check']],
   ensure: ['--ensure TEXT', 'What has to be true of every file or method it covers', ['rules']],
@@ -58,13 +59,13 @@ const options = {
 const ALIASES = { findings: 'issues' };
 
 const commandHelp = {
-  scan: { args: '[target]', summary: 'Find issues', detail: `Scores every method with tree-sitter, then reads them with System One, callers and callees in view. Your rules in ${RULES_FILE} are asked in the same reading, so they cost nothing extra on a method perch was reading anyway.\n\nA method whose code, whose neighbours and whose questions are all unchanged since the last run is not asked about again. The answer would be the same one, and asking for it would move the numbers on an issue you have already looked at. Delete .perch/scan.jsonl to ask about everything again.\n\n--paths and --since say what a run covers, and --since origin/main is what CI wants. target is a directory, owner/repo, or a GitHub URL. Exits 1 if a rule is broken. Needs TYPESAFE_API_KEY.` },
+  scan: { args: '[target]', summary: 'Find issues', detail: `Scores every method with tree-sitter, then reads them with System One, callers and callees in view. Your rules in ${RULES_FILE} are asked in the same reading, so they cost nothing extra on a method perch was reading anyway.\n\nA method whose code, whose neighbours and whose questions are all unchanged since the last run is not asked about again. The answer would be the same one, and asking for it would move the numbers on an issue you have already looked at. Delete .perch/scan.jsonl to ask about everything again.\n\n--paths and --since say what a run covers, and --since origin/main is what CI wants. target is a directory, owner/repo, or a GitHub URL. Exits 3 on anything it found that is wrong: a defect, a vulnerability, a rule of yours that broke. Not on a method being large or undocumented, which are reported and do not fail the run. Needs TYPESAFE_API_KEY.` },
   rules: { args: '[list | add <name> | edit <name> | remove <name>]', summary: `Change ${RULES_FILE} without opening it`, detail: `Your rules are questions perch asks alongside its own, written in the same grammar as the ones it ships with in scan.yaml. perch scan asks them; this writes them, keeping your comments and ordering.\n\nMost are a yes-or-no, and --ensure is all one needs. It covers what a parser can't: whether a comment says why, whether a test asserts what you claim.\n\n  perch rules add no-stale-docs --where "docs/**/*.md" --ensure_absent "docs for code that was deleted"\n\nAn answer that is not yes-or-no is written out: --ask with --type and the options or levels it offers, and --issue for what an answer means. --when names a question this one is only as likely as.\n\n  perch rules add handles_absence --type choice --each method --where "src/**/*.js" \\\n    --ask "How does this method handle a value that is missing?" \\\n    --options "checks=It checks for it; ignores=It carries on with the missing value" \\\n    --issue "type=defect,label=handles_absence,except=checks"` },
   issues: { args: '[issue-id]', summary: 'List what the scan found, or show one', detail: 'Worst first. --filter narrows the list, --types prints what it accepts, --closed includes closed ones, --all lists every row. Give it an id to see everything known about that method. perch findings does the same thing.' },
-  check: { args: '<path | path::method | issue-id>', summary: 'Ask about one piece of code, uncommitted', detail: 'Reads that one file off disk and asks about the point you named: every rule that covers it, plus the scan\'s own questions for a method. --rules narrows it to specific rules, or to defect, security, refactor or docs. Nothing is committed or recorded, so run it on work in progress. Exits 1 if something is wrong. Needs TYPESAFE_API_KEY.' },
+  check: { args: '<path | path::method | issue-id>', summary: 'Ask about one piece of code, uncommitted', detail: 'Reads that one file off disk and asks about the point you named: every rule that covers it, plus the scan\'s own questions for a method. --rules narrows it to specific rules, or to defect, security, refactor or docs. Nothing is committed or recorded, so run it on work in progress. Exits 3 while something is still wrong. Needs TYPESAFE_API_KEY.' },
   close: { args: '<issue-id>...', summary: 'Set issues aside', detail: 'Stops an issue being listed: a false positive, or code you have looked at and are not changing. --reason is kept and shown by perch issues <id>. It stays closed through later scans and later edits, and perch reopen is the only thing that brings it back.\n\nIt covers the kinds on that issue now, so a defect found in the method later is a new thing and is listed. --kind closes some of them and leaves the rest:\n\n  perch close 2638fb16 --kind docs' },
   reopen: { args: '<issue-id>...', summary: 'Put closed issues back', detail: 'Undoes perch close, all of it, or the kinds --kind names.' },
-  doctor: { args: '', summary: 'Check perch can run, and what the last run did', detail: 'First whether perch can run here at all: node, your key, git, the repository, somewhere to write, and whether perch.yaml parses. Anything that fails says what to do about it, and the command exits 1.\n\nThen the last run, every method it could not read with the error, every question it asked and what each raised, and the end of the log when a run did not finish. Names, paths, counts and error messages only, never source, so it can be pasted into a bug report as it stands.' },
+  doctor: { args: '', summary: 'Check perch can run, and what the last run did', detail: 'First whether perch can run here at all: node, your key, git, the repository, somewhere to write, and whether perch.yaml parses. Anything that fails says what to do about it, and the command exits 1, since perch cannot run here.\n\nThen the last run, every method it could not read with the error, every question it asked and what each raised, and the end of the log when a run did not finish. Names, paths, counts and error messages only, never source, so it can be pasted into a bug report as it stands.' },
 };
 
 /** Help at 80 columns. A blank line stays a blank line, and an indented line is an example, left exactly as written. */
@@ -103,8 +104,14 @@ Options:
 ${column(own.map(([flag, text]) => [flag, text]))}`;
 }
 
+/**
+ * What perch comes back with. A run that found something and a run that fell over are different things and used to be the same
+ * number, so anything reading the code could not tell a report from a crash.
+ */
+export const EXIT = { clean: 0, broke: 1, usage: 2, found: 3 };
+
 const valued = new Set(['paths', 'parallel', 'min', 'filter', 'out', 'reason', 'kind', 'limit', 'page', 'since', 'rules',
-  'ensure', 'ensure_present', 'ensure_absent', 'where', 'except', 'each', 'sees', 'type', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue']);
+  'ensure', 'ensure_present', 'ensure_absent', 'where', 'except', 'each', 'sees', 'type', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', 'gate']);
 const switches = new Set(['force', 'all', 'json', 'verbose', 'closed', 'types', 'help']);
 
 export function parseArgs(argv) {
@@ -277,11 +284,20 @@ function issueFrom(text) {
 }
 
 /** What the flags say the question is, in the grammar's own words. */
+/** A flag a person types as yes, true or on, since a question is being answered rather than a variable set. */
+function yesOrNo(flag, value) {
+  const said = String(value).toLowerCase();
+  if (['yes', 'true', 'on', '1'].includes(said)) return true;
+  if (['no', 'false', 'off', '0'].includes(said)) return false;
+  throw new UsageError(`${flag} is yes or no, not ${value}`);
+}
+
 function ruleFrom(flags) {
   const written = Object.fromEntries(['type', 'where', 'except', 'each', 'sees', 'when', 'ask', 'true', 'false', ...RULE_KINDS]
     .filter(key => flags[key] !== undefined).map(key => [key, flags[key]]));
   // A floor of zero is no floor, so it comes off the rule rather than sitting there as a number that does nothing.
   if (flags.min !== undefined) { const min = threshold(flags.min); written.min = min === 0 ? null : min; }
+  if (flags.gate !== undefined) written.gate = yesOrNo('--gate', flags.gate);
   if (flags.options !== undefined) written.options = pairsFrom('--options', flags.options);
   if (flags.levels !== undefined) written.levels = String(flags.levels).split(';').map(part => part.trim()).filter(Boolean);
   if (flags.issue !== undefined) written.issue = issueFrom(flags.issue);
@@ -300,13 +316,13 @@ async function manageRules(io, action, name) {
     print(io, all.map(rule => ({ name: rule.name, from: own.has(rule.name) ? RULES_FILE : 'perch', disabled: Boolean(rule.disabled),
       type: rule.type, kind: rule.kind, where: rule.where, each: rule.each, sees: rule.sees, except: rule.except ?? null,
       when: rule.when ?? null, text: rule.text ?? rule.ask })), formatRules(all, { own }));
-    return 0;
+    return EXIT.clean;
   }
   if (!name) throw new UsageError(`perch rules ${action} needs a name`);
   if (action === 'remove') {
     const { turnedOff } = await removeRule(root, name);
     io.stdout(turnedOff ? `Turned off ${name}, which perch ships. perch rules edit ${name} turns it back on.` : `Removed ${name}.`);
-    return 0;
+    return EXIT.clean;
   }
   if (RULE_KINDS.filter(key => written[key]).length > 1) throw new UsageError('a rule asks one thing: give one of --ensure, --ensure_present, --ensure_absent');
   if (written.ask && RULE_KINDS.some(key => written[key])) throw new UsageError('--ask writes the question out; --ensure is the short way of writing one, so give one or the other');
@@ -316,11 +332,11 @@ async function manageRules(io, action, name) {
     // Everything, unless you say otherwise. A rule that covers the whole repository is a fine rule to want.
     await addRule(root, { name, where: '**/*', ...written });
     io.stdout(`Added ${name}.`);
-    return 0;
+    return EXIT.clean;
   }
   await editRule(root, name, written);
   io.stdout(`Changed ${name}.`);
-  return 0;
+  return EXIT.clean;
 }
 
 const commands = {
@@ -331,7 +347,7 @@ const commands = {
     const filters = filtersFrom(io.flags);
     const resolved = await resolveTarget(io.argument ?? '.', { out: io.flags.out, log: io.log });
     const paths = await scanPaths(io, resolved.root);
-    if (io.flags.since && !paths.length) { io.stdout(`Nothing changed since ${io.flags.since}.`); return 0; }
+    if (io.flags.since && !paths.length) { io.stdout(`Nothing changed since ${io.flags.since}.`); return EXIT.clean; }
     const files = liveCounter(io, 'finding methods,'), methods = liveCounter(io, 'scanning method'),
       units = liveCounter(io, 'checking file'), searches = liveCounter(io, 'searching');
     // A request that is being retried answers nothing, so the counter it belongs to would sit still and read as a hang. Whatever
@@ -340,16 +356,18 @@ const commands = {
     // that already went wrong. perch doctor reads the end of it.
     const write = await openStore(resolved.out).startLog();
     const note = message => { write(message); io.debug(message); };
-    // The client says when it is retrying, which belongs in the log and on the counter both: on the counter because a retry is
-    // the wait that looks like a hang, and in the log because that is what doctor reads afterwards.
+    // On the counter and in the log both. On the counter because a retry is the wait that looks like a hang, and in the log
+    // because the counter is gone by the time anyone asks what the run was doing.
     const retrying = message => { methods.say(message); note(message); };
     const systemOne = metered(createSystemOne({ apiKey: io.env.TYPESAFE_API_KEY, log: retrying }), meter);
     // A file prints the moment it is finished rather than at the end, so a long run says what it is finding while it finds it.
     const said = new Set();
     const say = (path, findings) => {
-      said.add(path);
       const block = formatScanReport(narrow(visibleFindings(findings), filters, min), { min, filters, summary: false, empty: '' });
       if (!block) return;
+      // Only a file that printed counts as said. A file whose methods were quiet still gets findings later, from the rules about
+      // whole files and from the searches, and marking it reported on the way past dropped every one of them.
+      said.add(path);
       methods.clear();
       io.stdout(block + '\n');
     };
@@ -368,10 +386,10 @@ const commands = {
     const rest = issues.filter(finding => !said.has(finding.path));
     print(io, { run, issues, usage: meter.toJSON() },
       [formatScanReport(rest, { min, filters, summary: false, empty: '' }), scanTally(issues, min, undefined, filters)].filter(Boolean).join('\n\n'));
-    io.note(brokenRules(run), scanCount(run), ...meter.lines());
-    // A rule is a claim you made about your own code, so breaking one is a failure CI can read. A finding perch turned up on its
-    // own is a probability, and exiting on one would make every run a coin toss.
-    return run.broken.length ? 1 : 0;
+    io.note(scanCount(run), ...meter.lines());
+    // The scan passes when nothing it gates on came back. Which questions those are is on the questions, so a defect and a
+    // vulnerability count the same as a rule you wrote, and a method being large counts as nothing.
+    return gating(issues, min).length ? EXIT.found : EXIT.clean;
   },
   /** perch rules list, add, edit and remove: the rule file as something you can change without opening it. */
   rules(io) {
@@ -412,9 +430,12 @@ const commands = {
     // The end of the log, on a run that did not finish cleanly. On one that did, the path to it is enough.
     const log = run && run.status !== 'complete' ? await store.tail(20) : [];
     print(io, { versions, out: store.out, checks, scan, run, log }, formatDoctor({ versions, scan, run, out: store.out, checks, log }));
-    return checks.every(check => check.ok) ? 0 : 1;
+    return checks.every(check => check.ok) ? EXIT.clean : EXIT.broke;
   },
-  /** The loop for fixing something: change the code, ask whether the issue is gone, repeat. Nothing is written down. */
+  /**
+   * Reads the file off disk rather than out of a commit, and records nothing. So it answers about work in progress, and
+   * running it twenty times while fixing something does not move the numbers on the issue you are fixing.
+   */
   async check(io) {
     if (!io.argument) throw new UsageError('perch check needs a path, a path::method, or an issue id');
     const meter = createMeter();
@@ -425,7 +446,7 @@ const commands = {
       systemOne, revision: await gitRevision(root), only, debug: io.debug });
     print(io, checked, formatCheck(checked));
     io.note(...meter.lines());
-    return checked.clean ? 0 : 1;
+    return checked.clean ? EXIT.clean : EXIT.found;
   },
   /** Set issues aside, or put them back: a judgement you make about what the scan found, kept in the same log as everything else. */
   async close(io) { await setAside(io, 'close'); },
@@ -444,7 +465,7 @@ async function loadDotEnv() {
 export async function main(argv, { stdout = text => process.stdout.write(text + '\n'), stderr = text => process.stderr.write(text + '\n'), env = process.env } = {}) {
   if (env === process.env) await loadDotEnv();
   // A mistake gets the mistake and where to read about it. Printing the whole help over an error buries the error.
-  const wrong = (message, where = '') => { stderr(`perch: ${message}`); stderr(`perch ${where} --help`.replace('  ', ' ')); return 2; };
+  const wrong = (message, where = '') => { stderr(`perch: ${message}`); stderr(`perch ${where} --help`.replace('  ', ' ')); return EXIT.usage; };
   let parsed;
   try { parsed = parseArgs(argv); }
   catch (error) { return wrong(error.message); }
@@ -452,8 +473,8 @@ export async function main(argv, { stdout = text => process.stdout.write(text + 
   const [typed = 'help', argument] = positional;
   const commandName = ALIASES[typed] ?? typed;
   const command = commands[commandName];
-  if (flags.help || commandName === 'help') { stdout(command ? usageFor(commandName) : usage); return 0; }
-  if (!command) { stderr(`perch: unknown command ${typed}`); stderr(`perch --help lists them`); return 2; }
+  if (flags.help || commandName === 'help') { stdout(command ? usageFor(commandName) : usage); return EXIT.clean; }
+  if (!command) { stderr(`perch: unknown command ${typed}`); stderr(`perch --help lists them`); return EXIT.usage; }
   try { checkFlags(flags, commandName); }
   catch (error) { return wrong(error.message, commandName); }
   const verbose = Boolean(flags.verbose);
@@ -462,13 +483,13 @@ export async function main(argv, { stdout = text => process.stdout.write(text + 
   const log = message => { if (verbose || !flags.json) stderr(`[perch] ${message}`); };
   const debug = message => { if (verbose) stderr(`[perch] ${message}`); };
   try {
-    // A command that returns a number is saying what the exit code should be; a scan fails the build on a broken rule.
+    // A command that returns a number is saying what the exit code should be.
     const code = await command({ argument, args: positional.slice(1), flags, env, stdout, stderr, log, debug, verbose, note: noteFrom({ flags }, stderr) });
-    return typeof code === 'number' ? code : 0;
+    return typeof code === 'number' ? code : EXIT.clean;
   } catch (error) {
     if (error instanceof UsageError) return wrong(error.message, commandName);
     stderr(`perch: ${error.message}`);
     if (verbose && error.stack) stderr(error.stack);
-    return 1;
+    return EXIT.broke;
   }
 }

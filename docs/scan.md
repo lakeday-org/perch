@@ -40,7 +40,7 @@ Nodes are named methods. An edge is drawn when a call resolves:
 * to a method in the same file, by name;
 * through an import, to a method in another scanned file;
 * for Go, to a method in the same directory;
-* as a **handover**, when a function is passed as a value rather than called —
+* as a **handover**, when a function is passed as a value rather than called:
   a tool handler, a callback, an event listener. These resolve only when the
   name is unique across the repository, and the model is told the edge is a
   handover rather than a call site.

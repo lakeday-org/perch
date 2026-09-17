@@ -62,5 +62,5 @@ somewhere else with `--out`:
 
 - [Quick start](/install/) installs it and walks the first scan.
 - [Reading issues](/issues/) is the list, the filters, and closing what does not matter.
-- [Your own rules](/rules/) is `perch.yaml`.
+- [Semantic linting](/rules/) is `perch.yaml`.
 - [How a scan works](/scan/) is the graph walk, the questions, and the arithmetic behind the ranking.

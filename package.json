@@ -1,7 +1,7 @@
 {
   "name": "@lakeday/perch",
   "version": "0.1.1",
-  "description": "Finds real bugs in a repository, proves each one with a failing regression test, and optionally fixes it.",
+  "description": "Finds bugs and design problems in a repository, and asks your own rules alongside its own.",
   "license": "MIT",
   "repository": {
     "type": "git",

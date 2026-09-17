@@ -33,7 +33,7 @@ export const SEES = ['self', 'file', 'calls', 'callers', 'neighbors'];
 export const ENSURES = ['ensure', 'ensure_present', 'ensure_absent'];
 export const SEARCHES = kind => kind === 'ensure_present' || kind === 'ensure_absent';
 
-const KEYS = new Set(['name', 'disabled', 'min', 'type', 'each', 'where', 'except', 'sees', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', ...ENSURES]);
+const KEYS = new Set(['name', 'disabled', 'min', 'gate', 'type', 'each', 'where', 'except', 'sees', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', ...ENSURES]);
 const ISSUE_KEYS = new Set(['type', 'label', 'on', 'pick', 'except']);
 /** A correctness issue is weighed by the severity rubric; everything else weighs as itself. */
 export const CORRECTNESS = new Set(['defect', 'security']);
@@ -63,6 +63,16 @@ function expand(rule) {
   };
 }
 
+/**
+ * Whether a finding from this question fails the scan.
+ *
+ * Something wrong does: a defect, a vulnerability, a rule saying your code holds a property. Something large or undocumented
+ * does not, since neither is wrong. `gate: false` says a question is worth reading and not worth failing over, which is where a
+ * judgement call belongs.
+ */
+const GATED = new Set(['defect', 'security', 'lint']);
+const gates = question => (question.gate === undefined ? GATED.has(question.issue?.type) : question.gate);
+
 /** A question that cannot be understood is a mistake to fix now, not a question to skip quietly at the point it would have mattered. */
 export function check(question, at, noun = 'question') {
   if (!question?.name) throw new Error(`${at}: every ${noun} needs a name`);
@@ -90,12 +100,13 @@ export function check(question, at, noun = 'question') {
   // How sure this one has to be before it is worth saying. A question the model hedges on fills a report with coin flips, and
   // where that line sits is a judgement about the question rather than about the run, so it is set beside the question.
   if (full.min !== undefined && !(Number(full.min) >= 0 && Number(full.min) <= 100)) throw new Error(`${where}: min is a percentage, 0 to 100, not ${full.min}`);
+  if (full.gate !== undefined && typeof full.gate !== 'boolean') throw new Error(`${where}: gate is true or false, not ${full.gate}`);
   if (full.issue) {
     const unknown = Object.keys(full.issue).filter(key => !ISSUE_KEYS.has(key));
     if (unknown.length) throw new Error(`${where}: issue takes ${[...ISSUE_KEYS].join(', ')}, not ${unknown.join(', ')}`);
     if (!full.issue.type) throw new Error(`${where}: an issue needs a type`);
   }
-  return { ...full, type, each, sees: full.sees ?? 'self', min: full.min === undefined ? null : Number(full.min),
+  return { ...full, type, each, sees: full.sees ?? 'self', min: full.min === undefined ? null : Number(full.min), gate: gates(full),
     kind: full.kind ?? null, text: full.text ?? null, at,
     // As it was written, so a question perch ships can be copied into your own file and changed from there.
     declared: question,
@@ -205,8 +216,10 @@ export function issues(answers, min = 0, questions = questionSet(), rename = kin
     const label = labelOf(question, questions, answers);
     if (question.issue.except && label === question.issue.except) continue;
     // A question saying how sure it has to be speaks for itself; the run's floor is for the ones that do not.
-    const issue = { type: question.issue.type, label: rename(label), probability: raised, floor: floorFor(question, min),
-      text: `${rename(label)} ${Math.round(raised * 100)}%` };
+    // `from` is the question, which is what says whether the issue fails a run. The label cannot: it is often an answer rather
+    // than a name, and a model that picks a word outside the options it was offered would walk straight past a gate.
+    const issue = { type: question.issue.type, label: rename(label), from: question.name, probability: raised,
+      floor: floorFor(question, min), text: `${rename(label)} ${Math.round(raised * 100)}%` };
     if (question.issue.pick !== 'strongest') { found.push(issue); continue; }
     const held = strongest.get(question.issue.type);
     if (!held || issue.probability > held.probability) strongest.set(question.issue.type, issue);
@@ -215,6 +228,7 @@ export function issues(answers, min = 0, questions = questionSet(), rename = kin
 }
 
 /** The labels one question can raise: the options of the choice it names, or the one name it files under. */
+export function labelsRaised(question, questions, rename = kind => kind) { return labelsOf(question, questions, rename); }
 function labelsOf(question, questions, rename = kind => kind) {
   const wanted = question.issue?.label ?? 'self';
   const named = questions.find(other => other.name === wanted && other.type === 'choice');

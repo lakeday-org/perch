@@ -54,7 +54,8 @@ export async function readRules(root, revision) {
   return rules;
 }
 
-/** The entries a scan runs as rules: a yes-or-no with a rule's shape. A question written longhand is asked as a question. */
+/** A question written longhand has no `kind`, and is asked of a method inside the walk rather than run over files and tests
+ * here. So this is the split between the two, not a narrowing of one. */
 export const asRules = questions => questions.filter(question => question.kind);
 
 /** `**\/*.md` and `src/**\/*.js` as a test on a path. Only the two wildcards a rule file ever needs. */
@@ -204,8 +205,9 @@ export const rulesForMethod = (rules, node) => rules.filter(rule => rule.kind ==
   && (!rule.except || ![rule.except].flat().some(glob => matches(glob, node.path))));
 
 /**
- * One rule asked of one unit, as it is written down: enough to print a row, open the code, and rank it beside everything else. A
- * check that passed is written down too, with nothing to report, because that is what lets the next run skip asking it.
+ * The same verdict twice, flat and under `lint`, because a check has to read two ways: as a row in the issue list beside methods
+ * the scan read, and as the record of a rule having been asked. A check that passed is written down as well, with nothing to
+ * report, since that is what lets the next run skip asking it.
  */
 const checkOf = (rule, unit, { broken, line, text, revision, key }) => ({
   type: 'checked', at: new Date().toISOString(), id: findingId(`${rule.name}::${unit.id}`), rule: rule.name, rule_hash: rule.hash,
@@ -304,6 +306,10 @@ export async function searchUnits({ rules, scan, graph, files, tree, revision, s
   };
 
   await Promise.all(running.map(async ({ rule, units, id, key }) => {
+    // A search with nothing to search has nothing to say. Under --since the universe is what the branch touched, so a rule over
+    // test files on a branch that touched none would otherwise report that nobody has the thing, which is a claim it never
+    // tested. perch doctor lists a rule that covered nothing, which is where an empty search belongs.
+    if (!units.length) return;
     // Read in batches rather than one at a time. The answer is the same either way, since the first unit in ranked order that
     // has the thing is the one taken however many were read alongside it; what changes is that a search over four hundred
     // methods is a minute rather than most of an hour. At most one batch is spent past the answer.

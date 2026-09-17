@@ -62,7 +62,8 @@ function closures(events) {
   return byId;
 }
 const byCreation = (a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? '') || a.id.localeCompare(b.id);
-/** How sure perch is of the worst thing it found here, which is what a list of issues is ordered by. */
+/** Ranked on the worst thing alone. `issuesOf` hands them back strongest first, so the head is that, and a method with one
+ * thing at 90% belongs above a method with five at 60%. */
 const surest = (finding, min) => issuesOf(finding, min)[0]?.probability ?? 0;
 
 export function openStore(out) {
@@ -78,11 +79,14 @@ export function openStore(out) {
     out,
     scanDir: id => join(out, 'scans', id),
     runDir: id => join(out, 'runs', id),
-    fixDir: id => join(out, 'fixes', id),
-    refactorDir: id => join(out, 'refactors', id),
     /** Keep results out of `git status` when they live inside the repository. */
     async exclude(root) {
-      if (out.startsWith(root + '/')) await excludeFromStatus(root, '/' + out.slice(root.length + 1).split('/')[0] + '/');
+      if (!out.startsWith(root + '/')) return;
+      // Everything under it but not what you decided. Excluding the directory itself would make closed.jsonl unreachable: git
+      // will not re-include a file whose parent is excluded, so a `!` for it anywhere else could never have worked.
+      const dir = out.slice(root.length + 1).split('/')[0];
+      await excludeFromStatus(root, `/${dir}/*`);
+      await excludeFromStatus(root, `!/${dir}/closed.jsonl`);
     },
     /**
      * What the last scan found, rewritten whole every time. Nothing here is a cache of a model answer: a scan asks every question
@@ -99,7 +103,7 @@ export function openStore(out) {
       await writeFile(store.logPath, `${new Date().toISOString()} perch\n`);
       return line => appendFile(store.logPath, `${new Date().toISOString()} ${line}\n`).catch(() => {});
     },
-    /** The last `count` lines of it, for a report of a run that went wrong. */
+    /** Enough of the end to show what a run was doing when it stopped, which is what doctor prints when one did not finish. */
     async tail(count = 20) {
       const text = await readFile(store.logPath, 'utf8').catch(() => '');
       return text.split('\n').filter(Boolean).slice(-count);
@@ -134,9 +138,11 @@ export function openStore(out) {
      * the closure covers; left out, it covers what the issue carries now, which is what you were looking at when you closed it.
      */
     async decide(type, finding, { kinds = null, reason = null } = {}) {
-      // Closing without naming kinds covers what the issue carries now. Reopening without naming them takes the whole thing back,
-      // so it names none: the kinds it would otherwise list are the live ones, which were never closed.
-      const covers = type === 'dismissed' ? { kinds: kinds ?? issuesOf(finding, 0).map(issue => issue.label), reason } : kinds ? { kinds } : {};
+      // Closing without naming kinds covers what the issue was listing, at the floors a listing reads. Not everything the answers
+      // hold: a one-line function listed for a 67% comment carries a 10% buffer overflow as well, and closing the comment used to
+      // set that aside too, so a real one arriving later would never be shown. Reopening without naming them takes the whole
+      // thing back, so it names none: the kinds it would otherwise list are the live ones, which were never closed.
+      const covers = type === 'dismissed' ? { kinds: kinds ?? issuesOf(finding, BELIEVED).map(issue => issue.label), reason } : kinds ? { kinds } : {};
       const event = { type, at: new Date().toISOString(), id: finding.id, method: finding.method ?? null, path: finding.path, name: finding.name, line: finding.line, ...covers };
       await mkdir(out, { recursive: true });
       await appendFile(store.closedPath, JSON.stringify(event) + '\n');
@@ -233,9 +239,11 @@ export function openStore(out) {
     },
     listRuns: () => records('runs', 'run.json'),
     listScans: () => records('scans', 'scan.json'),
-    listFixes: () => records('fixes', 'fix.json'),
     async latestRun() { return (await store.listRuns()).at(-1) ?? null; },
-    /** The most recent scan on disk: the code as it was last analyzed. */
+    /**
+     * The tree an issue list is joined against, so a method this does not hold is a method that is gone. Scans are read in the
+     * order they were made, which is what makes the last one the current one.
+     */
     async latestScan() { return (await store.listScans()).at(-1) ?? null; },
   };
   return store;

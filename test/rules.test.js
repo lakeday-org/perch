@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -80,6 +81,22 @@ describe('editing the rule file', () => {
       .toEqual([['r1', 'ensure'], ['r2', 'ensure_absent']]);
   });
 
+  it('lets one of two edits at once through, and tells the other rather than dropping it', async () => {
+    const { root, read, rules } = await withRules(STARTING);
+    // Every edit puts the whole document down again, so two landing together used to leave whichever finished last, with the
+    // other's rule gone and nothing said about it.
+    const both = await Promise.allSettled([
+      addRule(root, { name: 'mine', where: '**/*', ensure: 'A sentence.' }),
+      addRule(root, { name: 'theirs', where: '**/*', ensure: 'Another sentence.' }),
+    ]);
+    // Taken in turn rather than together, so the second reads what the first wrote and both rules are in the file.
+    expect(both.map(one => one.status)).toEqual(['fulfilled', 'fulfilled']);
+    expect((await rules()).map(rule => rule.name).sort()).toEqual(['mine', 'prose', 'theirs']);
+    // And the lock is not left behind for the next command to wait on.
+    expect(existsSync(join(root, `${RULES_FILE}.lock`))).toBe(false);
+    expect(await read()).not.toContain('[');
+  });
+
   it('refuses a name that is taken, since two rules with one name is a report nobody can act on', async () => {
     const { root } = await withRules(STARTING);
     await expect(addRule(root, { name: 'prose', where: '**/*.md', ensure: 'Something else.' })).rejects.toThrow('already a rule');
@@ -151,6 +168,19 @@ describe('editing the rule file', () => {
     const set = merge(BUILTIN, await rules());
     expect(set.filter(question => question.name === 'has_bug')).toHaveLength(1);
     expect(set.find(question => question.name === 'has_bug').ask).toBe('Is there a bug a caller can reach?');
+  });
+
+  it('writes down whether a question fails a run, for one perch ships and one you wrote', async () => {
+    const { root, rules } = await withRules(STARTING);
+    await addRule(root, { name: 'loose', where: 'docs/**/*.md', gate: false, ensure: 'Docs are short.' });
+    // A rule fails a run by default, since it is a claim you made about your own code, and this one says otherwise.
+    expect((await rules()).find(rule => rule.name === 'loose').gate).toBe(false);
+    // And a question perch ships is turned the other way the same way, by being copied into your file with the change on it.
+    await editRule(root, 'refactor', { gate: true });
+    installQuestions(merge(BUILTIN, await rules()));
+    expect(questionSet().find(question => question.name === 'refactor').gate).toBe(true);
+    expect(BUILTIN.find(question => question.name === 'refactor').gate).toBe(false);
+    installQuestions(BUILTIN);
   });
 
   it('lists a question written out longhand, and does not run it as a rule', async () => {

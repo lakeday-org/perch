@@ -9,6 +9,7 @@ import { parseFilters } from '../src/questions.js';
 import { revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { scanRepository } from '../src/scan.js';
+import { openStore } from '../src/store.js';
 import { commitAll, fixtureOptions, makeFixture, makeGraphFixture, scriptedSystemOne } from './helpers.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -258,10 +259,15 @@ describe('cli', () => {
 
     // A closure is about the one thing closed. Every other method the scan read is still live.
     expect(await main(['close', f.id, '--out', repo.out], io)).toBe(0);
-    expect(await main(['issues', '--all', '--min', '0', '--out', repo.out], io)).toBe(0);
+    expect(await main(['issues', '--all', '--out', repo.out], io)).toBe(0);
     const listed = out.at(-1).split('\n').filter(line => /^[0-9a-f]{8} {2}/.test(line));
     expect(listed.length).toBeGreaterThan(1);
     expect(listed.some(line => line.startsWith(f.id))).toBe(false);
+
+    // And about what it was listing, not about every answer behind it. Closing a method for the one thing shown used to set
+    // aside every class the reading holds at any probability, so a real one turning up later could never be listed.
+    const closed = (await openStore(repo.out).indexes()).dismissals.get(f.id);
+    expect([...closed.kinds].sort()).toEqual(['docs', 'inverted_condition']);
 
     expect(await main(['close', '--out', repo.out], io)).toBe(2);
     expect(err.join('\n')).toContain('perch close needs at least one issue id');

@@ -22,7 +22,7 @@ export function severityOf(severity) {
   return { band: SEVERITY_BANDS[Math.round(expected)] ?? SEVERITY_BANDS[likeliest], likeliest: SEVERITY_BANDS[likeliest] ?? String(likeliest),
     predicted: 3 - expected, probability, expected };
 }
-/** What a row prints: the band, and where the score actually landed inside it, so two rows compare without reading their distributions. */
+/** Two rows compare without either being opened, which the band alone does not let them do. */
 export const severityName = severity => { const score = severityOf(severity); return !score ? '-' : score.predicted === null ? score.band : `${score.band} (${score.predicted.toFixed(1)})`; };
 /** The band a method files under, which is what `--filter severity=` reads. */
 export const severityBand = severity => severityOf(severity)?.band ?? '-';
@@ -85,8 +85,9 @@ export function issuesOf(answers, min = BELIEVED, questions = questionSet()) {
 }
 
 /**
- * The expected number of problems a reading describes, correctness and design counted apart. Every answer contributes its own
- * probability, so two at 50% weigh what one at 100% weighs and nothing has to cross a line to count.
+ * Two numbers rather than one, because whoever ranks on them weighs the sides differently and cannot separate them afterwards.
+ * Every answer contributes its own probability, so two at 50% count what one at 100% counts and nothing has to cross a line to
+ * be counted at all: a floor here would make the ranking jump as answers crossed it.
  */
 export function expectedIssues(answers, issues = issuesOf(answers, 0)) {
   const sum = list => list.reduce((total, issue) => total + issue.probability, 0);
@@ -193,7 +194,7 @@ export function issuesFor(finding, min = 0, filters = []) {
 export const isDesign = issue => issue.type !== 'defect' && issue.type !== 'security';
 /** Design problems do not count here: a method nobody can break is not flagged for being ugly. */
 export const flagged = (answers, min = 0) => issuesOf(answers, min).some(issue => !isDesign(issue));
-/** The complement of flagged, so a method with neither is one the scan has nothing to say about. */
+/** Not the opposite of flagged: a method can be both wrong and badly shaped, and the two are counted and ranked apart. */
 export const needsDesign = (answers, min = 0) => issuesOf(answers, min).some(isDesign);
 export const hasIssue = (answers, min = 0) => issuesOf(answers, min).length > 0;
 

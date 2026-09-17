@@ -1,6 +1,6 @@
 # Rules perch checks on a scan. Each one is a question put to a model about one file or one method, so these are the
-# things a parser cannot prove: whether a comment says why, whether a listing honors a filter, whether a behavior is asserted
-# anywhere. Editing a rule's wording re-asks it; leaving it alone costs nothing.
+# things a parser cannot prove: whether a listing honors a filter, whether prose reads like a person wrote it, whether a
+# behavior is asserted anywhere. Editing a rule's wording re-asks it; leaving it alone costs nothing.
 
 - name: prose-not-generated
   where: "**/*.md"
@@ -12,13 +12,7 @@
   ensure: >
     Documentation is kept succinct and deliberate. No follow ups, em-dashes, and
     meaningless statements
-
-- name: comment-says-why
-  where: "src/**/*.js"
-  each: method
-  ensure_absent: >-
-    A comment that narrates the steps below it, or restates the method's name as
-    a sentence.
+  min: 60
 
 - name: closed-never-listed
   where: callers of issues

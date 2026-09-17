@@ -1,9 +1,10 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { expect, it } from 'vitest';
-import { resolveTarget } from '../src/target.js';
+import { cloneInto, resolveTarget } from '../src/target.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -42,4 +43,52 @@ it('propagates a failed checkout of origin HEAD', async () => {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+/** A bare repository with one commit, standing in for the GitHub url a real clone is given. */
+async function remoteWithACommit(root) {
+  const remote = join(root, 'remote.git'), source = join(root, 'source');
+  await runGit(['init', '--bare', '-q', remote], root);
+  await mkdir(source);
+  await runGit(['init', '-q', source], root);
+  await runGit(['config', 'user.name', 'Fixture'], source);
+  await runGit(['config', 'user.email', 'fixture@example.com'], source);
+  await writeFile(join(source, 'README.md'), 'fixture\n');
+  await runGit(['add', 'README.md'], source);
+  await runGit(['commit', '-q', '-m', 'fixture'], source);
+  await runGit(['branch', '-M', 'main'], source);
+  await runGit(['remote', 'add', 'origin', remote], source);
+  await runGit(['push', '-q', 'origin', 'main'], source);
+  // A bare repository keeps whatever HEAD git init gave it, which is master on a machine configured that way and main on
+  // another. A clone checks out HEAD, so without this the clone is a .git and an empty tree wherever the two disagree.
+  await runGit(['symbolic-ref', 'HEAD', 'refs/heads/main'], remote);
+  return remote;
+}
+
+it('clones once when two runs want the same repository at the same time', async () => {
+  const root = await mkdtemp(join(process.cwd(), '.target-test-'));
+  try {
+    const remote = await remoteWithACommit(root);
+    const dir = join(root, 'cache', 'repos', 'owner', 'repo');
+    // Both see no clone and both start one. Cloning straight into the directory had them writing into each other's tree.
+    await Promise.all([cloneInto(dir, remote), cloneInto(dir, remote), cloneInto(dir, remote)]);
+    expect(existsSync(join(dir, '.git'))).toBe(true);
+    expect(existsSync(join(dir, 'README.md'))).toBe(true);
+    // Nothing staged is left beside it, so the next run sees one clone and not a directory of half-finished ones.
+    expect((await readdir(join(root, 'cache', 'repos', 'owner'))).sort()).toEqual(['repo']);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+it('clones over a directory left behind by a clone that was killed partway', async () => {
+  const root = await mkdtemp(join(process.cwd(), '.target-test-'));
+  try {
+    const remote = await remoteWithACommit(root);
+    const dir = join(root, 'cache', 'repos', 'owner', 'repo');
+    // Something there with no .git in it: git will not clone into it and perch cannot read it, so it used to wedge for good.
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'half.txt'), 'interrupted\n');
+    await cloneInto(dir, remote);
+    expect(existsSync(join(dir, '.git'))).toBe(true);
+    expect(existsSync(join(dir, 'half.txt'))).toBe(false);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
