@@ -228,13 +228,17 @@
   each: method
   where: "**/*"
   when: exposed
-  ask: >
+  ask: >-
     If `method` handles anything from outside the program: is this true of it?
-    Input from outside decides how much memory, recursion, time, or work
-    happens, with nothing bounding it.
-  true: >
-    Yes: input from outside decides how much memory, recursion, time, or work
-    happens, with nothing bounding it
+    Input from outside decides how much memory, recursion, time or work happens,
+    and nothing bounds it. Work whose size is what the operator asked for is not
+    this: a tool doing as much work as the input it was pointed at is doing its
+    job.
+  true: >-
+    Yes: input from outside decides how much memory, recursion, time or work
+    happens, and nothing bounds it. Work whose size is what the operator asked
+    for is not this: a tool doing as much work as the input it was pointed at is
+    doing its job.
   false: No, or nothing from outside reaches this method
   issue: { type: security, label: self, pick: strongest }
   min: 70
@@ -243,13 +247,19 @@
   each: method
   where: "**/*"
   when: exposed
-  ask: >
+  ask: >-
     If `method` handles anything from outside the program: is this true of it? A
-    name from outside chooses which function, class, field, or module is
-    reached, so the caller picks the code that runs.
-  true: >
-    Yes: a name from outside chooses which function, class, field, or module is
-    reached, so the caller picks the code that runs
+    name from outside chooses which function, class, field or module is reached,
+    so it picks code the program never named. An import or require built from
+    it, a property taken off an object and called, a class or handler resolved
+    by name. A lookup in a table the program itself wrote, where a name that is
+    not in it is handled, is not this.
+  true: >-
+    Yes: a name from outside chooses which function, class, field or module is
+    reached, so it picks code the program never named. An import or require
+    built from it, a property taken off an object and called, a class or handler
+    resolved by name. A lookup in a table the program itself wrote, where a name
+    that is not in it is handled, is not this.
   false: No, or nothing from outside reaches this method
   issue: { type: security, label: self, pick: strongest }
   min: 70
