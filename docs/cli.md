@@ -100,16 +100,36 @@ perch rules [list | add <name> | edit <name> | remove <name>] [options]
 
 Writes `perch.yaml`, keeping your comments and ordering.
 
+Most rules are a yes-or-no, and `--ensure` is all one needs. `--where` defaults
+to `**/*` and the unit defaults to the file as a whole:
+
+```sh
+perch rules add no-narrative-prose --ensure "A headline and one line, not a paragraph explaining the product."
+```
+
 | Flag | |
 | --- | --- |
-| `--where W` | What it covers: a glob, `callers of <method>`, or `mentions <text>`. |
-| `--except W` | A glob it spares. |
-| `--each U` | Ask about each `file`, `method`, or `test` rather than the file as a whole. |
-| `--sees S` | What a file or test is shown besides itself: `file`, `calls`, `callers`, or `neighbors`. |
 | `--ensure TEXT` | What has to be true of every file or method it covers. |
 | `--ensure_present TEXT` | Something that has to be somewhere in what it covers. |
 | `--ensure_absent TEXT` | Something that must not be anywhere in what it covers. |
+| `--where W` | What it covers: a glob, `callers of <method>`, or `mentions <text>`. Default `**/*`. |
+| `--except W` | A glob it spares. |
+| `--each U` | Ask about each `file`, `method`, or `test` rather than the file as a whole. |
+| `--sees S` | What a file or test is shown besides itself: `file`, `calls`, `callers`, or `neighbors`. |
+| `--min P` | The floor for this rule alone, in percent. |
 | `--json` | Print JSON instead of a summary. |
+
+An answer that is not yes-or-no is written out:
+
+| Flag | |
+| --- | --- |
+| `--type T` | The shape of the answer: `noul`, `choice`, `score`. Default `noul`. |
+| `--ask TEXT` | The question itself, in place of `--ensure`. |
+| `--true TEXT` / `--false TEXT` | What a yes and a no mean, for `--type noul`. |
+| `--options "a=..; b=.."` | The options and what each means, for `--type choice`. |
+| `--levels "a; b; c"` | The rubric, weakest first, for `--type score`. |
+| `--when NAME` | Another question this one is only as likely as. The two multiply. |
+| `--issue "type=..,label=.."` | What an answer means: `type`, `label`, `on`, `pick`, `except`. |
 
 The fields are described in [Your own rules](/rules/).
 

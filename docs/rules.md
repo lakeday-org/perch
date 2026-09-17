@@ -15,6 +15,24 @@ real.
 
 They live in `perch.yaml` at the root of the repository.
 
+## The short form
+
+A rule is its name and the sentence you want held. Everything else has a default:
+
+```sh
+perch rules add no-narrative-prose --ensure "A headline and one line, not a paragraph explaining the product."
+```
+
+```yaml
+- name: no-narrative-prose
+  where: "**/*"
+  ensure: >-
+    A headline and one line, not a paragraph explaining the product.
+```
+
+`where` defaults to `**/*`, the answer defaults to a yes-or-no, and the unit
+defaults to the file as a whole. Narrow any of them when you need to:
+
 ```yaml
 - name: env-read-once
   where: "src/**/*.js"
@@ -40,16 +58,18 @@ made of.
 
 ## Fields
 
-| Field | |
-| --- | --- |
-| `name` | What it is called. Names the row in the table, and is what `--rules` and `--filter kind=` take. |
-| `where` | What it covers: a glob, `callers of <method>`, or `mentions <text>`. |
-| `except` | A glob it spares. |
-| `each` | `file`, `method`, or `test`. A file as a whole is the default. |
-| `sees` | What a file or test is shown besides itself: `file`, `calls`, `callers`, or `neighbors`. |
-| `ensure` | What has to be true everywhere it covers. |
-| `ensure_present` | Something that has to exist somewhere in what it covers. |
-| `ensure_absent` | Something that must not exist anywhere in what it covers. |
+| Field | | Default |
+| --- | --- | --- |
+| `name` | What it is called. Names the row in the table, and is what `--rules` and `--filter kind=` take. | required |
+| `ensure` | What has to be true everywhere it covers. | |
+| `ensure_present` | Something that has to exist somewhere in what it covers. | |
+| `ensure_absent` | Something that must not exist anywhere in what it covers. | |
+| `where` | What it covers: a glob, `callers of <method>`, or `mentions <text>`. | `**/*` |
+| `except` | A glob it spares. | nothing |
+| `each` | `file`, `method`, or `test`. | the file as a whole |
+| `sees` | What a file or test is shown besides itself: `file`, `calls`, `callers`, or `neighbors`. | itself |
+| `min` | The floor for this rule alone, in percent. | the run's `--min` |
+| `disabled` | Keeps the rule in the file without asking it. | `false` |
 
 ### `where`
 
@@ -156,3 +176,31 @@ a class of your own alongside them.
 
 `scan.yaml` is worth reading once. It is the whole set of questions, and it is
 the clearest statement of what perch does. See [the questions](/scan/#the-questions).
+
+## Answers that are not yes-or-no
+
+`ensure` is shorthand for a yes-or-no question. A rule can instead be written out
+in the grammar `scan.yaml` uses, which is what you need when the answer is a pick
+from a set or a grade against a rubric.
+
+| Field | |
+| --- | --- |
+| `type` | `noul` for a probability, `choice` for a pick, `score` for a grade. Default `noul`. |
+| `ask` | The question itself, in place of `ensure`. |
+| `true` / `false` | What a yes and a no mean, for `noul`. |
+| `options` | The options and what each means, for `choice`. |
+| `levels` | The rubric, weakest first, for `score`. |
+| `when` | Another question this one is only as likely as. The two multiply. |
+| `issue` | What an answer means: `type`, `label`, `on`, `pick`, `except`. |
+
+```sh
+perch rules add handles_absence --type choice --each method --where "src/**/*.js" \
+  --ask "How does this method handle a value that is missing?" \
+  --options "checks=It checks for it; ignores=It carries on with the missing value" \
+  --issue "type=defect,label=handles_absence,except=checks"
+```
+
+`when` is how the scan's own security classes are gated on `exposed`: a class that
+only matters if something from outside reaches the method is written
+`when: exposed`, and its probability is multiplied by that one's. See
+[the questions](/scan/#the-questions).
