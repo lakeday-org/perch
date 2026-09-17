@@ -16,11 +16,9 @@
 - name: comment-says-why
   where: "src/**/*.js"
   each: method
-  ensure: >-
-    A method's comment says what its code cannot. Narrating the steps below it,
-    or restating its name as a sentence, breaks this. A one-liner whose name
-    says everything needs no comment.
-  min: 78
+  ensure_absent: >-
+    A comment that narrates the steps below it, or restates the method's name as
+    a sentence.
 
 - name: closed-never-listed
   where: callers of issues
@@ -59,20 +57,17 @@
 - name: no-legacy-fallback
   where: "src/**/*.js"
   each: method
-  min: 80
-  ensure: >-
-    One way of doing the job. No branch that exists to handle a format, key,
-    option or signature that used to be supported. A default for a value that
-    was never set, or an entry initialised on first use, is not this.
+  ensure_absent: >-
+    A branch kept to handle a format, key, option or signature that used to be
+    supported.
 
 - name: no-silent-failure
   where: "src/**/*.js"
   each: method
-  ensure: >-
-    A failure reaches the caller. No catch that returns a default in place of
-    the error, and no ?? or || standing in for a call that failed. A default for
-    a value that was never set is not this.
-  min: 85
+  ensure_absent: >-
+    A catch that returns a default in place of the error, or a ?? or || standing
+    in for a call that failed. A default for a value that was never set is not
+    this.
 
 - name: tests-assert-real-behavior
   where: "test/**/*.js"

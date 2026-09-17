@@ -172,16 +172,38 @@ function paging(io, filters = []) {
   const size = limit ?? (page ? TOP : shown(io, filters));
   return { from: page ? (page - 1) * size : 0, size };
 }
+/** A turning thing, so a run that is waiting on something looks like it is waiting rather than like it has died. */
+const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+/** One line, one spinner: the phases run in turn, so the counter that wrote last is the one the frame belongs to. */
+let onTheLine = null, turning = null, frame = 0;
+
 /**
  * An in-place counter on stderr for interactive runs; silent when piped, verbose, or JSON. It says what is happening now, and it
  * says it in methods from the first line to the last, since that is the thing a run gets through. A phase that does not yet know
  * how many there are counts up without a total rather than borrowing one from something else.
+ *
+ * The number only moves when an answer arrives, and an answer can be a long time coming: a slow method, a service retrying, a
+ * whole batch in flight. The spinner keeps turning through all of it, which is the difference between waiting and hung.
  */
 function liveCounter(io, doing) {
   const live = process.stderr.isTTY && !io.verbose && !io.flags.json;
-  const write = text => { if (live) process.stderr.write(`\r\x1b[K${text}`); };
-  return { update: (done, total) => write(total ? `${doing} ${done} of ${total}` : `${doing} ${done}`),
-    say: text => write(text), clear: () => { if (live) process.stderr.write('\r\x1b[K'); } };
+  // Every redraw turns it, whether the redraw came from an answer arriving or from the clock. Work that holds the loop shows as
+  // movement when the count moves; work that holds nothing shows as movement from the clock.
+  const draw = () => { if (onTheLine) process.stderr.write(`\r\x1b[K${SPINNER[frame++ % SPINNER.length]} ${onTheLine}`); };
+  const write = text => {
+    if (!live) return;
+    onTheLine = text;
+    // Unreferenced, so a run that is otherwise finished is never held open by the thing that says it is not.
+    if (!turning) { turning = setInterval(draw, 80); turning.unref?.(); }
+    draw();
+  };
+  const stop = () => {
+    if (!live) return;
+    if (turning) { clearInterval(turning); turning = null; }
+    onTheLine = null;
+    process.stderr.write('\r\x1b[K');
+  };
+  return { update: (done, total) => write(total ? `${doing} ${done} of ${total}` : `${doing} ${done}`), say: text => write(text), clear: stop };
 }
 
 /** The open issues at HEAD: findings for methods that no longer exist are dropped and counted. */
@@ -248,7 +270,8 @@ function issueFrom(text) {
 function ruleFrom(flags) {
   const written = Object.fromEntries(['type', 'where', 'except', 'each', 'sees', 'when', 'ask', 'true', 'false', ...RULE_KINDS]
     .filter(key => flags[key] !== undefined).map(key => [key, flags[key]]));
-  if (flags.min !== undefined) written.min = threshold(flags.min);
+  // A floor of zero is no floor, so it comes off the rule rather than sitting there as a number that does nothing.
+  if (flags.min !== undefined) { const min = threshold(flags.min); written.min = min === 0 ? null : min; }
   if (flags.options !== undefined) written.options = pairsFrom('--options', flags.options);
   if (flags.levels !== undefined) written.levels = String(flags.levels).split(';').map(part => part.trim()).filter(Boolean);
   if (flags.issue !== undefined) written.issue = issueFrom(flags.issue);

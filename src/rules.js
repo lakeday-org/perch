@@ -95,7 +95,9 @@ export async function editRule(root, name, changes) {
   // it anything the old one had been written out as. Writing it out longhand does the same to the shorthand.
   if (KINDS.some(key => changes[key] !== undefined)) for (const key of [...KINDS, ...EXPANDED]) node.delete(key);
   if (changes.ask !== undefined) for (const key of KINDS) node.delete(key);
-  for (const key of FIELDS) if (changes[key] !== undefined) node.set(key, write(doc, key, changes[key]));
+  // null takes a key off, which is how a floor is removed rather than recorded as zero.
+  for (const key of FIELDS) if (changes[key] === null) node.delete(key);
+  for (const key of FIELDS) if (changes[key] !== undefined && changes[key] !== null) node.set(key, write(doc, key, changes[key]));
   legible(node.toJSON());
   await writeFile(path, String(doc));
   return name;
