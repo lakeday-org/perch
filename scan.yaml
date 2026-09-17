@@ -20,6 +20,7 @@
     The method behaves correctly for every input its callers can pass; style,
     performance, and hypothetical misuse do not count
   issue: { type: defect, label: kind }
+  min: 60
 
 - name: kind
   type: choice

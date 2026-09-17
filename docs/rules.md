@@ -177,6 +177,44 @@ a class of your own alongside them.
 `scan.yaml` is worth reading once. It is the whole set of questions, and it is
 the clearest statement of what perch does. See [the questions](/scan/#the-questions).
 
+## How sure perch has to be
+
+Every question carries a floor, in percent. Below it, an answer is not listed.
+
+| Floor | Question |
+| --- | --- |
+| 75% | `misdocumented` |
+| 70% | `does_what_it_claims`, and all sixteen vulnerability classes |
+| 60% | `has_bug`, `refactor` |
+
+These are not arbitrary. A model asked four hundred times answers in the
+fifties a great deal, and a 51% row reads on the table exactly like a 95% one
+while being a coin flip. The floors are where each question stopped hedging on
+this codebase; yours may differ, and moving them is a one-line edit.
+
+`--min` sets a floor for a whole run. Both apply and the higher wins, so
+`--min 90` does not hand you back a 73% because some question said 70 was
+enough, and `--min 0` still respects what each question set for itself.
+
+A rule you write has no floor unless you give it one:
+
+```yaml
+- name: comment-says-why
+  where: "src/**/*.js"
+  each: method
+  min: 70
+  ensure: A method's comment says what its code cannot.
+```
+
+```sh
+perch rules edit misdocumented --min 85    # raise a shipped one
+perch rules edit comment-says-why --min 0  # take a floor off
+```
+
+Raising a floor until a rule keeps nothing is turning it off with extra steps.
+When a question answers in the seventies about most of a codebase, the question
+is wrong, not the number: see [writing a good one](#writing-a-good-one).
+
 ## Answers that are not yes-or-no
 
 `ensure` is shorthand for a yes-or-no question. A rule can instead be written out
