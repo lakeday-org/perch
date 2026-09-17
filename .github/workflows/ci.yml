@@ -72,7 +72,7 @@ jobs:
 
       - run: npm run build
 
-      # Defects, vulnerabilities and broken rules, over everything this pull request touched. Not refactors or documentation: a
-      # build should fail on something wrong rather than on something large. Exits 1 if a rule in perch.yaml is broken.
-      - name: Defects, vulnerabilities and broken rules
-        run: node bin/perch.mjs scan --filter type=defect,type=lint,type=security ${{ github.event_name == 'pull_request' && format('--since origin/{0}', github.base_ref) || '' }}
+      # Everything this pull request touched. The scan comes back 1 on what is wrong and 0 on what is only worth reading, so
+      # there is nothing to filter here: which questions those are is in scan.yaml and perch.yaml, next to the questions.
+      - name: perch scan
+        run: node bin/perch.mjs scan ${{ github.event_name == 'pull_request' && format('--since origin/{0}', github.base_ref) || '' }}

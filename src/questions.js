@@ -85,8 +85,8 @@ export function issuesOf(answers, min = BELIEVED, questions = questionSet()) {
 }
 
 /**
- * The expected number of problems a reading describes, correctness and design counted apart. Every answer contributes its own
- * probability, so two at 50% weigh what one at 100% weighs and nothing has to cross a line to count.
+ * Every answer contributes its own probability, so two at 50% weigh what one at 100% weighs and nothing has to cross a line to
+ * count. The two sides are apart because only correctness is multiplied by the severity rubric, and design weighs as itself.
  */
 export function expectedIssues(answers, issues = issuesOf(answers, 0)) {
   const sum = list => list.reduce((total, issue) => total + issue.probability, 0);

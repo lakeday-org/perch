@@ -41,7 +41,7 @@ perch scan [target] [options]
 current repository.
 
 Every run reads everything it covers. `--paths` and `--since` narrow what that
-is. Exits 1 if a rule is broken.
+is. Exits 3 on a defect, a vulnerability, or a rule of yours that broke.
 
 | Flag | |
 | --- | --- |
@@ -83,7 +83,7 @@ perch check <path | path::method | issue-id> [options]
 
 Reads that one file off disk and asks about the point you named: every rule that
 covers it, plus the scan's own questions for a method. Nothing is committed or
-recorded, so run it on work in progress. Exits 1 if something is wrong.
+recorded, so run it on work in progress. Exits 3 while something is still wrong.
 
 | Flag | |
 | --- | --- |

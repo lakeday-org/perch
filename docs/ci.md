@@ -8,14 +8,25 @@ summary: What CI can gate on, what it cannot, and a GitHub Actions job for pull 
 
 # perch in CI
 
-`perch scan` exits 1 when a rule you wrote in `perch.yaml` is broken, and 0
-otherwise.
+`perch scan` exits 3 when it found something wrong, and 0 otherwise.
 
-That split is deliberate. A rule is a claim you made about your own code, so
-failing a build on it is you holding yourself to it. A finding perch turned up on
-its own is a probability, and exiting on one would make every run a coin toss.
+| | |
+| --- | --- |
+| 0 | nothing to act on |
+| 1 | perch could not run: no key, no git, a request that kept failing |
+| 2 | the command was typed wrong |
+| 3 | perch ran and found something that fails |
 
-So CI gates on your rules, and reports everything else.
+3 rather than 1, so a job that fell over and a job that found a bug are not the
+same red.
+
+Something wrong is a defect, a vulnerability, or a rule of yours that broke. A
+method being large or undocumented is not wrong, so it is reported and does not
+fail the run.
+
+Each question says which it is. `perch rules list` has a Fails column, and
+`gate:` on a question sets it, so a class you do not want stopping a run is one
+line in `perch.yaml` rather than a filter on the command.
 
 ## Only what the branch changed
 

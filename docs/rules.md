@@ -69,6 +69,7 @@ made of.
 | `each` | `file`, `method`, or `test`. | the file as a whole |
 | `sees` | What a file or test is shown besides itself: `file`, `calls`, `callers`, or `neighbors`. | itself |
 | `min` | The floor for this rule alone, in percent. | the run's `--min` |
+| `gate` | Whether breaking it fails the run. | `true` |
 | `disabled` | Keeps the rule in the file without asking it. | `false` |
 
 ### `where`
@@ -151,9 +152,39 @@ ID        Method          Location          Type  Kind                    Severi
 1 open issue match, out of 27
 ```
 
-`perch scan` exits 1 when a rule is broken. A rule is a claim you made about your
-own code, so CI can read that. A finding perch turned up on its own is a
-probability, and exiting on one would make every run a coin toss.
+`perch scan` exits 3 when a rule is broken, the same as it does on a defect or a
+vulnerability perch found itself. All three say something is wrong.
+
+## What fails a run
+
+Every question says whether an answer fails the run or is only worth reading.
+`perch rules list` shows it in the Fails column, and yours are read no
+differently from perch's own:
+
+```console
+$ perch rules list
+Question          From        Asks         Fails  Over
+comment-says-why  perch.yaml  ensure >65%  yes    src/**/*.js
+has_bug           builtin     noul >60%    yes    **/*
+refactor          builtin     choice >60%  no     **/*
+documented        builtin     noul >75%    no     **/*
+```
+
+A rule, a defect and a vulnerability fail by default. A judgement call does not,
+because a run nobody can get green is a run people stop reading. `gate:` says
+otherwise either way:
+
+```yaml
+- name: docs-succinct
+  where: "docs/**/*.md"
+  gate: false
+  ensure: Documentation is kept succinct and deliberate.
+```
+
+```sh
+perch rules edit refactor --gate true    # make a big method stop a run
+perch rules edit docs-succinct --gate false
+```
 
 ## Editing perch.yaml from the command line
 
@@ -229,6 +260,7 @@ from a set or a grade against a rubric.
 | `levels` | The rubric, weakest first, for `score`. |
 | `when` | Another question this one is only as likely as. The two multiply. |
 | `issue` | What an answer means: `type`, `label`, `on`, `pick`, `except`. |
+| `gate` | Whether an answer fails the run. Defaults to yes for a defect, a vulnerability or a rule. |
 
 ```sh
 perch rules add handles_absence --type choice --each method --where "src/**/*.js" \

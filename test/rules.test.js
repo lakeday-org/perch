@@ -153,6 +153,19 @@ describe('editing the rule file', () => {
     expect(set.find(question => question.name === 'has_bug').ask).toBe('Is there a bug a caller can reach?');
   });
 
+  it('writes down whether a question fails a run, for one perch ships and one you wrote', async () => {
+    const { root, rules } = await withRules(STARTING);
+    await addRule(root, { name: 'loose', where: 'docs/**/*.md', gate: false, ensure: 'Docs are short.' });
+    // A rule fails a run by default, since it is a claim you made about your own code, and this one says otherwise.
+    expect((await rules()).find(rule => rule.name === 'loose').gate).toBe(false);
+    // And a question perch ships is turned the other way the same way, by being copied into your file with the change on it.
+    await editRule(root, 'refactor', { gate: true });
+    installQuestions(merge(BUILTIN, await rules()));
+    expect(questionSet().find(question => question.name === 'refactor').gate).toBe(true);
+    expect(BUILTIN.find(question => question.name === 'refactor').gate).toBe(false);
+    installQuestions(BUILTIN);
+  });
+
   it('lists a question written out longhand, and does not run it as a rule', async () => {
     const root = await makeGraphFixture();
     cleanups.push(root);

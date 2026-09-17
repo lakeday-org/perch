@@ -17,9 +17,11 @@
 - name: comment-says-why
   where: "src/**/*.js"
   each: method
-  ensure_absent: >-
-    A comment that narrates the steps below it, or restates the method's name as
-    a sentence.
+  min: 65
+  ensure: >-
+    A method's comment says what its code cannot. Narrating the steps below it,
+    or restating its name as a sentence, breaks this. A one-liner whose name
+    says everything needs no comment.
 
 - name: closed-never-listed
   where: callers of issues

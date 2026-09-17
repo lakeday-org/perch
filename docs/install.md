@@ -111,7 +111,7 @@ perch check scripts/build.mjs::build          # a method, by name
 perch check scripts/build.mjs                 # a whole file
 ```
 
-It exits 1 while something is still wrong, which is what a loop needs.
+It exits 3 while something is still wrong, which is what a loop needs.
 
 ## Next
 

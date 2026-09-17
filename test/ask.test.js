@@ -34,7 +34,7 @@ describe('the question grammar', () => {
     expect(compile([rule])['comment-says-why']).toEqual({ type: 'noul', instructions: 'Is `rule` true of the code below?',
       criteria: { true: 'A comment says why.', false: 'Not so: A comment says why.' } });
     // A rule is broken by the answer being no, so the issue is raised on false.
-    expect(issues({ 'comment-says-why': 0.2 }, 0, [rule])).toEqual([{ type: 'lint', label: 'comment-says-why', probability: 0.8, floor: 0, text: 'comment-says-why 80%' }]);
+    expect(issues({ 'comment-says-why': 0.2 }, 0, [rule])).toEqual([{ type: 'lint', label: 'comment-says-why', from: 'comment-says-why', probability: 0.8, floor: 0, text: 'comment-says-why 80%' }]);
     // A rule with a default `each` covers whole files, which is what a rule about prose wants.
     expect(check({ name: 'r', where: '**/*.md', ensure: 'x' }, at).each).toBe('file');
   });
@@ -92,6 +92,25 @@ describe('the question grammar', () => {
     expect(labels).not.toContain('has_bug');
     // `none` is excepted by the refactor question, so nothing can be filtered for it.
     expect(labels).not.toContain('none');
+  });
+
+  it('says which answers fail a scan, the same way for a question perch ships and one you wrote', () => {
+    // Something wrong fails it: a defect, a vulnerability, a rule saying your code holds a property.
+    const named = name => BUILTIN.find(question => question.name === name);
+    expect(named('has_bug').gate).toBe(true);
+    expect(named('injection').gate).toBe(true);
+    expect(check({ name: 'comment-says-why', where: 'src/**', ensure: 'A comment says why.' }, at).gate).toBe(true);
+    // Something large or undocumented does not, since neither is wrong and a run nobody can green is a run nobody reads.
+    expect(named('refactor').gate).toBe(false);
+    expect(named('documented').gate).toBe(false);
+    // Nor does a question that only feeds another: `kind` names a defect and `exposed` gates the classes that need it.
+    expect(named('kind').gate).toBe(false);
+    expect(named('exposed').gate).toBe(false);
+    // And a question says otherwise either way, which is how a judgement call gets read without stopping anything.
+    expect(check({ name: 'r', where: '**/*.md', gate: false, ensure: 'x' }, at).gate).toBe(false);
+    expect(check({ name: 'r', where: '**/*', type: 'choice', gate: true, ask: 'What?', options: { a: 'An a', b: 'A b' },
+      issue: { type: 'refactor', label: 'self' } }, at).gate).toBe(true);
+    expect(() => check({ name: 'r', where: '**/*', gate: 'yes', ensure: 'x' }, at)).toThrow('gate is true or false');
   });
 
   it('lets a repository reword a question perch ships, and says so in the hash', () => {

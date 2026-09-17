@@ -59,7 +59,7 @@ Extend perch with your own rules, in `perch.yaml`:
     environment is the command line's job.
 ```
 
-They cover what a parser cannot prove. `perch scan` exits 1 when one breaks, so
+They cover what a parser cannot prove. `perch scan` exits 3 when one breaks, so
 CI can gate on it. [Every field](https://docs.perchscan.com/rules/).
 
 ## Documentation

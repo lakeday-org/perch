@@ -1,7 +1,7 @@
 /** Human-readable summaries of scans, issues, and the work done on them. */
 import { join } from 'node:path';
 import { RULES_FILE } from './units.js';
-import { CORRECTNESS } from './ask.js';
+import { CORRECTNESS, labelsRaised, questionSet } from './ask.js';
 import { alsoKnownAs, filterKeys, issuesFor, issuesOf, label, securities, SEVERITY_BANDS, severityName } from './questions.js';
 
 /** Prose broken at `width` columns, each line indented; the note under a fix is the only paragraph perch prints. */
@@ -158,16 +158,42 @@ export function formatScanReport(findings, { min = 0, width = WIDTH(), color = C
   return (summary ? [...blocks, scanTally(findings, min, color)] : blocks).join('\n\n');
 }
 
+/**
+ * What fails the scan: every issue from a question that gates, above its own floor. A defect, a vulnerability and a broken rule
+ * all say something is wrong; a method being large or undocumented does not. Where the question came from has nothing to do with
+ * it, so perch's own and yours are read the same way.
+ */
+export function gating(findings, min = 0, questions = questionSet()) {
+  const fails = failing(questions);
+  return findings.flatMap(finding => shownIssues(finding, min).filter(issue => fails(issue))
+    .map(issue => ({ ...issue, id: finding.id, path: finding.path, line: finding.line, name: finding.name })));
+}
+
+/**
+ * Whether one issue fails the run. The question that raised it says so and travels on the issue as `from`. A finding read back
+ * off a scan written by an older perch has no `from`, so the labels that question could have raised stand in for it.
+ */
+function failing(questions = questionSet()) {
+  const gated = new Set(questions.filter(question => question.gate).map(question => question.name));
+  const labels = new Set(questions.filter(question => question.gate).flatMap(question => labelsRaised(question, questions)));
+  return issue => (issue.from ? gated.has(issue.from) : labels.has(issue.label));
+}
+
 /** "✖ 41 problems in 18 places in 2 files", the line a run ends on. */
 export function scanTally(findings, min = 0, color = COLOR(), filters = []) {
   const kept = findings.map(finding => ({ path: finding.path, issues: shownIssues(finding, min, filters) })).filter(item => item.issues.length);
   const count = kept.reduce((total, item) => total + item.issues.length, 0);
   const files = new Set(kept.map(item => item.path)).size;
   if (!count) return '✓ nothing to report';
-  const worst = kept.some(item => item.issues.some(issue => issue.probability >= 0.9));
+  // How many of them fail, since that is the number the exit code is: a run that says 24 problems and comes back 0 is a run
+  // nobody can read. Everything else perch found is worth knowing and not worth stopping for.
+  const fails = failing();
+  const failed = kept.reduce((total, item) => total + item.issues.filter(fails).length, 0);
   // Two numbers, not three. How many problems and how many files they are in is what a person reads; how many methods carried
   // them is arithmetic nobody asked for.
-  return `${worst ? red('✖', color) : yellow('!', color)} ${count} ${count === 1 ? 'problem' : 'problems'} in ${files} ${files === 1 ? 'file' : 'files'}`;
+  const where = `${count} ${count === 1 ? 'problem' : 'problems'} in ${files} ${files === 1 ? 'file' : 'files'}`;
+  if (!failed) return `${yellow('!', color)} ${where}, none failing`;
+  return `${red('✖', color)} ${where}, ${failed === count ? 'all' : failed} failing`;
 }
 
 /**
@@ -184,7 +210,7 @@ export function brokenRules(run, { color = COLOR() } = {}) {
   const fired = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 
   const note = name => (nowhere.has(name) ? dim('  nothing has it', color) : '');
-  // Whose rules, since perch's own questions raise issues and never break anything: only what you wrote can be broken.
+  // Named as the file's, since the names are only useful next to the sentences they stand for, and those are in perch.yaml.
   const head = `${red(String(broken.length), color)} of them ${broken.length === 1 ? 'breaks' : 'break'}`;
   // One broken rule is its name; a count and a list under it would say the same thing three times.
   if (fired.length === 1) return `${head} ${fired[0][0]} in ${RULES_FILE}${note(fired[0][0])}`;
@@ -335,18 +361,20 @@ export function formatRules(rules, { width = WIDTH(), own = new Set() } = {}) {
   // The floor is part of what a question asks for, so it is on the row rather than only in the file.
   const asks = rule => (rule.disabled ? 'off' : `${rule.kind ?? rule.type}${rule.min == null ? '' : ` >${rule.min}%`}`);
   const from = rule => (own.has(rule.name) ? RULES_FILE : 'builtin');
-  const named = Math.max(4, ...rules.map(rule => rule.name.length));
+  // Whether an answer fails the run, which is the difference between a question you have to act on and one you can read later.
+  const fails = rule => (rule.disabled ? '-' : rule.gate ? 'yes' : 'no');
+  const named = Math.max(8, ...rules.map(rule => rule.name.length));
   const kind = Math.max(4, ...rules.map(rule => asks(rule).length));
   const source = Math.max(4, ...rules.map(rule => from(rule).length));
   const over = Math.max(4, ...rules.map(rule => String(rule.where ?? '').length));
-  const room = Math.max(30, width - named - kind - source - over - 14);
+  const room = Math.max(30, width - named - kind - source - over - 21);
   const rows = rules.flatMap(rule => {
     const said = wrap(String(rule.text ?? rule.ask ?? '').replace(/\s+/g, ' ').trim(), room, '');
     const lines = said.length ? said : [''];
     return lines.map((line, index) => [index ? '' : rule.name, index ? '' : from(rule), index ? '' : asks(rule),
-      index ? '' : String(rule.where ?? ''), line]);
+      index ? '' : fails(rule), index ? '' : String(rule.where ?? ''), line]);
   });
-  return table(['Question', 'From', 'Asks', 'Over', 'Description'], rows, ['left', 'left', 'left', 'left', 'left']).join('\n');
+  return table(['Question', 'From', 'Asks', 'Fails', 'Over', 'Description'], rows, ['left', 'left', 'left', 'left', 'left', 'left']).join('\n');
 }
 
 /** What `--filter` accepts, as a block a reader can copy from. */

@@ -16,7 +16,7 @@ export { SHAPES };
  * the same way, so this is the whole of it rather than the yes-or-no corner of it.
  */
 export const KINDS = ENSURES;
-export const FIELDS = ['name', 'disabled', 'type', 'each', 'where', 'except', 'sees', 'when', 'min', ...KINDS, 'ask', 'true', 'false', 'options', 'levels', 'issue'];
+export const FIELDS = ['name', 'disabled', 'type', 'each', 'where', 'except', 'sees', 'when', 'min', 'gate', ...KINDS, 'ask', 'true', 'false', 'options', 'levels', 'issue'];
 /** Written out by `ensure`, so a rule that is given one has to lose whatever it had spelled out longhand, and the other way round. */
 const EXPANDED = ['type', 'ask', 'true', 'false', 'options', 'levels'];
 /** Keys whose value is a map or a list rather than a line, so they are built as nodes rather than set as scalars. */

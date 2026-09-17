@@ -295,7 +295,12 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // Rule checks the filter kept out are carried the same way: this run had nothing to say about them, which is not the same
     // as saying they passed.
     const said = new Set(broken.map(check => check.id));
-    const unasked = filters.length ? [...checks.values()].filter(check => !said.has(check.id)) : [];
+    // Carried only while the rule that produced it is still that rule. One reworded, reshaped or deleted since leaves a check
+    // describing a question that no longer exists, and a rule asked of every method now would keep answering as the search it was.
+    const byName = new Map(rules.map(rule => [rule.name, rule]));
+    const unasked = filters.length
+      ? [...checks.values()].filter(check => !said.has(check.id) && byName.get(check.rule)?.hash === check.rule_hash)
+      : [];
     await store.recordScan([...read, ...broken, ...unasked]);
     run.remaining = walk.remaining(); run.status = 'complete'; run.completed_at = new Date().toISOString(); await writeJson(runPath, run); return run;
   } catch (error) { run.status = 'failed'; run.error = error.message; await writeJson(runPath, run).catch(() => {}); throw error; }

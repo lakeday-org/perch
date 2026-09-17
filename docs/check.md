@@ -3,7 +3,7 @@ title: Checking a change
 nav: Checking a change
 group: Using perch
 order: 5
-summary: perch check asks the same questions of code as it reads on disk, records nothing, and exits 1 while something is still wrong.
+summary: perch check asks the same questions of code as it reads on disk, records nothing, and exits 3 while something is still wrong.
 ---
 
 # Checking a change
@@ -36,7 +36,7 @@ method, which is fast and cheap enough to sit in a loop.
 
 ## The loop
 
-`perch check` exits 1 while something it asked about is still wrong, and 0 when
+`perch check` exits 3 while something it asked about is still wrong, and 0 when
 nothing is:
 
 ```sh
