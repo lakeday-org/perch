@@ -42,14 +42,7 @@ perch fix 92c7781e
 Needs Node 22+ and git. `perch fix` commits to the branch you're on and refuses
 main and master.
 
-## The idea
-
-A scanner that says "bug on line 33" is wrong often enough that you stop reading it. perch never
-says that. Every question it asks comes back as a probability, and the probabilities are kept all
-the way through — into what gets listed, what order it is listed in, and whether a fix is allowed to
-land.
-
-Everything below is this repository, scanned by itself.
+## This repository, scanning itself
 
 ```
 $ perch scan
@@ -62,15 +55,14 @@ perch at commit 2c437e8: 386 methods, read 386
 386 requests  2.4M tokens in / 319k out  $0.10
 ```
 
-**Severity is a distribution, not a label.** `P1 (1.3)` means the band is P1 and the score landed at
-1.3, drifting toward P2; `P1 (0.9)` is nearly P0. Calling a method P0 because P0 held the largest
-slice of a 33/31/30/6 spread throws away everything the model was unsure about.
+`P1 (1.3)` is a band and where the score landed inside it — 1.3 drifts toward P2, 0.9 is nearly P0.
+A label alone would call a 33/31/30/6 spread "P0" on a third of the mass.
 
-**Order is what the problems would cost.** A method ranks on its correctness problems weighted by
-that severity, plus its design problems. Not on how many things are wrong with it.
+Rank is correctness weighted by that severity, plus design. Ten cosmetic problems do not outrank one
+that loses data.
 
-**Half is the line for being listed at all.** A probability above a half is the model saying yes, so
-that is what gets claimed. `--min 80` for the obvious ones, `--min 0` for everything it answered.
+Listed at over half, because that is where a probability stops meaning no. `--min 80` for the obvious
+ones, `--min 0` for everything it answered.
 
 ### Reading one method
 
@@ -89,13 +81,12 @@ Misused by a caller: fixIssues 25%, methodContext 23%, openIssues 21%, scanRepos
 Status: open
 ```
 
-The spread is the information. `error_ignored 53%` with the rest scattered means the model is fairly
-sure something is wrong and unsure what. A vulnerability list that is flat across sixteen classes
-usually means the method is too big to read rather than that it has sixteen holes — worth knowing
-before you go chasing one of them.
+`error_ignored 53%` with the rest scattered: fairly sure something is wrong, unsure what. A
+vulnerability list flat across sixteen classes usually means the method is too big to read, not that
+it has sixteen holes — check that before chasing one.
 
-`where` is the model's best guess at a line, with its own confidence attached, because pointing at
-the wrong line confidently is the failure that makes people quit a tool.
+`where` carries its own confidence. Pointing at the wrong line confidently is what makes people quit
+a tool.
 
 ### Narrowing
 
@@ -107,13 +98,13 @@ a4ef42d9  huntStep        …stions.js:336  refactor  too_big 91%           -
 2cac2cdd  readAnswers     …stions.js:438  refactor  too_big 88%           -
 ```
 
-A filter narrows on Type, Kind and Severity, then **ranks by the thing you asked for** and leads each
-row with it. Filtering for vulnerabilities and getting a list ordered by how big the methods are is
-useless, and a row that says `refactor` under a security filter is a row arguing with its own query.
+A filter ranks by what you asked for and leads each row with it. Filtering for vulnerabilities and
+getting a list ordered by method size is useless, and a row reading `refactor` under a security
+filter is arguing with its own query.
 
 ### Fixing
 
-A rewrite is judged by running the scan again over it, not by the model claiming it worked.
+The scan is re-run over the rewrite. The model's opinion of its own work is not an input.
 
 ```
 $ perch fix 272b643c
@@ -134,19 +125,17 @@ $ perch fix 272b643c
   Cost     $0.02
 ```
 
-The test is Pareto: **neither correctness nor design may get worse, and one must get better.** No
-threshold to clear — halving a defect's probability counts for exactly that, and a problem the
-rewrite introduces counts against it by however much the model believes in it. A fix cannot buy
-correctness with shape or shape with bugs.
+Pareto: neither correctness nor design may get worse and one must get better. No threshold — halving
+a defect counts as exactly that, and a new problem costs whatever the model believes of it. A fix
+cannot buy correctness with shape or shape with bugs.
 
-`Cleared / Left / Added` is the whole point of the report. Two lists of issues before and after would
-leave you to diff them by eye.
+`Cleared / Left / Added` instead of two lists to diff by eye.
 
-`submit` also runs your own lint, typecheck and tests, discovered from your manifests and CI rather
-than guessed from names. A rewrite that passes the tests reaching it can still break the build.
+`submit` also runs your lint, typecheck and tests, found in your manifests and CI rather than guessed
+from names. Passing the tests that reach a method does not mean the build still works.
 
-Fixes are refused often. In that same run perch gave up on `fixMethod`, a 246-line method, after
-three attempts no rescan would pass. Refusing is the correct outcome there, and costs about a penny.
+In that same run perch gave up on `fixMethod`, 246 lines, after three attempts no rescan would pass.
+Refusing cost a penny.
 
 ### Issues you do not want fixed
 
@@ -154,12 +143,12 @@ three attempts no rescan would pass. Refusing is the correct outcome there, and 
 perch close e585492e --reason "verifies the HMAC before parsing"
 ```
 
-A false positive that comes back every scan makes the whole list worth less. Closed issues stop being
-listed and `perch fix` skips them. The dismissal is recorded against the method as it reads now, so
-editing that method brings the issue back to be judged again — you dismissed the code, not the name.
+A false positive returning every scan makes the whole list worth less. Closed issues stop being
+listed and `perch fix` skips them. The dismissal is against the method as it reads now, so editing it
+brings the issue back — you dismissed the code, not the name.
 
 A method perch cannot read is recorded and skipped rather than ending the run; `perch doctor` prints
-what happened, safe to paste into a bug report.
+what happened.
 
 ## Commands and flags
 
