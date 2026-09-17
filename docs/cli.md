@@ -2,7 +2,7 @@
 title: Command reference
 nav: Command reference
 group: Reference
-order: 7
+order: 8
 summary: Every verb, every flag, and which ones need a key.
 ---
 

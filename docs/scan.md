@@ -2,7 +2,7 @@
 title: How a scan works
 nav: How a scan works
 group: Reference
-order: 8
+order: 9
 summary: The graph walk, the questions, and how probabilities turn into a ranking.
 ---
 
