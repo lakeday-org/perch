@@ -7,15 +7,14 @@
 
 perch finds bugs and design problems in a repo and fixes them.
 
-`perch scan` parses every tracked file with tree-sitter, scores each method, then
-asks a TypeSafe System One model a fixed set of questions about each one: is
-there a bug, where, what kind, how bad, is it a security hole, does it do what
-its name says, does it need refactoring. Answers come back as probabilities.
-Methods are sorted worst first.
+`perch scan` parses every tracked file with tree-sitter and scores each method.
+It then asks a TypeSafe System One model a fixed set of questions about each
+one. Every answer is a probability, so nothing comes back as a verdict. Methods
+are sorted worst first.
 
-`perch fix` takes one of those methods, hands it to an OpenAI model with the
-issues as objectives, and only commits the rewrite if a second scan says it
-improved and your tests still pass.
+`perch fix` hands a method to an OpenAI-compatible model with its issues as
+objectives. The rewrite is committed only if a second scan expects fewer
+problems, your tests still pass, and your linter and type checker still pass.
 
 ## Getting started
 
@@ -133,6 +132,15 @@ perch issues --limit 25 --page 4   # 76-100 of 235 open issues. --page 5 for the
 | `--out DIR` | Results directory (default `.perch`). |
 | `--json` | Print the record instead of the table. |
 | `--verbose` | Show every file, method, model call and command. |
+
+### Environment
+
+| | |
+| --- | --- |
+| `TYPESAFE_API_KEY` | `scan`, and the rescan `fix` is judged by. |
+| `OPENAI_API_KEY` | `fix`. |
+| `OPENAI_MODEL` | Which model writes the fix. `--model` overrides it. |
+| `OPENAI_BASE_URL` | Any endpoint that speaks the OpenAI Responses API. |
 
 `<target>` is a directory (default `.`, resolved to its git root) or a GitHub
 repo as `owner/repo` or a URL, which gets cloned under `<out>/repos/`.
