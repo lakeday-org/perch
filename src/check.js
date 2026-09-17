@@ -65,6 +65,9 @@ export function rulesFor(rules, unit, only = []) {
     // A question written out longhand is asked of a method by a scan, not put to one file on its own.
     if (!rule.kind) return false;
     if (only.length && !only.includes(rule.name)) return false;
+    // A file the rule spares is spared here too. Left out, check asked a rule about the one file its author had said it did not
+    // cover, so check and a scan disagreed about which rules apply to a path.
+    if (rule.except && [rule.except].flat().some(glob => matches(glob, unit.path))) return false;
     if (!matches(String(rule.where).replace(/^(callers? of|mentions|writers? of) /, ''), unit.path)) return rule.where === unit.path;
     return Boolean(rule.each === 'method' || rule.each === 'test') === Boolean(unit.part);
   });

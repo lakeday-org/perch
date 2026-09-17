@@ -70,7 +70,7 @@ describe('perch setup', () => {
     // A scan of everything costs real money, so the narrowed form is the one it is shown.
     expect(skill).toContain('--since <ref>');
     // 3 is a result. An assistant reading a non-zero exit as a crash would stop instead of reporting what was found.
-    expect(skill).toMatch(/`3` is a result, not an error/);
+    expect(skill).toMatch(/`3` is a result rather than an error/);
     // The detail is in the JSON; the table rounds it off.
     expect(skill).toMatch(/probabilities/);
     // And a finding is a belief about a method, not a located defect on a line.

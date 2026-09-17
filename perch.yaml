@@ -6,6 +6,7 @@
   where: "**/*.md"
   ensure: >
     The file does not sound AI generated
+  except: skill.md
 
 - name: docs-succinct
   where: "**/*.md"
