@@ -265,7 +265,7 @@ export function formatDoctor({ versions, scan, run, out, findings = 0, log = [] 
     ['commit', short(run.revision)],
     ['paths', run.paths?.length ? run.paths.join(' ') : 'everything'],
     ['methods', `${run.methods} in scope, ${read} read, ${run.carried ?? 0} unchanged, ${failed.length} failed`],
-    ['rules', `${run.rules ?? 0} asked, ${(run.broken ?? []).length} broken`],
+    ['rules', `${run.rules ?? 0} in ${RULES_FILE}, ${(run.broken ?? []).length} broken`],
     ['tokens', `${compact(run.usage?.input_tokens)} in, ${compact(run.usage?.output_tokens)} out`],
     ['model', `${run.model}, ${run.parallel} at a time`],
     ['issues', `${findings} open`],
@@ -285,12 +285,13 @@ export function formatDoctor({ versions, scan, run, out, findings = 0, log = [] 
   // one kind of broken rule a report of findings cannot show.
   const coverage = run.coverage ?? [];
   if (coverage.length) {
-    // The selector only earns a column when a rule covered nothing, which is when you need to see what it was looking at.
-    const empty = coverage.some(rule => !rule.units);
-    const rows = [...coverage].sort((a, b) => b.broken - a.broken || b.units - a.units)
-      .map(rule => [String(rule.broken), String(rule.units), rule.name, ...(empty ? [rule.units ? '' : String(rule.where ?? '')] : [])]);
-    lines.push('', 'rules', ...table(['broken', 'asked', 'rule', ...(empty ? ['covers nothing over'] : [])], rows,
-      ['right', 'right', 'left', 'left']).map(line => `  ${line}`));
+    // The selector only earns a column when something covered nothing, which is when you need to see what it was looking at.
+    const empty = coverage.some(item => !item.units);
+    const rows = [...coverage].sort((a, b) => (b.broken ?? 0) - (a.broken ?? 0) || b.units - a.units)
+      .map(item => [item.broken === null ? '-' : String(item.broken), String(item.units), item.name, item.from ?? '',
+        ...(empty ? [item.units ? '' : String(item.where ?? '')] : [])]);
+    lines.push('', 'questions', ...table(['raised', 'asked', 'question', 'from', ...(empty ? ['covers nothing over'] : [])], rows,
+      ['right', 'right', 'left', 'left', 'left']).map(line => `  ${line}`));
   }
 
   if (log.length) lines.push('', `log  ${relative(join(out, 'scan.log'))}`, ...log.map(line => `  ${line}`));

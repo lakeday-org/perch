@@ -10,8 +10,8 @@ import { listTree, readBlob } from './git.js';
 import { analyzeTree } from './analyze.js';
 import { buildGraph } from './graph.js';
 import { askKey, CORRECTNESS, floorFor, questionSet, questionsFor, SEARCHES } from './ask.js';
-import { label as kindLabel, methodSteps, locateWhere, readAnswers } from './questions.js';
-import { asRules, askUnits, readRules, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL } from './units.js';
+import { issuesOf, label as kindLabel, methodSteps, locateWhere, readAnswers } from './questions.js';
+import { asRules, askUnits, readRules, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL } from './units.js';
 import { findingId, identity, openStore, writeJson } from './store.js';
 export { findingId };
 
@@ -55,6 +55,15 @@ export async function questionMethod({ systemOne, node, step, steps = [step], li
   if (to < node.end_line) answers.read = { passes: steps.length, to_line: to, of_line: node.end_line };
   return { response, answers };
 }
+
+/** Whether a label on an issue is one this question raises, so a run can say how often each of its own questions fired. */
+const labelsRaisedBy = (question, label) => {
+  const wanted = question.issue?.label ?? 'self';
+  if (wanted === 'self') return kindLabel(question.name) === label;
+  const named = questionSet().find(other => other.name === wanted && other.type === 'choice');
+  if (!named) return kindLabel(wanted) === label;
+  return Object.keys(named.options).some(option => kindLabel(option) === label && option !== question.issue.except);
+};
 
 /** What one read method is written down as. */
 export const readEvent = ({ node, answers, response, key, runId = null, root, github = null, revision, calleeIds, callerIds }) => ({
@@ -258,14 +267,25 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // or broken, since a pass is what lets the next run skip asking it; only the broken ones are anything to report.
     broken.push(...units.results, ...searches.results);
     run.broken.push(...[...units.results, ...searches.results].filter(result => result.broken > floorFor(rules.find(rule => rule.name === result.rule), min)));
-    run.coverage = rules.map(rule => ({
-      name: rule.name,
-      where: rule.where,
-      units: rule.each === 'method' && !SEARCHES(rule.kind)
-        ? candidates.filter(candidate => rulesForMethod([rule], graph.nodes.get(candidate.id)).length).length
-        : selectUnits(rule, { scan, graph, files, tree, inScope }).length,
-      broken: run.broken.filter(finding => finding.rule === rule.name).length,
-    }));
+    // Every question the run asked, yours and perch's alike. A question perch ships can cover nothing and raise nothing for the
+    // same reasons one you wrote can, and a report of a run that names only half of what it asked is half a report.
+    const raised = new Map();
+    for (const event of read) for (const issue of issuesOf(event, min)) raised.set(issue.label, (raised.get(issue.label) ?? 0) + 1);
+    run.coverage = [
+      ...questionSet().filter(question => question.each === 'method' && !question.kind).map(question => ({
+        name: question.name, from: 'builtin', where: question.where, units: read.length,
+        broken: question.issue ? [...raised].filter(([label]) => labelsRaisedBy(question, label)).reduce((total, [, count]) => total + count, 0) : null,
+      })),
+      ...rules.map(rule => ({
+        name: rule.name,
+        from: RULES_FILE,
+        where: rule.where,
+        units: rule.each === 'method' && !SEARCHES(rule.kind)
+          ? candidates.filter(candidate => rulesForMethod([rule], graph.nodes.get(candidate.id)).length).length
+          : selectUnits(rule, { scan, graph, files, tree, inScope }).length,
+        broken: run.broken.filter(finding => finding.rule === rule.name).length,
+      })),
+    ];
     run.checked = run.calls * questionSet().filter(question => question.each === 'method').length + units.asked + searches.asked;
 
     // Rule checks the filter kept out are carried the same way: this run had nothing to say about them, which is not the same
