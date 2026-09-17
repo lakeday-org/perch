@@ -1,5 +1,8 @@
-# Every push to main and every pull request, including one from a fork. Nothing here needs a secret, so a fork's PR runs the same
-# checks the branch does. These are the checks main is protected on.
+# Every push to main and every pull request, including one from a fork.
+#
+# Two jobs, because they fail for different reasons and you want to see which. `check` is the build: lint, types, tests, the
+# bundle, the package. It needs no secret, so a fork's pull request runs exactly what the branch does. `scan` is perch reading
+# the code it just built, which needs a key a fork will not have.
 name: ci
 
 on:
@@ -18,15 +21,10 @@ permissions:
 
 jobs:
   check:
+    name: build
     runs-on: ubuntu-latest
-    # At the job, so a step can ask whether the key is there. A fork's pull request sees an empty string.
-    env:
-      TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          # --since needs the base branch to compare against, which a shallow clone does not have.
-          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -47,13 +45,39 @@ jobs:
       - name: The bundle builds and loads
         run: npm run build
 
-      # Defects, vulnerabilities and broken rules, of everything this pull request touched. Not refactors or documentation: a
-      # build should fail on something wrong rather than on something large. Exits 1 if a rule in perch.yaml is broken. A fork's pull
-      # request gets no secrets, so the step is skipped rather than failing the build over a key it was never given. Runs after
-      # the build, since it runs perch.
-      - name: Scan what this branch changed
+      - name: Nothing in the package that should not ship
+        run: npm pack --dry-run
+
+  scan:
+    name: perch scan
+    needs: check
+    runs-on: ubuntu-latest
+    # At the job, so a step can ask whether the key is there. A fork's pull request sees an empty string.
+    env:
+      TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # --since needs the base branch to compare against, which a shallow clone does not have.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      # Defects, vulnerabilities and broken rules, over everything this pull request touched. Not refactors or documentation: a
+      # build should fail on something wrong rather than on something large. Exits 1 if a rule in perch.yaml is broken.
+      #
+      # A fork's pull request gets no secrets, so this is skipped rather than failing over a key it was never going to have.
+      - name: Defects, vulnerabilities and broken rules
         if: env.TYPESAFE_API_KEY != ''
         run: node bin/perch.mjs scan --filter type=defect,type=lint,type=security ${{ github.event_name == 'pull_request' && format('--since origin/{0}', github.base_ref) || '' }}
 
-      - name: Nothing in the package that should not ship
-        run: npm pack --dry-run
+      - name: What perch could not do
+        if: failure() && env.TYPESAFE_API_KEY != ''
+        run: node bin/perch.mjs doctor
