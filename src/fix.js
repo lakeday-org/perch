@@ -13,7 +13,7 @@ import { formatFix, visibleFindings } from './report.js';
 import { languageOf } from './analysis.js';
 import { analyzeTree } from './scan.js';
 import { buildGraph, resolveModule } from './graph.js';
-import { ANSWERS_VERSION, expectedIssues, FIX_LIMITS, FIX_NEIGHBOURS, FIX_STATE_BUDGET, huntStep, issuesOf } from './questions.js';
+import { ANSWERS_VERSION, expectedIssues, FIX_LIMITS, FIX_NEIGHBOURS, FIX_STATE_BUDGET, huntStep, huntSteps, issuesOf } from './questions.js';
 import { identity, openStore, readJson, sha256, writeJson } from './store.js';
 import { fixPrompt, goalOf } from './prompts.js';
 import { Abort, DEFAULT_EFFORT, tool } from './model.js';
@@ -186,12 +186,13 @@ export async function methodContext({ finding, root, out, analyzer, revision = f
   for (const callerId of callerIds) { const caller = graph.nodes.get(callerId); callers.push({ node: caller, lines: await linesOf(caller), site: graph.site(callerId, node.id), handover: graph.isDynamic(callerId, node.id) }); }
   const { imports, methods } = graph.files.get(node.path).file;
   const fileLines = await linesOf(node);
-  const step = huntStep({ node, lines: fileLines, imports, methods, callees, callers });
+  const steps = huntSteps({ node, lines: fileLines, imports, methods, callees, callers });
+  const step = steps[0];
   // What the rewriting model sees is not what System One sees: whole neighbours rather than excerpts, so it is not sent reading
   // files to find a contract perch already has. The scan's own state stays as it was, or a rescan would not compare like for like.
   const context = huntStep({ node, lines: fileLines, imports, methods, callees, callers, budget: FIX_STATE_BUDGET, limits: FIX_LIMITS, maxCallees: FIX_NEIGHBOURS, maxCallers: FIX_NEIGHBOURS }).state;
   const method = fileLines.slice(node.line - 1, node.end_line).join('\n');
-  return { scan, graph, node, fileLines, method, callees, callers, calleeIds, callerIds, imports, methods, step, context, changed: Boolean(finding.hash) && node.hash !== finding.hash };
+  return { scan, graph, node, fileLines, method, callees, callers, calleeIds, callerIds, imports, methods, step, steps, context, changed: Boolean(finding.hash) && node.hash !== finding.hash };
 }
 
 export async function fixMethod({ finding: hunted, root, out, model, systemOne: rawSystemOne, analyzer, shell, ui = plainUi(), meter = createMeter(), position = '', debug = () => {} }) {
@@ -221,14 +222,14 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
   let placed = false;
   try {
     // The method as it reads at HEAD, with the neighborhood the scan showed System One. If it changed since, System One reads it again first.
-    const { scan, graph, node, fileLines, callees, callers, calleeIds, callerIds, imports, methods, step, context, changed } = await methodContext({ finding: hunted, root, out, analyzer, revision, log: debug });
+    const { scan, graph, node, fileLines, callees, callers, calleeIds, callerIds, imports, methods, steps, context, changed } = await methodContext({ finding: hunted, root, out, analyzer, revision, log: debug });
     const fileOf = () => scan.files.find(file => file.path === node.path);
     finding = { ...hunted, line: node.line, end_line: node.end_line, metrics: node.metrics, file: fileOf()?.metrics ?? null, where: hunted.where ? { ...hunted.where, line: hunted.where.line + node.line - hunted.line } : hunted.where };
     const stale = finding.has_bug !== undefined && (finding.answers_version ?? 1) !== ANSWERS_VERSION;
     if (changed || stale || finding.has_bug === undefined) {
       const why = changed ? ', changed since the scan' : stale ? ', answered before the questions changed' : ' for the first time';
       const reading = ui.task(`reading ${node.qualified_name}${why}`);
-      const { response, answers } = await questionMethod({ systemOne, node, step, lines: fileLines, debug });
+      const { response, answers } = await questionMethod({ systemOne, node, steps, lines: fileLines, debug });
       const event = huntedEvent({ node, answers, response, root, github: hunted.github ?? null, revision, calleeIds, callerIds });
       await store.appendEvent(event);
       finding = { ...event, metrics: node.metrics, file: finding.file };
@@ -324,8 +325,8 @@ export async function fixMethod({ finding: hunted, root, out, model, systemOne: 
       const shifted = replacementLength - (end - start + 1);
       const patchedMethods = methods.filter(other => other.id !== node.id).map(other => (other.line > end ? { ...other, line: other.line + shifted, end_line: other.end_line + shifted } : other)).concat(inRegion);
       const patchedNode = { ...node, line: kept.line, end_line: kept.end_line, metrics };
-      const patchedStep = huntStep({ node: patchedNode, lines: patchedLines, imports, methods: patchedMethods, callees, callers });
-      const { answers } = await questionMethod({ systemOne, node: patchedNode, step: patchedStep, lines: patchedLines, debug });
+      const patchedSteps = huntSteps({ node: patchedNode, lines: patchedLines, imports, methods: patchedMethods, callees, callers });
+      const { answers } = await questionMethod({ systemOne, node: patchedNode, steps: patchedSteps, lines: patchedLines, debug });
       const reading = { ...answers, metrics, file: fileMetrics };
       const after = issuesOf(reading);
       // Judged on everything, listed on what is believed: the objectives are the issues above the floor, but the Pareto test

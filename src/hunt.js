@@ -3,19 +3,45 @@ import { join } from 'node:path';
 import { readBlob } from './git.js';
 import { analyzeTree } from './scan.js';
 import { buildGraph } from './graph.js';
-import { huntStep, locateWhere, readAnswers } from './questions.js';
+import { huntSteps, locateWhere, readAnswers } from './questions.js';
 import { findingId, identity, openStore, writeJson } from './store.js';
 export { findingId };
 
 /** A scan reads every method it has not read before, or whose code changed since. `perch fix` works twenty issues by default. */
 export const DEFAULT_FIX_BUDGET = 20, DEFAULT_PARALLEL = 8;
 
-/** One System One pass over a method: the hunt's questions and the line they point at. */
-export async function questionMethod({ systemOne, node, step, lines, debug = () => {} }) {
-  debug(`asking ${systemOne.id} about ${node.qualified_name} in ${node.path}:${node.line} (${Object.keys(step.questions).length} questions${step.windows ? `, then a line in the chosen window` : ''})`);
-  const response = await locateWhere({ systemOne, state: step.state, questions: step.questions, windows: step.windows });
-  const answers = readAnswers(response.answers, step);
+/**
+ * What one method's readings say together. The first pass carries the neighbourhood and answers for the method as a whole, so its
+ * judgement of shape, documentation and callers stands. A later pass sees only its own slice, so it can only add: the worst defect
+ * found anywhere is the method's defect, and a vulnerability is the likeliest reading of it from any pass.
+ */
+export function mergeAnswers(readings) {
+  const merged = { ...readings[0] };
+  for (const later of readings.slice(1)) {
+    if (later.has_bug > merged.has_bug) Object.assign(merged, { has_bug: later.has_bug, where: later.where, kind: later.kind, kinds: later.kinds, severity: later.severity });
+    merged.exposed = Math.max(merged.exposed ?? 0, later.exposed ?? 0);
+    merged.securities = Object.fromEntries(Object.entries(merged.securities ?? {}).map(([kind, probability]) => [kind, Math.max(probability, later.securities?.[kind] ?? 0)]));
+  }
+  const [kind, probability] = Object.entries(merged.securities ?? {}).sort((a, b) => b[1] - a[1])[0] ?? [];
+  if (kind) merged.security = { kind, probability };
+  if (readings.length > 1) merged.passes = readings.length;
+  return merged;
+}
+
+/** One System One reading of a method, in as many passes as its length takes, and the line they point at. */
+export async function questionMethod({ systemOne, node, step, steps = [step], lines, debug = () => {} }) {
+  debug(`asking ${systemOne.id} about ${node.qualified_name} in ${node.path}:${node.line} (${Object.keys(steps[0].questions).length} questions${steps.length > 1 ? ` over ${steps.length} passes` : ''}${steps[0].windows ? `, then a line in the chosen window` : ''})`);
+  const readings = [];
+  let response;
+  for (const pass of steps) {
+    response = await locateWhere({ systemOne, state: pass.state, questions: pass.questions, windows: pass.windows });
+    readings.push(readAnswers(response.answers, pass));
+  }
+  const answers = mergeAnswers(readings);
   answers.where.text = lines[answers.where.line - 1]?.trim() ?? '';
+  // A method too long for even MAX_PASSES was read in part. Say so, rather than let the answers read as if they were the whole of it.
+  const to = steps.at(-1).covers.end_line;
+  if (to < node.end_line) answers.read = { passes: steps.length, to_line: to, of_line: node.end_line };
   return { response, answers };
 }
 
@@ -38,7 +64,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const toRead = scan.candidates.filter(candidate => hunted.get(candidate.id) !== graph.nodes.get(candidate.id).hash).length;
   const total = Math.min(budget, toRead);
   const hunt = { id, status: 'running', target: label, github, root, revision, model: systemOne.id, paths, budget: Number.isFinite(budget) ? budget : null, parallel, force, scan_id: scan.id, out: dir, created_at: created,
-    methods: scan.candidates.length, to_read: toRead, edges: graph.edgeCount(), calls: 0, skipped: 0, visited: [], usage: { input_tokens: 0, output_tokens: 0 } };
+    methods: scan.candidates.length, to_read: toRead, edges: graph.edgeCount(), calls: 0, skipped: 0, visited: [], failed: [], usage: { input_tokens: 0, output_tokens: 0 } };
   await writeJson(huntPath, hunt);
 
   const sources = new Map();
@@ -70,12 +96,12 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const edges = [];
     for (const member of members) for (const target of graph.callees(member)) if (members.has(target)) edges.push(`${member.split('::').at(-1)} -> ${target.split('::').at(-1)}`);
     const file = graph.files.get(node.path).file;
-    return { node, calleeIds, callerIds, step: huntStep({ node, lines: await linesOf(node), imports: file.imports, methods: file.methods, callees, callers, edges }) };
+    return { node, calleeIds, callerIds, steps: huntSteps({ node, lines: await linesOf(node), imports: file.imports, methods: file.methods, callees, callers, edges }) };
   };
 
   const ask = async nodeId => {
-    const { node, calleeIds, callerIds, step } = await stepFor(nodeId);
-    const { response, answers } = await questionMethod({ systemOne, node, step, lines: await linesOf(node), debug });
+    const { node, calleeIds, callerIds, steps } = await stepFor(nodeId);
+    const { response, answers } = await questionMethod({ systemOne, node, steps, lines: await linesOf(node), debug });
     return { node, calleeIds, callerIds, response, answers };
   };
   const recordHuntResults = async results => {
@@ -91,6 +117,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     }
   };
 
+  let inARow = 0;
   try {
     while (hunt.calls < budget) {
       const batch = [];
@@ -110,7 +137,23 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
       }
       if (!batch.length) break;
       let done = 0;
-      const results = await Promise.all(batch.map(async nodeId => { const result = await ask(nodeId); progress(hunt.calls + ++done, total); return result; }));
+      // One method that cannot be read is one method. A request too large for the model, or a method the service chokes on, is
+      // recorded against that method and the walk carries on; before this, it ended a scan of fifty thousand.
+      const settled = await Promise.all(batch.map(async nodeId => {
+        try { const result = await ask(nodeId); progress(hunt.calls + ++done, total); return result; }
+        catch (error) {
+          progress(hunt.calls + ++done, total);
+          const node = graph.nodes.get(nodeId);
+          log(`${node.qualified_name} in ${node.path}: ${error.message}`);
+          return { failed: { method: nodeId, id: findingId(nodeId), path: node.path, name: node.qualified_name, line: node.line, status: 'failed', error: error.message } };
+        }
+      }));
+      const results = settled.filter(result => !result.failed);
+      for (const { failed } of settled.filter(result => result.failed)) { hunt.failed.push(failed); hunt.visited.push(failed); }
+      // Every method failing is not a run of unusual methods, it is a broken key or a service that is down; stop rather than
+      // spend the rest of the repository finding out. Two full batches in a row is the signal.
+      inARow = results.length ? 0 : inARow + settled.length;
+      if (inARow >= parallel * 2) throw new Error(`${inARow} methods in a row could not be read; last error: ${hunt.failed.at(-1)?.error ?? 'unknown'}`);
       await recordHuntResults(results);
       await writeJson(huntPath, hunt);
     }

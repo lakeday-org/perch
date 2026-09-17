@@ -4,10 +4,10 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
-import { scanRepository } from '../src/hunt.js';
-import { huntStep, issueWeight, locateWhere, MAX_CHOICES } from '../src/questions.js';
+import { mergeAnswers, scanRepository } from '../src/hunt.js';
+import { huntStep, huntSteps, issueWeight, locateWhere, MAX_CHOICES, STATE_BUDGET } from '../src/questions.js';
 import { openStore } from '../src/store.js';
-import { formatScanRun, scanCount } from '../src/report.js';
+import { formatDoctor, formatScanRun, scanCount } from '../src/report.js';
 import { commitAll, fixtureOptions, makeGraphFixture, scriptedSystemOne } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
@@ -140,6 +140,51 @@ describe('perch hunt', () => {
     expect(hunt.visited.map(visit => visit.method)).toEqual(['src/a.js::f', 'src/b.js::h', 'src/b.js::k']);
     expect(hunt.calls).toBe(3);
     expect(hunt.remaining).toBe(1);
+  });
+
+  it('carries on past a method it cannot read, and stops when nothing can be read at all', async () => {
+    const repo = await fixture();
+    const scripted = scriptedSystemOne();
+    // One method the service will not answer for, the way an oversized request comes back.
+    const flaky = { id: scripted.id, calls: scripted.calls,
+      ask: (state, questions) => (state.method?.name === 'h' ? Promise.reject(new Error('max_tokens_exceeded')) : scripted.ask(state, questions)) };
+    const hunt = await scanRepository(await withRevision(repo, { systemOne: flaky, parallel: 1 }));
+    expect(hunt.status).toBe('complete');
+    expect(hunt.calls).toBe(3);
+    expect(hunt.failed).toHaveLength(1);
+    expect(hunt.failed[0]).toMatchObject({ name: 'h', path: 'src/b.js', status: 'failed', error: 'max_tokens_exceeded' });
+    // The other three were read and are listed; the failure is on the record, not in the results.
+    expect((await openStore(repo.out).findings(0)).some(finding => finding.name === 'h')).toBe(false);
+    const doctor = formatDoctor({ versions: { perch: '0.1.0', node: 'v22', platform: 'test' }, scan: null, hunt, out: repo.out, findings: 3 });
+    expect(doctor).toContain('1 method could not be read:');
+    expect(doctor).toContain('1x max_tokens_exceeded');
+    expect(doctor).toContain('h at src/b.js:');
+
+    // Every method failing is a broken key or a service that is down, and reading the rest of the repository will not fix it.
+    const broken = { id: 'dead', calls: [], ask: () => Promise.reject(new Error('HTTP 401')) };
+    await expect(scanRepository(await withRevision(repo, { systemOne: broken, parallel: 2, force: true }))).rejects.toThrow('methods in a row could not be read; last error: HTTP 401');
+  });
+
+  it('reads a method too long for one request in passes, and merges what they found', () => {
+    const lines = Array.from({ length: 3000 }, (_, index) => `  total += weigh(item_${index}, options, context);`);
+    const node = { path: 'src/big.js', qualified_name: 'giant', line: 1, end_line: 3000, metrics: { risk_score: 90 } };
+    const steps = huntSteps({ node, lines, callees: [], callers: [] });
+    expect(steps.length).toBeGreaterThan(1);
+    // Every pass fits, they run in order, and each overlaps the last so a defect on the seam is whole in one of them.
+    for (const step of steps) expect(JSON.stringify(step.state).length).toBeLessThanOrEqual(STATE_BUDGET);
+    for (const [index, step] of steps.slice(1).entries()) expect(step.covers.line).toBeLessThan(steps[index].covers.end_line);
+    expect(steps.at(-1).covers.end_line).toBe(3000);
+    // Only the first pass carries the neighbourhood: callers and callees are about the method, not about a slice of it.
+    expect(Object.keys(steps[0].questions)).toContain('follow');
+    expect(steps[1].state.module_scope).toBeNull();
+
+    // The worst defect anywhere in the method is the method's defect; the first pass still speaks for its shape.
+    const whole = { has_bug: 0.2, where: { line: 4 }, kind: { kind: 'boundary' }, exposed: 0.3, securities: { injection: 0.1, leak: 0.4 }, refactor: { refactor: 'split' } };
+    const later = { has_bug: 0.8, where: { line: 2600 }, kind: { kind: 'resource_leak' }, exposed: 0.9, securities: { injection: 0.7, leak: 0.2 }, refactor: { refactor: 'none' } };
+    const merged = mergeAnswers([whole, later]);
+    expect(merged).toMatchObject({ has_bug: 0.8, where: { line: 2600 }, kind: { kind: 'resource_leak' }, exposed: 0.9, refactor: { refactor: 'split' }, passes: 2 });
+    expect(merged.securities).toEqual({ injection: 0.7, leak: 0.4 });
+    expect(merged.security).toEqual({ kind: 'injection', probability: 0.7 });
   });
 
   it('stops at the budget and never questions test methods', async () => {

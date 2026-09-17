@@ -334,10 +334,11 @@ export function moduleScope(lines, methods, budget = MODULE_SCOPE_BUDGET) {
  * lines, the calling line (callers), and the names of the neighbor's own callees (second hop). `edges` are ["a -> b"] strings.
  */
 export function huntStep({ node, lines, imports = [], methods = [node], callees, callers, edges = [], budget = STATE_BUDGET, limits = [40, 20, 8, 3], maxCallees = MAX_CALLEES, maxCallers = MAX_CALLERS }) {
-  const build = limit => ({
-    method: { path: node.path, name: node.qualified_name, leading_comment: leadingComment(lines, node.line) || null, metrics: node.metrics ?? null, source: tagged(lines.slice(node.line - 1, node.end_line), node.line) },
+  const build = (limit, own = Infinity, scope = true) => ({
+    method: { path: node.path, name: node.qualified_name, leading_comment: leadingComment(lines, node.line) || null, metrics: node.metrics ?? null,
+      source: excerpt(lines, node.line, node.end_line, own) },
     imports: imports.map(item => `${item.name}${item.alias !== item.name ? ` as ${item.alias}` : ''} from ${item.module}`),
-    module_scope: moduleScope(lines, methods),
+    module_scope: scope ? moduleScope(lines, methods) : null,
     calls: callees.slice(0, maxCallees).map(({ node: callee, lines: calleeLines, calls = [] }) =>
       ({ id: callee.id, name: callee.qualified_name, path: callee.path, source: excerpt(calleeLines, callee.line, callee.end_line, limit), calls: calls.map(short) })),
     called_by: callers.slice(0, maxCallers).map(({ node: caller, lines: callerLines, site, handover = false }) =>
@@ -348,11 +349,30 @@ export function huntStep({ node, lines, imports = [], methods = [node], callees,
         source: excerpt(callerLines, caller.line, caller.end_line, limit, site ?? null) })),
     call_graph: edges,
   });
+  const over = () => JSON.stringify(state).length > budget;
   let state = build(limits[0] === Infinity ? Infinity : 80);
-  for (const limit of limits) { if (JSON.stringify(state).length <= budget) break; state = build(limit); }
+  for (const limit of limits) { if (!over()) break; state = build(limit); }
+  // A method can be big enough on its own that no amount of trimming its neighbours helps. Drop the module scope, then work out
+  // how many of its lines fit in what is left rather than guessing: the rest is read in the next pass, so every line here is one
+  // fewer request. A request that cannot be sent reads nothing at all.
+  if (over()) {
+    state = build(limits.at(-1), Infinity, false);
+    if (over()) {
+      const count = node.end_line - node.line + 1;
+      const perLine = Math.max(1, Math.ceil(state.method.source.length / count));
+      const room = budget - (JSON.stringify(build(limits.at(-1), 0, false)).length + 64);
+      let own = Math.max(MIN_PASS_LINES, Math.floor(room / perLine));
+      state = build(limits.at(-1), own, false);
+      // The estimate is an average over lines that are not all the same length, so close the gap rather than trust it.
+      while (over() && own > MIN_PASS_LINES) { own = Math.max(MIN_PASS_LINES, Math.floor(own * 0.8)); state = build(limits.at(-1), own, false); }
+    }
+  }
   const { calls, called_by: calledBy } = state;
   const neighbors = [...calls, ...calledBy].filter((item, index, all) => all.findIndex(other => other.id === item.id) === index);
-  const lineIds = codeLineIds(lines, node.line, node.end_line);
+  // Only lines the model can see are lines it can point at: a trimmed method must not be asked about the part that was cut.
+  const shown = [...state.method.source.matchAll(/^L(\d+)\|/gm)].map(match => Number(match[1]));
+  const visible = new Set(shown.map(line => lineId(line)));
+  const lineIds = codeLineIds(lines, node.line, node.end_line).filter(id => visible.has(id));
   const windows = lineWindows(lineIds);
   const questions = {
     has_bug: { type: 'noul', instructions: 'Does `method` contain a concrete behavioral defect that a caller can reach?',
@@ -382,7 +402,36 @@ export function huntStep({ node, lines, imports = [], methods = [node], callees,
   for (const [index, caller] of calledBy.entries())
     questions[`misused_by_${index}`] = { type: 'noul', instructions: { caller: caller.id, question: 'Does `caller` call `method` in a way that violates the contract evident from the method\'s source, or rely on behavior the method does not guarantee?' },
       criteria: { true: 'The caller passes something the method does not handle, or depends on a result or side effect the method does not reliably provide', false: 'The caller uses the method as its source intends' } };
-  return { state, questions, calls, calledBy, neighbors, windows };
+  return { state, questions, calls, calledBy, neighbors, windows, covers: { line: shown[0] ?? node.line, end_line: shown.at(-1) ?? node.end_line } };
+}
+
+/** Lines of a method repeated at the start of the next pass, so a defect spanning the seam is in one pass whole. */
+export const PASS_OVERLAP = 20;
+/** However tight the budget, a pass this short is not worth a request. */
+const MIN_PASS_LINES = 40;
+/** Passes one method is worth. A method needing more than this is pathological, and its size is the finding. */
+export const MAX_PASSES = 8;
+
+/**
+ * One method as the passes it takes to read it. Most methods are one pass. A method too long to send in a single request used to
+ * be cut to its head, which reads 300 lines of a 20,000-line method and answers as if that were the method; instead it is read in
+ * overlapping passes until it runs out or hits `MAX_PASSES`. Only the first pass carries the neighbourhood, since the callers and
+ * callees are about the method, not about a slice of it.
+ */
+export function huntSteps({ node, lines, imports = [], methods = [node], callees = [], callers = [], edges = [], ...options }) {
+  const steps = [];
+  let start = node.line;
+  while (start <= node.end_line && steps.length < MAX_PASSES) {
+    const first = !steps.length;
+    const step = huntStep({ node: { ...node, line: start }, lines, imports: first ? imports : [], methods,
+      callees: first ? callees : [], callers: first ? callers : [], edges: first ? edges : [], ...options });
+    steps.push(step);
+    if (step.covers.end_line >= node.end_line) break;
+    const next = Math.max(step.covers.end_line - PASS_OVERLAP + 1, start + 1);
+    if (next <= start) break;
+    start = next;
+  }
+  return steps;
 }
 
 /** Typed answers reduced to the fields the walk and the log use. */

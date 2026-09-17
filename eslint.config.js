@@ -14,7 +14,8 @@ export default [
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'module',
-      globals: { ...globals.node },
+      // Replaced by esbuild at build time; undefined when the source is run directly, which VERSION handles.
+      globals: { ...globals.node, PERCH_VERSION: 'readonly' },
     },
     rules: {
       // An argument that goes unused is often a signature that drifted; one named with a leading _ is deliberate. The base rule

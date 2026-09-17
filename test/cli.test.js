@@ -33,7 +33,7 @@ describe('cli', () => {
   it('has three commands and prints their usage', async () => {
     const { out, err, io } = capture();
     expect(await main(['--help'], io)).toBe(0);
-    for (const verb of ['scan [target]', 'issues [issue-id]', 'fix [issue-id | path]']) expect(out[0]).toContain(verb);
+    for (const verb of ['scan [target]', 'issues [issue-id]', 'fix [issue-id | path]', 'doctor']) expect(out[0]).toContain(verb);
     for (const gone of ['hunt', 'refactor', 'report', 'publish', 'design']) expect(out[0]).not.toMatch(new RegExp(`^\\s*${gone} `, 'm'));
     expect(await main(['fix', '-h'], io)).toBe(0);
     expect(out.at(-1)).toContain('perch fix: Fix open issues, one commit each');

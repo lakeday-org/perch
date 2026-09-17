@@ -45,6 +45,7 @@ perch scan   [<target>] [--paths a,b] [--parallel N] [--force] [--all]
 perch issues [<issue-id>] [--filter k=v] [--types] [--min P] [--limit N] [--page N] [--all] [--closed]
 perch close  <issue-id>... [--reason R]
 perch reopen <issue-id>...
+perch doctor
 perch fix    [<issue-id> | <path>] [--filter k=v] [--budget N] [--min P] [--effort E]
 ```
 
@@ -56,6 +57,7 @@ They all take `--out DIR` and `--json`.
 | `issues` | The open issues, worst first. With an id, everything known about that one method. | nothing |
 | `close` | Marks issues closed: false positives, or code you've looked at and aren't changing. They stop being listed and `perch fix` skips them. | nothing |
 | `reopen` | Undoes `close`. | nothing |
+| `doctor` | What the last run did and what it couldn't read. Names, paths and error messages only — no source, no answers — so it's safe to paste into a bug report. | nothing |
 | `fix` | Fixes open issues, worst first, up to `--budget`. With a path, only that file or directory. With an id, just that one. One commit per fix. | both keys |
 
 `perch findings` also works, same command.
@@ -130,6 +132,27 @@ perch issues --limit 25 --page 4   # 76-100 of 235 open issues. --page 5 for the
 `<target>` is a directory (default `.`, resolved to its git root) or a GitHub
 repo as `owner/repo` or a URL, which gets cloned under `<out>/repos/`.
 `<issue-id>` is the 8-char id in the first column; a unique prefix works.
+
+### When a scan goes wrong
+
+A method perch can't read — a request too large for the model, a service that
+times out — is recorded against that method and the walk carries on. `perch
+doctor` says what happened:
+
+```
+perch 0.1.0 on node v22.14.0 (linux x64)
+results in .perch
+
+hunt 462cfe79 complete at 2026-09-17T00:36:33
+  49213 methods, read 48967, 0 unchanged, 0 unread, 246 failed
+  243 methods could not be read:
+    241x System One request failed with HTTP 400: max_tokens_exceeded
+        build_response at src/handlers/api.py:1204
+        ...
+```
+
+If nothing can be read — a bad key, a service that's down — the run stops
+instead of spending the rest of the repository finding out.
 
 ## How it works
 

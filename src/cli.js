@@ -13,7 +13,10 @@ import { fixIssues, fixMethod, splitStale, underPath } from './fix.js';
 import { createMeter, metered } from './meter.js';
 import { createShell } from './shell.js';
 import { createUi } from './ui.js';
-import { formatFilterKeys, formatFinding, formatFix, formatFixes, formatIssues, formatScanRun, issueCount, scanCount, TOP, visibleFindings } from './report.js';
+import { formatDoctor, formatFilterKeys, formatFinding, formatFix, formatFixes, formatIssues, formatScanRun, issueCount, scanCount, TOP, visibleFindings } from './report.js';
+
+/** Stamped into the bundle at build time so `perch doctor` reports the version that is running, not one read from a stray file. */
+export const VERSION = typeof PERCH_VERSION === 'string' ? PERCH_VERSION : 'dev';
 
 const options = {
   paths: ['--paths a,b', 'Only consider files under these repository paths', ['scan']],
@@ -30,8 +33,8 @@ const options = {
   model: ['--model M', `OpenAI model (default ${DEFAULT_MODEL}, or $OPENAI_MODEL)`, ['fix']],
   effort: ['--effort E', `Reasoning effort: ${EFFORTS.join(', ')} (default ${DEFAULT_EFFORT})`, ['fix']],
   reason: ['--reason R', 'Why you are setting these aside, kept on the record', ['close']],
-  out: ['--out DIR', 'Results directory (default .perch)', ['scan', 'issues', 'fix', 'close', 'reopen']],
-  json: ['--json', 'Print JSON instead of a summary', ['scan', 'issues', 'fix', 'close', 'reopen']],
+  out: ['--out DIR', 'Results directory (default .perch)', ['scan', 'issues', 'fix', 'close', 'reopen', 'doctor']],
+  json: ['--json', 'Print JSON instead of a summary', ['scan', 'issues', 'fix', 'close', 'reopen', 'doctor']],
   verbose: ['--verbose', 'Show every file, method, model call, and command', ['scan', 'issues', 'fix']],
 };
 
@@ -43,6 +46,7 @@ const commandHelp = {
   issues: { args: '[issue-id]', summary: 'List what the scan found, or show one', detail: 'Lists open issues at --min or more, strongest first. --filter narrows them (--types prints what it accepts), --closed includes closed ones, --all lists every row. With an issue id, everything known about that method. perch findings is another name for this command.' },
   close: { args: '<issue-id>...', summary: 'Set issues aside', detail: 'Marks issues closed so they stop being listed and perch fix skips them: a false positive, or code you have looked at and are not changing. --reason is kept on the record and shown by perch issues <id>. A dismissal is about the method as it reads now, so editing that method brings the issue back.' },
   reopen: { args: '<issue-id>...', summary: 'Put closed issues back', detail: 'Undoes perch close.' },
+  doctor: { args: '', summary: 'What the last run did, and what it could not read', detail: 'Prints versions, what the last scan and hunt did, and every method that could not be read with the error it failed on. Method names, paths and error messages only, no source and no answers, so it is safe to paste into a bug report.' },
   fix: { args: '[issue-id | path]', summary: 'Fix open issues, one commit each', detail: 'Works open issues, most serious first, up to --budget; with a path, only under that path; with an issue id, that one; --filter narrows which ones and works the surest match first (--types prints what it accepts). An OpenAI agent rewrites each method and must pass measure, rescan, and run_tests before submit. Commits on the current branch; refuses main/master. Needs OPENAI_API_KEY and TYPESAFE_API_KEY.' },
 };
 
@@ -211,6 +215,14 @@ const commands = {
     print(io, page, formatIssues(page, min / 100, Infinity, { closed, filters }));
     io.note(issueCount({ open: visibleFindings(all).length, matched: rows.length, from, listed: page.length, size,
       closed: closed ? 0 : all.length - visibleFindings(all).length, filtered: filters.length > 0 }));
+  },
+  /** What to send when a run goes wrong: what perch did, and what it could not do. */
+  async doctor(io) {
+    const store = await storeFrom(io.flags);
+    const [scan, hunt] = [await store.latestScan(), await store.latestHunt()];
+    const findings = scan ? visibleFindings(await store.issues(BELIEVED, { scan })).length : 0;
+    const versions = { perch: VERSION, node: process.version, platform: `${process.platform} ${process.arch}` };
+    print(io, { versions, out: store.out, scan, hunt, findings }, formatDoctor({ versions, scan, hunt, out: store.out, findings }));
   },
   /** Set issues aside, or put them back: a judgement you make about what the scan found, kept in the same log as everything else. */
   async close(io) { await setAside(io, 'close'); },

@@ -25,6 +25,7 @@ const relative = path => (path === process.cwd() ? path.split('/').at(-1) : path
 const percent = value => `${Math.round(value * 100)}%`;
 const words = label;
 const shortId = id => id.split('::').at(-1);
+const short = revision => (revision ?? '?').slice(0, 7);
 export const TOP = 10;
 
 
@@ -102,6 +103,7 @@ export function scanCount(hunt) {
   const parts = [`${hunt.methods} methods`, `read ${hunted}`];
   if (hunt.skipped) parts.push(`${hunt.skipped} unchanged`);
   if (hunt.remaining) parts.push(`${hunt.remaining} unread`);
+  if (hunt.failed?.length) parts.push(`${hunt.failed.length} could not be read (perch doctor)`);
   if (hunt.error) parts.push(`error: ${hunt.error}`);
   return `${relative(hunt.target)} at commit ${hunt.revision?.slice(0, 7) ?? '?'}: ${parts.join(', ')}`;
 }
@@ -136,6 +138,37 @@ export function issueCount({ open, matched, from = 0, listed, size = Infinity, c
   return parts.join('. ');
 }
 
+/**
+ * What to send someone when their run went wrong. Versions, what the scan did, and every method it could not read with the
+ * message it failed on. No source and no answers: a name, a path, and an error, which is what a bug report needs and all it needs.
+ */
+export function formatDoctor({ versions, scan, hunt, out, findings = 0 }) {
+  const lines = [`perch ${versions.perch} on node ${versions.node} (${versions.platform})`, `results in ${relative(out)}`];
+  if (scan) lines.push('', `scan ${scan.id} of ${relative(scan.target)} at commit ${short(scan.revision)}`,
+    `  ${scan.files?.length ?? 0} files, ${scan.candidates?.length ?? 0} methods, ${scan.coverage?.excluded ?? 0} files excluded`);
+  if (hunt) {
+    const read = (hunt.visited ?? []).filter(visit => visit.status === 'hunted').length;
+    lines.push('', `hunt ${hunt.id} ${hunt.status}${hunt.completed_at ? ` at ${hunt.completed_at.slice(0, 19)}` : ''}`,
+      `  model ${hunt.model}, ${hunt.parallel} at a time${hunt.budget ? `, budget ${hunt.budget}` : ''}${hunt.force ? ', forced' : ''}`,
+      `  ${hunt.methods} methods, read ${read}, ${hunt.skipped ?? 0} unchanged, ${hunt.remaining ?? 0} unread, ${hunt.failed?.length ?? 0} failed`,
+      `  ${hunt.usage?.input_tokens ?? 0} tokens in / ${hunt.usage?.output_tokens ?? 0} out`);
+    if (hunt.error) lines.push(`  the run stopped: ${hunt.error}`);
+    const failed = hunt.failed ?? [];
+    if (failed.length) {
+      const byError = new Map();
+      for (const item of failed) byError.set(item.error, [...(byError.get(item.error) ?? []), item]);
+      lines.push('', `${failed.length} ${failed.length === 1 ? 'method' : 'methods'} could not be read:`);
+      for (const [error, items] of [...byError].sort((a, b) => b[1].length - a[1].length)) {
+        lines.push(`  ${items.length}x ${error}`);
+        for (const item of items.slice(0, 5)) lines.push(`      ${item.name} at ${item.path}:${item.line}`);
+        if (items.length > 5) lines.push(`      and ${items.length - 5} more`);
+      }
+    }
+  }
+  lines.push('', `${findings} open ${findings === 1 ? 'issue' : 'issues'}`);
+  return lines.join('\n');
+}
+
 /** What `--filter` accepts, as a block a reader can copy from. */
 export const formatFilterKeys = () => Object.entries(filterKeys()).map(([key, values]) => `${key}\n${values.map(value => `  ${value}`).join('\n')}`).join('\n\n');
 
@@ -155,6 +188,7 @@ export function formatFinding(finding) {
     if (finding.callees?.length) lines.push(`Calls: ${finding.callees.map(shortId).join(', ')}`);
     if (finding.callers?.length) lines.push(`Called by: ${finding.callers.map(shortId).join(', ')}`);
   }
+  if (finding.read) lines.push(`Read in ${finding.read.passes} passes to line ${finding.read.to_line} of ${finding.read.of_line}: the rest was too long to send`);
   lines.push(`Status: ${issueStatus(finding)}`);
   if (finding.dismissed) lines.push(`Dismissed on ${finding.dismissed.at.slice(0, 10)}${finding.dismissed.reason ? `: ${finding.dismissed.reason}` : ''}`);
   const fix = finding.fix;
