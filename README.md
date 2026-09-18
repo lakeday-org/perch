@@ -36,11 +36,7 @@ perch issues 92c7781e       # open one up
 perch check 92c7781e        # change it, ask again, nothing committed
 ```
 
-## In your coding assistant
-
-`perch setup` installs a skill that teaches it to scan what a branch changed, read the
-JSON rather than the table, and treat a finding as a probability rather than a located
-defect.
+## Agent skills
 
 ```sh
 perch setup claude-code   # .claude/skills/perch/SKILL.md
@@ -48,8 +44,6 @@ perch setup codex         # .codex/skills/perch/SKILL.md
 perch setup pi            # .pi/skills/perch/SKILL.md
 perch setup cursor        # .cursor/rules/perch.mdc
 ```
-
-Commit the file. [What it says](https://docs.perchscan.com/skill/).
 
 ## Semantic linting
 
@@ -65,12 +59,7 @@ Extend perch with your own rules, in `perch.yaml`:
     environment is the command line's job.
 ```
 
-They cover what a parser cannot prove. `perch scan` exits 3 when one breaks, so
-CI can gate on it. [Every field](https://docs.perchscan.com/rules/).
-
 ## Documentation
-
-[docs.perchscan.com](https://docs.perchscan.com)
 
 | | |
 | --- | --- |
