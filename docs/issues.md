@@ -78,8 +78,7 @@ $ perch issues 723a2685
 
 The same columns the table prints, with what was asked under them. Everything
 perch answered is here, including answers below the floor. A defect at 44% earns
-no row on the table and is still printed here, because you asked about this
-method.
+no row on the table. It is printed here, because you asked about this method.
 
 The `Severity` column is on the rows the rubric weighs: the defect and the
 vulnerability. The block below it is that question's whole distribution. The band

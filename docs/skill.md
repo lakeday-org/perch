@@ -45,8 +45,8 @@ any non-zero exit as a crash stops instead of reporting what was found.
 worth having: the whole distribution behind each answer, the confidence on the
 line number, and the answers that fell under a floor.
 
-**A finding is a belief about a method.** A spread `kind.probabilities` means the
-model is sure something is wrong and unsure what. The line it points at carries
+**A finding is a belief about a method.** A spread `kind.probabilities` means it
+is sure something is wrong and unsure what. The line it points at carries
 its own confidence. The real problem is often a few lines from the label. Read
 the code before changing it. Close what you decide is fine.
 
@@ -54,8 +54,8 @@ the code before changing it. Close what you decide is fine.
 that method alone, off disk, recording nothing. Rescanning to see whether a fix
 worked is the wrong shape and moves the numbers on the issue being fixed.
 
-**Write a rule when a mistake repeats.** The second time the same thing is
-corrected, `perch rules add` catches it from then on. The skill tells the
+**Write a rule when a mistake repeats.** On the second correction, `perch rules
+add` catches it from then on. The skill tells the
 assistant to ask you first.
 
 ## Editing it

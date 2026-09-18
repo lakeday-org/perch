@@ -24,8 +24,8 @@ method being large or undocumented is not wrong, so it is reported and does not
 fail the run.
 
 Each question says which it is, and `perch rules list` has a Fails column.
-`gate:` on a question sets it, so a class you want reported without stopping a
-run is one line in `perch.yaml`.
+`gate:` on a question sets it. A class you want reported without stopping a run
+is one line in `perch.yaml`.
 
 ## Only what the branch changed
 

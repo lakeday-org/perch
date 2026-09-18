@@ -43,8 +43,7 @@ Nodes are named methods. An edge is drawn when a call resolves:
 * for Go, to a method in the same directory;
 * as a **handover**, when a function is passed as a value rather than called:
   a tool handler, a callback, an event listener. These resolve only when the
-  name is unique across the repository, and the model is told the edge is a
-  handover rather than a call site.
+  name is unique across the repository. The model is told the edge is a handover.
 
 Handover edges are how perch sees its own tool handlers. Without them the graph
 had 190 edges and 62 methods with no resolvable caller; with them, 588 and 46.
@@ -83,7 +82,7 @@ costs one reading.
 One HTTP request per method. The state carries the method with its lines tagged
 `L0042|`, the comment above it, and its metrics. It carries the file's imports
 and module scope. It also carries up to 8 callees with the names of their own
-callees, and up to 8 callers with the line where each calls it.
+callees. It carries up to 8 callers with the line where each calls it.
 
 A method too long for one request is read in **overlapping passes**, each sized
 to what the budget actually holds. Only lines a pass can see are offered to its
@@ -95,8 +94,8 @@ in `perch issues <id>`.
 
 A method that still cannot be read is recorded against itself and the walk
 carries on. `perch doctor` lists them with the error each one failed on. When
-nothing can be read at all, from a bad key or a service that is down, two full
-batches of failures in a row end the run.
+nothing can be read at all, two full batches of failures in a row end the run.
+That is a bad key, or a service that is down.
 
 Each question uses the System One primitive that fits it. A `noul` is a
 probability that something is true. A `choice` picks one option and returns the
@@ -185,10 +184,10 @@ down to 240, and `--filter type=defect` from 354 to 25.
 The floor applies to what is claimed. The arithmetic keeps everything:
 
 * **Ranking counts the whole distribution.** An issue at 49% still weighs 0.49 in
-  where its method sorts, so there is no cliff at the boundary — only a line
-  below which perch stops saying it found something.
+  where its method sorts. There is no cliff at the boundary, only a line below
+  which perch stops saying it found something.
 * **`perch check` reports the whole distribution too.** Halving a 40% defect is
-  visible as that, even though neither the before nor the after is listed.
+  visible as that. Neither the before nor the after is listed.
 
 `--min P` moves the line, in percent. `--min 0` prints everything the scan
 answered.
@@ -251,10 +250,9 @@ defects alone: its top level is a vulnerability in so many words. A defect and a
 vulnerability are both weighed by it, and both carry the band.
 
 Naming a method by the band holding the most probability throws the rest away.
-A spread of P0 33% / P1 31% / P2 30% / P3 6% is called `P0` on the strength of a
-third of the mass, and reads as worse than a method with 54% on P1 and 29% on
-P0 that is in fact expected to do more damage. The mean says so; the label does
-not. `perch issues <id>` prints the whole distribution.
+A spread of P0 33% / P1 31% / P2 30% / P3 6% is called `P0` on a third of the
+mass. It then reads as worse than 54% on P1 and 29% on P0. The second does more
+damage, and the mean says so. `perch issues <id>` prints the whole distribution.
 
 ## 7. Filtering
 

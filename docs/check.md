@@ -63,8 +63,8 @@ or not.
 
 `check` prints the whole distribution, including what falls under the floor.
 Halving a
-40 percent defect is visible as that, even though neither the before nor the
-after would be listed by `perch issues`.
+40 percent defect is visible as that. Neither the before nor the after would be
+listed by `perch issues`.
 
 `issues` is a list of claims, so it has a floor. `check` answers the question you
 asked, and reports whatever came back.
