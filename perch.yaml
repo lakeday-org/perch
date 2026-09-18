@@ -7,6 +7,7 @@
   ensure: >
     The file does not sound AI generated
   except: skill.md
+  min: 65
 
 - name: docs-succinct
   where: "**/*.md"
@@ -87,3 +88,4 @@
     telling them to do the obvious after a command block, a link whose only
     label is a gesture such as What it says or Every field, or a closing
     sentence that summarises the block above it, all break this.
+  min: 65
