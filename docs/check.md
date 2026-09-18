@@ -3,7 +3,7 @@ title: Checking a change
 nav: Checking a change
 group: Using perch
 order: 5
-summary: perch check asks the same questions of code as it reads on disk, records nothing, and exits 3 while something is still wrong.
+summary: perch check asks about one point in the code as it reads on disk. It records nothing and exits 3 while something is wrong.
 ---
 
 # Checking a change

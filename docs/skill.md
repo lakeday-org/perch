@@ -15,12 +15,12 @@ working code because a model said 71%.
 
 `perch setup` installs a skill that says otherwise.
 
-```sh
-perch setup claude-code
-perch setup codex
-perch setup pi
-perch setup cursor
+```console
+$ perch setup claude-code
+Wrote .claude/skills/perch/SKILL.md for Claude Code.
 ```
+
+`codex`, `pi` and `cursor` are the other three:
 
 | | |
 | --- | --- |

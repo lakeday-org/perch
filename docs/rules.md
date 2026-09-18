@@ -8,8 +8,8 @@ summary: Your own linting rules in perch.yaml, asked in the same reading as perc
 
 # Semantic linting
 
-These are the questions a parser leaves open. Whether a comment says why,
-whether a listing honors a filter, whether a test asserts something real.
+A rule is a sentence about what your code should hold. Whether a comment says
+why. Whether a listing honors a filter. Whether a test asserts something real.
 
 You write the rule as a sentence. perch puts it to the model as a question.
 
