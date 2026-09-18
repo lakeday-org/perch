@@ -15,9 +15,9 @@ probability, and the ranking is arithmetic over all of them. The only cutoff is
 ## 1. tree-sitter
 
 Every file tracked at `HEAD` with a known extension is parsed. Vendored and
-built files are excluded, as are two languages whose methods cannot be spliced
-back as one region: Dart, whose signature splits from its body, and Elixir,
-whose functions are macro calls.
+built files are excluded. So are two languages whose methods cannot be spliced
+back as one region. Dart splits a signature from its body. Elixir's functions
+are macro calls.
 
 JavaScript, TypeScript, TSX, Python, Rust, Go, Java, Kotlin, Scala, Groovy, C,
 C++, C#, Ruby, PHP, Lua, Swift, Zig, Solidity, Bash.
@@ -41,9 +41,9 @@ Nodes are named methods. An edge is drawn when a call resolves:
 * to a method in the same file, by name;
 * through an import, to a method in another scanned file;
 * for Go, to a method in the same directory;
-* as a **handover**, when a function is passed as a value rather than called:
-  a tool handler, a callback, an event listener. These resolve only when the
-  name is unique across the repository. The model is told the edge is a handover.
+* as a **handover**, when a function is passed as a value. A tool handler, a
+  callback, an event listener. These resolve only when the name is unique across
+  the repository. The model is told the edge is a handover.
 
 Handover edges are how perch sees its own tool handlers. Without them the graph
 had 190 edges and 62 methods with no resolvable caller; with them, 588 and 46.
@@ -272,7 +272,7 @@ So `--filter type=security` leads with the likeliest vulnerability in the
 repository. Each row also reorders to lead with the match. A row selected for a
 vulnerability keeps `refactor` out of its Type column.
 
-A filter reads the listed issues, so it inherits the floor: `type=security` is
-the methods probably carrying a vulnerability, not every method that scored
-nonzero on one. `--min 80` narrows it further; `--min 0` widens it to everything
-the scan answered.
+A filter reads the listed issues, so it inherits the floor. `type=security` is
+the methods probably carrying a vulnerability. A method that scored nonzero on
+one and fell under the floor is not there. `--min 80` narrows it further.
+`--min 0` widens it to everything the scan answered.

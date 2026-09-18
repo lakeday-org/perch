@@ -42,8 +42,8 @@ assistant left to itself will scan the repository.
 any non-zero exit as a crash stops instead of reporting what was found.
 
 **Read the JSON.** Every command takes `--json`. The table rounds off the part
-worth having: the whole distribution behind each answer, the confidence on the
-line number, and the answers that fell under a floor.
+worth having. The JSON keeps the whole distribution behind each answer. It keeps
+the confidence on the line number, and the answers that fell under a floor.
 
 **A finding is a belief about a method.** A spread `kind.probabilities` means the
 model is sure something is wrong and unsure what. The line it points at carries
