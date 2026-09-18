@@ -357,7 +357,7 @@ export function formatRules(rules, { width = WIDTH(), own = new Set() } = {}) {
 
 /** What `--filter` accepts, as a block a reader can copy from. */
 /** What `--filter` accepts. A value that has another word for it says so, rather than leaving you to find out by being wrong. */
-export const formatFilterKeys = () => Object.entries(filterKeys())
+export const formatFilterKeys = (rules = []) => Object.entries(filterKeys(undefined, rules))
   .map(([key, values]) => `${key}\n${values.map(value => {
     const others = key === 'type' ? alsoKnownAs(value) : [];
     return `  ${value}${others.length ? ` (or ${others.join(', ')})` : ''}`;
@@ -369,7 +369,8 @@ export const formatFilterKeys = () => Object.entries(filterKeys())
  * so the line that says how many there are is counting the ones on the screen.
  */
 export function shownIssues(finding, min, filters = []) {
-  const named = filters.filter(clause => clause.key === 'type' || clause.key === 'kind');
+  // `rule` narrows to the one rule's issue, which is filed under the rule's own name, the same place `kind` looks.
+  const named = filters.filter(clause => clause.key === 'type' || clause.key === 'kind' || clause.key === 'rule');
   return issuesOf(finding, min).filter(issue => !named.length
     || named.some(clause => (clause.key === 'type' ? issue.type : String(issue.label).toLowerCase().replace(/[_-]+/g, ' ')) === clause.value));
 }
