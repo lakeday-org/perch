@@ -22,49 +22,7 @@
 
 AST powered semantic code linting with Jev.
 
-A linter checks what a parser can prove. perch checks what it cannot: whether a
-method has a bug and what kind, whether something from outside reaches it and
-should not, whether it does what its name says, whether your own rules hold.
-
-It starts with the tree, not with the text. tree-sitter parses every tracked file
-in twenty-odd languages, and perch builds a method-level call graph out of it,
-resolving edges through same-file names, imports, and functions handed off as
-values. Each method is scored for complexity, nesting and risk, and the riskiest
-are read first. Only then is anything asked of a model, and what it is asked
-about is a method with its real callers and callees resolved around it, not a
-window of text that happened to fit.
-
-Answers come back as distributions rather than verdicts, which is the part that
-matters: 84% sure the bug is a missing null check and 8% sure it is a wrong return
-tells you it has found something and cannot name it, and that is when you go and
-read the code yourself.
-
-```console
-$ perch scan --paths src/store.js
-src/store.js
-  ID        Line  Severity  Type      Confidence  Problem             Method
-  d8f67bd9    46  -         refactor         72%  tangled_conditions  closures
-  463c56ed    63  -         refactor         74%  too_big             openStore
-  67defb37   134  -         refactor         73%  tangled_conditions  openStore.decide
-
-! 4 problems in 1 file, none failing
-```
-
-Your own rules are English sentences in `perch.yaml`, asked in the same reading as
-perch's own, so they cost nothing extra on a method it was reading anyway. No AST
-matchers to write, no plugin API.
-
-An issue keeps its id across runs, and closing one is an `.eslintignore` entry for
-that method and that kind alone, so a different problem found there later is still
-reported. Code that has not moved is not read again, so the numbers stay put while
-you work.
-
-It is a lint, so it gates: `perch scan` exits 3 on a defect, a vulnerability or a
-broken rule, and 0 on a method that is merely large.
-
-Jev makes it affordable. Input is $0.042 a million tokens and output is free, so
-every method gets the full set of questions rather than the ten files you
-suspected. This repository, end to end, is 13 cents.
+![Writing a rule, and perch catching this README with it](.github/demo.svg)
 
 ## Getting started
 
@@ -77,8 +35,6 @@ perch issues                # what it found, worst first
 perch issues 92c7781e       # open one up
 perch check 92c7781e        # change it, ask again, nothing committed
 ```
-
-Needs Node 22+ and git. Nothing perch does writes to your working tree.
 
 ## Semantic linting
 
