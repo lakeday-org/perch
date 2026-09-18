@@ -111,13 +111,19 @@ distribution over its levels.
 | `kind` | choice over 8 | `boundary`, `missing_null_handling`, `wrong_return`, `swallowed_error`, `state_mutation`, `ordering`, `resource_leak`, `inverted_condition`. |
 | `severity` | score over 4 levels | The rubric below. |
 | `exposed` | noul | Does anything from outside the program reach this method, or does it act on the world outside? |
-| `security_*` | 16 nouls | `injection`, `path_traversal`, `unsafe_deserialization`, `secret_exposure`, `missing_authorization`, `unvalidated_destination`, `resource_exhaustion`, `unsafe_reflection`, `disabled_safeguard`, `weak_crypto`, `buffer_overflow`, `use_after_free`, `uninitialized_use`, `integer_overflow`, `race_condition`, `type_confusion`. |
+| `security_*` | 16 nouls | One per class, listed under the table. |
 | `misuse_N` | noul per callee | Does this call violate the callee's evident contract? |
 | `misused_by_N` | noul per caller | Does the caller violate this method's contract? |
 | `does_what_it_claims` | noul | Does the behavior match the name, parameters, and comment? |
 | `documented` | noul | Could a caller learn what it promises from the comment? |
 | `refactor` | choice over 7 | `split`, `flatten`, `simplify_conditions`, `deduplicate`, `rename`, `remove_dead_code`, `none`. |
 | `follow` | choice over neighbors | Which related method to examine next. |
+
+The sixteen security classes are `injection`, `path_traversal`,
+`unsafe_deserialization`, `secret_exposure`, `missing_authorization`,
+`unvalidated_destination`, `resource_exhaustion`, `unsafe_reflection`,
+`disabled_safeguard`, `weak_crypto`, `buffer_overflow`, `use_after_free`,
+`uninitialized_use`, `integer_overflow`, `race_condition` and `type_confusion`.
 
 The names in that table are the ids written in `scan.yaml`. What a row prints is
 the label they map to, so `boundary` reads as `off_by_one` and

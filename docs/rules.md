@@ -243,9 +243,8 @@ A model asked four hundred times answers in the fifties a great deal, and a 51%
 row reads like a 95% one while being a coin flip. Each floor is where that
 question stopped hedging on this codebase. Yours may differ.
 
-`--min` sets a floor for a whole run. Both apply and the higher wins, so
-`--min 90` does not hand you back a 73% because some question said 70 was
-enough, and `--min 0` still respects what each question set for itself.
+`--min` sets a floor for a whole run. Both apply and the higher wins. Asking for
+`--min 90` gets you nothing at 73%, whatever a question set for itself.
 
 A rule you write has no floor unless you give it one:
 

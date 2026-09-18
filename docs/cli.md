@@ -164,8 +164,8 @@ perch doctor
 
 Two things, in the order they matter.
 
-First, whether perch can run here at all: node, `TYPESAFE_API_KEY`, git, that you
-are in a repository with a commit, somewhere writable for results, and whether
+First, whether perch can run here at all. It checks node, `TYPESAFE_API_KEY`,
+git, the repository and its commit, a writable results directory, and that
 `perch.yaml` parses. Each is a tick or a cross, and every cross says what to do:
 
 ```console
