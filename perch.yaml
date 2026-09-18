@@ -120,16 +120,12 @@ rules:
       No section exists to list links the navigation already shows. A closing
       Where to go next, Next steps, or See also that repeats the sidebar breaks
       this.
-  - name: intro-says-it-once
-    where: docs/index.md
-    ensure: >-
-      The page says what perch is once, then shows a command. A summary in the
-      front matter and a second sentence restating it in the body breaks this.
   - name: intro-anchors-to-a-linter
     where: docs/index.md
     ensure: >-
-      The first sentence says perch is a linter and what it does that a linter
-      cannot. Leaving that contrast to a section further down breaks this.
+      The first sentence says perch is a linter and what kind. Leaving what it
+      is to a section further down breaks this, and so does defining it by what
+      other linters fail to do.
   - name: docs-no-antithesis
     where: "{README.md,docs/**/*.md}"
     ensure: >-

@@ -8,8 +8,8 @@ summary: AST powered semantic code linting with Jev.
 
 # perch
 
-perch is a linter that reads meaning. Where a linter matches patterns in a syntax tree,
-perch reads each method with its callers and callees in front of it.
+perch is a semantic linter. It reads each method with its callers and callees in front
+of it, and asks a model what the code does.
 
 ```console
 $ perch scan
@@ -43,7 +43,7 @@ Needs Node 22 and git.
 Each method gets the same set. Is there a bug, where, what kind, how bad. Is it a
 security hole. Does it do what its name says. Does it need refactoring.
 
-A method is ranked by what its problems would cost, not by how many it has. The list
+A method is ranked by what its problems would cost. The list
 runs worst first.
 
 ## Your own rules
@@ -58,11 +58,11 @@ Rules live in `perch.yaml` and are sentences:
 ```
 
 They ride in the request perch was already making about that method. Five rules on one
-method is one reading, not six.
+method cost one reading.
 
 ## The .perch directory
 
-Nothing in your working tree. Results go to `.perch`:
+Results go to `.perch`:
 
 | File | What it holds |
 | --- | --- |

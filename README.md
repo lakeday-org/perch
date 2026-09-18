@@ -29,12 +29,25 @@ AST powered semantic code linting with Jev.
 ```sh
 npm install -g @lakeday/perch
 export TYPESAFE_API_KEY=...
-
-perch scan                  # read the repository
-perch issues                # what it found, worst first
-perch issues 92c7781e       # open one up
-perch check 92c7781e        # change it, ask again, nothing committed
 ```
+
+```console
+$ perch scan
+checkout.py
+  ID        Line  Severity  Type    Confidence  Problem                     Method
+  bdc67421    14  P1 (0.8)  defect         81%  wrong_order                 place_order
+  ddc5c917    24  P1 (0.8)  defect         92%  inverted_condition          can_fulfil
+
+cart.py
+  ID        Line  Severity  Type    Confidence  Problem             Method
+  287bfb9d     9  P1 (1.0)  defect         90%  off_by_one          subtotal
+  80d6ebbb    29  P1 (1.4)  defect         89%  unhandled_null      cheapest
+
+✖ 20 problems in 5 files, all failing
+```
+
+`perch issues` lists them worst first. `perch issues <id>` opens one up. `perch check
+<id>` asks again after a fix, and records what it finds nowhere.
 
 ## Agent skills
 
@@ -55,8 +68,8 @@ Extend perch with your own rules, in `perch.yaml`:
   each: method
   min: 70
   ensure: >
-    This method does not read configuration out of process.env. Reading the
-    environment is the command line's job.
+    This method takes its configuration as arguments. Reading process.env is the
+    command line's job.
 ```
 
 ## Documentation
@@ -71,7 +84,7 @@ Extend perch with your own rules, in `perch.yaml`:
 | [Command reference](https://docs.perchscan.com/cli/) | Every command, its flags, and what each exit code means. |
 | [How a scan works](https://docs.perchscan.com/scan/) | The graph walk, the questions, and how probabilities turn into a ranking. |
 
-Results go in `.perch`. Nothing else is written to your tree.
+Results go in `.perch`, which is the only thing perch writes.
 
 ## Development
 

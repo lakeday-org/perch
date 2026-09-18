@@ -8,14 +8,25 @@ summary: perch check asks the same questions of code as it reads on disk, record
 
 # Checking a change
 
-`perch scan` reads the repository at `HEAD` and writes down what it found.
-`perch check` reads one point in the code as it is on disk right now, answers,
-and records nothing. It is the one to run while you are working.
+`perch scan` reads the repository at `HEAD`. `perch check` reads one point in the code
+as it is on disk right now. Run it while you are working:
+
+```console
+$ perch check checkout.py::can_fulfil
+checkout.py:20  can_fulfil
+1 check, 1 broken.
+
+  Confidence  Rule           Description
+         93%  can_fulfil     True when every line in the cart is in stock.
+1 request  4k tokens in / 646 out  $0.0002
+```
+
+A target is a method by name, a whole file, or the id of an issue:
 
 ```sh
-perch check src/model.js::createModel   # a method, by name
-perch check src/model.js                # a whole file
-perch check 92c7781e                    # whatever raised that issue
+perch check src/model.js::createModel
+perch check src/model.js
+perch check 92c7781e
 ```
 
 It asks every rule that covers the target, plus the scan's own questions when the
