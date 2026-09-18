@@ -262,8 +262,8 @@ perch rules edit comment-says-why --min 0  # take a floor off
 ```
 
 Raising a floor until a rule keeps nothing is turning it off with extra steps.
-When a question answers in the seventies about most of a codebase, the question
-is wrong, not the number: see [writing a good one](#writing-a-good-one).
+A question answering in the seventies about most of a codebase is a wrong
+question, not a wrong number. See [writing a good one](#writing-a-good-one).
 
 ## Answers that are not yes-or-no
 
@@ -289,7 +289,7 @@ perch rules add handles_absence --type choice --each method --where "src/**/*.js
   --issue "type=defect,label=handles_absence,except=checks"
 ```
 
-`when` is how the scan's own security classes are gated on `exposed`: a class that
-only matters if something from outside reaches the method is written
-`when: exposed`, and its probability is multiplied by that one's. See
+`when` is how the scan's own security classes are gated on `exposed`. A class
+that only matters when something from outside reaches the method is written
+`when: exposed`. Its probability is multiplied by that one's. See
 [the questions](/scan/#the-questions).

@@ -60,9 +60,9 @@ A stack, seeded with the riskiest method by `risk_score`:
 Test methods are analyzed, so they can appear as callers, but never questioned.
 Up to `--parallel` methods are in flight at once.
 
-Every method in scope is read. What scope is comes from `--paths` or `--since`,
-and nothing else: a cap on how many methods a run reads leaves a report that
-looks complete and is not.
+Every method in scope is read. Scope comes from `--paths` or `--since`, and
+nothing else. A cap on how many methods a run reads would leave a report that
+looks complete while missing things.
 
 Every reading goes into `scan.jsonl`, rewritten whole each run. What it holds is
 what this run says about this commit. A reading carries forward when the request
@@ -156,8 +156,8 @@ method can be both injectable and leaking a secret.
 Each answer becomes at most one issue, carrying the probability that it is real.
 
 **A defect** is `has_bug`, labelled with the likeliest kind. The kind does not
-discount it: multiplying the two would say a method certainly broken but of
-uncertain kind is only half broken.
+discount it. Multiplying the two would call a method half broken when it is
+certainly broken and merely of uncertain kind.
 
 **A vulnerability** is the likeliest security class. Eight of the sixteen need
 something from outside to reach the method, so those are a joint probability:
@@ -204,9 +204,9 @@ A method is ranked by what its problems would cost, not how many it has:
 weight = correctness × mean + design
 ```
 
-`mean` is the severity distribution's mean, worked out below. This is the only
-weighting in the ranking, and it is measured rather than chosen: the number it
-replaced was a `× 2` somebody made up.
+`mean` is the severity distribution's mean, worked out below. It is the only
+weighting in the ranking, and it is measured. The number it replaced was a `× 2`
+somebody made up.
 
 Design problems weigh as themselves. They are the ones the rubric's own bottom
 level describes: no caller would notice.
@@ -245,9 +245,9 @@ shown = 3 − 1.90 = 1.1
 
 Which is why `P1 (0.9)` is nearly a `P0` and `P1 (1.2)` is settling toward `P2`.
 
-The rubric is about how much a caller would feel whatever is wrong, not about
-defects alone: its top level is a vulnerability in so many words. A defect and a
-vulnerability are both weighed by it, and both carry the band.
+The rubric measures how much a caller would feel whatever is wrong. Its top
+level is a vulnerability in so many words. A defect and a vulnerability are both
+weighed by it, and both carry the band.
 
 Naming a method by the band holding the most probability throws the rest away.
 A spread of P0 33% / P1 31% / P2 30% / P3 6% is called `P0` on a third of the

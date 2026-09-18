@@ -81,9 +81,10 @@ method.
 perch check <path | path::method | issue-id> [options]
 ```
 
-Reads that one file off disk and asks about the point you named: every rule that
-covers it, plus the scan's own questions for a method. Nothing is committed or
-recorded, so run it on work in progress. Exits 3 while something is still wrong.
+Reads that one file off disk and asks about the point you named. That is every
+rule covering it, plus the scan's own questions for a method. Nothing is
+committed or recorded, so run it on work in progress. Exits 3 while something is
+still wrong.
 
 | Flag | |
 | --- | --- |
@@ -205,6 +206,6 @@ bug report as it stands.
 | `2` | The command line was wrong. |
 | `3` | Something that fails was found: a broken rule, a defect, or a vulnerability. |
 
-What fails is the question's own business. A question is gating by default when it
-raises a defect, a vulnerability or a rule, and `gate: no` on any of them says it
-is worth reading and not worth failing a build over.
+What fails is the question's own business. A question gates by default when it
+raises a defect, a vulnerability or a rule. `gate: no` says the answer is worth
+reading but should not fail the scan.
