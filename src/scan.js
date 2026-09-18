@@ -11,7 +11,7 @@ import { analyzeTree } from './analyze.js';
 import { buildGraph } from './graph.js';
 import { askKey, CORRECTNESS, floorFor, questionSet, questionsFor, SEARCHES } from './ask.js';
 import { issuesOf, label as kindLabel, methodSteps, locateWhere, readAnswers } from './questions.js';
-import { asRules, askUnits, readRules, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL } from './units.js';
+import { asRules, askUnits, matches, readIgnored, readRules, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL } from './units.js';
 import { findingId, identity, openStore, writeJson } from './store.js';
 export { findingId };
 
@@ -137,7 +137,11 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const rules = asRules(await readRules(root, revision));
   // --since and --paths say what this run reads, not what perch knows. A method outside is neither read nor reported here, and
   // what the last run said about it is carried onto the file at the end rather than dropped.
-  const inScope = covers(paths);
+  // What perch.yaml says not to read at all, on top of what this run was asked to cover. A fixture kept so the docs can show real
+  // output is code with a bug in every method on purpose, and being told about them on every run is noise nobody acts on.
+  const ignored = await readIgnored(root, revision);
+  const covered = covers(paths);
+  const inScope = path => covered(path) && !ignored.some(glob => matches(glob, path));
   const candidates = scan.candidates.filter(candidate => graph.nodes.has(candidate.id) && inScope(graph.nodes.get(candidate.id).path));
   // No methods in scope is an ordinary run, not a failure: a branch that only touched markdown and a workflow has none, and the
   // rules about files still cover what it did touch. Erroring here failed the run and skipped those rules as well.

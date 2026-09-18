@@ -17,27 +17,34 @@ summary: What CI can gate on, what it cannot, and a GitHub Actions job for pull 
 | 2 | the command was typed wrong |
 | 3 | perch ran and found something that fails |
 
-3 rather than 1, so a job that fell over and a job that found a bug are not the
-same red.
+CI shows those as different results. A run that could not start never reads as
+a run that found a bug.
 
-Something wrong is a defect, a vulnerability, or a rule of yours that broke. A
+Something wrong is a defect, a vulnerability, or a custom rule that broke. A
 method being large or undocumented is not wrong, so it is reported and does not
 fail the run.
 
-Each question says which it is. `perch rules list` has a Fails column, and
-`gate:` on a question sets it, so a class you do not want stopping a run is one
-line in `perch.yaml` rather than a filter on the command.
+`gate:` on a question decides whether its findings fail a run. `perch rules
+list` prints that setting in a Fails column. `perch rules edit <name> --gate
+false` turns it off for one question.
 
 ## Only what the branch changed
 
 `--since` narrows the scan to what moved:
 
-```sh
-perch scan --since origin/main
+```console
+$ perch scan --since origin/main
+checkout.py
+  ID        Line  Severity  Type    Confidence  Problem     Method
+  bdc67421    14  P1 (0.8)  defect         81%  wrong_order  place_order
+
+✖ 1 problem in 1 file, all failing
+perch at commit 5e9d910: 3 methods, read 3
+3 requests  10k tokens in / 2k out  $0.0004
 ```
 
-A pull request reads the methods it touched and their neighbourhood, not the
-whole repository. That is what keeps the job to a sensible size and cost.
+A pull request reads the methods it touched and their neighbourhood. That is a
+handful of requests where a whole repository is hundreds.
 
 ## GitHub Actions
 
@@ -69,8 +76,8 @@ jobs:
         run: perch issues --all --min 80
 ```
 
-`fetch-depth: 0` matters. Without the base branch in the checkout, `--since` has
-nothing to compare against.
+Without the base branch in the checkout, `--since` has nothing to compare
+against, so `fetch-depth: 0` is not optional.
 
 ## Reporting without gating
 
@@ -83,8 +90,8 @@ jq '[.[] | select(.issues[]? | .type == "security" and .probability > 0.9)]' per
 
 ## Sharing what the team set aside
 
-`perch close` writes to `.perch/closed.jsonl`, which is separate from the answers
-precisely so it can be committed. Commit it and the team's dismissals travel with
+`perch close` writes to `.perch/closed.jsonl`, which is kept separate from the
+answers so it can be committed. Commit it and the team's dismissals travel with
 the repository, so CI does not re-report what somebody already looked at.
 
 Add the rest of `.perch` to `.gitignore`:
@@ -98,5 +105,5 @@ Add the rest of `.perch` to `.gitignore`:
 
 One HTTP request per method read. `--since` decides how many methods that is,
 `--parallel` decides how fast they go, and neither changes the total. Output
-tokens are not billed, so the width of the question set is not what you are
-paying for.
+tokens are not billed, so asking thirty questions of a method costs what asking
+one costs.

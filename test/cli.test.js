@@ -10,7 +10,7 @@ import { revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { scanRepository } from '../src/scan.js';
 import { openStore } from '../src/store.js';
-import { formatFinding, formatIssues, formatScanReport } from '../src/report.js';
+import { formatFinding, formatIssues, formatScanReport, scanTally } from '../src/report.js';
 import { commitAll, fixtureOptions, makeFixture, makeGraphFixture, scriptedSystemOne } from './helpers.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -75,6 +75,19 @@ describe('cli', () => {
     const opened = formatFinding(finding, { color: false });
     expect(opened).not.toContain('the line it points at');
     expect(opened).toContain('off_by_one');
+  });
+
+  it('does not call a run clean when a filter is what emptied it', () => {
+    // A refactor finding, and a filter asking for defects. The repository has something to report; this filter passed over it.
+    // Saying "nothing to report" after reading every method is the report describing the filter as the repository.
+    const finding = { id: 'abc12345', path: 'src/x.js', name: 'f', line: 7, end_line: 9, method: 'src/x.js::f',
+      refactor: { choice: 'too_big', probability: 0.9, probabilities: { too_big: 0.9 } }, metrics: {}, file: {} };
+    const tally = scanTally([finding], 0.5, false, [{ key: 'type', value: 'defect' }]);
+    expect(tally).toContain('nothing matching type=defect');
+    expect(tally).toContain('1 problem');
+    // With no filter, and with nothing found at all, the plain line is still the right one.
+    expect(scanTally([finding], 0.5, false, [])).toContain('1 problem');
+    expect(scanTally([], 0.5, false, [{ key: 'type', value: 'defect' }])).toBe('\u2713 nothing to report');
   });
 
   it('says what is running, before it cares which command you typed', async () => {

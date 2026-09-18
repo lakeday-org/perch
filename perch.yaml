@@ -2,90 +2,179 @@
 # things a parser cannot prove: whether a listing honors a filter, whether prose reads like a person wrote it, whether a
 # behavior is asserted anywhere. Editing a rule's wording re-asks it; leaving it alone costs nothing.
 
-- name: prose-not-generated
-  where: "**/*.md"
-  ensure: >
-    The file does not sound AI generated
-  except: skill.md
-  min: 65
+# Code perch does not read at all. perch-example is an order service with a bug in every method, kept so the docs can show real
+# output; being told about them on every run is noise nobody acts on.
+ignore:
+  - perch-example/**
 
-- name: docs-succinct
-  where: "**/*.md"
-  ensure: >
-    Documentation is kept succinct and deliberate. No follow ups, em-dashes, and
-    meaningless statements
-  min: 60
+rules:
+  - name: prose-not-generated
+    where: "**/*.md"
+    ensure: >
+      The file does not sound AI generated
+    except: skill.md
+    min: 65
 
-- name: closed-never-listed
-  where: callers of issues
-  ensure: >
-    This method passes the findings through visibleFindings before a person sees
-    them, or it is not producing a list for a person to read.
+  - name: docs-succinct
+    where: "**/*.md"
+    ensure: >
+      Documentation is kept succinct and deliberate. No follow ups, em-dashes,
+      and meaningless statements
+    min: 60
 
-- name: one-way-into-the-log
-  where: mentions .jsonl
-  ensure: >-
-    This method reads and writes the results files through the store, not by
-    opening them itself.
+  - name: closed-never-listed
+    where: callers of issues
+    ensure: >
+      This method passes the findings through visibleFindings before a person
+      sees them, or it is not producing a list for a person to read.
 
-- name: env-read-once
-  where: "src/**/*.js"
-  except: "src/cli.js"
-  each: method
-  ensure: >-
-    This method does not read configuration out of process.env. Reading the
-    environment is the command line's job, and everything below it is passed the
-    values. Handing the environment to a child process is not this.
+  - name: one-way-into-the-log
+    where: mentions .jsonl
+    ensure: >-
+      This method reads and writes the results files through the store, not by
+      opening them itself.
 
-- name: issues-closable
-  where: "test/**/*.js"
-  each: test
-  ensure_present: >
-    A test that closes an issue with a reason and then asserts it is gone from
-    the default list.
+  - name: env-read-once
+    where: "src/**/*.js"
+    except: "src/cli.js"
+    each: method
+    ensure: >-
+      This method does not read configuration out of process.env. Reading the
+      environment is the command line's job, and everything below it is passed
+      the values. Handing the environment to a child process is not this.
 
-- name: no-dead-command
-  where: "src/**/*.js"
-  each: method
-  ensure_absent: >
-    A command or flag that is parsed and then never used.
+  - name: issues-closable
+    where: "test/**/*.js"
+    each: test
+    ensure_present: >
+      A test that closes an issue with a reason and then asserts it is gone from
+      the default list.
 
-- name: no-legacy-fallback
-  where: "src/**/*.js"
-  each: method
-  ensure_absent: >-
-    A branch kept to handle a format, key, option or signature that used to be
-    supported.
+  - name: no-dead-command
+    where: "src/**/*.js"
+    each: method
+    ensure_absent: >
+      A command or flag that is parsed and then never used.
 
-- name: no-silent-failure
-  where: "src/**/*.js"
-  each: method
-  ensure_absent: >-
-    A catch that returns a default in place of the error, or a ?? or || standing
-    in for a call that failed. A default for a value that was never set is not
-    this.
+  - name: no-legacy-fallback
+    where: "src/**/*.js"
+    each: method
+    ensure_absent: >-
+      A branch kept to handle a format, key, option or signature that used to be
+      supported.
 
-- name: tests-assert-real-behavior
-  where: "test/**/*.js"
-  ensure: >
-    Tests assert on the code under test, not on mocks they set up or values they
-    built.
-- name: readme-shows-not-tells
-  where: README.md
-  ensure: >-
-    The README shows the tool working in the first screen: a screenshot, a GIF
-    or a screencast, not only a fenced block of terminal text.
-- name: readme-lists-setup
-  where: README.md
-  ensure: >-
-    The README shows how to install the perch skill into a coding assistant,
-    with the command for every assistant perch supports, after the install
-    section and before the section on writing your own rules.
-- name: no-filler-tails
-  where: "{README.md,docs/**/*.md}"
-  ensure: >-
-    Every sentence carries information the reader does not already have. A line
-    telling them to do the obvious after a command block, a link whose only
-    label is a gesture such as What it says or Every field, or a closing
-    sentence that summarises the block above it, all break this.
-  min: 65
+  - name: no-silent-failure
+    where: "src/**/*.js"
+    each: method
+    ensure_absent: >-
+      A catch that returns a default in place of the error, or a ?? or ||
+      standing in for a call that failed. A default for a value that was never
+      set is not this.
+
+  - name: tests-assert-real-behavior
+    where: "test/**/*.js"
+    ensure: >
+      Tests assert on the code under test, not on mocks they set up or values
+      they built.
+  - name: readme-shows-not-tells
+    where: README.md
+    ensure: >-
+      The README shows the tool working in the first screen: a screenshot, a GIF
+      or a screencast, not only a fenced block of terminal text.
+  - name: readme-lists-setup
+    where: README.md
+    ensure: >-
+      The README shows how to install the perch skill into a coding assistant,
+      with the command for every assistant perch supports, after the install
+      section and before the section on writing your own rules.
+  - name: no-filler-tails
+    where: "{README.md,skill.md,docs/**/*.md}"
+    ensure: >-
+      Every sentence carries information the reader does not already have. A
+      line telling them to do the obvious after a command block, a link whose
+      only label is a gesture such as What it says or Every field, or a closing
+      sentence that summarises the block above it, all break this.
+    min: 65
+  # Bounded to the first such block on purpose. Asked of a whole page, this reads 61% on a page whose every command shows its
+  # output and 66% on a longer one, because it is then a question about whether any counterexample exists, and a longer page
+  # makes that likelier whatever the prose does.
+  - name: docs-show-output
+    where: "{README.md,skill.md,docs/**/*.md}"
+    ensure: >-
+      Find the first fenced block on the page that runs a real `perch` command,
+      and weigh that block together with the block immediately after it. What
+      the command printed is shown in one of the two. A `perch` command with
+      nothing shown that it printed breaks the rule, whether or not it carries
+      a `$` prompt. A line carrying a placeholder in angle or square brackets,
+      such as `perch scan [options]`, is syntax rather than a command being
+      run, and so is an install line or an export; pass over all of them. A
+      page that runs no real `perch` command satisfies this rule.
+  - name: docs-headings-name-things
+    where: "{README.md,skill.md,docs/**/*.md}"
+    ensure: >-
+      Every heading names a task or a thing. A heading phrased as a question the
+      page then answers, such as What it costs to run or What it writes or Why
+      use this, breaks this.
+  # Judges the opening rather than the page. Worded as a claim about every sentence, it ranked pages by length and nothing else:
+  # a page rewritten entirely in 34-word run-ons read 92% and the same page in short sentences read 88%.
+  - name: docs-sentences-are-short
+    where: "{README.md,skill.md,docs/**/*.md}"
+    ensure: >-
+      Skip the frontmatter first: everything between the opening `---` and the
+      closing `---` at the top of the file is metadata for a machine to read,
+      and is never judged by this rule whatever it contains. Then read the
+      first four prose paragraphs of the body. Every sentence in them runs
+      under twenty-five words. One sentence of twenty-five words or more breaks
+      the rule, and so does one joining three or more clauses with commas,
+      semicolons and "and". Judge only those four paragraphs and do not read
+      on. Headings, table cells, list items and fenced blocks are not prose.
+    # A long frontmatter block still pulls this to the mid fifties on a file whose body is clean, so the floor sits above that
+    # band. Broken controls read 76 to 85.
+    min: 65
+  - name: docs-no-next-steps
+    where: "{README.md,skill.md,docs/**/*.md}"
+    ensure: >-
+      No section exists to list links the navigation already shows. A closing
+      Where to go next, Next steps, or See also that repeats the sidebar breaks
+      this.
+  - name: intro-anchors-to-a-linter
+    where: docs/index.md
+    ensure: >-
+      The first sentence says perch is a linter and what kind. Leaving what it
+      is to a section further down breaks this, and so does defining it by what
+      other linters fail to do.
+  - name: docs-no-antithesis
+    where: "{README.md,skill.md,docs/**/*.md}"
+    ensure: >-
+      Read the first four prose paragraphs of the page. None of their sentences
+      says what something is not before saying what it is. A sentence opening
+      with "Not a", a clause of the form "X, not Y", or a fragment negating
+      something nobody claimed, breaks the rule. Judge only those four
+      paragraphs. Saying a thing is excluded, skipped or unsupported is a fact,
+      not this construction. Frontmatter between `---` markers at the top of
+      the file is metadata rather than prose; skip it.
+  # Bounded to what sits under a heading, where this construction lives. Worded over the whole page it reads 51% and 52% on two
+  # clean reference pages, which is the length effect the other file rules had.
+  - name: docs-no-empty-sentence
+    where: "{README.md,skill.md,docs/**/*.md}"
+    ensure: >-
+      Read the first two sentences under each of this page's first six
+      headings. None of them announces what is coming instead of saying it, and
+      none points back at something already said without adding to it. "Two
+      things, in the order they matter", "There are a few things worth knowing
+      here", "Before going further, note the following", "It is worth noting
+      that", and "Each check says which it is" all break the rule. Judge only
+      those sentences.
+
+  # Bounded to the opening, where an explanation of the basics goes. A control with a paragraph defining "linter" and "model"
+  # reads 81%; a clean page reads 51% at worst, so the floor sits between.
+  - name: docs-assumes-a-developer
+    where: "{README.md,skill.md,docs/**/*.md}"
+    min: 60
+    ensure: >-
+      The reader is a developer who already uses coding assistants. Read the
+      first four prose paragraphs. None of them explains what a linter, a
+      model, a coding assistant, a skill, JSON, git or CI is, and none opens by
+      narrating what a reader or a tool would get wrong before saying what
+      perch does. Naming one of those while saying what perch does with it is
+      not explaining it. Judge only those four paragraphs.

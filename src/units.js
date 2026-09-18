@@ -8,7 +8,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { git, listTree } from './git.js';
-import { askKey, BUILTIN, compile, floorFor, installQuestions, merge, parseQuestions, SEARCHES } from './ask.js';
+import { askKey, BUILTIN, compile, floorFor, installQuestions, merge, parseIgnored, parseQuestions, SEARCHES } from './ask.js';
 import { leadingComment, lineId, lineWindows, locateWhere, tagged, whereQuestion, whereWindowQuestion } from './questions.js';
 import { findingId } from './store.js';
 
@@ -33,6 +33,13 @@ export const MAX_SEEN = 8;
  * answered yesterday's rule without saying so would waste an afternoon before anyone noticed. The code they are asked about still
  * comes from the revision, so a finding is still about a commit.
  */
+/** The globs `perch.yaml` says not to read, from the file on disk or the one in the commit. */
+export async function readIgnored(root, revision) {
+  const text = await readFile(join(root, RULES_FILE), 'utf8')
+    .catch(() => git(['show', `${revision}:${RULES_FILE}`], root).catch(() => null));
+  return text === null ? [] : parseIgnored(text, RULES_FILE);
+}
+
 export async function readRules(root, revision) {
   const wanted = path => path === RULES_FILE || (path.startsWith(`${RULES_DIR}/`) && /\.ya?ml$/.test(path));
   const committed = (await listTree(root, revision)).map(item => item.path).filter(wanted);

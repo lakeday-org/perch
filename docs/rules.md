@@ -3,15 +3,15 @@ title: Semantic linting
 nav: Semantic linting
 group: Using perch
 order: 4
-summary: Your own linting rules in perch.yaml, asked in the same reading as perch's own questions.
+summary: Custom linting rules in perch.yaml, asked in the same reading as perch's own questions.
 ---
 
 # Semantic linting
 
-A linter checks what a parser can prove. This checks what it cannot: whether a
-comment says why, whether a listing honors a filter, whether a test asserts
-something real. You write the rule as a sentence and it is put to the model as a
-question.
+A rule is a sentence about what the code should hold. A comment should say why.
+A listing should honor a filter. A test should assert something real.
+
+You write the rule as a sentence. perch puts it to the model as a question.
 
 They live in `perch.yaml` at the root of the repository.
 
@@ -19,9 +19,12 @@ They live in `perch.yaml` at the root of the repository.
 
 A rule is its name and the sentence you want held. Everything else has a default:
 
-```sh
-perch rules add no-narrative-prose --ensure "A headline and one line, not a paragraph explaining the product."
+```console
+$ perch rules add no-narrative-prose --ensure "A headline and one line, not a paragraph explaining the product."
+Added no-narrative-prose.
 ```
+
+That is what it appended to `perch.yaml`:
 
 ```yaml
 - name: no-narrative-prose
@@ -51,10 +54,9 @@ defaults to the file as a whole. Narrow any of them when you need to:
     built.
 ```
 
-Your rules ride in the request perch was already making about that method, so a
-method covered by five rules is one reading, not six. Every question in a request
-is scored against the code by itself, and the code is what the request is mostly
-made of.
+Custom rules ride in the request perch was already making about that method. A
+method covered by five rules costs one reading. Every question is scored against
+the code by itself, and the code is most of what the request carries.
 
 ## Fields
 
@@ -85,16 +87,16 @@ where: mentions scan.jsonl     # every method whose source names that string
 
 ### `each`
 
-`each: method` asks about every method separately, which is what you want when
-the claim is about one method's behavior. Leaving it off asks about the file as a
-whole, which is what you want when the claim is about how the file is arranged.
-`each: test` asks about each test function.
+`each: method` asks about every method separately. Use it when the claim is about
+one method's behavior. Leaving it off asks about the file as a whole, which suits
+a claim about how the file is arranged. `each: test` asks about each test
+function.
 
 ### `sees`
 
 A method is always read with its callers and callees in view, so a method rule
-needs no `sees`. A file or a test is read alone unless you say otherwise, and a
-test alone cannot show whether what it asserts is real:
+needs no `sees`. A file or a test is read alone unless you say otherwise. A test
+alone leaves you guessing whether what it asserts is real:
 
 ```yaml
 sees: calls        # the source of what it calls
@@ -108,8 +110,8 @@ sees: file         # the whole file it lives in
 `ensure` has to hold everywhere, so every unit it covers is asked.
 
 `ensure_present` and `ensure_absent` are claims about the codebase rather than
-about any one file, so they search the likeliest units first and stop at the
-answer. They cost a fraction of what a whole sweep costs.
+any one file. They search the likeliest units first and stop at the answer, for a
+fraction of a whole sweep.
 
 ```yaml
 - name: issues-closable
@@ -128,14 +130,14 @@ answer. They cost a fraction of what a whole sweep costs.
 
 ## Writing a good one
 
-A rule is read by a model, so write it the way you would explain it to somebody
-joining the team. Say what breaks it, not only what satisfies it:
+A rule is read by a model. Write it the way you would explain it to somebody
+joining the team, and say what breaks it:
 
 ```yaml
 ensure: >
   methods carry a comment that tells a human reader something the code does not.
-  A comment that narrates the steps below it, or restates the method's name as a
-  sentence, breaks this rule.
+  A comment that narrates the steps below it breaks this rule. So does one that
+  restates the method's name as a sentence.
 ```
 
 Rewording a rule re-asks it. Leaving it alone costs nothing.
@@ -152,13 +154,13 @@ ID        Method          Location          Type  Kind                    Severi
 1 open issue match, out of 27
 ```
 
-`perch scan` exits 3 when a rule is broken, the same as it does on a defect or a
-vulnerability perch found itself. All three say something is wrong.
+`perch scan` exits 3 when a rule is broken. It does the same for a defect or a
+vulnerability.
 
-## What fails a run
+## Gates
 
 Every question says whether an answer fails the run or is only worth reading.
-`perch rules list` shows it in the Fails column, and yours are read no
+`perch rules list` shows it in the Fails column. A custom rule is read no
 differently from perch's own:
 
 ```console
@@ -186,9 +188,31 @@ perch rules edit refactor --gate true    # make a big method stop a run
 perch rules edit docs-succinct --gate false
 ```
 
+## Code perch does not read
+
+`perch.yaml` is a list of rules. To say what a scan should skip entirely, write it as a
+map instead, with the rules under `rules:`:
+
+```yaml
+ignore:
+  - perch-example/**
+  - fixtures/**
+
+rules:
+  - name: no-narrative-prose
+    where: "**/*.md"
+    ensure: A headline and one line, not a paragraph explaining the product.
+```
+
+A path matching `ignore` is never read and never reported. This repository uses
+it for `perch-example`, an order service with a bug in every method. It exists so
+the docs can show real output.
+
+The bare list form still works.
+
 ## Editing perch.yaml from the command line
 
-`perch rules` changes the file without opening it, keeping your comments and
+`perch rules` changes the file without opening it, keeping comments and
 ordering:
 
 ```sh
@@ -201,14 +225,14 @@ perch rules remove no-stale-docs
 ## Rewording what perch itself asks
 
 The questions perch ships with are written in the same grammar, in `scan.yaml`
-inside the package. A rule in `perch.yaml` with the same `name` as one of them
-replaces it, so you can reword a question that does not fit your codebase, or add
-a class of your own alongside them.
+inside the package. A rule in `perch.yaml` sharing a `name` with one of them
+replaces it. Reword a question that fits a codebase badly, or add a custom class
+alongside them.
 
 `scan.yaml` is worth reading once. It is the whole set of questions, and it is
 the clearest statement of what perch does. See [the questions](/scan/#the-questions).
 
-## How sure perch has to be
+## Floors
 
 Every question carries a floor, in percent. Below it, an answer is not listed.
 
@@ -218,13 +242,12 @@ Every question carries a floor, in percent. Below it, an answer is not listed.
 | 70% | `does_what_it_claims`, and every defect and vulnerability class |
 | 60% | `has_bug`, `refactor` |
 
-A model asked four hundred times answers in the fifties a great deal, and a 51%
-row reads like a 95% one while being a coin flip. Each floor is where that
-question stopped hedging on this codebase. Yours may differ.
+A model asked four hundred times answers in the fifties a great deal. A 51% row
+reads like a 95% one while being a coin flip. Each floor is where that question
+stopped hedging on this codebase. Another codebase may land elsewhere.
 
-`--min` sets a floor for a whole run. Both apply and the higher wins, so
-`--min 90` does not hand you back a 73% because some question said 70 was
-enough, and `--min 0` still respects what each question set for itself.
+`--min` sets a floor for a whole run. Both apply and the higher wins. Asking for
+`--min 90` gets you nothing at 73%, whatever a question set for itself.
 
 A rule you write has no floor unless you give it one:
 
@@ -242,14 +265,14 @@ perch rules edit comment-says-why --min 0  # take a floor off
 ```
 
 Raising a floor until a rule keeps nothing is turning it off with extra steps.
-When a question answers in the seventies about most of a codebase, the question
-is wrong, not the number: see [writing a good one](#writing-a-good-one).
+A question answering in the seventies about most of a codebase is a wrong
+question, not a wrong number. See [writing a good one](#writing-a-good-one).
 
 ## Answers that are not yes-or-no
 
 `ensure` is shorthand for a yes-or-no question. A rule can instead be written out
-in the grammar `scan.yaml` uses, which is what you need when the answer is a pick
-from a set or a grade against a rubric.
+in the grammar `scan.yaml` uses. Reach for that when the answer is a pick from a
+set, or a grade against a rubric.
 
 | Field | |
 | --- | --- |
@@ -269,7 +292,7 @@ perch rules add handles_absence --type choice --each method --where "src/**/*.js
   --issue "type=defect,label=handles_absence,except=checks"
 ```
 
-`when` is how the scan's own security classes are gated on `exposed`: a class that
-only matters if something from outside reaches the method is written
-`when: exposed`, and its probability is multiplied by that one's. See
+`when` is how the scan's own security classes are gated on `exposed`. A class
+that only matters when something from outside reaches the method is written
+`when: exposed`. Its probability is multiplied by that one's. See
 [the questions](/scan/#the-questions).

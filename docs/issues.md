@@ -3,7 +3,7 @@ title: Reading issues
 nav: Reading issues
 group: Using perch
 order: 3
-summary: The ranked list, what a row means, how to narrow it, and how to set aside what does not matter.
+summary: The ranked list, what a row means, and how to narrow it.
 ---
 
 # Reading issues
@@ -23,22 +23,22 @@ eb9dfee4  versionAssets      …ts/build.mjs:161  security  resource_exhaustion 
 Ten rows by default. `--limit` changes that, `--page` moves through them, `--all`
 prints every row.
 
-## What a row means
+## The columns
 
-One row is one method, not one problem. A method with a defect, a missing
-comment and a refactor is one row carrying three issues.
+One row is one method. A method with a defect, a missing comment and a refactor
+is one row carrying three issues.
 
 | Column | |
 | --- | --- |
-| `ID` | Stable for as long as the method's source is unchanged. It is what `issues`, `check`, `close` and `reopen` take. |
+| `ID` | Stable while the method's source is. What `issues`, `check`, `close` and `reopen` take. |
 | `Method` | The qualified name. Nested functions read as `versionAssets.walk`. |
-| `Location` | The file and the line. For a defect it is the line the model pointed at, not the method's first line. |
+| `Location` | The file and the line. For a defect, the line the model pointed at. |
 | `Type` | The class the row leads with: `defect`, `security`, `refactor`, `docs`, or `lint`. |
 | `Kind` | The issues themselves, likeliest first, with how sure perch is of each. |
 | `Severity` | How much a caller would feel it. Empty on a row carrying neither a defect nor a vulnerability, since those are the two the rubric weighs. |
 
-Severity reads as a band and the number behind it, because the band alone throws
-away how close the call was:
+Severity prints as a band and a number, `P1 (0.9)`. The number says where in the
+band the row sits:
 
 ```
 P1 (0.9)   almost P0
@@ -46,7 +46,7 @@ P1 (1.2)   settling toward P2
 ```
 
 The band is `round(mean)` and the number is `3 − mean`, over a distribution the
-model gives across all four levels. [How a scan works](scan.md) works it through.
+model gives across all four levels. [Inside a scan](scan.md) works it through.
 
 ## One issue, opened up
 
@@ -75,14 +75,13 @@ $ perch issues 723a2685
   Code           risk 74  maintainability 34  complexity 21  nesting 3  59 lines
 ```
 
-The same columns the table prints, with what was asked under them. Everything
-perch answered is here, including answers below the floor: a defect at 44% is
-not a row on the table and is still printed here, because you asked about this
-method.
+These are the columns the table prints, with every answer under them. That
+includes answers below the floor. A defect at 44% is left off the table, and
+`perch issues <id>` still shows it.
 
-The `Severity` column is on the rows the rubric weighs, which are the defect and
-the vulnerability. The block below it is the same question's whole distribution,
-which is what the band and the number in brackets are worked out from.
+`Severity` is filled in on the two rows the rubric weighs, the defect and the
+vulnerability. The `Severity` line lower down carries the whole distribution, and
+the band and bracketed number are worked out from it.
 
 ## Narrowing the list
 
@@ -97,27 +96,25 @@ perch issues --filter type=defect,security --filter kind=unhandled_null
 
 `perch issues --types` prints every value the three keys accept.
 
-A filtered list is ranked by what was filtered for rather than by overall weight,
-so `--filter type=security` leads with the likeliest vulnerability in the
-repository instead of whichever method is heaviest overall. Each row also
-reorders to lead with the match.
+A filtered list is ranked by what was filtered for. So `--filter type=security`
+leads with the likeliest vulnerability in the repository. Each row also reorders
+to lead with the match.
 
-## How sure perch has to be
+## Floors
 
-An issue is listed when its probability is over 50 percent. Above a half is the
-model saying yes; below it is the model saying no.
+An issue is listed when its probability is over 50 percent.
 
 ```sh
 perch issues --min 80     # only what it is very sure of
 perch issues --min 0      # everything it answered
 ```
 
-The floor is on what gets claimed, not on the arithmetic. An issue at 49 percent
-still weighs 0.49 in where its method sorts. See [the floor](/scan/#the-floor).
+The floor decides what gets claimed. The ranking still uses every answer, so an
+issue at 49 percent weighs 0.49 in where its method sorts. See [the floor](/scan/#the-floor).
 
 ## Setting one aside
 
-Not every finding is worth acting on. `perch close` takes one off the list:
+`perch close` takes a finding off the list:
 
 ```sh
 perch close e585492e --reason "verifies the HMAC before parsing"
@@ -132,9 +129,9 @@ alone. `perch reopen <id>` puts it back.
 perch issues --closed     # include what you set aside
 ```
 
-Closed issues live in `.perch/closed.jsonl`, apart from the answers, because a
-judgement you made has to survive the next run and an answer does not. Commit
-that file if you want the team to share your dismissals.
+Closed issues live in `.perch/closed.jsonl`, apart from the answers. A judgement
+you made has to survive the next run. Commit that file to share dismissals
+with the team.
 
 ## JSON
 

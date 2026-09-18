@@ -34,12 +34,12 @@ export async function runChecks({ root, out, env, versions }) {
 
   checks.push(env.TYPESAFE_API_KEY
     ? ok('key', `TYPESAFE_API_KEY, ${env.TYPESAFE_API_KEY.length} characters`)
-    : bad('key', 'TYPESAFE_API_KEY is not set', 'export it, or put it in a .env beside your repository'));
+    : bad('key', 'TYPESAFE_API_KEY is not set', 'export it, or put it in a .env beside the repository'));
 
   const version = await git(['--version'], root).then(text => text.trim()).catch(error => error);
   checks.push(typeof version === 'string'
     ? ok('git', version)
-    : bad('git', version.message.split('\n')[0], 'perch reads your code out of git, so git has to be on the path'));
+    : bad('git', version.message.split('\n')[0], 'perch reads code out of git, so git has to be on the path'));
 
   const inside = await git(['rev-parse', '--show-toplevel'], root).then(text => text.trim()).catch(() => null);
   checks.push(inside

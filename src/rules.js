@@ -37,7 +37,21 @@ async function open(root) {
   if (!doc.contents || !doc.contents.items) doc.contents = doc.createNode([]);
   // The text it was parsed from goes back with it, because the write puts the whole document down again and has to know it is
   // putting it down over the one it picked up.
-  return { path, doc, text };
+  return { path, doc, rules: rulesOf(doc), text };
+}
+
+/**
+ * The sequence the rules are in. The file is either a list of them or a map with them under `rules:`, and everything that edits
+ * one works on the sequence either way. Reading `doc.contents` on the map form gave the pairs `ignore` and `rules` themselves,
+ * so adding a rule wrote a node where a key belonged and the next command could not parse the file.
+ */
+function rulesOf(doc) {
+  if (doc.contents?.items?.every(item => item?.key === undefined)) return doc.contents;
+  const under = doc.get('rules', true);
+  if (under?.items) return under;
+  // A map with no rules in it yet: give it the key rather than making the caller notice which shape it has.
+  doc.set('rules', doc.createNode([]));
+  return doc.get('rules', true);
 }
 
 /**
@@ -76,7 +90,7 @@ async function save(path, doc, was) {
   await rename(tmp, path);
 }
 
-const named = (doc, name) => doc.contents.items.findIndex(item => item.get?.('name') === name);
+const named = (rules, name) => rules.items.findIndex(item => item.get?.('name') === name);
 
 /** Prose reads as a folded block, the way the rules written by hand do; a path or a word stays on its line. */
 function scalar(value) {
@@ -98,12 +112,12 @@ const legible = rule => check(Object.fromEntries(Object.entries(rule).filter(([,
 /** Add a rule, or refuse if that name is taken: two rules with one name is a report nobody can act on. */
 export async function addRule(root, rule) {
   return withLock(join(root, RULES_FILE), async () => {
-    const { path, doc, text } = await open(root);
-    if (named(doc, rule.name) >= 0) throw new Error(`${rule.name} is already a rule; perch rules edit ${rule.name} changes it`);
+    const { path, doc, rules, text } = await open(root);
+    if (named(rules, rule.name) >= 0) throw new Error(`${rule.name} is already a rule; perch rules edit ${rule.name} changes it`);
     legible(rule);
     const node = doc.createNode({});
     for (const key of FIELDS) if (rule[key] !== undefined) node.set(key, write(doc, key, rule[key]));
-    doc.contents.items.push(node);
+    rules.items.push(node);
     await save(path, doc, text);
     return rule;
   });
@@ -118,15 +132,15 @@ export async function addRule(root, rule) {
  */
 export async function editRule(root, name, changes) {
   return withLock(join(root, RULES_FILE), async () => {
-    const { path, doc, text } = await open(root);
-    let at = named(doc, name);
+    const { path, doc, rules, text } = await open(root);
+    let at = named(rules, name);
     if (at < 0) {
       const shipped = BUILTIN.find(question => question.name === name);
       if (!shipped) throw new Error(`no question called ${name}; perch rules list shows them`);
-      doc.contents.items.push(doc.createNode(shipped.declared));
-      at = doc.contents.items.length - 1;
+      rules.items.push(doc.createNode(shipped.declared));
+      at = rules.items.length - 1;
     }
-    const node = doc.contents.items[at];
+    const node = rules.items[at];
     // Changing a question that was turned off is asking for it back, worded the new way.
     if (node.get('disabled') && changes.disabled === undefined) {
       node.delete('disabled');
@@ -153,12 +167,12 @@ export async function editRule(root, name, changes) {
  */
 export async function removeRule(root, name) {
   return withLock(join(root, RULES_FILE), async () => {
-    const { path, doc, text } = await open(root);
-    const at = named(doc, name);
+    const { path, doc, rules, text } = await open(root);
+    const at = named(rules, name);
     const shipped = BUILTIN.find(question => question.name === name);
     if (at < 0 && !shipped) throw new Error(`no question called ${name}; perch rules list shows them`);
-    if (at < 0) doc.contents.items.push(doc.createNode({ name, disabled: true }));
-    else doc.contents.items.splice(at, 1);
+    if (at < 0) rules.items.push(doc.createNode({ name, disabled: true }));
+    else rules.items.splice(at, 1);
     await save(path, doc, text);
     return { name, turnedOff: at < 0 };
   });

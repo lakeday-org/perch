@@ -125,9 +125,24 @@ export function merge(...sets) {
 export function parseQuestions(text, at, noun = 'question') {
   // An empty file has no questions in it. A file with something in it that reads as nothing is a file someone wrote wrong, and
   // answering that with an empty list asks none of their rules and never says so.
-  const list = text.trim() ? parse(text) : [];
-  if (!Array.isArray(list)) throw new Error(`${at}: expected a list of ${noun}s`);
+  const doc = text.trim() ? parse(text) : [];
+  const list = Array.isArray(doc) ? doc : doc?.rules;
+  if (!Array.isArray(list)) throw new Error(`${at}: expected a list of ${noun}s, or a map with rules: under it`);
   return list.map((question, index) => check(question, `${at} ${noun} ${index + 1}`, noun));
+}
+
+/**
+ * Paths a scan does not read at all, as globs. A repository with a fixture in it — code with a bug in every method, kept so the
+ * docs can show real output — has nothing to gain from being told about them on every run.
+ *
+ * Only the map form of the file has one. A bare list is a list of rules and always was.
+ */
+export function parseIgnored(text, at) {
+  const doc = text.trim() ? parse(text) : [];
+  if (Array.isArray(doc) || !doc) return [];
+  const ignore = doc.ignore ?? [];
+  if (!Array.isArray(ignore) || ignore.some(glob => typeof glob !== 'string')) throw new Error(`${at}: ignore is a list of globs`);
+  return ignore;
 }
 
 /** The questions perch ships with, read once. The file is the source of truth; nothing here is duplicated in code. */

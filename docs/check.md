@@ -3,19 +3,30 @@ title: Checking a change
 nav: Checking a change
 group: Using perch
 order: 5
-summary: perch check asks the same questions of code as it reads on disk, records nothing, and exits 3 while something is still wrong.
+summary: perch check asks about one point in the code as it reads on disk. It records nothing and exits 3 while something is wrong.
 ---
 
 # Checking a change
 
-`perch scan` reads the repository at `HEAD` and writes down what it found.
-`perch check` reads one point in the code as it is on disk right now, answers,
-and records nothing. It is the one to run while you are working.
+`perch scan` reads the repository at `HEAD`. `perch check` reads one point in the code
+as it is on disk right now. Run it while you are working:
+
+```console
+$ perch check checkout.py::can_fulfil
+checkout.py:20  can_fulfil
+1 check, 1 broken.
+
+  Confidence  Rule           Description
+         93%  can_fulfil     True when every line in the cart is in stock.
+1 request  4k tokens in / 646 out  $0.0002
+```
+
+A target is a method by name, a whole file, or the id of an issue:
 
 ```sh
-perch check src/model.js::createModel   # a method, by name
-perch check src/model.js                # a whole file
-perch check 92c7781e                    # whatever raised that issue
+perch check src/model.js::createModel
+perch check src/model.js
+perch check 92c7781e
 ```
 
 It asks every rule that covers the target, plus the scan's own questions when the
@@ -32,7 +43,7 @@ perch check src/model.js --rules env-read-once,no-silent-failure
 ```
 
 After a security fix, asking about security alone is one question against one
-method, which is fast and cheap enough to sit in a loop.
+method. That is cheap enough to sit in a loop.
 
 ## The loop
 
@@ -50,15 +61,16 @@ or not.
 
 ## Reading the answer
 
-`check` prints the whole distribution, not only what clears the floor. Halving a
-40 percent defect is visible as that, even though neither the before nor the
-after would be listed by `perch issues`.
+`check` prints the whole distribution, including what falls under the floor.
+Halving a 40 percent defect is visible as that. `perch issues` would list neither
+reading.
 
-That is the difference worth keeping in mind: `issues` is a list of claims, so it
-has a floor. `check` is an answer to a question you asked, so it has none.
+`issues` is a list of claims, so it has a floor. `check` answers the question you
+asked, and reports whatever came back.
 
-## What it does not do
+## No record
 
-It writes nothing. The issue that sent you there stays open in `.perch` until the
-next `perch scan` re-reads that method and finds it gone. `check` passing is not
-the same as the issue being closed, and it is not meant to be.
+Nothing. The issue that sent you there stays open in `.perch`. The next
+`perch scan` re-reads that method and finds it gone.
+
+A passing `check` does not close an issue.

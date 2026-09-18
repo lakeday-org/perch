@@ -73,8 +73,8 @@ describe('perch setup', () => {
     expect(skill).toMatch(/`3` is a result rather than an error/);
     // The detail is in the JSON; the table rounds it off.
     expect(skill).toMatch(/probabilities/);
-    // And a finding is a belief about a method, not a located defect on a line.
+    // And a finding is a belief about a method rather than a defect pinned to a line.
     expect(skill).toMatch(/adjacent/i);
-    expect(skill).toMatch(/Not a located defect/);
+    expect(skill).toMatch(/does not locate a\s+defect/);
   });
 });

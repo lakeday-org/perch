@@ -1,66 +1,72 @@
 ---
 title: perch
 nav: Introduction
-group: Introduction
+group: Getting started
 order: 1
-summary: A model reads every method in your repository, answers the same set of questions about each one, and the answers come back as probabilities.
+summary: AST powered semantic code linting with Jev.
 ---
 
 # perch
 
-perch finds bugs and design problems in a repo.
+perch is a semantic linter. It reads each method with its callers and callees in front of it. Then it asks a
+model what the code does.
 
-`perch scan` parses every tracked file with tree-sitter, scores each method, then
-asks a TypeSafe System One model a fixed set of questions about each one: is
-there a bug, where is it, what kind, how bad, is it a security hole, does it do
-what its name says, does it need refactoring.
+```console
+$ perch scan
+src/store.js
+  ID        Line  Severity  Type      Confidence  Problem             Method
+  d8f67bd9    46  -         refactor         72%  tangled_conditions  closures
+  463c56ed    63  -         refactor         74%  too_big             openStore
 
-Answers come back as probabilities, not verdicts. A method is ranked by what its
-problems would cost rather than by how many it has, and the list is sorted worst
-first.
+src/git.js
+  ID        Line  Severity  Type    Confidence  Problem           Method
+  fe166264    84  P1 (1.3)  defect         72%  integer_overflow  readBlobs
+
+✖ 3 problems in 2 files, 1 failing
+perch at commit d4f7adf: 38 methods, read 38
+110 requests  81k tokens in / 5k out  $0.0034
+```
+
+Every answer is a probability. `72%` is how sure perch is, and it stays on the row.
+
+## Install
 
 ```sh
 npm install -g @lakeday/perch
 export TYPESAFE_API_KEY=...
-perch scan
-perch issues
 ```
 
-## What makes it different from a linter
+Needs Node 22 and git.
 
-A linter matches patterns in a syntax tree, so it can only find what somebody
-wrote a pattern for. perch reads the method the way a reviewer would, with its
-callers and callees in front of it, and answers questions about meaning: does
-this off-by-one matter to anyone who calls it, does this comment describe what
-the code actually does, does this caller violate the contract of the thing it
-calls.
+## The questions
 
-That also means the answers are probabilities. An issue is listed when perch is
-more than half sure of it, and the number stays on the row so you can see how
-sure. See [the floor](/scan/#the-floor).
+Each method gets the same set. Is there a bug, where, what kind, how bad. Is it a
+security hole. Does it do what its name says. Does it need refactoring.
 
-## What it costs to run
+A method is ranked by what its problems would cost. The list
+runs worst first.
 
-One HTTP request per method. System One does not bill output tokens, so asking
-thirty questions of a method costs what asking one costs, which is why the set of
-questions is wide rather than staged.
+## Custom rules
 
-Rules you write in `perch.yaml` are asked in the same request as perch's own
-questions, so a method covered by five rules is one reading, not six.
+Rules live in `perch.yaml` and are sentences:
 
-## What it writes
+```yaml
+- name: no-silent-failure
+  where: "src/**/*.js"
+  each: method
+  ensure: An error is returned or raised, and reaches the caller.
+```
 
-Nothing in your working tree. Results go to `.perch`, which you can point
-somewhere else with `--out`:
+They ride in the request perch was already making about that method. Five rules on one
+method cost one reading.
+
+## The .perch directory
+
+Results go to `.perch`:
 
 | File | What it holds |
 | --- | --- |
-| `.perch/scan.jsonl` | What the last run found, one line per method read and per rule broken. Rewritten whole every run. |
-| `.perch/closed.jsonl` | What you set aside with `perch close`, which has to survive the next run. |
+| `.perch/scan.jsonl` | What the last run found. Rewritten whole every run. |
+| `.perch/closed.jsonl` | What you set aside with `perch close`. Survives the next run. |
 
-## Where to go next
-
-- [Quick start](/install/) installs it and walks the first scan.
-- [Reading issues](/issues/) is the list, the filters, and closing what does not matter.
-- [Semantic linting](/rules/) is `perch.yaml`.
-- [How a scan works](/scan/) is the graph walk, the questions, and the arithmetic behind the ranking.
+`--out` points them somewhere else.
