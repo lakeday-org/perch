@@ -8,8 +8,8 @@ summary: AST powered semantic code linting with Jev.
 
 # perch
 
-perch is a semantic linter. It reads each method with its callers and callees in front
-of it, and asks a model what the code does.
+perch is a semantic linter. It reads each method with its callers and callees in front of it. Then it asks a
+model what the code does.
 
 ```console
 $ perch scan

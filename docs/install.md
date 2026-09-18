@@ -39,7 +39,7 @@ export TYPESAFE_API_KEY=...
 perch scan
 ```
 
-It parses every tracked file, ranks the methods by risk, and reads them worst
+It parses every tracked file and ranks the methods by risk. It reads them worst
 first, walking out through callers and callees. It prints what it found grouped
 by file, and a count at the end:
 
@@ -60,11 +60,11 @@ perch at commit d4f7adf: 38 methods, read 2, 38 unchanged
 110 requests  81k tokens in / 5k out  $0.0034
 ```
 
-A method whose code, whose neighbours and whose questions are all unchanged since
-the last run is not read again, which is what `38 unchanged` counts.
+A method is read again only when its code, its neighbours or its questions have
+moved. That is what `38 unchanged` counts.
 
-A first run over a large repository reads every method in scope, so narrow it
-while you are getting a feel for it:
+A first run over a large repository reads every method in scope. Narrow it while
+you are getting a feel for it:
 
 ```sh
 perch scan --paths src
@@ -91,9 +91,8 @@ The first column is the id. Give it to `perch issues` to open one up:
 perch issues 3a7c6bfe
 ```
 
-That prints everything perch answered about the method. The severity
-distribution, every vulnerability class with its probability, the line the defect
-points at and how sure that pick was. It also lists the callers and callees that
+That prints everything perch answered about the method. The severity distribution, and every vulnerability class with its probability. It
+shows the line the defect points at and how sure that pick was. It also lists the callers and callees that
 were in view.
 
 ## Changing something and asking again

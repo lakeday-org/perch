@@ -43,7 +43,7 @@ perch check src/model.js --rules env-read-once,no-silent-failure
 ```
 
 After a security fix, asking about security alone is one question against one
-method, which is fast and cheap enough to sit in a loop.
+method. That is cheap enough to sit in a loop.
 
 ## The loop
 
@@ -61,7 +61,8 @@ or not.
 
 ## Reading the answer
 
-`check` prints the whole distribution, not only what clears the floor. Halving a
+`check` prints the whole distribution, including what falls under the floor.
+Halving a
 40 percent defect is visible as that, even though neither the before nor the
 after would be listed by `perch issues`.
 
@@ -70,6 +71,7 @@ asked, and reports whatever came back.
 
 ## What it does not do
 
-It writes nothing. The issue that sent you there stays open in `.perch` until the
-next `perch scan` re-reads that method and finds it gone. `check` passing is not
-the same as the issue being closed, and it is not meant to be.
+It writes nothing. The issue that sent you there stays open in `.perch`. The next
+`perch scan` re-reads that method and finds it gone.
+
+`check` passing and the issue closing are two different things.

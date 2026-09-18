@@ -24,8 +24,8 @@ perch <command> [options]
 
 `perch findings` is the same command as `perch issues`.
 
-Every command takes `--json`, which prints the same information for a script to
-read instead of a summary for a person. Every command that reads results takes
+Every command takes `--json`. That prints the same information for a script to
+read. Every command that reads results takes
 `--out DIR`, which is `.perch` by default.
 
 ## perch scan
@@ -183,8 +183,8 @@ perch 0.1.1  node v25.5.0  darwin arm64
 
 It exits 1 when any check fails, so CI can run it before a scan.
 
-Then what went wrong in the last run. Every method it could not read, with the
-error beside it, and the end of `.perch/scan.log` when the run ended badly.
+Then what went wrong in the last run. Every method it could not read, with the error beside it. Then the end of
+`.perch/scan.log` when the run ended badly.
 
 It prints names, paths, counts and error messages, so it can be pasted into a
 bug report as it stands.
