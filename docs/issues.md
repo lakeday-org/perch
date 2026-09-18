@@ -102,20 +102,19 @@ to lead with the match.
 
 ## Floors
 
-An issue is listed when its probability is over 50 percent. Above a half is the
-model saying yes; below it is the model saying no.
+An issue is listed when its probability is over 50 percent.
 
 ```sh
 perch issues --min 80     # only what it is very sure of
 perch issues --min 0      # everything it answered
 ```
 
-The floor is on what gets claimed, not on the arithmetic. An issue at 49 percent
-still weighs 0.49 in where its method sorts. See [the floor](/scan/#the-floor).
+The floor decides what gets claimed. The ranking still uses every answer, so an
+issue at 49 percent weighs 0.49 in where its method sorts. See [the floor](/scan/#the-floor).
 
 ## Setting one aside
 
-Not every finding is worth acting on. `perch close` takes one off the list:
+`perch close` takes a finding off the list:
 
 ```sh
 perch close e585492e --reason "verifies the HMAC before parsing"

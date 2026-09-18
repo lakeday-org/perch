@@ -155,7 +155,7 @@ ID        Method          Location          Type  Kind                    Severi
 ```
 
 `perch scan` exits 3 when a rule is broken. It does the same for a defect or a
-vulnerability. All three say something is wrong.
+vulnerability.
 
 ## Gates
 
@@ -208,7 +208,7 @@ A path matching `ignore` is never read and never reported. This repository uses
 it for `perch-example`, an order service with a bug in every method. It exists so
 the docs can show real output.
 
-The bare list form still works and means what it always did.
+The bare list form still works.
 
 ## Editing perch.yaml from the command line
 
@@ -244,7 +244,7 @@ Every question carries a floor, in percent. Below it, an answer is not listed.
 
 A model asked four hundred times answers in the fifties a great deal. A 51% row
 reads like a 95% one while being a coin flip. Each floor is where that question
-stopped hedging on this codebase. Yours may differ.
+stopped hedging on this codebase. Another codebase may land elsewhere.
 
 `--min` sets a floor for a whole run. Both apply and the higher wins. Asking for
 `--min 90` gets you nothing at 73%, whatever a question set for itself.

@@ -43,8 +43,8 @@ perch at commit 5e9d910: 3 methods, read 3
 3 requests  10k tokens in / 2k out  $0.0004
 ```
 
-A pull request reads the methods it touched and their neighbourhood. That keeps
-the job to a sensible size and cost.
+A pull request reads the methods it touched and their neighbourhood. That is a
+handful of requests where a whole repository is hundreds.
 
 ## GitHub Actions
 
