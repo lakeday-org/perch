@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { main, parseArgs, VERSION } from '../src/cli.js';
 import { parseFilters } from '../src/questions.js';
-import { parseQuestions, questionSet } from '../src/ask.js';
+import { parseQuestions, questionSet, questionsFor } from '../src/ask.js';
 import { gating, shownIssues } from '../src/report.js';
 import { revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
@@ -186,6 +186,34 @@ describe('cli', () => {
     // rule declares none.
     expect(rule[0].gate).toBe(true);
     expect(gating([finding], 0, questions)).toHaveLength(1);
+  });
+
+  it('takes several values for one key, and names a rule as one of them', () => {
+    // A part with no `=` belongs to the key before it. Without this, type=defect,security read `security` as a key and the form
+    // the docs showed was an error.
+    expect(parseFilters('type=defect,security')).toEqual([{ key: 'type', value: 'defect' }, { key: 'type', value: 'security' }]);
+    expect(parseFilters('type=defect,kind=too_big')).toEqual([{ key: 'type', value: 'defect' }, { key: 'kind', value: 'too big' }]);
+    expect(() => parseFilters('defect')).toThrow(/written key=value/);
+
+    // A rule is filterable by name, so a rule just written can be run on its own rather than behind every other rule.
+    const rules = [{ name: 'fixture-rule-one' }, { name: 'fixture-rule-two' }];
+    expect(parseFilters('rule=fixture-rule-one,fixture-rule-two', rules)).toEqual([
+      { key: 'rule', value: 'fixture rule one' }, { key: 'rule', value: 'fixture rule two' },
+    ]);
+    // The names come from the repository, so a filter with none to offer says that rather than listing nothing.
+    expect(() => parseFilters('rule=fixture-rule-one')).toThrow(/there are none/);
+    expect(() => parseFilters('rule=nope', rules)).toThrow('is not one of');
+  });
+
+  it('asks only the rule a filter named', () => {
+    // Names this repository does not use, since perch.yaml's own rules are compiled into the question set by then.
+    const rules = [
+      { name: 'fixture-rule-one', each: 'method', issue: { type: 'lint', label: 'self' }, kind: 'ensure' },
+      { name: 'fixture-rule-two', each: 'method', issue: { type: 'lint', label: 'self' }, kind: 'ensure' },
+    ];
+    const asked = questionsFor([...questionSet(), ...rules], parseFilters('rule=fixture-rule-one', rules), kind => kind);
+    // The one rule, and nothing else: no has_bug, no security classes, no other rule.
+    expect(asked.map(question => question.name)).toEqual(['fixture-rule-one']);
   });
 
   it('lists the issues a scan found, from the results directory', async () => {

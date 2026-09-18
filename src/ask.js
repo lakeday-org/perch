@@ -260,7 +260,8 @@ function labelsOf(question, questions, rename = kind => kind) {
  * rubric when it is a correctness issue, since that is what ranks it.
  */
 export function questionsFor(questions, filters = [], rename = kind => kind) {
-  const named = filters.filter(clause => clause.key === 'type' || clause.key === 'kind');
+  // `rule` names one question directly. It narrows like `kind` does, because a rule's issue is filed under its own name.
+  const named = filters.filter(clause => clause.key === 'type' || clause.key === 'kind' || clause.key === 'rule');
   if (!named.length) return questions;
   const canon = value => String(value).toLowerCase().replace(/[_-]+/g, ' ');
   const wanted = new Set();

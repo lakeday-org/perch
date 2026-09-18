@@ -85,13 +85,14 @@ the band and bracketed number are worked out from it.
 
 ## Narrowing the list
 
-`--filter` takes `type=`, `kind=` and `severity=`. Clauses on the same key are
-alternatives, clauses on different keys all have to hold.
+`--filter` takes `type=`, `kind=`, `severity=` and `rule=`. Clauses on the same
+key are alternatives, clauses on different keys all have to hold.
 
 ```sh
 perch issues --filter type=security
 perch issues --filter severity=P0,P1
 perch issues --filter type=defect,security --filter kind=unhandled_null
+perch issues --filter rule=no-silent-failure
 ```
 
 `perch issues --types` prints every value the three keys accept.

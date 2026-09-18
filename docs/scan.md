@@ -261,8 +261,13 @@ damage, and the mean says so. `perch issues <id>` prints the whole distribution.
 ## 7. Filtering
 
 `--filter` takes `type=`, `kind=` and `severity=`, which are the three columns
-that name a problem. Clauses on the same key are alternatives; clauses on
-different keys must all hold.
+that name a problem, and `rule=`, which names one rule from `perch.yaml`.
+Clauses on the same key are alternatives; clauses on different keys must all
+hold.
+
+A filter narrows the run, not only the report. `--filter rule=<name>` asks that
+one rule and skips every unit it does not cover, which is how a rule you have
+just written gets run on its own.
 
 A filtered list is also **ranked by what was filtered for**. Ranking it by
 overall weight would bury the strongest match. Within a key the likeliest
