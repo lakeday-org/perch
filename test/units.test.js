@@ -5,7 +5,7 @@ import { revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { check } from '../src/ask.js';
 import { rulesFor } from '../src/check.js';
-import { matches, neighbourhood, rank, readLint, readRules, selectUnits, testBlocks, unitStep } from '../src/units.js';
+import { expand, matches, neighbourhood, rank, readLint, readRules, selectUnits, testBlocks, unitStep } from '../src/units.js';
 import { scanRepository } from '../src/scan.js';
 import { openStore } from '../src/store.js';
 import { commitAll, makeGraphFixture } from './helpers.js';
@@ -39,6 +39,28 @@ const answering = (value, calls = []) => ({
     }
     return { model: 'scripted-jev', answers, usage: { input_tokens: 10, output_tokens: 0 } };
   },
+});
+
+describe('a glob with alternatives in it', () => {
+  it('takes {a,b} as the list a person means, since a rule over two places is one rule', () => {
+    // Written as a pattern, `{` and `}` were escaped and matched literally, so a where nobody could see was wrong covered
+    // nothing and said nothing: the rule was asked of no file and reported as passing.
+    expect(expand('{README.md,docs/**/*.md}')).toEqual(['README.md', 'docs/**/*.md']);
+    expect(matches('{README.md,docs/**/*.md}', 'README.md')).toBe(true);
+    expect(matches('{README.md,docs/**/*.md}', 'docs/cli.md')).toBe(true);
+    expect(matches('{README.md,docs/**/*.md}', 'src/cli.js')).toBe(false);
+    // The extension form, which is how most people reach for it.
+    expect(matches('src/**/*.{js,ts}', 'src/treesitter/index.ts')).toBe(true);
+    expect(matches('src/**/*.{js,ts}', 'src/a.rs')).toBe(false);
+    // Nested, and more than one brace in a glob.
+    expect(expand('{a,{b,c}}.md')).toEqual(['a.md', 'b.md', 'c.md']);
+    expect(expand('{x,y}/{1,2}')).toEqual(['x/1', 'x/2', 'y/1', 'y/2']);
+    // A brace that never closes is a brace, not a list, and is matched as one.
+    expect(expand('{unclosed')).toEqual(['{unclosed']);
+    expect(matches('{unclosed', '{unclosed')).toBe(true);
+    // Everything without a brace is untouched.
+    expect(expand('**/*.md')).toEqual(['**/*.md']);
+  });
 });
 
 describe('which rules cover one point in the code', () => {

@@ -36,11 +36,7 @@ perch issues 92c7781e       # open one up
 perch check 92c7781e        # change it, ask again, nothing committed
 ```
 
-## In your coding assistant
-
-`perch setup` installs a skill that teaches it to scan what a branch changed, read the
-JSON rather than the table, and treat a finding as a probability rather than a located
-defect.
+## Agent skills
 
 ```sh
 perch setup claude-code   # .claude/skills/perch/SKILL.md
@@ -48,8 +44,6 @@ perch setup codex         # .codex/skills/perch/SKILL.md
 perch setup pi            # .pi/skills/perch/SKILL.md
 perch setup cursor        # .cursor/rules/perch.mdc
 ```
-
-Commit the file. [What it says](https://docs.perchscan.com/skill/).
 
 ## Semantic linting
 
@@ -65,21 +59,16 @@ Extend perch with your own rules, in `perch.yaml`:
     environment is the command line's job.
 ```
 
-They cover what a parser cannot prove. `perch scan` exits 3 when one breaks, so
-CI can gate on it. [Every field](https://docs.perchscan.com/rules/).
-
 ## Documentation
-
-[docs.perchscan.com](https://docs.perchscan.com)
 
 | | |
 | --- | --- |
 | [Getting started](https://docs.perchscan.com/install/) | Install, the key, the first scan. |
 | [Reading issues](https://docs.perchscan.com/issues/) | The list, the filters, closing what does not matter. |
-| [Semantic linting](https://docs.perchscan.com/rules/) | Every field `perch.yaml` takes. |
+| [Semantic linting](https://docs.perchscan.com/rules/) | `where`, `each`, `sees`, `min`, `gate`, and the longhand grammar. |
 | [Checking a change](https://docs.perchscan.com/check/) | `perch check` on work in progress. |
 | [perch in CI](https://docs.perchscan.com/ci/) | What a build can gate on, and what it cannot. |
-| [Command reference](https://docs.perchscan.com/cli/) | Every verb and every flag. |
+| [Command reference](https://docs.perchscan.com/cli/) | Every command, its flags, and what each exit code means. |
 | [How a scan works](https://docs.perchscan.com/scan/) | The graph walk, the questions, and how probabilities turn into a ranking. |
 
 Results go in `.perch`. Nothing else is written to your tree.

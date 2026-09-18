@@ -7,6 +7,7 @@
   ensure: >
     The file does not sound AI generated
   except: skill.md
+  min: 65
 
 - name: docs-succinct
   where: "**/*.md"
@@ -80,3 +81,11 @@
     The README shows how to install the perch skill into a coding assistant,
     with the command for every assistant perch supports, after the install
     section and before the section on writing your own rules.
+- name: no-filler-tails
+  where: "{README.md,docs/**/*.md}"
+  ensure: >-
+    Every sentence carries information the reader does not already have. A line
+    telling them to do the obvious after a command block, a link whose only
+    label is a gesture such as What it says or Every field, or a closing
+    sentence that summarises the block above it, all break this.
+  min: 65

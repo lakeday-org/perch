@@ -59,9 +59,32 @@ export async function readRules(root, revision) {
 export const asRules = questions => questions.filter(question => question.kind);
 
 /** `**\/*.md` and `src/**\/*.js` as a test on a path. Only the two wildcards a rule file ever needs. */
+/**
+ * `{a,b}` as the alternatives a person means by it. Written out one at a time, because the brace is the only part of a glob that
+ * is a list rather than a pattern, and the matcher below reads a pattern. A `{` with no `}` is a literal brace and is left alone.
+ */
+export function expand(glob) {
+  const open = glob.indexOf('{');
+  if (open < 0) return [glob];
+  let depth = 0, close = -1;
+  for (let at = open; at < glob.length; at++) {
+    if (glob[at] === '{') depth++;
+    else if (glob[at] === '}' && --depth === 0) { close = at; break; }
+  }
+  if (close < 0) return [glob];
+  const parts = [];
+  let start = open + 1;
+  for (let at = start, inner = 0; at <= close; at++) {
+    if (glob[at] === '{') inner++;
+    else if (glob[at] === '}' && at < close) inner--;
+    else if ((glob[at] === ',' && inner === 0) || at === close) { parts.push(glob.slice(start, at)); start = at + 1; }
+  }
+  return parts.flatMap(part => expand(glob.slice(0, open) + part + glob.slice(close + 1)));
+}
+
 export function matches(glob, path) {
   const segment = part => part.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*');
-  return new RegExp(`^${glob.split('**/').map(segment).join('(?:.*/)?')}$`).test(path);
+  return expand(glob).some(one => new RegExp(`^${one.split('**/').map(segment).join('(?:.*/)?')}$`).test(path));
 }
 
 /**
