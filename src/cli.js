@@ -14,6 +14,7 @@ import { checkTarget } from './check.js';
 import { runChecks } from './checks.js';
 import { addRule, editRule, KINDS as RULE_KINDS, removeRule } from './rules.js';
 import { allQuestions, SHAPES } from './ask.js';
+import { installSkill, TARGET_NAMES, TARGETS } from './setup.js';
 import { createMeter, metered } from './meter.js';
 import { formatDoctor, formatFilterKeys, gating, useColor, formatFinding, formatIssues, formatCheck, formatRules, formatScanReport, issueCount, scanCount, scanTally, TOP, visibleFindings } from './report.js';
 
@@ -53,8 +54,9 @@ const options = {
   issue: ['--issue "type=..,label=.."', 'What an answer means: type, label, on, pick, except', ['rules']],
   reason: ['--reason R', 'Why you are setting these aside, kept on the record', ['close']],
   kind: ['--kind a,b', 'Only these kinds of it, e.g. docs, too_big (default: everything on it now)', ['close', 'reopen']],
+  force: ['--force', 'Replace a skill file you have already edited', ['setup']],
   out: ['--out DIR', 'Results directory (default .perch)', ['scan', 'issues', 'check', 'close', 'reopen', 'doctor']],
-  json: ['--json', 'Print JSON instead of a summary', ['scan', 'rules', 'issues', 'check', 'close', 'reopen', 'doctor']],
+  json: ['--json', 'Print JSON instead of a summary', ['scan', 'rules', 'issues', 'check', 'close', 'reopen', 'doctor', 'setup']],
   verbose: ['--verbose', 'Show every file, method, model call, and command', ['scan', 'issues', 'check']],
 };
 
@@ -68,6 +70,7 @@ const commandHelp = {
   check: { args: '<path | path::method | issue-id>', summary: 'Ask about one piece of code, uncommitted', detail: 'Reads that one file off disk and asks about the point you named: every rule that covers it, plus the scan\'s own questions for a method. --rules narrows it to specific rules, or to defect, security, refactor or docs. Nothing is committed or recorded, so run it on work in progress. Exits 3 while something is still wrong. Needs TYPESAFE_API_KEY.' },
   close: { args: '<issue-id>...', summary: 'Set issues aside', detail: 'Stops an issue being listed: a false positive, or code you have looked at and are not changing. --reason is kept and shown by perch issues <id>. It stays closed through later scans and later edits, and perch reopen is the only thing that brings it back.\n\nIt covers the kinds on that issue now, so a defect found in the method later is a new thing and is listed. --kind closes some of them and leaves the rest:\n\n  perch close 2638fb16 --kind docs' },
   reopen: { args: '<issue-id>...', summary: 'Put closed issues back', detail: 'Undoes perch close, all of it, or the kinds --kind names.' },
+  setup: { args: `<${TARGET_NAMES.join(' | ')}>`, summary: 'Teach a coding assistant to use perch', detail: `Writes the perch skill into your assistant's configuration, so it knows to scan what a branch changed, to read the JSON rather than the table, that a finding is a probability and not a located defect, to ask about one method after a fix, and to write a rule when the same mistake comes back.\n\n${Object.entries(TARGETS).map(([name, target]) => `  perch setup ${name}`.padEnd(28) + target.path).join('\n')}\n\nThe file is yours once it is written: perch will not replace one you have edited unless you pass --force.` },
   doctor: { args: '', summary: 'Check perch can run, and what the last run did', detail: 'First whether perch can run here at all: node, your key, git, the repository, somewhere to write, and whether perch.yaml parses. Anything that fails says what to do about it, and the command exits 1, since perch cannot run here.\n\nThen the last run, every method it could not read with the error, every question it asked and what each raised, and the end of the log when a run did not finish. Names, paths, counts and error messages only, never source, so it can be pasted into a bug report as it stands.' },
 };
 
@@ -457,6 +460,17 @@ const commands = {
     return checked.clean ? EXIT.clean : EXIT.found;
   },
   /** Set issues aside, or put them back: a judgement you make about what the scan found, kept in the same log as everything else. */
+  /** The skill, put where a coding assistant will read it. Nothing about your code is touched. */
+  async setup(io) {
+    const target = io.argument;
+    if (!target) throw new UsageError(`perch setup takes ${TARGET_NAMES.join(', ')}`);
+    const root = await repoRoot(process.cwd()).catch(() => process.cwd());
+    const done = await installSkill({ root, target, force: Boolean(io.flags.force) });
+    const said = done.wrote ? `${done.replaced ? 'Replaced' : 'Wrote'} ${done.path} for ${done.name}.`
+      : done.same ? `${done.path} is already this skill.` : done.why;
+    print(io, done, said);
+    return done.wrote || done.same ? EXIT.clean : EXIT.usage;
+  },
   async close(io) { await setAside(io, 'close'); },
   async reopen(io) { await setAside(io, 'reopen'); },
 };

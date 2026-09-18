@@ -21,7 +21,8 @@
     "bin",
     "dist",
     "docs",
-    "scan.yaml"
+    "scan.yaml",
+    "skill.md"
   ],
   "publishConfig": {
     "access": "public",

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { check } from '../src/ask.js';
+import { rulesFor } from '../src/check.js';
 import { matches, neighbourhood, rank, readLint, readRules, selectUnits, testBlocks, unitStep } from '../src/units.js';
 import { scanRepository } from '../src/scan.js';
 import { openStore } from '../src/store.js';
@@ -38,6 +39,20 @@ const answering = (value, calls = []) => ({
     }
     return { model: 'scripted-jev', answers, usage: { input_tokens: 10, output_tokens: 0 } };
   },
+});
+
+describe('which rules cover one point in the code', () => {
+  const rule = (name, extra) => check({ name, where: '**/*.md', ensure: 'A person wrote this.', ...extra }, 'perch.yaml rule 1');
+  const file = { path: 'skill.md', name: 'skill.md', part: false };
+
+  it('spares a file the rule excepts, the same as a scan does', () => {
+    const covers = rulesFor([rule('prose')], file).map(one => one.name);
+    expect(covers).toEqual(['prose']);
+    // Left out of this, `perch check` asked a rule about the one file its author had said it did not cover, so check and a scan
+    // disagreed about which rules apply to a path.
+    expect(rulesFor([rule('prose', { except: 'skill.md' })], file)).toEqual([]);
+    expect(rulesFor([rule('prose', { except: 'skill.md' })], { ...file, path: 'README.md', name: 'README.md' })).toHaveLength(1);
+  });
 });
 
 describe('the units a rule is asked about', () => {
