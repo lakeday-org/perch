@@ -104,11 +104,11 @@ rules:
       Find the first fenced block on the page that runs a real `perch` command,
       and weigh that block together with the block immediately after it. What
       the command printed is shown in one of the two. A `perch` command with
-      nothing shown that it printed breaks the rule, whether or not it carries
-      a `$` prompt. A line carrying a placeholder in angle or square brackets,
-      such as `perch scan [options]`, is syntax rather than a command being
-      run, and so is an install line or an export; pass over all of them. A
-      page that runs no real `perch` command satisfies this rule.
+      nothing shown that it printed breaks the rule, whether or not it carries a
+      `$` prompt. A line carrying a placeholder in angle or square brackets,
+      such as `perch scan [options]`, is syntax rather than a command being run,
+      and so is an install line or an export; pass over all of them. A page that
+      runs no real `perch` command satisfies this rule.
   - name: docs-headings-name-things
     where: "{README.md,skill.md,docs/**/*.md}"
     ensure: >-
@@ -122,12 +122,12 @@ rules:
     ensure: >-
       Skip the frontmatter first: everything between the opening `---` and the
       closing `---` at the top of the file is metadata for a machine to read,
-      and is never judged by this rule whatever it contains. Then read the
-      first four prose paragraphs of the body. Every sentence in them runs
-      under twenty-five words. One sentence of twenty-five words or more breaks
-      the rule, and so does one joining three or more clauses with commas,
-      semicolons and "and". Judge only those four paragraphs and do not read
-      on. Headings, table cells, list items and fenced blocks are not prose.
+      and is never judged by this rule whatever it contains. Then read the first
+      four prose paragraphs of the body. Every sentence in them runs under
+      twenty-five words. One sentence of twenty-five words or more breaks the
+      rule, and so does one joining three or more clauses with commas,
+      semicolons and "and". Judge only those four paragraphs and do not read on.
+      Headings, table cells, list items and fenced blocks are not prose.
     # A long frontmatter block still pulls this to the mid fifties on a file whose body is clean, so the floor sits above that
     # band. Broken controls read 76 to 85.
     min: 65
@@ -151,20 +151,20 @@ rules:
       with "Not a", a clause of the form "X, not Y", or a fragment negating
       something nobody claimed, breaks the rule. Judge only those four
       paragraphs. Saying a thing is excluded, skipped or unsupported is a fact,
-      not this construction. Frontmatter between `---` markers at the top of
-      the file is metadata rather than prose; skip it.
+      not this construction. Frontmatter between `---` markers at the top of the
+      file is metadata rather than prose; skip it.
   # Bounded to what sits under a heading, where this construction lives. Worded over the whole page it reads 51% and 52% on two
   # clean reference pages, which is the length effect the other file rules had.
   - name: docs-no-empty-sentence
     where: "{README.md,skill.md,docs/**/*.md}"
     ensure: >-
-      Read the first two sentences under each of this page's first six
-      headings. None of them announces what is coming instead of saying it, and
-      none points back at something already said without adding to it. "Two
-      things, in the order they matter", "There are a few things worth knowing
-      here", "Before going further, note the following", "It is worth noting
-      that", and "Each check says which it is" all break the rule. Judge only
-      those sentences.
+      Read the first two sentences under each of this page's first six headings.
+      None of them announces what is coming instead of saying it, and none
+      points back at something already said without adding to it. "Two things,
+      in the order they matter", "There are a few things worth knowing here",
+      "Before going further, note the following", "It is worth noting that", and
+      "Each check says which it is" all break the rule. Judge only those
+      sentences.
 
   # Bounded to the opening, where an explanation of the basics goes. A control with a paragraph defining "linter" and "model"
   # reads 81%; a clean page reads 51% at worst, so the floor sits between.
@@ -173,8 +173,19 @@ rules:
     min: 60
     ensure: >-
       The reader is a developer who already uses coding assistants. Read the
-      first four prose paragraphs. None of them explains what a linter, a
-      model, a coding assistant, a skill, JSON, git or CI is, and none opens by
-      narrating what a reader or a tool would get wrong before saying what
-      perch does. Naming one of those while saying what perch does with it is
-      not explaining it. Judge only those four paragraphs.
+      first four prose paragraphs. None of them explains what a linter, a model,
+      a coding assistant, a skill, JSON, git or CI is, and none opens by
+      narrating what a reader or a tool would get wrong before saying what perch
+      does. Naming one of those while saying what perch does with it is not
+      explaining it. Judge only those four paragraphs.
+  - name: scan-covers-only-the-target
+    where: src/target.js
+    ensure: >-
+      A target inside the repository is kept as the path the run covers.
+      Resolving it to the repository root and dropping the rest breaks this.
+  - name: filter-narrows-the-work
+    where: src/scan.js
+    ensure: >-
+      A filter decides which questions are asked of a method, and a method no
+      kept question covers is skipped rather than read. Filtering only what is
+      printed breaks this.
