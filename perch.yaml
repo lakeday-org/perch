@@ -189,3 +189,8 @@ rules:
       A filter decides which questions are asked of a method, and a method no
       kept question covers is skipped rather than read. Filtering only what is
       printed breaks this.
+  - name: search-results-are-reported
+    where: src/report.js
+    ensure: >-
+      A search rule's answer is listed, counted and gated like any other rule's.
+      Dropping a finding because its unit is a search breaks this.

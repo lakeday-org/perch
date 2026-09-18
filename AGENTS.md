@@ -90,6 +90,15 @@ writing a clear sentence:
   runs a real perch command" separate cleanly, because what they ask about does not grow with the page. The same three rules
   reworded that way read 84%, 79% and 95% against their dirty controls and pass every clean page.
 
+Write the rule before the fix. A rule is a unit test for behaviour a unit test cannot reach: not that a function returns 4, but
+that a filter narrows the run, that a broken rule fails CI, that an error reaches the caller. Add it, watch it fail, build the
+thing, watch it pass. What it leaves behind is a guard against the behaviour being quietly undone later, which is the part a
+changelog entry does not give you.
+
+That means a rule has to be answerable from what one unit, plus whatever its `sees` reaches, can show. `perch scan takes --filter
+rule=<name>` spans four files and read broken against the finished feature in every shape it was tried, because no single reading
+held the whole claim. Split it until each part is a claim one reading can settle, or it belongs in a test instead.
+
 `perch close <id> --reason "..."` sets aside a finding you have read and decided about. The reason is what the next person reads
 instead of reopening it. Closures live in `.perch/closed.jsonl`, which is committed; everything else under `.perch` is a cache.
 

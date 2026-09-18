@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { main, parseArgs, VERSION } from '../src/cli.js';
 import { parseFilters } from '../src/questions.js';
+import { parseQuestions, questionSet } from '../src/ask.js';
+import { gating, shownIssues } from '../src/report.js';
 import { revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { scanRepository } from '../src/scan.js';
@@ -164,6 +166,26 @@ describe('cli', () => {
     expect(parseFilters('type=bug')).toEqual([{ key: 'type', value: 'defect' }]);
     expect(parseFilters('type=BUG')).toEqual([{ key: 'type', value: 'defect' }]);
     expect(() => parseFilters('type=bugz')).toThrow('is not one of');
+  });
+
+  it('reports a broken search rule and fails the run on it', () => {
+    // An ensure_present rule is answered over the repository rather than per file, so its result arrives as a finding of its own
+    // under a `search:` unit. The scan used to drop exactly those: the table, the tally and the exit code all read shownIssues,
+    // so a rule broken at 100% printed nothing and exited 0 while `perch issues` listed it.
+    const rule = parseQuestions('- name: demo-rule\n  where: "src/**/*.js"\n  ensure_present: A thing that is not here.\n', 'fixture', 'rule');
+    const questions = [...questionSet(), ...rule];
+    const finding = { id: 'aaaa1111', unit: 'search:demo-rule', path: 'perch.yaml', name: 'src/**/*.js', line: 1,
+      lint: { rule: 'demo-rule', broken: 1, text: 'demo-rule 100%', said: 'A thing that is not here.' } };
+
+    expect(shownIssues(finding, 0)).toHaveLength(1);
+    // Under its own header, since it is not about a file and a file header would read like perch went through your rules.
+    const report = formatScanReport([finding], { color: false, summary: false });
+    expect(report).toContain('searched the repository');
+    expect(report).toContain('demo-rule');
+    // And it gates, which is the exit code. A rule declaring no issue of its own defaulted to never failing, and every search
+    // rule declares none.
+    expect(rule[0].gate).toBe(true);
+    expect(gating([finding], 0, questions)).toHaveLength(1);
   });
 
   it('lists the issues a scan found, from the results directory', async () => {

@@ -71,7 +71,9 @@ function expand(rule) {
  * judgement call belongs.
  */
 const GATED = new Set(['defect', 'security', 'lint']);
-const gates = question => (question.gate === undefined ? GATED.has(question.issue?.type) : question.gate);
+// A search rule declares no issue of its own, so reading the type alone left every ensure_present and ensure_absent rule
+// ungated: broken at 100% and the run still passed. A rule is a rule whichever shape it is written in.
+const gates = question => (question.gate === undefined ? GATED.has(question.issue?.type) || SEARCHES(question.kind) : question.gate);
 
 /** A question that cannot be understood is a mistake to fix now, not a question to skip quietly at the point it would have mattered. */
 export function check(question, at, noun = 'question') {
