@@ -1,12 +1,12 @@
 ---
-title: How a scan works
-nav: How a scan works
+title: Inside a scan
+nav: Inside a scan
 group: Reference
 order: 9
 summary: The graph walk, the questions, and how probabilities turn into a ranking.
 ---
 
-# How a scan works
+# Inside a scan
 
 `perch scan` scores every method and ranks them worst first. Every answer is a
 probability, and the ranking is arithmetic over all of them. The only cutoff is
@@ -86,10 +86,10 @@ callees. It carries up to 8 callers with the line where each calls it.
 
 A method too long for one request is read in **overlapping passes**, each sized
 to what the budget actually holds. Only lines a pass can see are offered to its
-`where` question. The answers merge. The worst defect found anywhere is the method's defect, and a
-vulnerability is the likeliest reading from any pass. The first pass carries the
-callers and callees, so it speaks for the method's shape and documentation. Eight
-passes is the cap. A longer method is read in part and says so, on the record and
+`where` question. The answers merge. The worst defect found anywhere is the
+method's defect. A vulnerability is the likeliest reading from any pass. The
+first pass carries the callers and callees. It speaks for the method's shape and
+its documentation. Eight passes is the cap. A longer method is read in part and says so, on the record and
 in `perch issues <id>`.
 
 A method that still cannot be read is recorded against itself and the walk
@@ -133,7 +133,7 @@ the labels, which are what `--filter kind=` takes.
 System One does not bill output tokens, so asking thirty questions of a method
 costs what asking one costs. That is why the set is wide rather than staged.
 
-### Why these primitives
+### noul, choice and score
 
 `kind` was once eight independent yes/no questions. A defect has one kind, so it
 is a `choice`. The distribution it returns is what the row prints.

@@ -23,7 +23,7 @@ eb9dfee4  versionAssets      …ts/build.mjs:161  security  resource_exhaustion 
 Ten rows by default. `--limit` changes that, `--page` moves through them, `--all`
 prints every row.
 
-## What a row means
+## The columns
 
 One row is one method. A method with a defect, a missing comment and a refactor
 is one row carrying three issues.
@@ -101,7 +101,7 @@ A filtered list is ranked by what was filtered for. So `--filter type=security`
 leads with the likeliest vulnerability in the repository. Each row also reorders
 to lead with the match.
 
-## How sure perch has to be
+## Floors
 
 An issue is listed when its probability is over 50 percent. Above a half is the
 model saying yes; below it is the model saying no.

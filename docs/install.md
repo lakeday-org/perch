@@ -8,7 +8,7 @@ summary: Install, set the key, scan, and read the first thing it found.
 
 # Quick start
 
-## What you need
+## Requirements
 
 Node 22 or newer, git, and a TypeSafe API key. perch reads the repository at
 `HEAD`, so the directory you run it in has to be a git checkout.

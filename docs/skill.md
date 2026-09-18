@@ -32,7 +32,7 @@ perch setup cursor
 Commit the file. It is part of how your repository is worked on, the same as
 `perch.yaml`.
 
-## What it tells them
+## The instructions
 
 **Scan what changed.** `--since origin/main` on a branch, `--paths` for named
 files. A whole repository is hundreds of requests where a branch is a handful. An

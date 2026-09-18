@@ -133,8 +133,8 @@ joining the team, and say what breaks it:
 ```yaml
 ensure: >
   methods carry a comment that tells a human reader something the code does not.
-  A comment that narrates the steps below it, or restates the method's name as a
-  sentence, breaks this rule.
+  A comment that narrates the steps below it breaks this rule. So does one that
+  restates the method's name as a sentence.
 ```
 
 Rewording a rule re-asks it. Leaving it alone costs nothing.
@@ -154,7 +154,7 @@ ID        Method          Location          Type  Kind                    Severi
 `perch scan` exits 3 when a rule is broken. It does the same for a defect or a
 vulnerability. All three say something is wrong.
 
-## What fails a run
+## Gates
 
 Every question says whether an answer fails the run or is only worth reading.
 `perch rules list` shows it in the Fails column, and yours are read no
@@ -229,7 +229,7 @@ your own alongside them.
 `scan.yaml` is worth reading once. It is the whole set of questions, and it is
 the clearest statement of what perch does. See [the questions](/scan/#the-questions).
 
-## How sure perch has to be
+## Floors
 
 Every question carries a floor, in percent. Below it, an answer is not listed.
 

@@ -62,16 +62,15 @@ or not.
 ## Reading the answer
 
 `check` prints the whole distribution, including what falls under the floor.
-Halving a
-40 percent defect is visible as that. Neither the before nor the after would be
-listed by `perch issues`.
+Halving a 40 percent defect is visible as that. `perch issues` would list neither
+reading.
 
 `issues` is a list of claims, so it has a floor. `check` answers the question you
 asked, and reports whatever came back.
 
-## What it does not do
+## No record
 
-It writes nothing. The issue that sent you there stays open in `.perch`. The next
+Nothing. The issue that sent you there stays open in `.perch`. The next
 `perch scan` re-reads that method and finds it gone.
 
-`check` passing and the issue closing are two different things.
+A passing `check` does not close an issue.
