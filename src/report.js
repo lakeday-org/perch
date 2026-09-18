@@ -51,7 +51,9 @@ const issueCell = (issues, width = Infinity) => {
   const left = issues.length - shown.length;
   return [...shown, ...(left > 0 ? [`+${left} more`] : [])].join(', ');
 };
-const locationOf = (finding, issues) => `${finding.path}:${issues[0]?.type === 'defect' ? finding.where.line : finding.line}`;
+/** A defect points at a line inside the method; everything else points at the method. A reading with no line located falls back
+ * to the method's own, rather than throwing in the one place a person is looking at a list of what is wrong. */
+const locationOf = (finding, issues) => `${finding.path}:${issues[0]?.type === 'defect' ? finding.where?.line ?? finding.line : finding.line}`;
 /** Cut to `width`, keeping the end: a path's file and line say more than the crates/ it starts with. */
 const keepEnd = (text, width) => (text.length <= width ? text : '…' + text.slice(text.length - width + 1));
 const keepStart = (text, width) => (text.length <= width ? text : text.slice(0, width - 1) + '…');
@@ -395,8 +397,8 @@ export function formatFinding(finding, { width = WIDTH(), color = COLOR() } = {}
   }
 
   if (finding.has_bug !== undefined) {
-    lines.push('', `  ${dim(String(finding.where.line).padStart(5), color)}  ${finding.where.text ?? ''}`.trimEnd(),
-      dim(`         the line it points at, ${percent(finding.where.confidence)} sure`, color));
+    lines.push('', `  ${dim(String(finding.where?.line ?? finding.line).padStart(5), color)}  ${finding.where?.text ?? ''}`.trimEnd(),
+      ...(finding.where ? [dim(`         the line it points at, ${percent(finding.where.confidence)} sure`, color)] : []));
 
     const said = [];
     const add = (name, value) => { if (value) said.push([name, value]); };
