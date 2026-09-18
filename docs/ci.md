@@ -17,8 +17,7 @@ summary: What CI can gate on, what it cannot, and a GitHub Actions job for pull 
 | 2 | the command was typed wrong |
 | 3 | perch ran and found something that fails |
 
-3 rather than 1, so a job that fell over and a job that found a bug are not the
-same red.
+3 keeps a job that fell over and a job that found a bug apart in the UI.
 
 Something wrong is a defect, a vulnerability, or a rule of yours that broke. A
 method being large or undocumented is not wrong, so it is reported and does not

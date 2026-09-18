@@ -84,7 +84,7 @@ Extend perch with your own rules, in `perch.yaml`:
 | [Command reference](https://docs.perchscan.com/cli/) | Every command, its flags, and what each exit code means. |
 | [How a scan works](https://docs.perchscan.com/scan/) | The graph walk, the questions, and how probabilities turn into a ranking. |
 
-Results go in `.perch`, which is the only thing perch writes.
+Results go in `.perch`, the one directory perch writes to.
 
 ## Development
 

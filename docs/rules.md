@@ -8,9 +8,8 @@ summary: Your own linting rules in perch.yaml, asked in the same reading as perc
 
 # Semantic linting
 
-A linter checks what a parser can prove. This checks what it cannot: whether a
-comment says why, whether a listing honors a filter, whether a test asserts
-something real. You write the rule as a sentence and it is put to the model as a
+These are the questions a parser leaves open. Whether a comment says why,
+whether a listing honors a filter, whether a test asserts something real. You write the rule as a sentence and it is put to the model as a
 question.
 
 They live in `perch.yaml` at the root of the repository.

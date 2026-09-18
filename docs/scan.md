@@ -177,7 +177,7 @@ no; printing everything means printing every method in the repository, because n
 answer ever comes back at zero. On perch itself the floor takes 364 listed
 methods down to 240, and `--filter type=defect` from 354 to 25.
 
-It is a floor on what is claimed, not on the arithmetic:
+The floor applies to what is claimed. The arithmetic keeps everything:
 
 * **Ranking counts the whole distribution.** An issue at 49% still weighs 0.49 in
   where its method sorts, so there is no cliff at the boundary — only a line

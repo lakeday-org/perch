@@ -25,8 +25,8 @@ prints every row.
 
 ## What a row means
 
-One row is one method, not one problem. A method with a defect, a missing
-comment and a refactor is one row carrying three issues.
+One row is one method. A method with a defect, a missing comment and a refactor
+is one row carrying three issues.
 
 | Column | |
 | --- | --- |

@@ -27,7 +27,7 @@ npx @lakeday/perch scan
 
 ## The key
 
-`scan` and `check` call a model. Nothing else does.
+`scan` and `check` are the two commands that call a model.
 
 ```sh
 export TYPESAFE_API_KEY=...
@@ -91,10 +91,10 @@ The first column is the id. Give it to `perch issues` to open one up:
 perch issues 3a7c6bfe
 ```
 
-That prints everything perch answered about the method: the whole severity
-distribution, every vulnerability class with its probability, which line the
-defect points at and how confident that pick was, and which callers and callees
-were in view when it read.
+That prints everything perch answered about the method. The severity
+distribution, every vulnerability class with its probability, the line the defect
+points at and how sure that pick was. It also lists the callers and callees that
+were in view.
 
 ## Changing something and asking again
 

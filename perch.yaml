@@ -110,10 +110,10 @@ rules:
   - name: docs-sentences-are-short
     where: "{README.md,docs/**/*.md}"
     ensure: >-
-      Sentences stay under about twenty words. A sentence joining three clauses
-      with commas, a colon followed by a list of five or more things, or a
-      subordinate clause opening with which or so that after twenty words, each
-      break this.
+      Sentences in prose stay under about twenty words. A sentence joining three
+      clauses with commas, or a colon followed by a list of five or more things,
+      breaks this. A table cell and a list item are reference material and are
+      not prose for this purpose.
   - name: docs-no-next-steps
     where: "{README.md,docs/**/*.md}"
     ensure: >-

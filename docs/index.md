@@ -54,7 +54,7 @@ Rules live in `perch.yaml` and are sentences:
 - name: no-silent-failure
   where: "src/**/*.js"
   each: method
-  ensure: An error is returned or raised, never swallowed into a log.
+  ensure: An error is returned or raised, and reaches the caller.
 ```
 
 They ride in the request perch was already making about that method. Five rules on one

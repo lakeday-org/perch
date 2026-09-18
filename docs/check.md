@@ -65,8 +65,8 @@ or not.
 40 percent defect is visible as that, even though neither the before nor the
 after would be listed by `perch issues`.
 
-That is the difference worth keeping in mind: `issues` is a list of claims, so it
-has a floor. `check` is an answer to a question you asked, so it has none.
+`issues` is a list of claims, so it has a floor. `check` answers the question you
+asked, and reports whatever came back.
 
 ## What it does not do
 

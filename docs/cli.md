@@ -183,12 +183,11 @@ perch 0.1.1  node v25.5.0  darwin arm64
 
 It exits 1 when any check fails, so CI can run it before a scan.
 
-Then the last run: what it covered, every method it could not read with the
-error, every question it asked and how many issues each raised, and the end of
-`.perch/scan.log` when a run did not finish.
+Then what went wrong in the last run. Every method it could not read, with the
+error beside it, and the end of `.perch/scan.log` when the run ended badly.
 
-Names, paths, counts and error messages only, never source, so it can be pasted
-into a bug report as it stands.
+It prints names, paths, counts and error messages, so it can be pasted into a
+bug report as it stands.
 
 ## Environment
 
