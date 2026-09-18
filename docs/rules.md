@@ -51,10 +51,9 @@ defaults to the file as a whole. Narrow any of them when you need to:
     built.
 ```
 
-Your rules ride in the request perch was already making about that method, so a
-method covered by five rules is one reading, not six. Every question in a request
-is scored against the code by itself, and the code is what the request is mostly
-made of.
+Your rules ride in the request perch was already making about that method. A
+method covered by five rules costs one reading. Every question is scored against
+the code by itself, and the code is most of what the request carries.
 
 ## Fields
 
@@ -85,16 +84,16 @@ where: mentions scan.jsonl     # every method whose source names that string
 
 ### `each`
 
-`each: method` asks about every method separately, which is what you want when
-the claim is about one method's behavior. Leaving it off asks about the file as a
-whole, which is what you want when the claim is about how the file is arranged.
-`each: test` asks about each test function.
+`each: method` asks about every method separately. Use it when the claim is about
+one method's behavior. Leaving it off asks about the file as a whole, which suits
+a claim about how the file is arranged. `each: test` asks about each test
+function.
 
 ### `sees`
 
 A method is always read with its callers and callees in view, so a method rule
-needs no `sees`. A file or a test is read alone unless you say otherwise, and a
-test alone cannot show whether what it asserts is real:
+needs no `sees`. A file or a test is read alone unless you say otherwise. A test
+alone leaves you guessing whether what it asserts is real:
 
 ```yaml
 sees: calls        # the source of what it calls
@@ -108,8 +107,8 @@ sees: file         # the whole file it lives in
 `ensure` has to hold everywhere, so every unit it covers is asked.
 
 `ensure_present` and `ensure_absent` are claims about the codebase rather than
-about any one file, so they search the likeliest units first and stop at the
-answer. They cost a fraction of what a whole sweep costs.
+any one file. They search the likeliest units first and stop at the answer, for a
+fraction of a whole sweep.
 
 ```yaml
 - name: issues-closable
@@ -128,8 +127,8 @@ answer. They cost a fraction of what a whole sweep costs.
 
 ## Writing a good one
 
-A rule is read by a model, so write it the way you would explain it to somebody
-joining the team. Say what breaks it, not only what satisfies it:
+A rule is read by a model. Write it the way you would explain it to somebody
+joining the team, and say what breaks it:
 
 ```yaml
 ensure: >
@@ -152,8 +151,8 @@ ID        Method          Location          Type  Kind                    Severi
 1 open issue match, out of 27
 ```
 
-`perch scan` exits 3 when a rule is broken, the same as it does on a defect or a
-vulnerability perch found itself. All three say something is wrong.
+`perch scan` exits 3 when a rule is broken. It does the same for a defect or a
+vulnerability. All three say something is wrong.
 
 ## What fails a run
 
@@ -202,9 +201,9 @@ rules:
     ensure: A headline and one line, not a paragraph explaining the product.
 ```
 
-A path matching `ignore` is never read and never reported. This repository uses it for
-`perch-example`, an order service with a bug in every method, kept so the docs can show
-real output.
+A path matching `ignore` is never read and never reported. This repository uses
+it for `perch-example`, an order service with a bug in every method. It exists so
+the docs can show real output.
 
 The bare list form still works and means what it always did.
 
@@ -223,9 +222,9 @@ perch rules remove no-stale-docs
 ## Rewording what perch itself asks
 
 The questions perch ships with are written in the same grammar, in `scan.yaml`
-inside the package. A rule in `perch.yaml` with the same `name` as one of them
-replaces it, so you can reword a question that does not fit your codebase, or add
-a class of your own alongside them.
+inside the package. A rule in `perch.yaml` sharing a `name` with one of them
+replaces it. Reword a question that fits your codebase badly, or add a class of
+your own alongside them.
 
 `scan.yaml` is worth reading once. It is the whole set of questions, and it is
 the clearest statement of what perch does. See [the questions](/scan/#the-questions).
@@ -269,8 +268,8 @@ is wrong, not the number: see [writing a good one](#writing-a-good-one).
 ## Answers that are not yes-or-no
 
 `ensure` is shorthand for a yes-or-no question. A rule can instead be written out
-in the grammar `scan.yaml` uses, which is what you need when the answer is a pick
-from a set or a grade against a rubric.
+in the grammar `scan.yaml` uses. Reach for that when the answer is a pick from a
+set, or a grade against a rubric.
 
 | Field | |
 | --- | --- |
