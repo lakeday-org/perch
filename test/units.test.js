@@ -41,6 +41,25 @@ const answering = (value, calls = []) => ({
   },
 });
 
+describe('code perch.yaml says not to read', () => {
+  it('takes ignore from the map form, and leaves a bare list a list of rules', async () => {
+    const { parseIgnored, parseQuestions } = await import('../src/ask.js');
+    const list = '- name: r\n  where: "**/*"\n  ensure: x\n';
+    // A bare list is what the file has always been, and has no ignore in it.
+    expect(parseQuestions(list, 'perch.yaml', 'rule')).toHaveLength(1);
+    expect(parseIgnored(list, 'perch.yaml')).toEqual([]);
+    // The map form carries both. A fixture with a bug in every method on purpose is read by nothing.
+    const map = 'ignore:\n  - perch-example/**\nrules:\n' + list.split('\n').map(l => l && '  ' + l).join('\n');
+    expect(parseQuestions(map, 'perch.yaml', 'rule')).toHaveLength(1);
+    expect(parseIgnored(map, 'perch.yaml')).toEqual(['perch-example/**']);
+    expect(matches('perch-example/**', 'perch-example/cart.py')).toBe(true);
+    expect(matches('perch-example/**', 'src/cart.js')).toBe(false);
+    // A file that reads as neither is a file somebody wrote wrong, and is said so rather than asking none of their rules.
+    expect(() => parseQuestions('just a string\n', 'perch.yaml', 'rule')).toThrow('expected a list of rules');
+    expect(() => parseIgnored('ignore: nope\n', 'perch.yaml')).toThrow('ignore is a list of globs');
+  });
+});
+
 describe('a glob with alternatives in it', () => {
   it('takes {a,b} as the list a person means, since a rule over two places is one rule', () => {
     // Written as a pattern, `{` and `}` were escaped and matched literally, so a where nobody could see was wrong covered

@@ -186,6 +186,28 @@ perch rules edit refactor --gate true    # make a big method stop a run
 perch rules edit docs-succinct --gate false
 ```
 
+## Code perch does not read
+
+`perch.yaml` is a list of rules. To say what a scan should skip entirely, write it as a
+map instead, with the rules under `rules:`:
+
+```yaml
+ignore:
+  - perch-example/**
+  - fixtures/**
+
+rules:
+  - name: no-narrative-prose
+    where: "**/*.md"
+    ensure: A headline and one line, not a paragraph explaining the product.
+```
+
+A path matching `ignore` is never read and never reported. This repository uses it for
+`perch-example`, an order service with a bug in every method, kept so the docs can show
+real output.
+
+The bare list form still works and means what it always did.
+
 ## Editing perch.yaml from the command line
 
 `perch rules` changes the file without opening it, keeping your comments and
