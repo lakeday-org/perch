@@ -1,94 +1,74 @@
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { expect, it } from 'vitest';
-import { cloneInto, resolveTarget } from '../src/target.js';
+import { afterEach, describe, expect, it } from 'vitest';
+import { parseGithub, resolveTarget } from '../src/target.js';
 
 const execFileAsync = promisify(execFile);
+const cleanups = [];
+afterEach(async () => { for (const dir of cleanups.splice(0)) await rm(dir, { recursive: true, force: true }); });
 
 async function runGit(args, cwd) {
   await execFileAsync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd });
 }
 
-it('propagates a failed checkout of origin HEAD', async () => {
+/** A repository with a directory in it, which is all a scope needs to be read off a path. */
+async function repo() {
   const root = await mkdtemp(join(process.cwd(), '.target-test-'));
-  const remote = join(root, 'remote.git');
-  const source = join(root, 'source');
-  const cache = join(root, 'cache');
-  const cachedRepo = join(cache, 'repos', 'owner', 'repo');
-
-  try {
-    await runGit(['init', '--bare', '-q', remote], root);
-    await mkdir(source);
-    await runGit(['init', '-q', source], root);
-    await runGit(['config', 'user.name', 'Fixture'], source);
-    await runGit(['config', 'user.email', 'fixture@example.com'], source);
-    await writeFile(join(source, 'README.md'), 'fixture\n');
-    await runGit(['add', 'README.md'], source);
-    await runGit(['commit', '-q', '-m', 'fixture'], source);
-    await runGit(['branch', '-M', 'main'], source);
-    await runGit(['remote', 'add', 'origin', remote], source);
-    await runGit(['push', '-q', 'origin', 'main'], source);
-    await runGit(['symbolic-ref', 'HEAD', 'refs/heads/missing'], remote);
-
-    await mkdir(cachedRepo, { recursive: true });
-    await runGit(['init', '-q', cachedRepo], root);
-    await runGit(['remote', 'add', 'origin', remote], cachedRepo);
-    await runGit(['fetch', '-q', 'origin'], cachedRepo);
-    await runGit(['update-ref', '-d', 'refs/remotes/origin/HEAD'], cachedRepo);
-
-    await expect(resolveTarget('owner/repo', { out: cache })).rejects.toThrow(/git checkout .*failed/);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-/** A bare repository with one commit, standing in for the GitHub url a real clone is given. */
-async function remoteWithACommit(root) {
-  const remote = join(root, 'remote.git'), source = join(root, 'source');
-  await runGit(['init', '--bare', '-q', remote], root);
-  await mkdir(source);
-  await runGit(['init', '-q', source], root);
-  await runGit(['config', 'user.name', 'Fixture'], source);
-  await runGit(['config', 'user.email', 'fixture@example.com'], source);
-  await writeFile(join(source, 'README.md'), 'fixture\n');
-  await runGit(['add', 'README.md'], source);
-  await runGit(['commit', '-q', '-m', 'fixture'], source);
-  await runGit(['branch', '-M', 'main'], source);
-  await runGit(['remote', 'add', 'origin', remote], source);
-  await runGit(['push', '-q', 'origin', 'main'], source);
-  // A bare repository keeps whatever HEAD git init gave it, which is master on a machine configured that way and main on
-  // another. A clone checks out HEAD, so without this the clone is a .git and an empty tree wherever the two disagree.
-  await runGit(['symbolic-ref', 'HEAD', 'refs/heads/main'], remote);
-  return remote;
+  cleanups.push(root);
+  await runGit(['init', '-q', root], root);
+  await runGit(['config', 'user.name', 'Fixture'], root);
+  await runGit(['config', 'user.email', 'fixture@example.com'], root);
+  await mkdir(join(root, 'docs', 'deep'), { recursive: true });
+  await writeFile(join(root, 'docs', 'index.md'), 'fixture\n');
+  await writeFile(join(root, 'README.md'), 'fixture\n');
+  await runGit(['add', '.'], root);
+  await runGit(['commit', '-q', '-m', 'fixture'], root);
+  return root;
 }
 
-it('clones once when two runs want the same repository at the same time', async () => {
-  const root = await mkdtemp(join(process.cwd(), '.target-test-'));
-  try {
-    const remote = await remoteWithACommit(root);
-    const dir = join(root, 'cache', 'repos', 'owner', 'repo');
-    // Both see no clone and both start one. Cloning straight into the directory had them writing into each other's tree.
-    await Promise.all([cloneInto(dir, remote), cloneInto(dir, remote), cloneInto(dir, remote)]);
-    expect(existsSync(join(dir, '.git'))).toBe(true);
-    expect(existsSync(join(dir, 'README.md'))).toBe(true);
-    // Nothing staged is left beside it, so the next run sees one clone and not a directory of half-finished ones.
-    expect((await readdir(join(root, 'cache', 'repos', 'owner'))).sort()).toEqual(['repo']);
-  } finally { await rm(root, { recursive: true, force: true }); }
+describe('resolveTarget', () => {
+  it('reads the whole repository when given none of it', async () => {
+    const root = await repo();
+    const resolved = await resolveTarget(root, {});
+    // No scope is the whole tree. A scan narrows on --paths or --since from here, and on nothing otherwise.
+    expect(resolved.scope).toBe(null);
+    expect(resolved.kind).toBe('local');
+  });
+
+  it('keeps the directory it was given as the scope', async () => {
+    const root = await repo();
+    // The root has to be the repository, since perch reads a commit and a call graph spans files. The part under it is the
+    // scope, which is what `perch scan docs/` meant and did not get: it read every method in the repository and billed for it.
+    expect((await resolveTarget(join(root, 'docs'), {})).scope).toBe('docs');
+    expect((await resolveTarget(join(root, 'docs') + '/', {})).scope).toBe('docs');
+    expect((await resolveTarget(join(root, 'docs', 'index.md'), {})).scope).toBe('docs/index.md');
+    // Always with forward slashes, since that is what a path in a commit and in --paths looks like.
+    expect((await resolveTarget(join(root, 'docs', 'deep'), {})).scope).toBe('docs/deep');
+  });
+
+  it('refuses a path that is not there, naming perch rather than git', async () => {
+    const root = await repo();
+    await expect(resolveTarget(join(root, 'nope'), {})).rejects.toThrow(/is not a file or directory/);
+  });
+
+  it('refuses a path in no repository, naming perch rather than git', async () => {
+    // tmpdir is outside any checkout, so git has nothing to walk up to.
+    const loose = await mkdtemp(join(tmpdir(), 'perch-loose-'));
+    cleanups.push(loose);
+    await expect(resolveTarget(loose, {})).rejects.toThrow(/not in a git repository/);
+  });
 });
 
-it('clones over a directory left behind by a clone that was killed partway', async () => {
-  const root = await mkdtemp(join(process.cwd(), '.target-test-'));
-  try {
-    const remote = await remoteWithACommit(root);
-    const dir = join(root, 'cache', 'repos', 'owner', 'repo');
-    // Something there with no .git in it: git will not clone into it and perch cannot read it, so it used to wedge for good.
-    await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, 'half.txt'), 'interrupted\n');
-    await cloneInto(dir, remote);
-    expect(existsSync(join(dir, '.git'))).toBe(true);
-    expect(existsSync(join(dir, 'half.txt'))).toBe(false);
-  } finally { await rm(root, { recursive: true, force: true }); }
+describe('parseGithub', () => {
+  it('reads an origin url, and nothing else', async () => {
+    expect(parseGithub('https://github.com/lakeday-org/perch.git')).toEqual({ owner: 'lakeday-org', repo: 'perch' });
+    expect(parseGithub('git@github.com:lakeday-org/perch.git')).toEqual({ owner: 'lakeday-org', repo: 'perch' });
+    // owner/repo was a target to clone once. It is a path now, so it must not read as a repository somewhere else.
+    expect(parseGithub('lakeday-org/perch')).toBe(null);
+    expect(parseGithub('docs/index.md')).toBe(null);
+    expect(parseGithub('')).toBe(null);
+  });
 });

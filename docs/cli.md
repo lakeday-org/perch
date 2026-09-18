@@ -37,11 +37,11 @@ and callees in view. Custom rules in `perch.yaml` are asked in the same reading.
 perch scan [target] [options]
 ```
 
-`target` is a directory, `owner/repo`, or a GitHub URL. It defaults to the
-current repository.
+`target` is the file or directory to read, and defaults to where you are.
+`perch scan docs/` reads `docs/`.
 
-Every run reads everything it covers. `--paths` and `--since` narrow what that
-is. Exits 3 on a defect, a vulnerability, or a custom rule that broke.
+`--paths` and `--since` narrow it further. Exits 3 on a defect, a vulnerability,
+or a custom rule that broke.
 
 | Flag | |
 | --- | --- |
