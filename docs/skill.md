@@ -8,12 +8,7 @@ summary: perch setup installs a skill that teaches Claude Code, Codex, pi or Cur
 
 # perch in a coding assistant
 
-A coding assistant will run `perch scan` without being told how. It will also
-scan the whole repository to check a one-line change. It will read the table
-instead of the JSON. It will treat a non-zero exit as a crash, and rewrite
-working code because a model said 71%.
-
-`perch setup` installs a skill that says otherwise.
+`perch setup` writes the perch skill into a coding assistant's configuration.
 
 ```console
 $ perch setup claude-code
@@ -29,17 +24,16 @@ Wrote .claude/skills/perch/SKILL.md for Claude Code.
 | `pi` | `.pi/skills/perch/SKILL.md` |
 | `cursor` | `.cursor/rules/perch.mdc` |
 
-Commit the file. It is part of how your repository is worked on, the same as
+Commit the file. It is part of how the repository is worked on, the same as
 `perch.yaml`.
 
 ## The instructions
 
 **Scan what changed.** `--since origin/main` on a branch, `--paths` for named
-files. A whole repository is hundreds of requests where a branch is a handful. An
-assistant left to itself will scan the repository.
+files. A whole repository is hundreds of requests where a branch is a handful.
 
-**`3` is a result.** A scan that found something exits 3. An assistant that reads
-any non-zero exit as a crash stops instead of reporting what was found.
+**`3` is a result.** A scan that found something exits 3. Only 1 and 2 are
+failures, so 3 is reported rather than treated as a crash.
 
 **Read the JSON.** Every command takes `--json`. The table rounds off the part
 worth having. The JSON keeps the whole distribution behind each answer. It keeps
@@ -51,12 +45,11 @@ its own confidence. The real problem is often a few lines from the label. Read
 the code before changing it. Close what you decide is fine.
 
 **Check one method.** After a fix, `perch check path::method --json` asks about
-that method alone, off disk, recording nothing. Rescanning to see whether a fix
-worked is the wrong shape and moves the numbers on the issue being fixed.
+that method alone, off disk, recording nothing. A rescan would move the numbers
+on the issue being fixed.
 
 **Write a rule when a mistake repeats.** On the second correction, `perch rules
-add` catches it from then on. The skill tells the
-assistant to ask you first.
+add` catches it from then on. The skill tells the assistant to ask you first.
 
 **Tune a rule against two controls.** A new rule is a draft. The skill tells the
 assistant to put it to a file that should pass and a copy deliberately broken.
@@ -67,7 +60,7 @@ single worst line fires on clean files.
 
 ## Editing it
 
-The file is yours once written. `perch setup` will not replace one you have
+The file can be edited once written. `perch setup` will not replace one you have
 changed:
 
 ```console

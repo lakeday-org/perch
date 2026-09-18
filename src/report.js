@@ -186,7 +186,15 @@ export function scanTally(findings, min = 0, color = COLOR(), filters = []) {
   const kept = findings.map(finding => ({ path: finding.path, issues: shownIssues(finding, min, filters) })).filter(item => item.issues.length);
   const count = kept.reduce((total, item) => total + item.issues.length, 0);
   const files = new Set(kept.map(item => item.path)).size;
-  if (!count) return '✓ nothing to report';
+  // A filtered run that matched nothing is not a clean repository. Saying "nothing to report" after reading 412 methods and
+  // finding plenty outside the filter is the report lying about what the run did.
+  if (!count) {
+    if (!filters.length) return '✓ nothing to report';
+    const all = findings.reduce((total, finding) => total + shownIssues(finding, min).length, 0);
+    const clause = filters.map(filter => `${filter.key}=${filter.value}`).join(', ');
+    if (!all) return '✓ nothing to report';
+    return `✓ nothing matching ${clause}, out of ${all} ${all === 1 ? 'problem' : 'problems'} found`;
+  }
   // How many of them fail, since that is the number the exit code is: a run that says 24 problems and comes back 0 is a run
   // nobody can read. Everything else perch found is worth knowing and not worth stopping for.
   const fails = failing();
@@ -267,7 +275,7 @@ export function formatDoctor({ versions, scan, run, out, checks = [], log = [], 
     if (broken.length) lines.push('', ...broken.map(check => `  ${check.name}: ${check.fix}`));
   }
 
-  if (!run) return [...lines, '', 'No run yet. perch scan is what reads your code.'].join('\n');
+  if (!run) return [...lines, '', 'No run yet. perch scan is what reads the code.'].join('\n');
 
   // Then what went wrong, and nothing else. What the run covered and which questions fired are the scan's own report; a person
   // opening doctor has something broken and wants the line that says so.

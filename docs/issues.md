@@ -37,17 +37,16 @@ is one row carrying three issues.
 | `Kind` | The issues themselves, likeliest first, with how sure perch is of each. |
 | `Severity` | How much a caller would feel it. Empty on a row carrying neither a defect nor a vulnerability, since those are the two the rubric weighs. |
 
-Severity reads as a band and the number behind it. The band alone throws away how
-close the call was:
+Severity prints as a band and a number, `P1 (0.9)`. The number says where in the
+band the row sits:
 
 ```
 P1 (0.9)   almost P0
 P1 (1.2)   settling toward P2
 ```
 
-The band is `round(mean)` and the number is `3 − mean`. The model gives a
-distribution across all four levels. [How a scan works](scan.md) works it
-through.
+The band is `round(mean)` and the number is `3 − mean`, over a distribution the
+model gives across all four levels. [Inside a scan](scan.md) works it through.
 
 ## One issue, opened up
 
@@ -76,13 +75,13 @@ $ perch issues 723a2685
   Code           risk 74  maintainability 34  complexity 21  nesting 3  59 lines
 ```
 
-The same columns the table prints, with what was asked under them. Everything
-perch answered is here, including answers below the floor. A defect at 44% earns
-no row on the table. It is printed here, because you asked about this method.
+These are the columns the table prints, with every answer under them. That
+includes answers below the floor. A defect at 44% is left off the table, and
+`perch issues <id>` still shows it.
 
-The `Severity` column is on the rows the rubric weighs: the defect and the
-vulnerability. The block below it is that question's whole distribution. The band
-and the number in brackets come from it.
+`Severity` is filled in on the two rows the rubric weighs, the defect and the
+vulnerability. The `Severity` line lower down carries the whole distribution, and
+the band and bracketed number are worked out from it.
 
 ## Narrowing the list
 
@@ -132,7 +131,7 @@ perch issues --closed     # include what you set aside
 ```
 
 Closed issues live in `.perch/closed.jsonl`, apart from the answers. A judgement
-you made has to survive the next run. Commit that file to share your dismissals
+you made has to survive the next run. Commit that file to share dismissals
 with the team.
 
 ## JSON

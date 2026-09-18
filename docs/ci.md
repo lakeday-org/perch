@@ -20,7 +20,7 @@ summary: What CI can gate on, what it cannot, and a GitHub Actions job for pull 
 CI shows those as different results. A run that could not start never reads as
 a run that found a bug.
 
-Something wrong is a defect, a vulnerability, or a rule of yours that broke. A
+Something wrong is a defect, a vulnerability, or a custom rule that broke. A
 method being large or undocumented is not wrong, so it is reported and does not
 fail the run.
 

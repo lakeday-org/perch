@@ -60,7 +60,7 @@ perch setup cursor        # .cursor/rules/perch.mdc
 
 ## Semantic linting
 
-Extend perch with your own rules, in `perch.yaml`:
+Extend perch with custom rules, in `perch.yaml`:
 
 ```yaml
 - name: env-read-once
@@ -82,7 +82,7 @@ Extend perch with your own rules, in `perch.yaml`:
 | [Checking a change](https://docs.perchscan.com/check/) | `perch check` on work in progress. |
 | [perch in CI](https://docs.perchscan.com/ci/) | What a build can gate on, and what it cannot. |
 | [Command reference](https://docs.perchscan.com/cli/) | Every command, its flags, and what each exit code means. |
-| [How a scan works](https://docs.perchscan.com/scan/) | The graph walk, the questions, and how probabilities turn into a ranking. |
+| [Inside a scan](https://docs.perchscan.com/scan/) | The graph walk, the questions, and how probabilities turn into a ranking. |
 
 Results go in `.perch`, the one directory perch writes to.
 
@@ -93,5 +93,5 @@ npm run check     # lint, typecheck, test
 npm run build     # bundle src/cli.js into dist/cli.mjs
 ```
 
-From a checkout: `npm install && npm run build && npm link` puts `perch` on your
+From a checkout: `npm install && npm run build && npm link` puts `perch` on the
 path.

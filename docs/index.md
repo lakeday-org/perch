@@ -46,7 +46,7 @@ security hole. Does it do what its name says. Does it need refactoring.
 A method is ranked by what its problems would cost. The list
 runs worst first.
 
-## Your own rules
+## Custom rules
 
 Rules live in `perch.yaml` and are sentences:
 

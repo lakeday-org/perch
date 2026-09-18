@@ -5,7 +5,7 @@ description: Semantic linting with perch. Use it to verify code changes in fligh
 
 # perch
 
-perch asks a model about your code. It reports what it believes, as a probability on
+perch asks a model about the code in a repository. It reports what it believes, as a probability on
 every finding.
 
 ## Scan what changed

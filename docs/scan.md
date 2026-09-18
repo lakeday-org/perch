@@ -73,13 +73,13 @@ Every reading goes into `scan.jsonl`, rewritten whole each run. What it holds is
 what this run says about this commit. A reading carries forward when the request
 that produced it would go out word for word the same. That means the method's
 source, the neighbours in the state, and the wording of every question including
-your rules. A hash on each reading is compared before anything is sent. A rescan
+custom rules. A hash on each reading is compared before anything is sent. A rescan
 of untouched code costs nothing and reads the same to the percentage.
 
 ## 4. The questions
 
 The questions are declared in `scan.yaml`, which perch ships and `perch.yaml` can
-reword or add to. Your own rules about a method are asked in that method's
+reword or add to. Custom rules about a method are asked in that method's
 request, beside perch's. Every question is scored against the state by itself,
 and the state is most of what the request carries. A method covered by five rules
 costs one reading.

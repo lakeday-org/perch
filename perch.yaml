@@ -165,3 +165,16 @@ rules:
       here", "Before going further, note the following", "It is worth noting
       that", and "Each check says which it is" all break the rule. Judge only
       those sentences.
+
+  # Bounded to the opening, where an explanation of the basics goes. A control with a paragraph defining "linter" and "model"
+  # reads 81%; a clean page reads 51% at worst, so the floor sits between.
+  - name: docs-assumes-a-developer
+    where: "{README.md,skill.md,docs/**/*.md}"
+    min: 60
+    ensure: >-
+      The reader is a developer who already uses coding assistants. Read the
+      first four prose paragraphs. None of them explains what a linter, a
+      model, a coding assistant, a skill, JSON, git or CI is, and none opens by
+      narrating what a reader or a tool would get wrong before saying what
+      perch does. Naming one of those while saying what perch does with it is
+      not explaining it. Judge only those four paragraphs.

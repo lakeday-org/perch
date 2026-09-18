@@ -3,13 +3,13 @@ title: Semantic linting
 nav: Semantic linting
 group: Using perch
 order: 4
-summary: Your own linting rules in perch.yaml, asked in the same reading as perch's own questions.
+summary: Custom linting rules in perch.yaml, asked in the same reading as perch's own questions.
 ---
 
 # Semantic linting
 
-A rule is a sentence about what your code should hold. Whether a comment says
-why. Whether a listing honors a filter. Whether a test asserts something real.
+A rule is a sentence about what the code should hold. A comment should say why.
+A listing should honor a filter. A test should assert something real.
 
 You write the rule as a sentence. perch puts it to the model as a question.
 
@@ -54,7 +54,7 @@ defaults to the file as a whole. Narrow any of them when you need to:
     built.
 ```
 
-Your rules ride in the request perch was already making about that method. A
+Custom rules ride in the request perch was already making about that method. A
 method covered by five rules costs one reading. Every question is scored against
 the code by itself, and the code is most of what the request carries.
 
@@ -160,7 +160,7 @@ vulnerability. All three say something is wrong.
 ## Gates
 
 Every question says whether an answer fails the run or is only worth reading.
-`perch rules list` shows it in the Fails column, and yours are read no
+`perch rules list` shows it in the Fails column. A custom rule is read no
 differently from perch's own:
 
 ```console
@@ -212,7 +212,7 @@ The bare list form still works and means what it always did.
 
 ## Editing perch.yaml from the command line
 
-`perch rules` changes the file without opening it, keeping your comments and
+`perch rules` changes the file without opening it, keeping comments and
 ordering:
 
 ```sh
@@ -226,8 +226,8 @@ perch rules remove no-stale-docs
 
 The questions perch ships with are written in the same grammar, in `scan.yaml`
 inside the package. A rule in `perch.yaml` sharing a `name` with one of them
-replaces it. Reword a question that fits your codebase badly, or add a class of
-your own alongside them.
+replaces it. Reword a question that fits a codebase badly, or add a custom class
+alongside them.
 
 `scan.yaml` is worth reading once. It is the whole set of questions, and it is
 the clearest statement of what perch does. See [the questions](/scan/#the-questions).

@@ -31,7 +31,7 @@ read. Every command that reads results takes
 ## perch scan
 
 Scores every method with tree-sitter, then reads them with System One, callers
-and callees in view. Your rules in `perch.yaml` are asked in the same reading.
+and callees in view. Custom rules in `perch.yaml` are asked in the same reading.
 
 ```sh
 perch scan [target] [options]
@@ -41,7 +41,7 @@ perch scan [target] [options]
 current repository.
 
 Every run reads everything it covers. `--paths` and `--since` narrow what that
-is. Exits 3 on a defect, a vulnerability, or a rule of yours that broke.
+is. Exits 3 on a defect, a vulnerability, or a custom rule that broke.
 
 | Flag | |
 | --- | --- |
@@ -99,7 +99,7 @@ still wrong.
 perch rules [list | add <name> | edit <name> | remove <name>] [options]
 ```
 
-Writes `perch.yaml`, keeping your comments and ordering.
+Writes `perch.yaml`, keeping comments and ordering.
 
 Most rules are a yes-or-no, so `--ensure` is usually the only flag you need. `--where` defaults
 to `**/*` and the unit defaults to the file as a whole:
@@ -168,18 +168,22 @@ not read.
 
 ```console
 $ perch doctor
-perch 0.1.1  node v25.5.0  darwin arm64
+perch 0.2.3  node v25.5.0  darwin arm64
 
 ✓ node        v25.5.0
 ✗ key         TYPESAFE_API_KEY is not set
-✓ git         git version 2.50.1
-✗ repository  /tmp/x is not in a git repository
+✓ git         git version 2.50.1 (Apple Git-155)
+✗ repository  /private/tmp/x is not in a git repository
+✓ results     /private/tmp/x/.perch
+✓ rules       no perch.yaml, so perch asks only its own questions
 
-  key: export it, or put it in a .env beside your repository
+  key: export it, or put it in a .env beside the repository
   repository: perch reads a commit, so it needs one; git init and commit something
+
+No run yet. perch scan is what reads the code.
 ```
 
-It checks node, git and your key. It checks the repository, a writable results
+It checks node, git and the API key. It checks the repository, a writable results
 directory and `perch.yaml`. Each is a tick or a cross, and every cross says what
 to do. It exits 1 when any check fails, so CI can run it before a scan.
 
