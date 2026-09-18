@@ -116,18 +116,23 @@ function issueTable(findings, min = 0, filters = [], { width = WIDTH() } = {}) {
  * One line per problem, not per method: a method carrying five is five things to fix. `perch issues` is where a method is taken
  * as a whole and ranked against the others.
  */
+/** The block a search rule's answer is listed under. Not a path, so it is not made relative to one. */
+const SEARCHED = 'searched the repository';
+
 export function formatScanReport(findings, { min = 0, width = WIDTH(), color = COLOR(), filters = [], summary = true, empty = 'Nothing to report.' } = {}) {
   const byFile = new Map();
   for (const finding of findings) {
-    // A search that found nothing anywhere is not about a file. It is reported against the rule file so `perch issues` has a
-    // place to point at, but listing it under a header that reads like a scanned file says perch went looking through your rules.
-    if (String(finding.unit ?? '').startsWith('search:')) continue;
+    // A search is not about a file. It is recorded against the rule file so `perch issues` has a place to point at, and it gets
+    // its own block here rather than a header that reads like a scanned file. Dropping it was worse: the tally and the exit code
+    // read this, so a broken search rule was reported nowhere and failed nothing.
+    const searched = String(finding.unit ?? '').startsWith('search:');
     const issues = shownIssues(finding, min, filters);
     if (!issues.length) continue;
     const line = issues[0]?.type === 'defect' ? finding.where?.line ?? finding.line : finding.line;
-    if (!byFile.has(finding.path)) byFile.set(finding.path, []);
+    const under = searched ? SEARCHED : finding.path;
+    if (!byFile.has(under)) byFile.set(under, []);
     // A band is about a defect the method might have, so it is said on the rows that are about one and left off the rest.
-    for (const issue of issues) byFile.get(finding.path).push({ id: finding.id, line, type: issue.type, said: issue.label, sure: issue.probability,
+    for (const issue of issues) byFile.get(under).push({ id: finding.id, line, type: issue.type, said: issue.label, sure: issue.probability,
       name: shortId(finding.name), severity: CORRECTNESS.has(issue.type) ? severityName(finding.severity) : '-' });
   }
   if (!byFile.size) return empty;
@@ -138,7 +143,8 @@ export function formatScanReport(findings, { min = 0, width = WIDTH(), color = C
   // against, and reading it means finding it in the same place on every row.
   const HEAD = ['ID', 'Line', 'Severity', 'Type', 'Confidence', 'Problem', 'Method'];
   const blocks = [];
-  for (const path of [...byFile.keys()].sort()) {
+  const paths = [...byFile.keys()].filter(key => key !== SEARCHED).sort();
+  for (const path of [...paths, ...(byFile.has(SEARCHED) ? [SEARCHED] : [])]) {
     const rows = byFile.get(path).sort((a, b) => a.line - b.line || b.sure - a.sure);
     const widest = pick => Math.max(...rows.map(row => String(pick(row)).length));
     const ident = Math.max(HEAD[0].length, widest(row => row.id));
@@ -149,7 +155,7 @@ export function formatScanReport(findings, { min = 0, width = WIDTH(), color = C
     const said = Math.max(HEAD[5].length, widest(row => row.said));
     const named = Math.max(HEAD[6].length, Math.min(widest(row => row.name), Math.max(8, width - ident - at - band - type - sure - said - 14)));
     // Padded before it is painted: an escape sequence is not a column of anything, and counting it as one bends every row after.
-    const lines = [bold(relative(path), color),
+    const lines = [bold(path === SEARCHED ? SEARCHED : relative(path), color),
       dim(`  ${HEAD[0].padEnd(ident)}  ${HEAD[1].padStart(at)}  ${HEAD[2].padEnd(band)}  ${HEAD[3].padEnd(type)}  ${HEAD[4].padStart(sure)}  ${HEAD[5].padEnd(said)}  ${HEAD[6]}`, color)];
     for (const row of rows) {
       const severity = row.severity.padEnd(band);
@@ -363,7 +369,6 @@ export const formatFilterKeys = () => Object.entries(filterKeys())
  * so the line that says how many there are is counting the ones on the screen.
  */
 export function shownIssues(finding, min, filters = []) {
-  if (String(finding.unit ?? '').startsWith('search:')) return [];
   const named = filters.filter(clause => clause.key === 'type' || clause.key === 'kind');
   return issuesOf(finding, min).filter(issue => !named.length
     || named.some(clause => (clause.key === 'type' ? issue.type : String(issue.label).toLowerCase().replace(/[_-]+/g, ' ')) === clause.value));
