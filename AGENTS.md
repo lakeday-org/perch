@@ -68,6 +68,11 @@ The package also disallows tokens that bypass 2FA, so those two workflows are th
 either file, or dropping `id-token: write` from it, stops releases until npm is told. Keep both registered: `publish.yml` is
 the way back in when release-please cannot publish, and 0.3.0 had to be finished that way.
 
+The release job checks out the tag, not the branch, and fetches tags with it. release-please writes the tag and then this job
+would otherwise check out `main` with none: `git describe --exact-match` finds nothing and the published package answers
+`perch --version` with DEVELOPMENT. 0.3.2 shipped that way. A step before `npm publish` now compares the built version against
+`package.json` and fails the release rather than putting a wrong one on npm, where it cannot be replaced.
+
 `perch --version` is stamped at build time. A build sitting on its release tag with a clean tree reports that release; anything
 else reports `DEVELOPMENT` and the commit, because a working copy carries the same number in `package.json` and is not it.
 
