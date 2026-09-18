@@ -65,10 +65,10 @@ Extend perch with your own rules, in `perch.yaml`:
 | --- | --- |
 | [Getting started](https://docs.perchscan.com/install/) | Install, the key, the first scan. |
 | [Reading issues](https://docs.perchscan.com/issues/) | The list, the filters, closing what does not matter. |
-| [Semantic linting](https://docs.perchscan.com/rules/) | Every field `perch.yaml` takes. |
+| [Semantic linting](https://docs.perchscan.com/rules/) | `where`, `each`, `sees`, `min`, `gate`, and the longhand grammar. |
 | [Checking a change](https://docs.perchscan.com/check/) | `perch check` on work in progress. |
 | [perch in CI](https://docs.perchscan.com/ci/) | What a build can gate on, and what it cannot. |
-| [Command reference](https://docs.perchscan.com/cli/) | Every verb and every flag. |
+| [Command reference](https://docs.perchscan.com/cli/) | Every command, its flags, and what each exit code means. |
 | [How a scan works](https://docs.perchscan.com/scan/) | The graph walk, the questions, and how probabilities turn into a ranking. |
 
 Results go in `.perch`. Nothing else is written to your tree.
