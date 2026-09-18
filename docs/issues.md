@@ -37,16 +37,17 @@ is one row carrying three issues.
 | `Kind` | The issues themselves, likeliest first, with how sure perch is of each. |
 | `Severity` | How much a caller would feel it. Empty on a row carrying neither a defect nor a vulnerability, since those are the two the rubric weighs. |
 
-Severity reads as a band and the number behind it, because the band alone throws
-away how close the call was:
+Severity reads as a band and the number behind it. The band alone throws away how
+close the call was:
 
 ```
 P1 (0.9)   almost P0
 P1 (1.2)   settling toward P2
 ```
 
-The band is `round(mean)` and the number is `3 − mean`, over a distribution the
-model gives across all four levels. [How a scan works](scan.md) works it through.
+The band is `round(mean)` and the number is `3 − mean`. The model gives a
+distribution across all four levels. [How a scan works](scan.md) works it
+through.
 
 ## One issue, opened up
 
@@ -76,13 +77,13 @@ $ perch issues 723a2685
 ```
 
 The same columns the table prints, with what was asked under them. Everything
-perch answered is here, including answers below the floor: a defect at 44% is
-not a row on the table and is still printed here, because you asked about this
+perch answered is here, including answers below the floor. A defect at 44% earns
+no row on the table and is still printed here, because you asked about this
 method.
 
-The `Severity` column is on the rows the rubric weighs, which are the defect and
-the vulnerability. The block below it is the same question's whole distribution,
-which is what the band and the number in brackets are worked out from.
+The `Severity` column is on the rows the rubric weighs: the defect and the
+vulnerability. The block below it is that question's whole distribution. The band
+and the number in brackets come from it.
 
 ## Narrowing the list
 
@@ -97,10 +98,9 @@ perch issues --filter type=defect,security --filter kind=unhandled_null
 
 `perch issues --types` prints every value the three keys accept.
 
-A filtered list is ranked by what was filtered for rather than by overall weight,
-so `--filter type=security` leads with the likeliest vulnerability in the
-repository instead of whichever method is heaviest overall. Each row also
-reorders to lead with the match.
+A filtered list is ranked by what was filtered for. So `--filter type=security`
+leads with the likeliest vulnerability in the repository. Each row also reorders
+to lead with the match.
 
 ## How sure perch has to be
 
@@ -132,9 +132,9 @@ alone. `perch reopen <id>` puts it back.
 perch issues --closed     # include what you set aside
 ```
 
-Closed issues live in `.perch/closed.jsonl`, apart from the answers, because a
-judgement you made has to survive the next run and an answer does not. Commit
-that file if you want the team to share your dismissals.
+Closed issues live in `.perch/closed.jsonl`, apart from the answers. A judgement
+you made has to survive the next run. Commit that file to share your dismissals
+with the team.
 
 ## JSON
 
