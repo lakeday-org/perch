@@ -31,12 +31,19 @@ line in `perch.yaml` rather than a filter on the command.
 
 `--since` narrows the scan to what moved:
 
-```sh
-perch scan --since origin/main
+```console
+$ perch scan --since origin/main
+checkout.py
+  ID        Line  Severity  Type    Confidence  Problem     Method
+  bdc67421    14  P1 (0.8)  defect         81%  wrong_order  place_order
+
+✖ 1 problem in 1 file, all failing
+perch at commit 5e9d910: 3 methods, read 3
+3 requests  10k tokens in / 2k out  $0.0004
 ```
 
-A pull request reads the methods it touched and their neighbourhood, not the
-whole repository. That is what keeps the job to a sensible size and cost.
+A pull request reads the methods it touched and their neighbourhood. That keeps
+the job to a sensible size and cost.
 
 ## GitHub Actions
 

@@ -81,10 +81,9 @@ by itself, and the state is what the request is mostly made of, so a method
 covered by five rules is one reading rather than six.
 
 One HTTP request per method. The state carries the method with its lines tagged
-`L0042|`, the comment above it, its metrics, its file's imports and module
-scope, the source of up to 8 callees with the names of their own callees, up to
-8 callers with the line where each calls it, and the call edges among all of
-them — trimmed to stay under 48KB.
+`L0042|`, the comment above it, its metrics, and its file's imports and module
+scope. It also carries up to 8 callees with the names of their own callees, and
+up to 8 callers with the line where each calls it.
 
 A method too long for one request is read in **overlapping passes**, each sized
 to what the budget actually holds. Only lines a pass can see are offered to its

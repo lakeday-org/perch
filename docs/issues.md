@@ -3,7 +3,7 @@ title: Reading issues
 nav: Reading issues
 group: Using perch
 order: 3
-summary: The ranked list, what a row means, how to narrow it, and how to set aside what does not matter.
+summary: The ranked list, what a row means, and how to narrow it.
 ---
 
 # Reading issues

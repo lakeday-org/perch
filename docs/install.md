@@ -109,8 +109,5 @@ perch check scripts/build.mjs                 # a whole file
 
 It exits 3 while something is still wrong, which is what a loop needs.
 
-## Next
 
-- [Reading issues](/issues/) for filtering and closing.
-- [Semantic linting](/rules/) to put your own rules in the same reading.
 - [perch in CI](/ci/) for the pull request setup.
