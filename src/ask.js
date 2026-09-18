@@ -266,6 +266,9 @@ export function questionsFor(questions, filters = [], rename = kind => kind) {
   const canon = value => String(value).toLowerCase().replace(/[_-]+/g, ' ');
   const wanted = new Set();
   for (const question of questions) {
+    // `rule` names the question itself, so it selects one that raises no issue of its own. An ensure_present rule is exactly
+    // that: it declares no issue, and matching on labels alone dropped it from every filtered run without saying so.
+    if (named.some(clause => clause.key === 'rule' && canon(question.name) === clause.value)) { wanted.add(question.name); continue; }
     if (!question.issue) continue;
     const labels = labelsOf(question, questions, rename);
     if (named.some(clause => (clause.key === 'type' ? question.issue.type === clause.value : labels.some(label => canon(label) === clause.value)))) wanted.add(question.name);
@@ -273,6 +276,7 @@ export function questionsFor(questions, filters = [], rename = kind => kind) {
   for (const name of [...wanted]) {
     const question = questions.find(other => other.name === name);
     if (question.when) wanted.add(question.when);
+    if (!question.issue) continue;
     const label = question.issue.label ?? 'self';
     if (label !== 'self' && questions.some(other => other.name === label)) wanted.add(label);
     if (CORRECTNESS.has(question.issue.type)) wanted.add('severity');
