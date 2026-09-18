@@ -77,3 +77,19 @@ jobs:
       # there is nothing to filter here: which questions those are is in scan.yaml and perch.yaml, next to the questions.
       - name: perch scan
         run: node bin/perch.mjs scan ${{ github.event_name == 'pull_request' && format('--since origin/{0}', github.base_ref) || '' }}
+
+  # The docs live here and the site that serves them lives in perch-cloud, which builds them from this branch. Nothing told it
+  # when they changed, so a page added here stayed invisible until somebody deployed by hand: docs/skill.md sat on main for a
+  # release and a half while docs.perchscan.com answered 404 for it. Fired on every push rather than on a path filter, because
+  # the site builds the whole of main and a rebuild costs nothing.
+  docs:
+    name: publish docs
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      # A repository_dispatch to another repository needs a token that reaches it; the job's own GITHUB_TOKEN does not.
+      - name: tell perch-cloud to rebuild
+        env:
+          GH_TOKEN: ${{ secrets.PERCH_CLOUD_DISPATCH }}
+        run: gh api repos/lakeday-org/perch-cloud/dispatches -f event_type=docs

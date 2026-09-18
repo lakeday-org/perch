@@ -49,7 +49,7 @@ perch setup pi            # .pi/skills/perch/SKILL.md
 perch setup cursor        # .cursor/rules/perch.mdc
 ```
 
-Commit the file. [What it says](https://docs.perchscan.com/).
+Commit the file. [What it says](https://docs.perchscan.com/skill/).
 
 ## Semantic linting
 
