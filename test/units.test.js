@@ -160,11 +160,16 @@ describe('the units a rule is asked about', () => {
     expect(() => check({ name: 'r', where: 'src/**', each: 'method', sees: 'calls', ensure: 'x' }, 'perch.yaml rule 1'))
       .toThrow('a method is always asked with its callers and callees in view');
 
-    // A unit with no nodes is markdown, YAML, or anything else the parser does not read. There are no edges to walk, so the
-    // names in the text are all there is.
-    const unparsed = { id: 'test/a.test.js::t', path: 'test/a.test.js', name: 't', line: 1, end_line: 3, part: true };
-    files.set('test/a.test.js', 'it("t", () => { f(1); });');
-    expect(neighbourhood('calls', unparsed, { graph, files }).calls.map(item => item.name)).toContain('f');
+    // A unit with no nodes is markdown, YAML, or anything else the parser does not read. There is no call graph to walk, so the
+    // tree is the structure it has: what it sits above, and what it sits under.
+    files.set('docs/guide.md', '# guide\n');
+    files.set('docs/deep/more.md', '# more\n');
+    const doc = { id: 'docs/guide.md', path: 'docs/guide.md', name: 'docs/guide.md', line: 1 };
+    expect(neighbourhood('calls', doc, { graph, files }).calls.map(item => item.name)).toContain('docs/deep/more.md');
+    // Up is the nearest thing above, which for a file in docs/ is the root.
+    expect(neighbourhood('callers', doc, { graph, files }).called_by.map(item => item.name)).toContain('README.md');
+    // And it does not reach across into a directory it does not sit under.
+    expect(neighbourhood('calls', doc, { graph, files }).calls.every(item => item.path.startsWith('docs/'))).toBe(true);
 
     // A method the graph knows walks its real edges: f calls h.
     const [id, node] = [...graph.nodes].find(([, item]) => item.qualified_name === 'f');
