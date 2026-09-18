@@ -17,15 +17,16 @@ summary: What CI can gate on, what it cannot, and a GitHub Actions job for pull 
 | 2 | the command was typed wrong |
 | 3 | perch ran and found something that fails |
 
-3 keeps a job that fell over and a job that found a bug apart in the UI.
+CI shows those as different results. A run that could not start never reads as
+a run that found a bug.
 
 Something wrong is a defect, a vulnerability, or a rule of yours that broke. A
 method being large or undocumented is not wrong, so it is reported and does not
 fail the run.
 
-Each question says which it is, and `perch rules list` has a Fails column.
-`gate:` on a question sets it. A class you want reported without stopping a run
-is one line in `perch.yaml`.
+`gate:` on a question decides whether its findings fail a run. `perch rules
+list` prints that setting in a Fails column. `perch rules edit <name> --gate
+false` turns it off for one question.
 
 ## Only what the branch changed
 

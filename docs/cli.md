@@ -163,11 +163,8 @@ Puts closed issues back on the list.
 perch doctor
 ```
 
-Two things, in the order they matter.
-
-First, whether perch can run here at all. It checks node, git and your key. It
-checks the repository, a writable results directory and `perch.yaml`. Each is a
-tick or a cross. Every cross says what to do:
+`perch doctor` says whether perch can run here, then what the last run could
+not read.
 
 ```console
 $ perch doctor
@@ -182,10 +179,12 @@ perch 0.1.1  node v25.5.0  darwin arm64
   repository: perch reads a commit, so it needs one; git init and commit something
 ```
 
-It exits 1 when any check fails, so CI can run it before a scan.
+It checks node, git and your key. It checks the repository, a writable results
+directory and `perch.yaml`. Each is a tick or a cross, and every cross says what
+to do. It exits 1 when any check fails, so CI can run it before a scan.
 
-Then what went wrong in the last run. Every method it could not read, with the error beside it. Then the end of
-`.perch/scan.log` when the run ended badly.
+Under the checks it lists every method the last run could not read, with the
+error beside it. A run that ended badly also gets the end of `.perch/scan.log`.
 
 It prints names, paths, counts and error messages, so it can be pasted into a
 bug report as it stands.

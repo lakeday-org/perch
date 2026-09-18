@@ -153,3 +153,15 @@ rules:
       paragraphs. Saying a thing is excluded, skipped or unsupported is a fact,
       not this construction. Frontmatter between `---` markers at the top of
       the file is metadata rather than prose; skip it.
+  # Bounded to what sits under a heading, where this construction lives. Worded over the whole page it reads 51% and 52% on two
+  # clean reference pages, which is the length effect the other file rules had.
+  - name: docs-no-empty-sentence
+    where: "{README.md,skill.md,docs/**/*.md}"
+    ensure: >-
+      Read the first two sentences under each of this page's first six
+      headings. None of them announces what is coming instead of saying it, and
+      none points back at something already said without adding to it. "Two
+      things, in the order they matter", "There are a few things worth knowing
+      here", "Before going further, note the following", "It is worth noting
+      that", and "Each check says which it is" all break the rule. Judge only
+      those sentences.
