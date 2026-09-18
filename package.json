@@ -1,6 +1,6 @@
 {
   "name": "@lakeday/perch",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "AST powered semantic code linting with Jev",
   "license": "MIT",
   "repository": {
