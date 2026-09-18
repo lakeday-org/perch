@@ -221,15 +221,17 @@ describe('perch hunt', () => {
     expect(doctor).toMatch(/^✓ key {2}TYPESAFE_API_KEY, 8 characters$/m);
     expect(doctor).toMatch(/^✗ git {2}not on the path$/m);
     expect(doctor).toMatch(/^ {2}git: install git$/m);
-    // Facts in columns, not sentences: this is read to find the one line that explains a failure.
-    expect(doctor).toMatch(/^run +[0-9a-f]{8} {2}complete {2}\d+[smhd] ago$/m);
-    expect(doctor).toMatch(/^methods {2}4 in scope, 3 read, \d+ unchanged, 1 failed$/m);
-    // What perch could and could not do, not what it found: a count of issues is what perch issues is for.
+    // Which run, in one line, so the rest of it can be about what went wrong.
+    expect(doctor).toMatch(/^[0-9a-f]{8} {2}complete {2}\d+[smhd] ago {2}[0-9a-f]{7}$/m);
+    // What went wrong and nothing else. What the run covered and which questions fired are the scan's own report; somebody
+    // opening doctor has something broken and wants the line that says so.
+    expect(doctor).not.toMatch(/^methods {2}/m);
+    expect(doctor).not.toMatch(/^rules {4}/m);
+    expect(doctor).not.toMatch(/^questions$/m);
     expect(doctor).not.toMatch(/^issues /m);
     expect(doctor).not.toMatch(/^tokens /m);
-    expect(doctor).toMatch(/^log {6}\S*scan\.log$/m);
     // Every method it could not read, with the error beside it.
-    expect(doctor).toMatch(/^could not read$/m);
+    expect(doctor).toMatch(/^1 could not be read$/m);
     expect(doctor).toMatch(/^ {2}method +where +error$/m);
     expect(doctor).toMatch(/^ {2}h +src\/b\.js:\d+ +max_tokens_exceeded$/m);
     // It is pasted into a bug report as it stands, so nothing it prints is source.

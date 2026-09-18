@@ -78,6 +78,5 @@
 - name: readme-shows-not-tells
   where: README.md
   ensure: >-
-    The README shows the tool working before it explains it: a screenshot, a
-    GIF, or a screencast in the first screen, not only a fenced block of
-    terminal text a reader has to parse.
+    The README shows the tool working in the first screen: a screenshot, a GIF
+    or a screencast, not only a fenced block of terminal text.
