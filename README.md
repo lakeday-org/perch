@@ -20,7 +20,7 @@
   <a href="https://docs.perchscan.com">docs</a>
 </p>
 
-AST powered semantic code linting with Jev.
+Semantic code linting with Jev.
 
 ![Writing a rule, and perch catching this README with it](.github/demo.svg)
 
