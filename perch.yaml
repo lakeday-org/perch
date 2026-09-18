@@ -194,3 +194,8 @@ rules:
     ensure: >-
       A search rule's answer is listed, counted and gated like any other rule's.
       Dropping a finding because its unit is a search breaks this.
+  - name: proves-search-reporting
+    where: src/**/*.js
+    ensure_present: >-
+      A function named absolutelyNotInThisCodebase that returns the number forty
+      two.
