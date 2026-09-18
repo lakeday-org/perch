@@ -10,6 +10,7 @@ import { revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { scanRepository } from '../src/scan.js';
 import { openStore } from '../src/store.js';
+import { formatFinding, formatIssues, formatScanReport } from '../src/report.js';
 import { commitAll, fixtureOptions, makeFixture, makeGraphFixture, scriptedSystemOne } from './helpers.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -59,6 +60,21 @@ describe('cli', () => {
     // An alias is checked against the command it resolves to, and a flag both commands take is fine.
     expect(await main(['findings', '--parallel', '2'], io)).toBe(2);
     expect(err.join('\n')).toContain('perch issues does not take --parallel; it belongs to scan');
+  });
+
+  it('reports a defect whose line was never located, rather than throwing on it', () => {
+    // A defect points at a line inside the method, and three places read that line while a fourth guarded it. Every reading a
+    // scan writes has one, so nothing reached them; a reading carried from a version that did not write one would have.
+    const finding = { id: 'abc12345', path: 'src/x.js', name: 'f', line: 7, end_line: 9, method: 'src/x.js::f',
+      has_bug: 0.9, kind: { choice: 'boundary', probability: 0.9, probabilities: { boundary: 0.9 } },
+      severity: { probabilities: { 1: 1 }, score: 1, confidence: 0.8, level: 'P1', predicted: 1 }, metrics: {}, file: {} };
+    // It falls back to the method's own line, which is the honest answer when no line inside it was chosen.
+    expect(formatIssues([finding], 0.5, 10, {})).toContain('src/x.js:7');
+    expect(formatScanReport([finding], { color: false })).toContain('src/x.js');
+    // And the line it points at is left out of the finding rather than printed as undefined.
+    const opened = formatFinding(finding, { color: false });
+    expect(opened).not.toContain('the line it points at');
+    expect(opened).toContain('off_by_one');
   });
 
   it('says what is running, before it cares which command you typed', async () => {
