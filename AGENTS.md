@@ -64,6 +64,13 @@ writing a clear sentence:
   floor until it keeps nothing.
 - A file rule is handed the file's text. A rule about what an image shows is a rule about something it was never given, and it
   will sit at 50% forever.
+- Do not word a file rule as a universal. "Every sentence is short", "every command shows its output" and "no sentence uses
+  antithesis" each measure the odds that no counterexample exists anywhere in the file, and those odds fall as the file grows.
+  All three ranked the ten docs pages in almost exactly their line order. The controlled case: one page rewritten entirely in
+  34-word run-ons read 92%, and the same page in short sentences read 88%.
+- Name a bounded part of the file and judge only that. "Read the first four prose paragraphs" and "find the first block that
+  runs a real perch command" separate cleanly, because what they ask about does not grow with the page. The same three rules
+  reworded that way read 84%, 79% and 95% against their dirty controls and pass every clean page.
 
 `perch close <id> --reason "..."` sets aside a finding you have read and decided about. The reason is what the next person reads
 instead of reopening it. Closures live in `.perch/closed.jsonl`, which is committed; everything else under `.perch` is a cache.
