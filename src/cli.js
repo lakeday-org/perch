@@ -64,7 +64,7 @@ const options = {
 const ALIASES = { findings: 'issues' };
 
 const commandHelp = {
-  scan: { args: '[target]', summary: 'Find issues', detail: `Scores every method with tree-sitter, then reads them with System One, callers and callees in view. Your rules in ${RULES_FILE} are asked in the same reading, so they cost nothing extra on a method perch was reading anyway.\n\nA method whose code, whose neighbours and whose questions are all unchanged since the last run is not asked about again. The answer would be the same one, and asking for it would move the numbers on an issue you have already looked at. Delete .perch/scan.jsonl to ask about everything again.\n\n--paths and --since say what a run covers, and --since origin/main is what CI wants. target is a directory, owner/repo, or a GitHub URL. Exits 3 on anything it found that is wrong: a defect, a vulnerability, a rule of yours that broke. Not on a method being large or undocumented, which are reported and do not fail the run. Needs TYPESAFE_API_KEY.` },
+  scan: { args: '[target]', summary: 'Find issues', detail: `Scores every method with tree-sitter, then reads them with System One, callers and callees in view. Custom rules in ${RULES_FILE} are asked in the same reading, so they cost nothing extra on a method perch was reading anyway.\n\nA method whose code, whose neighbours and whose questions are all unchanged since the last run is not asked about again. The answer would be the same one, and asking for it would move the numbers on an issue you have already looked at. Delete .perch/scan.jsonl to ask about everything again.\n\ntarget is the file or directory to read, and defaults to where you are. --paths and --since narrow it further, and --since origin/main is what CI wants. Exits 3 on anything it found that is wrong: a defect, a vulnerability, a custom rule that broke. Not on a method being large or undocumented, which are reported and do not fail the run. Needs TYPESAFE_API_KEY.` },
   rules: { args: '[list | add <name> | edit <name> | remove <name>]', summary: `Change ${RULES_FILE} without opening it`, detail: `Custom rules are questions perch asks alongside its own, written in the same grammar as the ones it ships with in scan.yaml. perch scan asks them; this writes them, keeping comments and ordering.\n\nMost are a yes-or-no, so --ensure is usually the only flag needed. It covers what a parser can't: whether a comment says why, whether a test asserts what you claim.\n\n  perch rules add no-stale-docs --where "docs/**/*.md" --ensure_absent "docs for code that was deleted"\n\nAn answer that is not yes-or-no is written out: --ask with --type and the options or levels it offers, and --issue for what an answer means. --when names a question this one is only as likely as.\n\n  perch rules add handles_absence --type choice --each method --where "src/**/*.js" \\\n    --ask "How does this method handle a value that is missing?" \\\n    --options "checks=It checks for it; ignores=It carries on with the missing value" \\\n    --issue "type=defect,label=handles_absence,except=checks"` },
   issues: { args: '[issue-id]', summary: 'List what the scan found, or show one', detail: 'Worst first. --filter narrows the list, --types prints what it accepts, --closed includes closed ones, --all lists every row. Give it an id to see everything known about that method. perch findings does the same thing.' },
   check: { args: '<path | path::method | issue-id>', summary: 'Ask about one piece of code, uncommitted', detail: 'Reads that one file off disk and asks about the point you named: every rule that covers it, plus the scan\'s own questions for a method. --rules narrows it to specific rules, or to defect, security, refactor or docs. Nothing is committed or recorded, so run it on work in progress. Exits 3 while something is still wrong. Needs TYPESAFE_API_KEY.' },
@@ -268,7 +268,15 @@ async function setAside(io, verb) {
 }
 
 /** What a scan covers: --paths as given, or what --since says a branch changed. */
-const scanPaths = async (io, root) => (io.flags.since ? changedPaths(root, io.flags.since) : parsePaths(io.flags));
+// A scan covers the target it was given, narrowed further by --paths or --since. `perch scan docs/` is `--paths docs`, so a
+// directory costs what it covers rather than what encloses it.
+const scanPaths = async (io, root, scope = null) => {
+  const asked = io.flags.since ? await changedPaths(root, io.flags.since) : parsePaths(io.flags);
+  if (!scope) return asked;
+  if (!asked.length) return [scope];
+  // Both were given, so the run is what they agree on: the asked-for paths that lie inside the target.
+  return asked.filter(path => path === scope || path.startsWith(scope.replace(/\/$/, '') + '/'));
+};
 
 /** `--options "a=An a; b=A b"` as the map it is written as in the file. Semicolons, since a description often has a comma in it. */
 function pairsFrom(flag, text) {
@@ -352,8 +360,8 @@ const commands = {
     const parallel = positiveInteger('--parallel', io.flags.parallel, DEFAULT_PARALLEL);
     const min = threshold(io.flags.min) / 100;
     const filters = filtersFrom(io.flags);
-    const resolved = await resolveTarget(io.argument ?? '.', { out: io.flags.out, log: io.log });
-    const paths = await scanPaths(io, resolved.root);
+    const resolved = await resolveTarget(io.argument ?? '.', { out: io.flags.out });
+    const paths = await scanPaths(io, resolved.root, resolved.scope);
     if (io.flags.since && !paths.length) { io.stdout(`Nothing changed since ${io.flags.since}.`); return EXIT.clean; }
     const files = liveCounter(io, 'finding methods,'), methods = liveCounter(io, 'scanning method'),
       units = liveCounter(io, 'checking file'), searches = liveCounter(io, 'searching');
