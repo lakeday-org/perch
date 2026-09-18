@@ -1,6 +1,6 @@
 {
   "name": "@lakeday/perch",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Finds bugs and design problems in a repository, and asks your own rules alongside its own.",
   "license": "MIT",
   "repository": {
