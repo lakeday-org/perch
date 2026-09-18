@@ -89,3 +89,38 @@
     label is a gesture such as What it says or Every field, or a closing
     sentence that summarises the block above it, all break this.
   min: 65
+- name: docs-show-output
+  where: "{README.md,docs/**/*.md}"
+  ensure: >-
+    A command block shows what the command prints. A fenced block holding only
+    commands, with no output under them and no output block following, breaks
+    this.
+- name: docs-headings-name-things
+  where: "{README.md,docs/**/*.md}"
+  ensure: >-
+    Every heading names a task or a thing. A heading phrased as a question the
+    page then answers, such as What it costs to run or What it writes or Why use
+    this, breaks this.
+- name: docs-sentences-are-short
+  where: "{README.md,docs/**/*.md}"
+  ensure: >-
+    Sentences stay under about twenty words. A sentence joining three clauses
+    with commas, a colon followed by a list of five or more things, or a
+    subordinate clause opening with which or so that after twenty words, each
+    break this.
+- name: docs-no-next-steps
+  where: "{README.md,docs/**/*.md}"
+  ensure: >-
+    No section exists to list links the navigation already shows. A closing
+    Where to go next, Next steps, or See also that repeats the sidebar breaks
+    this.
+- name: intro-says-it-once
+  where: docs/index.md
+  ensure: >-
+    The page says what perch is once, then shows a command. A summary in the
+    front matter and a second sentence restating it in the body breaks this.
+- name: intro-anchors-to-a-linter
+  where: docs/index.md
+  ensure: >-
+    The first sentence says perch is a linter and what it does that a linter
+    cannot. Leaving that contrast to a section further down breaks this.
