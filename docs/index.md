@@ -1,16 +1,15 @@
 ---
 title: perch
 nav: Introduction
-group: Introduction
+group: Getting started
 order: 1
-summary: A linter that reads meaning. It finds the bugs a parser cannot prove are there.
+summary: AST powered semantic code linting with Jev.
 ---
 
 # perch
 
-perch is a linter that reads meaning. A linter matches patterns in a syntax tree, so it
-finds what somebody wrote a pattern for. perch reads each method the way a reviewer
-would, with its callers and callees in front of it.
+perch is a linter that reads meaning. Where a linter matches patterns in a syntax tree,
+perch reads each method with its callers and callees in front of it.
 
 ```console
 $ perch scan
@@ -39,7 +38,7 @@ export TYPESAFE_API_KEY=...
 
 Needs Node 22 and git.
 
-## The questions it asks
+## The questions
 
 Each method gets the same set. Is there a bug, where, what kind, how bad. Is it a
 security hole. Does it do what its name says. Does it need refactoring.
@@ -61,7 +60,7 @@ Rules live in `perch.yaml` and are sentences:
 They ride in the request perch was already making about that method. Five rules on one
 method is one reading, not six.
 
-## What it writes
+## The .perch directory
 
 Nothing in your working tree. Results go to `.perch`:
 

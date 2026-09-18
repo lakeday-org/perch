@@ -1,7 +1,7 @@
 ---
 title: Quick start
 nav: Quick start
-group: Introduction
+group: Getting started
 order: 2
 summary: Install, set the key, scan, and read the first thing it found.
 ---

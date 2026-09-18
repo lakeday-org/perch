@@ -18,15 +18,15 @@ rules:
   - name: docs-succinct
     where: "**/*.md"
     ensure: >
-      Documentation is kept succinct and deliberate. No follow ups, em-dashes, and
-      meaningless statements
+      Documentation is kept succinct and deliberate. No follow ups, em-dashes,
+      and meaningless statements
     min: 60
 
   - name: closed-never-listed
     where: callers of issues
     ensure: >
-      This method passes the findings through visibleFindings before a person sees
-      them, or it is not producing a list for a person to read.
+      This method passes the findings through visibleFindings before a person
+      sees them, or it is not producing a list for a person to read.
 
   - name: one-way-into-the-log
     where: mentions .jsonl
@@ -40,8 +40,8 @@ rules:
     each: method
     ensure: >-
       This method does not read configuration out of process.env. Reading the
-      environment is the command line's job, and everything below it is passed the
-      values. Handing the environment to a child process is not this.
+      environment is the command line's job, and everything below it is passed
+      the values. Handing the environment to a child process is not this.
 
   - name: issues-closable
     where: "test/**/*.js"
@@ -67,15 +67,15 @@ rules:
     where: "src/**/*.js"
     each: method
     ensure_absent: >-
-      A catch that returns a default in place of the error, or a ?? or || standing
-      in for a call that failed. A default for a value that was never set is not
-      this.
+      A catch that returns a default in place of the error, or a ?? or ||
+      standing in for a call that failed. A default for a value that was never
+      set is not this.
 
   - name: tests-assert-real-behavior
     where: "test/**/*.js"
     ensure: >
-      Tests assert on the code under test, not on mocks they set up or values they
-      built.
+      Tests assert on the code under test, not on mocks they set up or values
+      they built.
   - name: readme-shows-not-tells
     where: README.md
     ensure: >-
@@ -90,9 +90,9 @@ rules:
   - name: no-filler-tails
     where: "{README.md,docs/**/*.md}"
     ensure: >-
-      Every sentence carries information the reader does not already have. A line
-      telling them to do the obvious after a command block, a link whose only
-      label is a gesture such as What it says or Every field, or a closing
+      Every sentence carries information the reader does not already have. A
+      line telling them to do the obvious after a command block, a link whose
+      only label is a gesture such as What it says or Every field, or a closing
       sentence that summarises the block above it, all break this.
     min: 65
   - name: docs-show-output
@@ -105,8 +105,8 @@ rules:
     where: "{README.md,docs/**/*.md}"
     ensure: >-
       Every heading names a task or a thing. A heading phrased as a question the
-      page then answers, such as What it costs to run or What it writes or Why use
-      this, breaks this.
+      page then answers, such as What it costs to run or What it writes or Why
+      use this, breaks this.
   - name: docs-sentences-are-short
     where: "{README.md,docs/**/*.md}"
     ensure: >-
@@ -130,3 +130,11 @@ rules:
     ensure: >-
       The first sentence says perch is a linter and what it does that a linter
       cannot. Leaving that contrast to a section further down breaks this.
+  - name: docs-no-antithesis
+    where: "{README.md,docs/**/*.md}"
+    ensure: >-
+      A sentence states what is true without first stating what is not.
+      Constructions used for rhythm rather than information break this: Not a
+      located defect, Two numbers not three, The number is belief not severity,
+      Nothing in your working tree, and any short fragment negating something
+      before the real statement.

@@ -97,6 +97,28 @@ describe('editing the rule file', () => {
     expect(await read()).not.toContain('[');
   });
 
+  it('edits a rule file written as a map, with the rules under a key', async () => {
+    const { root, read, rules } = await withRules(`ignore:
+  - perch-example/**
+
+rules:
+  - name: prose
+    where: "**/*.md"
+    ensure: A person wrote this.
+`);
+    // Reading doc.contents on a map gives the pairs ignore and rules, so a rule went in where a key belonged and nothing could
+    // parse the file afterwards. Everything that edits one works on the sequence the rules are actually in.
+    await addRule(root, { name: 'second', where: '**/*', ensure: 'Another.' });
+    expect((await rules()).map(rule => rule.name)).toEqual(['prose', 'second']);
+    // The ignore list is untouched by a rule edit, and still parses as itself.
+    const { parseIgnored } = await import('../src/ask.js');
+    expect(parseIgnored(await read(), RULES_FILE)).toEqual(['perch-example/**']);
+    await editRule(root, 'prose', { min: 70 });
+    await removeRule(root, 'second');
+    expect((await rules()).map(rule => rule.name)).toEqual(['prose']);
+    expect(parseIgnored(await read(), RULES_FILE)).toEqual(['perch-example/**']);
+  });
+
   it('refuses a name that is taken, since two rules with one name is a report nobody can act on', async () => {
     const { root } = await withRules(STARTING);
     await expect(addRule(root, { name: 'prose', where: '**/*.md', ensure: 'Something else.' })).rejects.toThrow('already a rule');
