@@ -1,4 +1,6 @@
-# Publishes @lakeday/perch to npm when a v* tag is pushed.
+# Publishes @lakeday/perch to npm when a v* tag is pushed by hand. An ordinary release is cut by release-please, which tags and
+# publishes in one workflow: a tag it writes with the job's own GITHUB_TOKEN does not start another workflow, so this one would
+# never see it. This is the way back in when a release has to be made without it.
 #
 # There is no npm token. The job proves who it is with the OIDC identity GitHub gives it, which npm checks against the trusted
 # publisher configured for the package: this repository, this workflow file. A credential minted for one run and good for minutes

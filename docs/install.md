@@ -45,27 +45,23 @@ by file, and a count at the end:
 
 ```console
 $ perch scan
-src/assets/hero.js
-  ID        Line  Severity  Type      Sure  Problem             Method
-  0c0b4209    46  -         docs       80%  docs                render
-  0c0b4209    46  -         refactor   65%  tangled_conditions  render
-  af40565c    61  P2 (1.6)  security   67%  uninitialized_use   play
+src/store.js
+  ID        Line  Severity  Type      Confidence  Problem             Method
+  d8f67bd9    46  -         refactor         72%  tangled_conditions  closures
+  463c56ed    63  -         refactor         74%  too_big             openStore
+  67defb37   134  -         refactor         73%  tangled_conditions  openStore.decide
 
-src/index.html
-  ID        Line  Severity  Type  Sure  Problem             Method
-  99d1b053     7  -         lint   61%  no-narrative-prose  src/index.html
+src/checks.js
+  ID        Line  Severity  Type      Confidence  Problem  Method
+  90e449ae    27  -         refactor         68%  too_big  runChecks
 
-✖ 41 problems in 27 places in 7 files
-1 rule broken.
-
-  Failed  Rule                Description
-       1  no-narrative-prose  A headline and one line, not a paragraph explaining the product.
-perch-cloud at commit 3ddf4d9: 38 methods, read 30, 10 unchanged
-30 requests  171k tokens in / 24k out  $0.0072
+! 5 problems in 2 files, none failing
+perch at commit d4f7adf: 38 methods, read 2, 38 unchanged
+110 requests  81k tokens in / 5k out  $0.0034
 ```
 
 A method whose code, whose neighbours and whose questions are all unchanged since
-the last run is not read again, which is what `10 unchanged` counts.
+the last run is not read again, which is what `38 unchanged` counts.
 
 A first run over a large repository reads every method in scope, so narrow it
 while you are getting a feel for it:
