@@ -65,39 +65,38 @@ Every method in scope is read. What scope is comes from `--paths` or `--since`,
 and nothing else: a cap on how many methods a run reads leaves a report that
 looks complete and is not.
 
-Every reading goes into `scan.jsonl`, rewritten whole each run, so what it holds
-is what this run says about this commit and nothing older. A reading carries
-forward when the request that produced it would go out word for word the same:
-the method's source, the neighbours in the state, and the wording of every
-question including your rules. That is a hash on each reading, compared before
-anything is sent. A rescan of untouched code costs nothing and reads the same to
-the percentage, so an issue you looked at yesterday has not moved.
+Every reading goes into `scan.jsonl`, rewritten whole each run. What it holds is
+what this run says about this commit. A reading carries forward when the request
+that produced it would go out word for word the same. That means the method's
+source, the neighbours in the state, and the wording of every question including
+your rules. A hash on each reading is compared before anything is sent. A rescan
+of untouched code costs nothing and reads the same to the percentage.
 
 ## 4. The questions
 
 The questions are declared in `scan.yaml`, which perch ships and `perch.yaml` can
 reword or add to. Your own rules about a method are asked in that method's
-request, beside perch's: every question in a request is scored against the state
-by itself, and the state is what the request is mostly made of, so a method
-covered by five rules is one reading rather than six.
+request, beside perch's. Every question is scored against the state by itself,
+and the state is most of what the request carries. A method covered by five rules
+costs one reading.
 
 One HTTP request per method. The state carries the method with its lines tagged
-`L0042|`, the comment above it, its metrics, and its file's imports and module
-scope. It also carries up to 8 callees with the names of their own callees, and
-up to 8 callers with the line where each calls it.
+`L0042|`, the comment above it, and its metrics. It carries the file's imports
+and module scope. It also carries up to 8 callees with the names of their own
+callees, and up to 8 callers with the line where each calls it.
 
 A method too long for one request is read in **overlapping passes**, each sized
 to what the budget actually holds. Only lines a pass can see are offered to its
-`where` question. The answers merge: the worst defect found anywhere is the
-method's defect, a vulnerability is the likeliest reading from any pass, and the
-first pass — the one carrying the callers and callees — speaks for the method's
-shape and documentation. Eight passes is the cap; a method longer than that is
-read in part and says so, on the record and in `perch issues <id>`.
+`where` question. The answers merge. The worst defect found anywhere is the method's defect, and a
+vulnerability is the likeliest reading from any pass. The first pass carries the
+callers and callees, so it speaks for the method's shape and documentation. Eight
+passes is the cap. A longer method is read in part and says so, on the record and
+in `perch issues <id>`.
 
 A method that still cannot be read is recorded against itself and the walk
-carries on; `perch doctor` lists them with the error each one failed on. If
-nothing can be read at all — a bad key, a service that is down — two full
-batches of failures in a row ends the run.
+carries on. `perch doctor` lists them with the error each one failed on. When
+nothing can be read at all, from a bad key or a service that is down, two full
+batches of failures in a row end the run.
 
 Each question uses the System One primitive that fits it. A `noul` is a
 probability that something is true. A `choice` picks one option and returns the
@@ -119,11 +118,13 @@ distribution over its levels.
 | `refactor` | choice over 7 | `split`, `flatten`, `simplify_conditions`, `deduplicate`, `rename`, `remove_dead_code`, `none`. |
 | `follow` | choice over neighbors | Which related method to examine next. |
 
-The sixteen security classes are `injection`, `path_traversal`,
-`unsafe_deserialization`, `secret_exposure`, `missing_authorization`,
-`unvalidated_destination`, `resource_exhaustion`, `unsafe_reflection`,
-`disabled_safeguard`, `weak_crypto`, `buffer_overflow`, `use_after_free`,
-`uninitialized_use`, `integer_overflow`, `race_condition` and `type_confusion`.
+The sixteen security classes:
+
+`injection`, `path_traversal`, `unsafe_deserialization`, `secret_exposure`,
+`missing_authorization`, `unvalidated_destination`, `resource_exhaustion`,
+`unsafe_reflection`, `disabled_safeguard`, `weak_crypto`, `buffer_overflow`,
+`use_after_free`, `uninitialized_use`, `integer_overflow`, `race_condition`,
+`type_confusion`.
 
 The names in that table are the ids written in `scan.yaml`. What a row prints is
 the label they map to, so `boundary` reads as `off_by_one` and
@@ -135,9 +136,8 @@ costs what asking one costs. That is why the set is wide rather than staged.
 
 ### Why these primitives
 
-`kind` was once eight independent yes/no questions. It is a pick-one — a defect
-has a kind — so it is a `choice`, and the distribution it returns is what the
-row prints.
+`kind` was once eight independent yes/no questions. A defect has one kind, so it
+is a `choice`. The distribution it returns is what the row prints.
 
 `severity` was once three yes/no questions, and before that a single rating. It
 is a rubric, so it is a `score`:
@@ -167,21 +167,20 @@ something from outside to reach the method, so those are a joint probability:
 P(vulnerable) = P(class) × P(exposed)
 ```
 
-The other eight — memory safety, concurrency, type confusion, weak crypto — are
-wrong whoever the caller is, and are not gated. Gating them once hid a planted
-double-free scored `use_after_free 95%` behind `exposed 46%`.
+The other eight cover memory safety, concurrency, type confusion and weak crypto.
+They are wrong whoever the caller is, so they are ungated. Gating them once hid a
+planted double-free scored `use_after_free 95%` behind `exposed 46%`.
 
 **Design issues** are the refactor the `refactor` choice picked, `1 − P(does what
 it claims)`, and `docs`.
 
 ### The floor
 
-An issue is listed when its probability is over **0.5**. That is not a number
-picked to make the list a nice length. A `noul` is the probability that something
-is true, so above a half is the model saying yes and below it is the model saying
-no; printing everything means printing every method in the repository, because no
-answer ever comes back at zero. On perch itself the floor takes 364 listed
-methods down to 240, and `--filter type=defect` from 354 to 25.
+An issue is listed when its probability is over **0.5**. A `noul` is the
+probability that something is true, so above a half is the model saying yes.
+Printing everything means printing every method in the repository, because no
+answer comes back at zero. On perch itself the floor takes 364 listed methods
+down to 240, and `--filter type=defect` from 354 to 25.
 
 The floor applies to what is claimed. The arithmetic keeps everything:
 
@@ -197,8 +196,8 @@ answered.
 ## 6. Ranking
 
 Issues split in two. **Correctness** is the defect and the vulnerability;
-**design** is the rest. Each side is the sum of its probabilities, so two issues
-at 50% weigh what one at 100% weighs and nothing has to cross a line to count.
+**design** is the rest. Each side is the sum of its probabilities. Two issues at 50% weigh what one at
+100% weighs, and nothing has to cross a line to count.
 
 A method is ranked by what its problems would cost, not how many it has:
 
@@ -215,10 +214,10 @@ level describes: no caller would notice.
 
 ### The severity formula
 
-The score comes back as a distribution over the four levels, not a level. Level
-0 is "no caller would notice" and level 3 is "data lost, corrupted, or exposed,
-or a check that should stop someone bypassed". The bands run the other way, so
-level 0 is `P3` and level 3 is `P0`.
+The score comes back as a distribution over the four levels. Level 0 is "no
+caller would notice". Level 3 is "data lost, corrupted, or exposed, or a check
+that should stop someone bypassed". The bands run the other way, so level 0 is
+`P3` and level 3 is `P0`.
 
 Three numbers come out of that distribution:
 
@@ -229,8 +228,8 @@ shown = 3 − mean                            the same number on the P scale
 ```
 
 `mean` is what the ranking multiplies by. `band` is the label a filter matches.
-`shown` is the number in brackets, on the scale the bands are named in, where 0
-is worst and 3 is harmless.
+`shown` is the number in brackets. It uses the scale the bands are named in,
+where 0 is worst and 3 is harmless.
 
 Worked, on the `buildGraph` distribution from
 [reading the issues](issues.md), which perch prints as `P1 (1.1)`:
@@ -263,18 +262,17 @@ not. `perch issues <id>` prints the whole distribution.
 that name a problem. Clauses on the same key are alternatives; clauses on
 different keys must all hold.
 
-A filtered list is also **ranked by what was filtered for**, since ranking it by
+A filtered list is also **ranked by what was filtered for**. Ranking it by
 overall weight would bury the strongest match. Within a key the likeliest
-matching issue speaks for it; across keys they multiply:
+matching issue speaks for it. Across keys they multiply:
 
 ```
 strength = max(matching issues in key A) × max(matching issues in key B) × …
 ```
 
 So `--filter type=security` leads with the likeliest vulnerability in the
-repository rather than with whichever method is heaviest overall. Each row also
-reorders to lead with the match, so a row selected for a vulnerability does not
-print `refactor` in its Type column.
+repository. Each row also reorders to lead with the match. A row selected for a
+vulnerability keeps `refactor` out of its Type column.
 
 A filter reads the listed issues, so it inherits the floor: `type=security` is
 the methods probably carrying a vulnerability, not every method that scored
