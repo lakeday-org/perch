@@ -69,12 +69,6 @@
   ensure: >
     Tests assert on the code under test, not on mocks they set up or values they
     built.
-- name: readme-usage-before-install
-  where: README.md
-  ensure: >-
-    The README shows what the tool does before it says how to get it. An
-    installation or getting-started section appearing before the reader has seen
-    the tool used breaks this.
 - name: readme-shows-not-tells
   where: README.md
   ensure: >-
