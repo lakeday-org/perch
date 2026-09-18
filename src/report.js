@@ -267,42 +267,24 @@ export function formatDoctor({ versions, scan, run, out, checks = [], log = [], 
 
   if (!run) return [...lines, '', 'No run yet. perch scan is what reads your code.'].join('\n');
 
-  const read = (run.visited ?? []).filter(visit => visit.status === 'read').length;
+  // Then what went wrong, and nothing else. What the run covered and which questions fired are the scan's own report; a person
+  // opening doctor has something broken and wants the line that says so.
   const failed = run.failed ?? [];
-  const facts = [
-    ['run', `${run.id?.slice(0, 8) ?? '?'}  ${run.status}  ${since(run.completed_at ?? run.created_at)}`],
-    ['commit', short(run.revision)],
-    ['paths', run.paths?.length ? run.paths.join(' ') : 'everything'],
-    ['methods', `${run.methods} in scope, ${read} read, ${run.carried ?? 0} unchanged, ${failed.length} failed`],
-    ['rules', `${run.rules ?? 0} in ${RULES_FILE}, ${(run.broken ?? []).length} broken`],
-    ['model', `${run.model}, ${run.parallel} at a time`],
-    ['log', relative(join(out, 'scan.log'))],
-  ];
-  if (run.error) facts.push(['error', run.error]);
-  // The tree was parsed at one commit and read at another, so what is listed is about code that has moved since.
-  if (scan && scan.revision !== run.revision) facts.push(['stale', `parsed at ${short(scan.revision)}, read at ${short(run.revision)}; perch scan again`]);
-  const named = Math.max(...facts.map(([key]) => key.length));
-  lines.push('', ...facts.map(([key, value]) => `${key.padEnd(named)}  ${value}`));
-
+  const where = relative(join(out, 'scan.log'));
+  const ran = `${run.id?.slice(0, 8) ?? '?'}  ${run.status}  ${since(run.completed_at ?? run.created_at)}  ${short(run.revision)}`;
+  lines.push('', ran);
+  if (run.error) lines.push('', `${red('✗', color)} ${run.error}`);
+  // A method the walk could not read is an error the report cannot show, because a finding was never written for it.
   if (failed.length) {
     const rows = failed.map(item => [item.name, `${relative(item.path)}:${item.line}`, item.error]);
-    lines.push('', 'could not read', ...table(['method', 'where', 'error'], rows, ['left', 'left', 'left']).map(line => `  ${line}`));
+    lines.push('', `${failed.length} could not be read`,
+      ...table(['method', 'where', 'error'], rows, ['left', 'left', 'left']).map(line => `  ${line}`));
   }
-
-  // Every rule, whether it fired, and how much it covered. A rule covering nothing never fires and never says so, which is the
-  // one kind of broken rule a report of findings cannot show.
-  const coverage = run.coverage ?? [];
-  if (coverage.length) {
-    // The selector only earns a column when something covered nothing, which is when you need to see what it was looking at.
-    const empty = coverage.some(item => !item.units);
-    const rows = [...coverage].sort((a, b) => (b.broken ?? 0) - (a.broken ?? 0) || b.units - a.units)
-      .map(item => [item.broken === null ? '-' : String(item.broken), String(item.units), item.name, item.from ?? '',
-        ...(empty ? [item.units ? '' : String(item.where ?? '')] : [])]);
-    lines.push('', 'questions', ...table(['raised', 'asked', 'question', 'from', ...(empty ? ['covers nothing over'] : [])], rows,
-      ['right', 'right', 'left', 'left', 'left']).map(line => `  ${line}`));
-  }
-
-  if (log.length) lines.push('', `log  ${relative(join(out, 'scan.log'))}`, ...log.map(line => `  ${line}`));
+  // The tree was parsed at one commit and read at another, so anything listed is about code that has moved since.
+  const stale = scan && scan.revision !== run.revision;
+  if (stale) lines.push('', `${red('✗', color)} parsed at ${short(scan.revision)}, read at ${short(run.revision)}; perch scan again`);
+  if (log.length) lines.push('', where, ...log.map(line => `  ${line}`));
+  else if (!run.error && !failed.length && !stale) lines.push('', `Nothing wrong. ${where} has the rest.`);
   return lines.join('\n');
 }
 
