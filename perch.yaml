@@ -101,13 +101,14 @@ rules:
   - name: docs-show-output
     where: "{README.md,docs/**/*.md}"
     ensure: >-
-      Find the first fenced block on the page that runs a command a reader
-      would type to see a result, and weigh only that block. It shows what the
-      command printed underneath the command itself. A block holding the
-      command alone, with nothing printed under it, breaks the rule. A block
-      showing only an install line, a file's contents, a formula or a flag's
-      syntax is not such a block; skip past it. A page holding no such block
-      anywhere satisfies this rule.
+      Find the first fenced block on the page that runs a real `perch` command,
+      and weigh that block together with the block immediately after it. What
+      the command printed is shown in one of the two. A `perch` command with
+      nothing shown that it printed breaks the rule, whether or not it carries
+      a `$` prompt. A line carrying a placeholder in angle or square brackets,
+      such as `perch scan [options]`, is syntax rather than a command being
+      run, and so is an install line or an export; pass over all of them. A
+      page that runs no real `perch` command satisfies this rule.
   - name: docs-headings-name-things
     where: "{README.md,docs/**/*.md}"
     ensure: >-
