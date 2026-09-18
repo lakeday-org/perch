@@ -88,7 +88,7 @@ rules:
       with the command for every assistant perch supports, after the install
       section and before the section on writing your own rules.
   - name: no-filler-tails
-    where: "{README.md,docs/**/*.md}"
+    where: "{README.md,skill.md,docs/**/*.md}"
     ensure: >-
       Every sentence carries information the reader does not already have. A
       line telling them to do the obvious after a command block, a link whose
@@ -99,7 +99,7 @@ rules:
   # output and 66% on a longer one, because it is then a question about whether any counterexample exists, and a longer page
   # makes that likelier whatever the prose does.
   - name: docs-show-output
-    where: "{README.md,docs/**/*.md}"
+    where: "{README.md,skill.md,docs/**/*.md}"
     ensure: >-
       Find the first fenced block on the page that runs a real `perch` command,
       and weigh that block together with the block immediately after it. What
@@ -110,7 +110,7 @@ rules:
       run, and so is an install line or an export; pass over all of them. A
       page that runs no real `perch` command satisfies this rule.
   - name: docs-headings-name-things
-    where: "{README.md,docs/**/*.md}"
+    where: "{README.md,skill.md,docs/**/*.md}"
     ensure: >-
       Every heading names a task or a thing. A heading phrased as a question the
       page then answers, such as What it costs to run or What it writes or Why
@@ -118,16 +118,21 @@ rules:
   # Judges the opening rather than the page. Worded as a claim about every sentence, it ranked pages by length and nothing else:
   # a page rewritten entirely in 34-word run-ons read 92% and the same page in short sentences read 88%.
   - name: docs-sentences-are-short
-    where: "{README.md,docs/**/*.md}"
+    where: "{README.md,skill.md,docs/**/*.md}"
     ensure: >-
-      Read the first four prose paragraphs of the page. Every sentence in them
-      runs under twenty-five words. One sentence of twenty-five words or more
-      breaks the rule, and so does one joining three or more clauses with
-      commas, semicolons and "and". Judge only those four paragraphs and do not
-      read on. Headings, table cells, list items and fenced blocks are not
-      prose.
+      Skip the frontmatter first: everything between the opening `---` and the
+      closing `---` at the top of the file is metadata for a machine to read,
+      and is never judged by this rule whatever it contains. Then read the
+      first four prose paragraphs of the body. Every sentence in them runs
+      under twenty-five words. One sentence of twenty-five words or more breaks
+      the rule, and so does one joining three or more clauses with commas,
+      semicolons and "and". Judge only those four paragraphs and do not read
+      on. Headings, table cells, list items and fenced blocks are not prose.
+    # A long frontmatter block still pulls this to the mid fifties on a file whose body is clean, so the floor sits above that
+    # band. Broken controls read 76 to 85.
+    min: 65
   - name: docs-no-next-steps
-    where: "{README.md,docs/**/*.md}"
+    where: "{README.md,skill.md,docs/**/*.md}"
     ensure: >-
       No section exists to list links the navigation already shows. A closing
       Where to go next, Next steps, or See also that repeats the sidebar breaks
@@ -139,11 +144,12 @@ rules:
       is to a section further down breaks this, and so does defining it by what
       other linters fail to do.
   - name: docs-no-antithesis
-    where: "{README.md,docs/**/*.md}"
+    where: "{README.md,skill.md,docs/**/*.md}"
     ensure: >-
       Read the first four prose paragraphs of the page. None of their sentences
       says what something is not before saying what it is. A sentence opening
       with "Not a", a clause of the form "X, not Y", or a fragment negating
       something nobody claimed, breaks the rule. Judge only those four
       paragraphs. Saying a thing is excluded, skipped or unsupported is a fact,
-      not this construction.
+      not this construction. Frontmatter between `---` markers at the top of
+      the file is metadata rather than prose; skip it.
