@@ -176,17 +176,52 @@ export function neighbourhood(sees, unit, { graph, files, max = MAX_SEEN }) {
   if (!sees || sees === 'self') return {};
   const text = files.get(unit.path) ?? '';
   if (sees === 'file') return { file_source: text };
-  const body = unit.part ? bodyOf(text, unit) : text;
-  const risk = id => graph.nodes.get(id)?.metrics?.risk_score ?? 0;
-  const show = ids => [...new Set(ids)].sort((a, b) => risk(b) - risk(a)).slice(0, max)
-    .map(id => graph.nodes.get(id)).filter(Boolean)
+  const show = ids => ids.slice(0, max).map(id => graph.nodes.get(id)).filter(Boolean)
     .map(node => ({ name: node.qualified_name, path: node.path, source: sourceOf(node, files) }));
-  // A file and a test are not nodes in the call graph, so what they call is found by name: a declaration whose short name
-  // appears in the body, riskiest first.
-  const named = [...graph.nodes.keys()].filter(id => new RegExp(`\\b${id.split('::').at(-1).split('.').at(-1).replace(/[^\w]/g, '')}\\b`).test(body));
+  // A method walks from itself. A file walks from the methods it declares, since a file is not a node but what it holds is.
+  const own = graph.nodes.has(unit.id) ? [unit.id] : [...graph.nodes.keys()].filter(id => graph.nodes.get(id)?.path === unit.path);
+  const seeds = own;
+  /**
+   * Out from the seeds along the call graph, nearest first, until `max` is filled. Breadth first, so what the unit calls
+   * directly is shown before what that calls, and the cap cuts the far edge rather than the near one.
+   *
+   * This was a regex over every node in the graph: a declaration whose short name appeared anywhere in the file's text, ranked
+   * by risk score. A method named `check` or `merge` matched any file using that word, and the eight kept were the riskiest
+   * rather than the ones actually reached.
+   */
+  const outward = step => {
+    const found = [], visited = new Set(seeds);
+    let edge = seeds;
+    while (edge.length && found.length < max) {
+      const next = [];
+      for (const id of edge) for (const to of step(id)) {
+        if (visited.has(to)) continue;
+        visited.add(to);
+        found.push(to);
+        next.push(to);
+        if (found.length >= max) break;
+      }
+      edge = next;
+    }
+    return found;
+  };
+  // Markdown, YAML and anything else the parser does not read have no nodes and never will, so there is no call graph to walk.
+  // The tree is the structure they do have: what a file sits above, and what it sits under.
+  const here = unit.path.includes('/') ? unit.path.slice(0, unit.path.lastIndexOf('/')) : '';
+  const depth = path => path.split('/').length;
+  const tree = below => [...files.keys()].filter(path => path !== unit.path && (below
+    // Under this file's directory, so a deeper path with the same prefix. Shallowest first: the nearest thing down.
+    ? (here ? path.startsWith(`${here}/`) : true) && depth(path) > depth(unit.path)
+    // Above it, so a path whose directory is an ancestor of this one. Deepest first: the nearest thing up.
+    : depth(path) < depth(unit.path) && here.startsWith(path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')))
+    .sort((a, b) => (below ? depth(a) - depth(b) : depth(b) - depth(a)) || a.localeCompare(b))
+    .slice(0, max)
+    .map(path => ({ name: path, path, source: files.get(path) ?? '' }));
+
   const seen = {};
-  if (sees === 'calls' || sees === 'neighbors') seen.calls = show(named);
-  if (sees === 'callers' || sees === 'neighbors') seen.called_by = show([...graph.nodes.keys()].filter(id => sourceOf(graph.nodes.get(id), files).includes(unit.name)));
+  const walk = (step, below) => (own.length ? show(outward(step)) : tree(below));
+  if (sees === 'calls' || sees === 'neighbors') seen.calls = walk(id => graph.callees(id), true);
+  if (sees === 'callers' || sees === 'neighbors') seen.called_by = walk(id => graph.callers(id), false);
   return seen;
 }
 

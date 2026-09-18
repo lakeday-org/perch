@@ -1,5 +1,6 @@
 /** The state one method is asked over, the questions perch adds to whatever the question set declares, and how answers are read. */
 import { compile, floorFor, issues, questionSet, readAnswer, setHash, vocabulary } from './ask.js';
+import { RULES_FILE } from './units.js';
 
 /** The bands a severity score is named by, worst last, matching the rubric declared in the question set. */
 export const SEVERITY_BANDS = ['P3', 'P2', 'P1', 'P0'];
@@ -109,10 +110,11 @@ export const issueWeight = answers => {
  * actually raise and a typo is answered with the real list. A question set with a class added has it here without anything
  * being told about it twice.
  */
-export const filterKeys = (questions = questionSet()) => {
+export const filterKeys = (questions = questionSet(), rules = []) => {
   const { types, labels } = vocabulary(questions, label);
   // `lint` is a type no question in the set declares: a rule raises it, and a rule may be added between a run and a report of it.
-  return { type: [...new Set([...types, 'lint'])], kind: labels, severity: [...SEVERITY_BANDS] };
+  // `rule` names them one at a time, so a rule just written can be run on its own rather than behind every other rule.
+  return { type: [...new Set([...types, 'lint'])], kind: labels, severity: [...SEVERITY_BANDS], rule: rules.map(rule => rule.name) };
 };
 
 const canon = value => String(value).trim().toLowerCase().replace(/[_-]+/g, ' ');
@@ -129,15 +131,24 @@ export const alsoKnownAs = type => Object.keys(ALSO_KNOWN).filter(word => ALSO_K
 const bandWeight = severity => severity?.probabilities?.[SEVERITY_BANDS.indexOf(severityBand(severity))] ?? 1;
 
 /** `type=security,kind=too big` as a list of tests; an unknown key or value is an error naming what is allowed. */
-export function parseFilters(text) {
-  const keys = filterKeys(), filters = [];
+export function parseFilters(text, rules = []) {
+  const keys = filterKeys(questionSet(), rules), filters = [];
+  // A part with no `=` is another value for the key before it, so `type=defect,security` and `rule=a,b` say two things about one
+  // key. Without this the second value read as a key and the documented form was an error.
+  let name = null;
   for (const clause of String(text).split(',').map(part => part.trim()).filter(Boolean)) {
-    const [key, ...rest] = clause.split('=');
-    const name = canon(key), value = name === 'type' ? meaning(rest.join('=')) : canon(rest.join('='));
-    if (!Object.hasOwn(keys, name)) throw new Error(`unknown filter "${key.trim()}"; filter on ${Object.keys(keys).join(', ')}`);
-    if (!rest.length || !value) throw new Error(`filter ${name} needs a value: one of ${keys[name].join(', ')}`);
+    const at = clause.indexOf('=');
+    const spelled = at === -1 ? clause : clause.slice(at + 1);
+    if (at !== -1) {
+      name = canon(clause.slice(0, at));
+      if (!Object.hasOwn(keys, name)) throw new Error(`unknown filter "${clause.slice(0, at).trim()}"; filter on ${Object.keys(keys).join(', ')}`);
+    }
+    if (!name) throw new Error(`filter "${clause}" is written key=value; filter on ${Object.keys(keys).join(', ')}`);
+    const value = name === 'type' ? meaning(spelled) : canon(spelled);
+    if (!value) throw new Error(`filter ${name} needs a value: one of ${keys[name].join(', ')}`);
+    if (!keys[name].length) throw new Error(`${name} takes a name from ${RULES_FILE}, and there are none`);
     const allowed = keys[name].map(canon);
-    if (!allowed.includes(value)) throw new Error(`${name} "${rest.join('=').trim()}" is not one of ${keys[name].join(', ')}`);
+    if (!allowed.includes(value)) throw new Error(`${name} "${spelled.trim()}" is not one of ${keys[name].join(', ')}`);
     filters.push({ key: name, value });
   }
   return filters;
@@ -152,6 +163,7 @@ export function matchesFilters(finding, filters, min = 0.5) {
   for (const [key, values] of byKey) {
     const ok = key === 'severity' ? values.includes(canon(severityBand(finding.severity))) && issues.some(issue => issue.type === 'defect')
       : key === 'type' ? issues.some(issue => values.includes(issue.type))
+      // `rule` and `kind` both name the label an issue is filed under; a rule's label is its own name.
       : issues.some(issue => values.includes(canon(issue.label)));
     if (!ok) return false;
   }
@@ -187,7 +199,8 @@ export function filterStrength(finding, filters) {
 export function issuesFor(finding, min = 0, filters = []) {
   const issues = issuesOf(finding, min);
   if (!filters.length) return issues;
-  const named = issue => filters.some(({ key, value }) => (key === 'type' ? issue.type === value : key === 'kind' ? canon(issue.label) === value : issue.type === 'defect'));
+  const named = issue => filters.some(({ key, value }) => (key === 'type' ? issue.type === value
+    : key === 'kind' || key === 'rule' ? canon(issue.label) === value : issue.type === 'defect'));
   return [...issues.filter(named), ...issues.filter(issue => !named(issue))];
 }
 

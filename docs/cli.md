@@ -65,7 +65,7 @@ method.
 
 | Flag | |
 | --- | --- |
-| `--filter k=v` | Only issues matching, for example `type=security`, `kind=too_big`, `severity=P1`. Comma-separated values are alternatives. |
+| `--filter k=v` | Only issues matching, for example `type=security`, `kind=too_big`, `severity=P1`, `rule=no-silent-failure`. Comma-separated values are alternatives. |
 | `--types` | Print everything `--filter` accepts, and stop. |
 | `--all` | List every row instead of the top 10. |
 | `--limit N` | Rows per page. Default 10. |

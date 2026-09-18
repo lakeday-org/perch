@@ -74,6 +74,17 @@ export function rulesFor(rules, unit, only = []) {
 }
 
 /**
+ * How broken this one unit is. A scan decides an `ensure_present` rule over the whole codebase, so `readLint` reports it as
+ * unbroken here: one file lacking the thing is not the rule failing. A check is about the unit you named, and reporting nothing
+ * for it meant `perch check <path> --rules <a present rule>` was green whatever the file said, which reads as the rule passing
+ * rather than as nothing having been asked.
+ */
+const brokenHere = (rule, answers) => {
+  const read = readLint(rule, answers);
+  return rule.kind === 'ensure_present' ? 1 - read.here : read.broken;
+};
+
+/**
  * Ask about one point in the code. Every rule that covers it, and, for a method, the scan's own questions as well, unless `only`
  * named the rules to ask. Asked together, since they do not depend on each other.
  */
@@ -94,7 +105,7 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
     const { state, questions } = unitStep({ rules: together, unit, source: body, seen: neighbourhood(sees, unit, { graph: EMPTY_GRAPH, files: new Map([[unit.path, unit.text]]) }) });
     debug(`${together.map(rule => rule.name).join(', ')}: ${unit.name}`);
     const { answers } = await systemOne.ask(state, questions);
-    return together.map(rule => ({ rule: rule.name, said: rule.text, broken: readLint(rule, answers).broken, floor: floorFor(rule, BELIEVED) }));
+    return together.map(rule => ({ rule: rule.name, said: rule.text, broken: brokenHere(rule, answers), floor: floorFor(rule, BELIEVED) }));
   }))).flat();
   // Each rule's own floor, the same one a scan reads it by. A flat 50% here called a rule broken that a scan would not list, so
   // fixing what check said was wrong left the run still green and fixing what the run said left check still red.

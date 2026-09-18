@@ -99,11 +99,19 @@ needs no `sees`. A file or a test is read alone unless you say otherwise. A test
 alone leaves you guessing whether what it asserts is real:
 
 ```yaml
-sees: calls        # the source of what it calls
-sees: callers      # the source of what calls it
+sees: calls        # what it calls
+sees: callers      # what calls it
 sees: neighbors    # both
 sees: file         # the whole file it lives in
 ```
+
+`calls` and `callers` walk the call graph outward from the unit, nearest first.
+What it calls directly comes before what that calls. Eight is the cap, so it cuts
+the far edge and keeps the near one. A file walks from the methods it declares.
+
+A file the parser does not read has no methods and no call graph. Markdown and
+YAML walk the file tree instead. `calls` is what sits under the file's directory,
+shallowest first. `callers` is what sits above it, nearest first.
 
 ### `ensure` against `ensure_present` and `ensure_absent`
 

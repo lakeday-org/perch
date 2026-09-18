@@ -160,15 +160,52 @@ describe('the units a rule is asked about', () => {
     expect(() => check({ name: 'r', where: 'src/**', each: 'method', sees: 'calls', ensure: 'x' }, 'perch.yaml rule 1'))
       .toThrow('a method is always asked with its callers and callees in view');
 
-    // A file and a test are not nodes in the call graph, so what they call is found by name in the body.
-    const test = { id: 'test/a.test.js::t', path: 'test/a.test.js', name: 't', line: 1, end_line: 3, part: true };
-    files.set('test/a.test.js', 'it("t", () => { f(1); });');
-    const seen = neighbourhood('calls', test, { graph, files });
-    expect(seen.calls.map(item => item.name)).toContain('f');
+    // A unit with no nodes is markdown, YAML, or anything else the parser does not read. There is no call graph to walk, so the
+    // tree is the structure it has: what it sits above, and what it sits under.
+    files.set('docs/guide.md', '# guide\n');
+    files.set('docs/deep/more.md', '# more\n');
+    const doc = { id: 'docs/guide.md', path: 'docs/guide.md', name: 'docs/guide.md', line: 1 };
+    expect(neighbourhood('calls', doc, { graph, files }).calls.map(item => item.name)).toContain('docs/deep/more.md');
+    // Up is the nearest thing above, which for a file in docs/ is the root.
+    expect(neighbourhood('callers', doc, { graph, files }).called_by.map(item => item.name)).toContain('README.md');
+    // And it does not reach across into a directory it does not sit under.
+    expect(neighbourhood('calls', doc, { graph, files }).calls.every(item => item.path.startsWith('docs/'))).toBe(true);
+
+    // A method the graph knows walks its real edges: f calls h.
+    const [id, node] = [...graph.nodes].find(([, item]) => item.qualified_name === 'f');
+    const caller = { id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, part: true };
+    const seen = neighbourhood('calls', caller, { graph, files });
+    expect(seen.calls.map(item => item.name)).toContain('h');
     // What is seen goes in the state beside the source, under a name that says what it is.
     const rule = check({ name: 't', where: 'test/**', each: 'test', sees: 'calls', ensure: 'x' }, 'perch.yaml rule 1');
-    const { state } = unitStep({ rules: [rule], unit: test, source: 'it("t", () => {});', seen });
+    const { state } = unitStep({ rules: [rule], unit: caller, source: 'function f() { h(); }', seen });
     expect(state.calls[0]).toMatchObject({ name: expect.any(String), path: expect.any(String), source: expect.any(String) });
+  });
+
+  it('walks the call graph outward, nearest first', () => {
+    // a -> b -> c -> d, so a sees b before c before d. It used to be every node in the graph whose short name appeared anywhere
+    // in the text, ranked by risk score, so a method called `check` matched any file using the word and the ones kept were the
+    // riskiest rather than the ones reached.
+    const chain = ['a', 'b', 'c', 'd'];
+    const nodes = new Map(chain.map(name => [`src/x.js::${name}`,
+      { qualified_name: name, path: 'src/x.js', line: 1, end_line: 1, metrics: { risk_score: name === 'd' ? 99 : 1 } }]));
+    const next = { a: ['b'], b: ['c'], c: ['d'], d: [] };
+    const graph = {
+      nodes,
+      callees: id => (next[id.split('::')[1]] ?? []).map(name => `src/x.js::${name}`),
+      callers: id => Object.entries(next).filter(([, to]) => to.includes(id.split('::')[1])).map(([from]) => `src/x.js::${from}`),
+    };
+    const files = new Map([['src/x.js', 'a b c d\n']]);
+    const unit = { id: 'src/x.js::a', path: 'src/x.js', name: 'a', line: 1, end_line: 1, part: true };
+
+    const seen = neighbourhood('calls', unit, { graph, files, max: 3 });
+    // d carries the highest risk score and is furthest, so ranking by risk would have led with it.
+    expect(seen.calls.map(item => item.name)).toEqual(['b', 'c', 'd']);
+    // The cap cuts the far edge, not the near one.
+    expect(neighbourhood('calls', unit, { graph, files, max: 1 }).calls.map(item => item.name)).toEqual(['b']);
+    // And the same walk the other way.
+    const last = { ...unit, id: 'src/x.js::d', name: 'd' };
+    expect(neighbourhood('callers', last, { graph, files, max: 2 }).called_by.map(item => item.name)).toEqual(['c', 'b']);
   });
 
   it('asks a noul either way, and reads it as broken or as found depending on which way the rule was asked', () => {

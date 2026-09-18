@@ -194,3 +194,8 @@ rules:
     ensure: >-
       A search rule's answer is listed, counted and gated like any other rule's.
       Dropping a finding because its unit is a search breaks this.
+  - name: scan-filters-by-rule
+    where: src/questions.js
+    ensure: >-
+      The values --filter accepts include the names of the rules in perch.yaml,
+      alongside type, kind and severity.

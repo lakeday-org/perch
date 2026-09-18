@@ -166,7 +166,9 @@ const ownQuestions = async () => {
   return root;
 };
 /** `--filter type=security,severity=P1` as tests a finding must pass; a bad clause is a usage error naming the real values. */
-const filtersFrom = flags => { try { return parseFilters(flags.filter ?? ''); } catch (error) { throw new UsageError(error.message); } };
+const filtersFrom = (flags, rules = []) => { try { return parseFilters(flags.filter ?? '', rules); } catch (error) { throw new UsageError(error.message); } };
+/** The rules in force, so `--filter rule=` can name one and a typo is answered with the list. */
+const rulesInForce = async root => readRules(root, await gitRevision(root)).catch(() => []);
 /** The findings a filter keeps, the surest match first: filtering for one kind of problem should rank by that problem, not by whatever else the method carries. With no filter the scan's own ranking stands. */
 const narrow = (findings, filters, min) => findings.filter(finding => matchesFilters(finding, filters, min))
   .sort((a, b) => filters.length ? filterStrength(b, filters) - filterStrength(a, filters) : 0);
@@ -359,8 +361,9 @@ const commands = {
     const meter = createMeter();
     const parallel = positiveInteger('--parallel', io.flags.parallel, DEFAULT_PARALLEL);
     const min = threshold(io.flags.min) / 100;
-    const filters = filtersFrom(io.flags);
+    // The target comes first: a filter can name a rule, and the rules are read from the repository the target resolves to.
     const resolved = await resolveTarget(io.argument ?? '.', { out: io.flags.out });
+    const filters = filtersFrom(io.flags, await rulesInForce(resolved.root));
     const paths = await scanPaths(io, resolved.root, resolved.scope);
     if (io.flags.since && !paths.length) { io.stdout(`Nothing changed since ${io.flags.since}.`); return EXIT.clean; }
     const files = liveCounter(io, 'finding methods,'), methods = liveCounter(io, 'scanning method'),
@@ -419,8 +422,9 @@ const commands = {
     return manageRules(io, action, name);
   },
   async issues(io) {
-    await ownQuestions();
-    if (io.flags.types) { io.stdout(formatFilterKeys()); return; }
+    const root = await ownQuestions();
+    const rules = root ? await rulesInForce(root) : [];
+    if (io.flags.types) { io.stdout(formatFilterKeys(rules)); return; }
     const store = await storeFrom(io.flags);
     if (io.argument) {
       const finding = await store.findFinding(io.argument);
@@ -429,7 +433,7 @@ const commands = {
       return;
     }
     const min = threshold(io.flags.min);
-    const filters = filtersFrom(io.flags);
+    const filters = filtersFrom(io.flags, rules);
     const { findings: all, edited } = await openIssues(store, min, io);
     const findings = narrow(all, filters, min / 100);
     const closed = Boolean(io.flags.closed);
