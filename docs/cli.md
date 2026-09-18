@@ -165,9 +165,9 @@ perch doctor
 
 Two things, in the order they matter.
 
-First, whether perch can run here at all. It checks node, git, your key, the
-repository, a writable results directory and `perch.yaml`. Each is a tick or a
-cross, and every cross says what to do:
+First, whether perch can run here at all. It checks node, git and your key. It
+checks the repository, a writable results directory and `perch.yaml`. Each is a
+tick or a cross. Every cross says what to do:
 
 ```console
 $ perch doctor

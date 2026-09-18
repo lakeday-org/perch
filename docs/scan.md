@@ -19,8 +19,13 @@ built files are excluded. So are two languages whose methods cannot be spliced
 back as one region. Dart splits a signature from its body. Elixir's functions
 are macro calls.
 
-JavaScript, TypeScript, TSX, Python, Rust, Go, Java, Kotlin, Scala, Groovy, C,
-C++, C#, Ruby, PHP, Lua, Swift, Zig, Solidity, Bash.
+| | |
+| --- | --- |
+| Web | JavaScript, TypeScript, TSX |
+| Systems | Rust, Go, C, C++, Zig |
+| JVM | Java, Kotlin, Scala, Groovy |
+| Scripting | Python, Ruby, PHP, Lua, Bash |
+| Other | C#, Swift, Solidity |
 
 For each named method the analyzer records its line range and a hash of its
 source. It also records the calls it makes, the identifiers it passes as values,
@@ -119,11 +124,10 @@ distribution over its levels.
 
 The sixteen security classes:
 
-`injection`, `path_traversal`, `unsafe_deserialization`, `secret_exposure`,
-`missing_authorization`, `unvalidated_destination`, `resource_exhaustion`,
-`unsafe_reflection`, `disabled_safeguard`, `weak_crypto`, `buffer_overflow`,
-`use_after_free`, `uninitialized_use`, `integer_overflow`, `race_condition`,
-`type_confusion`.
+| | |
+| --- | --- |
+| Gated on `exposed` | `injection`, `path_traversal`, `unsafe_deserialization`, `secret_exposure`, `missing_authorization`, `unvalidated_destination`, `resource_exhaustion`, `unsafe_reflection` |
+| Asked on their own | `weak_crypto`, `disabled_safeguard`, `buffer_overflow`, `use_after_free`, `uninitialized_use`, `integer_overflow`, `race_condition`, `type_confusion` |
 
 The names in that table are the ids written in `scan.yaml`. What a row prints is
 the label they map to, so `boundary` reads as `off_by_one` and
