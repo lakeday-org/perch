@@ -68,7 +68,7 @@ the distribution behind it:
 ## Reading a finding
 
 A finding is an advisory drawn from a probability and a rule. It does not locate a
-defect for you, and that difference matters.
+defect for you.
 
 The number is belief. How bad the problem would be is a separate field. 72% means the
 model would say yes about seven times in ten.

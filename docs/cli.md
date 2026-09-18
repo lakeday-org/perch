@@ -101,7 +101,7 @@ perch rules [list | add <name> | edit <name> | remove <name>] [options]
 
 Writes `perch.yaml`, keeping your comments and ordering.
 
-Most rules are a yes-or-no, and `--ensure` is all one needs. `--where` defaults
+Most rules are a yes-or-no, so `--ensure` is usually the only flag you need. `--where` defaults
 to `**/*` and the unit defaults to the file as a whole:
 
 ```sh

@@ -76,8 +76,8 @@ jobs:
         run: perch issues --all --min 80
 ```
 
-`fetch-depth: 0` matters. Without the base branch in the checkout, `--since` has
-nothing to compare against.
+Without the base branch in the checkout, `--since` has nothing to compare
+against, so `fetch-depth: 0` is not optional.
 
 ## Reporting without gating
 
@@ -90,8 +90,8 @@ jq '[.[] | select(.issues[]? | .type == "security" and .probability > 0.9)]' per
 
 ## Sharing what the team set aside
 
-`perch close` writes to `.perch/closed.jsonl`, which is separate from the answers
-precisely so it can be committed. Commit it and the team's dismissals travel with
+`perch close` writes to `.perch/closed.jsonl`, which is kept separate from the
+answers so it can be committed. Commit it and the team's dismissals travel with
 the repository, so CI does not re-report what somebody already looked at.
 
 Add the rest of `.perch` to `.gitignore`:
@@ -105,5 +105,5 @@ Add the rest of `.perch` to `.gitignore`:
 
 One HTTP request per method read. `--since` decides how many methods that is,
 `--parallel` decides how fast they go, and neither changes the total. Output
-tokens are not billed, so the width of the question set is not what you are
-paying for.
+tokens are not billed, so asking thirty questions of a method costs what asking
+one costs.
