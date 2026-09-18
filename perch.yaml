@@ -95,25 +95,36 @@ rules:
       only label is a gesture such as What it says or Every field, or a closing
       sentence that summarises the block above it, all break this.
     min: 65
+  # Bounded to the first such block on purpose. Asked of a whole page, this reads 61% on a page whose every command shows its
+  # output and 66% on a longer one, because it is then a question about whether any counterexample exists, and a longer page
+  # makes that likelier whatever the prose does.
   - name: docs-show-output
     where: "{README.md,docs/**/*.md}"
     ensure: >-
-      A command block shows what the command prints. A fenced block holding only
-      commands, with no output under them and no output block following, breaks
-      this.
+      Find the first fenced block on the page that runs a command a reader
+      would type to see a result, and weigh only that block. It shows what the
+      command printed underneath the command itself. A block holding the
+      command alone, with nothing printed under it, breaks the rule. A block
+      showing only an install line, a file's contents, a formula or a flag's
+      syntax is not such a block; skip past it. A page holding no such block
+      anywhere satisfies this rule.
   - name: docs-headings-name-things
     where: "{README.md,docs/**/*.md}"
     ensure: >-
       Every heading names a task or a thing. A heading phrased as a question the
       page then answers, such as What it costs to run or What it writes or Why
       use this, breaks this.
+  # Judges the opening rather than the page. Worded as a claim about every sentence, it ranked pages by length and nothing else:
+  # a page rewritten entirely in 34-word run-ons read 92% and the same page in short sentences read 88%.
   - name: docs-sentences-are-short
     where: "{README.md,docs/**/*.md}"
     ensure: >-
-      Sentences in prose stay under about twenty words. A sentence joining three
-      clauses with commas, or a colon followed by a list of five or more things,
-      breaks this. A table cell and a list item are reference material and are
-      not prose for this purpose.
+      Read the first four prose paragraphs of the page. Every sentence in them
+      runs under twenty-five words. One sentence of twenty-five words or more
+      breaks the rule, and so does one joining three or more clauses with
+      commas, semicolons and "and". Judge only those four paragraphs and do not
+      read on. Headings, table cells, list items and fenced blocks are not
+      prose.
   - name: docs-no-next-steps
     where: "{README.md,docs/**/*.md}"
     ensure: >-
@@ -129,8 +140,9 @@ rules:
   - name: docs-no-antithesis
     where: "{README.md,docs/**/*.md}"
     ensure: >-
-      A sentence states what is true without first stating what is not.
-      Constructions used for rhythm rather than information break this: Not a
-      located defect, Two numbers not three, The number is belief not severity,
-      Nothing in your working tree, and any short fragment negating something
-      before the real statement.
+      Read the first four prose paragraphs of the page. None of their sentences
+      says what something is not before saying what it is. A sentence opening
+      with "Not a", a clause of the form "X, not Y", or a fragment negating
+      something nobody claimed, breaks the rule. Judge only those four
+      paragraphs. Saying a thing is excluded, skipped or unsupported is a fact,
+      not this construction.

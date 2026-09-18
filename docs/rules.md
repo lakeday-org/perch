@@ -19,9 +19,12 @@ They live in `perch.yaml` at the root of the repository.
 
 A rule is its name and the sentence you want held. Everything else has a default:
 
-```sh
-perch rules add no-narrative-prose --ensure "A headline and one line, not a paragraph explaining the product."
+```console
+$ perch rules add no-narrative-prose --ensure "A headline and one line, not a paragraph explaining the product."
+Added no-narrative-prose.
 ```
+
+That is what it appended to `perch.yaml`:
 
 ```yaml
 - name: no-narrative-prose
