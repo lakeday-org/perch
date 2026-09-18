@@ -98,6 +98,28 @@ Say what breaks a rule and not only what satisfies it. A rule that answers in th
 apart, and the fix is to reword it or drop it rather than raise its floor until it keeps nothing. `perch rules list` shows every
 rule and question in force, and whether each one fails a run.
 
+## Tune a rule until it tells two things apart
+
+A rule is a sentence put to a model, so a new one is a draft. Test it against two inputs before trusting it: one you believe
+passes, and a copy you have deliberately broken in the way the rule is meant to catch. `perch check <path> --rules <name>` reads
+off disk and costs a fraction of a cent, so this loop is fast. The gap between the two readings is the rule's whole value. A rule
+that answers about the same on both is measuring something other than what it says, however well it reads.
+
+Too broad is the common failure, and a file rule worded as a universal is how you get there. "Every sentence is short" asks
+whether a counterexample exists anywhere in the file, and the odds of that rise with the file's length whatever the prose does.
+Three rules written that way over this project's docs ranked ten pages in almost exactly their line order. Put to one page
+rewritten entirely in 34-word run-ons, the sentence rule read 92%; put to the same page in short sentences it read 88%. Four
+points between opposites.
+
+Too narrow is the opposite failure and looks like progress at first. Reworded to hunt for the single longest sentence on a page,
+that rule caught both dirty controls and also fired 80% on a clean one, because on a long page there is always some sentence to
+object to.
+
+What worked was naming a bounded part of the file and judging only that: "Read the first four prose paragraphs", "find the first
+block that runs a real `perch` command". What those ask about does not grow with the page, so length stops leaking into the
+answer. The same three rules then read 84%, 79% and 95% against their dirty controls and passed every clean page. Aim for a gap
+that wide; if a pass and a fail sit within a few points of each other, the rule is not yet finished.
+
 ## Also
 
 ```sh

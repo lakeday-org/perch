@@ -58,6 +58,13 @@ worked is the wrong shape and moves the numbers on the issue being fixed.
 add` catches it from then on. The skill tells the
 assistant to ask you first.
 
+**Tune a rule against two controls.** A new rule is a draft. The skill tells the
+assistant to put it to a file that should pass and a copy deliberately broken.
+A rule answering the same about both is measuring something else. It also
+carries the two ways that goes wrong: a rule worded as a claim about every line
+of a file ends up measuring the file's length, and one narrowed to hunt the
+single worst line fires on clean files.
+
 ## Editing it
 
 The file is yours once written. `perch setup` will not replace one you have
