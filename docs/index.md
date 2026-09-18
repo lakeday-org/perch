@@ -3,7 +3,7 @@ title: perch
 nav: Introduction
 group: Getting started
 order: 1
-summary: AST powered semantic code linting with Jev.
+summary: Semantic code linting with Jev.
 ---
 
 # perch

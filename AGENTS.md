@@ -25,6 +25,14 @@ disk rather than out of a commit, so it works on uncommitted code.
 
 **A scan exits 3 when it found something and 1 when perch could not run.** 3 is a result. Only 1 and 2 are failures.
 
+## Open an issue before you open a pull request
+
+Every change gets a GitHub issue first, including the small ones. `gh issue create --title "..." --body "..."`, then close it from the
+pull request with `Closes #<n>` in the body. Two reasons: a repository with no issue history reads as abandoned to anyone deciding
+whether to depend on it, and the issue is where the reasoning lives when the diff does not show it.
+
+An issue is a sentence about what is wrong and a sentence about what would fix it. Not a plan, not a status update.
+
 ## Pull request titles are the changelog
 
 Merges are squashed, so the pull request title becomes the commit on main, and release-please reads those to decide the version
