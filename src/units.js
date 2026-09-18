@@ -177,16 +177,48 @@ export function neighbourhood(sees, unit, { graph, files, max = MAX_SEEN }) {
   const text = files.get(unit.path) ?? '';
   if (sees === 'file') return { file_source: text };
   const body = unit.part ? bodyOf(text, unit) : text;
-  const risk = id => graph.nodes.get(id)?.metrics?.risk_score ?? 0;
-  const show = ids => [...new Set(ids)].sort((a, b) => risk(b) - risk(a)).slice(0, max)
-    .map(id => graph.nodes.get(id)).filter(Boolean)
+  const show = ids => ids.slice(0, max).map(id => graph.nodes.get(id)).filter(Boolean)
     .map(node => ({ name: node.qualified_name, path: node.path, source: sourceOf(node, files) }));
-  // A file and a test are not nodes in the call graph, so what they call is found by name: a declaration whose short name
-  // appears in the body, riskiest first.
-  const named = [...graph.nodes.keys()].filter(id => new RegExp(`\\b${id.split('::').at(-1).split('.').at(-1).replace(/[^\w]/g, '')}\\b`).test(body));
+  // Where the walk starts: the method itself, or every method the file declares. A file is not a node in the call graph, but the
+  // methods in it are, so what a file calls is what its own methods call.
+  const declared = [...graph.nodes.keys()].filter(id => graph.nodes.get(id)?.path === unit.path);
+  // A method walks from itself. A file walks from the methods it declares, since a file is not a node but what it holds is.
+  // A unit the graph has never seen has no edges to walk, which is a test file or anything read off disk after the walk: there
+  // the body is all there is, so the names in it are the seeds, and the traversal carries on from them.
+  const seeds = graph.nodes.has(unit.id) ? [unit.id]
+    : declared.length ? declared
+      : [...graph.nodes.keys()].filter(id => new RegExp(`\\b${id.split('::').at(-1).split('.').at(-1).replace(/[^\w]/g, '')}\\b`).test(body));
+  /**
+   * Out from the seeds along the call graph, nearest first, until `max` is filled. Breadth first, so what the unit calls
+   * directly is shown before what that calls, and the cap cuts the far edge rather than the near one.
+   *
+   * This was a regex over every node in the graph: a declaration whose short name appeared anywhere in the file's text, ranked
+   * by risk score. A method named `check` or `merge` matched any file using that word, and the eight kept were the riskiest
+   * rather than the ones actually reached.
+   */
+  const outward = step => {
+    // A seed found by name is itself what the unit calls, so it is shown. A seed that is the unit, or a method it declares, is
+    // the unit and is not.
+    const known = graph.nodes.has(unit.id) || declared.length;
+    const found = known ? [] : [...seeds];
+    const visited = new Set(seeds);
+    let edge = seeds;
+    while (edge.length && found.length < max) {
+      const next = [];
+      for (const id of edge) for (const to of step(id)) {
+        if (visited.has(to)) continue;
+        visited.add(to);
+        found.push(to);
+        next.push(to);
+        if (found.length >= max) break;
+      }
+      edge = next;
+    }
+    return found;
+  };
   const seen = {};
-  if (sees === 'calls' || sees === 'neighbors') seen.calls = show(named);
-  if (sees === 'callers' || sees === 'neighbors') seen.called_by = show([...graph.nodes.keys()].filter(id => sourceOf(graph.nodes.get(id), files).includes(unit.name)));
+  if (sees === 'calls' || sees === 'neighbors') seen.calls = show(outward(id => graph.callees(id)));
+  if (sees === 'callers' || sees === 'neighbors') seen.called_by = show(outward(id => graph.callers(id)));
   return seen;
 }
 
