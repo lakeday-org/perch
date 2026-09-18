@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { main, parseArgs, VERSION } from '../src/cli.js';
 import { parseFilters } from '../src/questions.js';
 import { parseQuestions, questionSet, questionsFor } from '../src/ask.js';
+import { readLint } from '../src/units.js';
 import { gating, shownIssues } from '../src/report.js';
 import { revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
@@ -214,6 +215,17 @@ describe('cli', () => {
     const asked = questionsFor([...questionSet(), ...rules], parseFilters('rule=fixture-rule-one', rules), kind => kind);
     // The one rule, and nothing else: no has_bug, no security classes, no other rule.
     expect(asked.map(question => question.name)).toEqual(['fixture-rule-one']);
+  });
+
+  it('does not call an ensure_present rule satisfied when nothing answered it', () => {
+    // A scan decides a present rule over the whole codebase, so readLint reports it unbroken per unit: one file lacking the
+    // thing is not the rule failing. perch check read that same field, so it was green for any present rule whatever the file
+    // said, which reads as the rule passing rather than as nothing having been asked.
+    const [rule] = parseQuestions('- name: demo-present\n  where: "src/**/*.js"\n  ensure_present: A thing that is not here.\n', 'fixture', 'rule');
+    expect(readLint(rule, { 'demo-present': { noul: 0.02 } })).toMatchObject({ here: 0.02, broken: 0 });
+    // The check path asks about the unit you named, so not here is what it reports.
+    expect(1 - readLint(rule, { 'demo-present': { noul: 0.02 } }).here).toBeCloseTo(0.98);
+    expect(1 - readLint(rule, { 'demo-present': { noul: 0.9 } }).here).toBeCloseTo(0.1);
   });
 
   it('lists the issues a scan found, from the results directory', async () => {
