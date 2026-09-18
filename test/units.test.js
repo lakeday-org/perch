@@ -160,14 +160,20 @@ describe('the units a rule is asked about', () => {
     expect(() => check({ name: 'r', where: 'src/**', each: 'method', sees: 'calls', ensure: 'x' }, 'perch.yaml rule 1'))
       .toThrow('a method is always asked with its callers and callees in view');
 
-    // A file and a test are not nodes in the call graph, so what they call is found by name in the body.
-    const test = { id: 'test/a.test.js::t', path: 'test/a.test.js', name: 't', line: 1, end_line: 3, part: true };
+    // A unit with no nodes is markdown, YAML, or anything else the parser does not read. There are no edges to walk, so the
+    // names in the text are all there is.
+    const unparsed = { id: 'test/a.test.js::t', path: 'test/a.test.js', name: 't', line: 1, end_line: 3, part: true };
     files.set('test/a.test.js', 'it("t", () => { f(1); });');
-    const seen = neighbourhood('calls', test, { graph, files });
-    expect(seen.calls.map(item => item.name)).toContain('f');
+    expect(neighbourhood('calls', unparsed, { graph, files }).calls.map(item => item.name)).toContain('f');
+
+    // A method the graph knows walks its real edges: f calls h.
+    const [id, node] = [...graph.nodes].find(([, item]) => item.qualified_name === 'f');
+    const caller = { id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, part: true };
+    const seen = neighbourhood('calls', caller, { graph, files });
+    expect(seen.calls.map(item => item.name)).toContain('h');
     // What is seen goes in the state beside the source, under a name that says what it is.
     const rule = check({ name: 't', where: 'test/**', each: 'test', sees: 'calls', ensure: 'x' }, 'perch.yaml rule 1');
-    const { state } = unitStep({ rules: [rule], unit: test, source: 'it("t", () => {});', seen });
+    const { state } = unitStep({ rules: [rule], unit: caller, source: 'function f() { h(); }', seen });
     expect(state.calls[0]).toMatchObject({ name: expect.any(String), path: expect.any(String), source: expect.any(String) });
   });
 
