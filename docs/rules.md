@@ -240,9 +240,9 @@ Every question carries a floor, in percent. Below it, an answer is not listed.
 | 70% | `does_what_it_claims`, and every defect and vulnerability class |
 | 60% | `has_bug`, `refactor` |
 
-A model asked four hundred times answers in the fifties a great deal, and a 51%
-row reads like a 95% one while being a coin flip. Each floor is where that
-question stopped hedging on this codebase. Yours may differ.
+A model asked four hundred times answers in the fifties a great deal. A 51% row
+reads like a 95% one while being a coin flip. Each floor is where that question
+stopped hedging on this codebase. Yours may differ.
 
 `--min` sets a floor for a whole run. Both apply and the higher wins. Asking for
 `--min 90` gets you nothing at 73%, whatever a question set for itself.

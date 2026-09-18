@@ -30,9 +30,9 @@ is one row carrying three issues.
 
 | Column | |
 | --- | --- |
-| `ID` | Stable for as long as the method's source is unchanged. It is what `issues`, `check`, `close` and `reopen` take. |
+| `ID` | Stable while the method's source is. What `issues`, `check`, `close` and `reopen` take. |
 | `Method` | The qualified name. Nested functions read as `versionAssets.walk`. |
-| `Location` | The file and the line. For a defect it is the line the model pointed at, not the method's first line. |
+| `Location` | The file and the line. For a defect, the line the model pointed at. |
 | `Type` | The class the row leads with: `defect`, `security`, `refactor`, `docs`, or `lint`. |
 | `Kind` | The issues themselves, likeliest first, with how sure perch is of each. |
 | `Severity` | How much a caller would feel it. Empty on a row carrying neither a defect nor a vulnerability, since those are the two the rubric weighs. |

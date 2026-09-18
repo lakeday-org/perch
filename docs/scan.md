@@ -22,8 +22,9 @@ whose functions are macro calls.
 JavaScript, TypeScript, TSX, Python, Rust, Go, Java, Kotlin, Scala, Groovy, C,
 C++, C#, Ruby, PHP, Lua, Swift, Zig, Solidity, Bash.
 
-For each named method the analyzer records its line range, a hash of its source,
-the calls it makes, the identifiers it passes as values, and five metrics:
+For each named method the analyzer records its line range and a hash of its
+source. It also records the calls it makes, the identifiers it passes as values,
+and five metrics:
 
 | Metric | |
 | --- | --- |
