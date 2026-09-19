@@ -32,8 +32,15 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
+      # The tag has to be here, or the build cannot tell it is a release. release-please writes v<version> and this job then
+      # checks out main, so without these the runner holds no tags: `git describe --exact-match` finds nothing and the published
+      # package answers `perch --version` with DEVELOPMENT. 0.3.2 shipped that way and npm versions cannot be replaced.
       - uses: actions/checkout@v4
         if: ${{ steps.release.outputs.release_created }}
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: ${{ steps.release.outputs.tag_name }}
 
       - uses: actions/setup-node@v4
         if: ${{ steps.release.outputs.release_created }}
@@ -51,6 +58,16 @@ jobs:
 
       - run: npm run check
         if: ${{ steps.release.outputs.release_created }}
+
+      # npm versions cannot be replaced, so a package that cannot tell which release it is must not be published. This is the
+      # check 0.3.2 did not have: it went out answering `perch --version` with DEVELOPMENT and stays that way for good.
+      - name: The build has to know which release it is
+        if: ${{ steps.release.outputs.release_created }}
+        run: |
+          node build.mjs
+          want="$(node -p 'require("./package.json").version')"
+          got="$(node bin/perch.mjs --version)"
+          test "$got" = "$want" || { echo "built $got, expected $want; the tag is missing from this checkout"; exit 1; }
 
       - run: npm publish
         if: ${{ steps.release.outputs.release_created }}
