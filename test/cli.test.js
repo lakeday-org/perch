@@ -324,6 +324,10 @@ describe('cli', () => {
   it('closes an issue, keeps why, and keeps it closed across scans and edits', async () => {
     const repoRoot = await makeGraphFixture();
     cleanups.push(repoRoot);
+    // A scan asks about defects, vulnerabilities and rules unless perch.yaml says otherwise, and this is about closing a docs
+    // finding, so it has to ask for one.
+    await writeFile(join(repoRoot, 'perch.yaml'), 'scan_types: [defect, security, lint, refactor, docs]\nrules: []\n');
+    await commitAll(repoRoot, 'scan types');
     const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
     const hunt = await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.9 } }) }));
     const [f] = hunt.visited;
@@ -381,6 +385,9 @@ describe('cli', () => {
   it('closes one kind of an issue and leaves the rest of it live', async () => {
     const repoRoot = await makeGraphFixture();
     cleanups.push(repoRoot);
+    // Closing one kind and leaving the rest needs more than one kind on the method, so the advisory types are asked for here.
+    await writeFile(join(repoRoot, 'perch.yaml'), 'scan_types: [defect, security, lint, refactor, docs]\nrules: []\n');
+    await commitAll(repoRoot, 'scan types');
     const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
     const answers = { 'src/a.js::f': { has_bug: 0.9, kind: 'wrong_return', documented: 0.2, severity: 2 } };
     const hunt = await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne(answers) }));
@@ -408,6 +415,9 @@ describe('cli', () => {
   it('closes what an issue carries now, so something found in it later is a new thing', async () => {
     const repoRoot = await makeGraphFixture();
     cleanups.push(repoRoot);
+    // The docs finding is what this closes, so it has to be asked for.
+    await writeFile(join(repoRoot, 'perch.yaml'), 'scan_types: [defect, security, lint, refactor, docs]\nrules: []\n');
+    await commitAll(repoRoot, 'scan types');
     const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
     const quiet = { 'src/a.js::f': { has_bug: 0.1, documented: 0.2 } };
     const hunt = await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne(quiet) }));

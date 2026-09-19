@@ -8,7 +8,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { git, listTree } from './git.js';
-import { askKey, BUILTIN, compile, floorFor, installQuestions, merge, parseIgnored, parseQuestions, SEARCHES } from './ask.js';
+import { askKey, BUILTIN, compile, floorFor, installQuestions, merge, parseIgnored, parseQuestions, parseScanTypes, SEARCHES } from './ask.js';
 import { leadingComment, lineId, lineWindows, locateWhere, tagged, whereQuestion, whereWindowQuestion } from './questions.js';
 import { findingId } from './store.js';
 
@@ -38,6 +38,13 @@ export async function readIgnored(root, revision) {
   const text = await readFile(join(root, RULES_FILE), 'utf8')
     .catch(() => git(['show', `${revision}:${RULES_FILE}`], root).catch(() => null));
   return text === null ? [] : parseIgnored(text, RULES_FILE);
+}
+
+/** `scan_types` from the rule file, or null when it says nothing and the defaults stand. */
+export async function readScanTypes(root, revision) {
+  const text = await readFile(join(root, RULES_FILE), 'utf8')
+    .catch(() => git(['show', `${revision}:${RULES_FILE}`], root).catch(() => null));
+  return text === null ? null : parseScanTypes(text, RULES_FILE);
 }
 
 export async function readRules(root, revision) {

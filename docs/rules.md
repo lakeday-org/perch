@@ -218,6 +218,39 @@ the docs can show real output.
 
 The bare list form still works.
 
+## Issue types
+
+A scan asks about defects, vulnerabilities and rules. Those are the three that
+can fail it.
+
+`refactor` and `docs` are judgement calls. They never fail a run, and they read
+the same on every method that has ever been long. A scan of this repository
+reported 32 of them against 0 defects, so they are asked only when you say so:
+
+```yaml
+scan_types: [defect, security, lint, refactor, docs]
+
+rules:
+  - name: no-narrative-prose
+    where: "**/*.md"
+    ensure: A headline and one line, not a paragraph explaining the product.
+```
+
+The list is the whole set, not an addition to the defaults. `scan_types:
+[security]` asks about vulnerabilities and nothing else.
+
+A filter asks for a type whichever way `scan_types` is written:
+
+```console
+$ perch scan src/meter.js --filter type=refactor
+✓ nothing to report
+perch at commit 54a38d6: 13 methods, read 13
+13 requests  33k tokens in / 3k out  $0.0014
+```
+
+That is 13 requests against 52 for the default run, because the filter narrows
+what is asked and not just what is printed.
+
 ## Editing perch.yaml from the command line
 
 `perch rules` changes the file without opening it, keeping comments and
