@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.3](https://github.com/lakeday-org/perch/compare/v0.3.2...v0.3.3) (2026-09-19)
+
+
+### Bug Fixes
+
+* a release published from the branch could not tell it was one ([#59](https://github.com/lakeday-org/perch/issues/59)) ([d1db70b](https://github.com/lakeday-org/perch/commit/d1db70bd7e7c5a5f3357d3e0631b1fa5072baf6d))
+
 ## [0.3.2](https://github.com/lakeday-org/perch/compare/v0.3.0...v0.3.2) (2026-09-18)
 
 
