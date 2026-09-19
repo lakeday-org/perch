@@ -5,7 +5,7 @@ import hashlib
 
 def token_for(user_id):
     """A stable token identifying a user to the order service."""
-    return hashlib.md5(str(user_id).encode()).hexdigest()
+    return hashlib.sha256(str(user_id).encode()).hexdigest()
 
 
 def cancel_order(order_id, orders):
