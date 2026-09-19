@@ -199,3 +199,13 @@ rules:
     ensure: >-
       The values --filter accepts include the names of the rules in perch.yaml,
       alongside type, kind and severity.
+  - name: scan-types-default
+    where: src/scan.js
+    ensure: >-
+      scan_types in perch.yaml decides which issue types a scan asks about.
+      Omitted, it is defect, security and lint, so no refactor or docs question
+      is asked.
+  - name: scan-types-filter-overrides
+    where: src/scan.js
+    ensure: >-
+      A type named by --filter is asked even when scan_types leaves it out.

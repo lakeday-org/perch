@@ -147,6 +147,25 @@ export function parseIgnored(text, at) {
   return ignore;
 }
 
+/** What a scan asks about unless `perch.yaml` says otherwise: the three that can fail it. */
+export const GATED_TYPES = ['defect', 'security', 'lint'];
+
+/**
+ * The issue types a scan asks about, from `scan_types` in `perch.yaml`.
+ *
+ * Refactor and docs answers are judgement calls that never fail a run and read the same on every method that has ever been
+ * long. A scan of this repository reported 32 of them against 0 defects, so the list a person opens is mostly rows they came
+ * for nothing. They are asked when this names them, and `--filter type=refactor` asks for them one run at a time.
+ */
+export function parseScanTypes(text, at) {
+  const doc = text.trim() ? parse(text) : [];
+  if (Array.isArray(doc) || !doc) return null;
+  const types = doc.scan_types;
+  if (types === undefined) return null;
+  if (!Array.isArray(types) || types.some(type => typeof type !== 'string')) throw new Error(`${at}: scan_types is a list of issue types`);
+  return types.map(type => String(type).trim().toLowerCase());
+}
+
 /** The questions perch ships with, read once. The file is the source of truth; nothing here is duplicated in code. */
 export const BUILTIN = parseQuestions(readFileSync(new URL('../scan.yaml', import.meta.url), 'utf8'), 'scan.yaml');
 

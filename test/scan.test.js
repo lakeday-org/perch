@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
-import { mergeAnswers, scanRepository } from '../src/scan.js';
+import { mergeAnswers, scanRepository, typesAsked } from '../src/scan.js';
+import { parseScanTypes, questionSet } from '../src/ask.js';
 import { securityOf } from '../src/questions.js';
 import { methodStep, methodSteps, issueWeight, locateWhere, MAX_CHOICES, STATE_BUDGET } from '../src/questions.js';
 import { openStore } from '../src/store.js';
@@ -15,14 +16,63 @@ const analyzer = createSourceAnalyzer();
 const cleanups = [];
 afterEach(async () => { for (const dir of cleanups.splice(0)) await rm(dir, { recursive: true, force: true }); });
 
-async function fixture() {
+async function fixture({ scanTypes } = {}) {
   const root = await makeGraphFixture();
   cleanups.push(root);
+  // A scan asks about defects, vulnerabilities and rules unless perch.yaml says otherwise. A test about how a refactor row
+  // renders, or about what it does to the exit code, has to ask for refactor answers to have any.
+  if (scanTypes) {
+    await writeFile(join(root, 'perch.yaml'), `scan_types: [${scanTypes.join(', ')}]\nrules: []\n`);
+    await commitAll(root, 'scan types');
+  }
   return { root, revision: await revision(root), out: join(root, '.perch') };
 }
 
 /** Hunt options that re-read HEAD, since a test may commit between hunts. */
 const withRevision = async (repo, extra) => fixtureOptions(repo, { analyzer, revision: await revision(repo.root), ...extra });
+
+describe('which issue types a scan asks about', () => {
+  it('asks the three that can fail a run, and nothing else, unless perch.yaml says so', () => {
+    // Refactor and docs never fail anything and read the same on every method that has ever been long. A scan of this
+    // repository reported 32 of them against 0 defects, so the list a person opened was mostly rows they came for nothing.
+    expect([...typesAsked(null, [])].sort()).toEqual(['defect', 'lint', 'security']);
+    expect([...typesAsked(['defect', 'security', 'lint', 'refactor'], [])]).toContain('refactor');
+    // Naming only some of them is naming them: this is the whole list, not an addition to the defaults.
+    expect([...typesAsked(['docs'], [])]).toEqual(['docs']);
+  });
+
+  it('asks for a type a filter named, whatever perch.yaml left out', () => {
+    // Narrowing a report to a type whose questions were never asked would report that the repository has none of them.
+    expect([...typesAsked(null, [{ key: 'type', value: 'refactor' }])]).toContain('refactor');
+    expect([...typesAsked(['defect'], [{ key: 'type', value: 'docs' }])].sort()).toEqual(['defect', 'docs']);
+    // A clause on another key says nothing about which questions to ask.
+    expect([...typesAsked(null, [{ key: 'kind', value: 'too big' }])].sort()).toEqual(['defect', 'lint', 'security']);
+  });
+
+  it('reads scan_types off the rule file, and says so when it is not a list', () => {
+    expect(parseScanTypes('scan_types: [defect, Refactor]\nrules: []\n', 'perch.yaml')).toEqual(['defect', 'refactor']);
+    // Omitted is not the same as empty: omitted takes the defaults, empty asks about nothing.
+    expect(parseScanTypes('rules: []\n', 'perch.yaml')).toBe(null);
+    expect(parseScanTypes('scan_types: []\nrules: []\n', 'perch.yaml')).toEqual([]);
+    // A bare list is a list of rules and always was.
+    expect(parseScanTypes('- name: r\n  ensure: x\n', 'perch.yaml')).toBe(null);
+    expect(() => parseScanTypes('scan_types: defect\n', 'perch.yaml')).toThrow(/list of issue types/);
+  });
+
+  it('drops the questions for a type it was not asked about, and keeps their feeders', () => {
+    const asked = questionSet().filter(question => question.each === 'method' && !question.kind
+      && (!question.issue || typesAsked(null, []).has(question.issue.type)));
+    const names = asked.map(question => question.name);
+    // refactor and documented are the only two questions raising the advisory types, so they are what goes.
+    expect(names).not.toContain('refactor');
+    expect(names).not.toContain('documented');
+    // does_what_it_claims is a defect: a method not doing what its name says is wrong, not untidy.
+    expect(names).toContain('does_what_it_claims');
+    // severity and kind raise nothing on their own. They feed the ones that do, so dropping them would take the band off a defect.
+    expect(names).toContain('severity');
+    expect(names).toContain('kind');
+  });
+});
 
 describe('perch hunt', () => {
   it('picks a window then a line when a method has more lines than a Choice can name', async () => {
@@ -56,7 +106,7 @@ describe('perch hunt', () => {
   });
 
   it('walks every method once from riskiest down, logs each, and skips unchanged methods next time', async () => {
-    const repo = await fixture();
+    const repo = await fixture({ scanTypes: ['defect', 'security', 'lint', 'refactor', 'docs'] });
     const systemOne = scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.9, where: 'L0004', kind: 'boundary', severity: 2, refactor: 'split', documented: 0.3 } });
     const seen = [];
     const hunt = await scanRepository(await withRevision(repo, { systemOne, onFile: (path, findings) => seen.push({ path, findings }) }));
@@ -171,7 +221,8 @@ describe('perch hunt', () => {
   });
 
   it('reports what the run covered, not everything the store knows', async () => {
-    const repo = await fixture();
+    // Asks for the advisory types too, so the methods outside the narrowed scope have something on them to leave out.
+    const repo = await fixture({ scanTypes: ['defect', 'security', 'lint', 'refactor', 'docs'] });
     await scanRepository(await withRevision(repo, { systemOne: scriptedSystemOne() }));
     // Narrowed to one file, the report and its tally are about that file. They used to be about the whole store, so a run that
     // read nothing still ended on a count of problems in files it never opened, as though it had just found them.
