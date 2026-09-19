@@ -58,20 +58,14 @@ Merging that pull request is the release: it tags, and it publishes to npm from 
 Do not run `npm version`, do not write a tag, and do not edit `CHANGELOG.md`. `publish.yml` exists for a tag pushed by hand and
 is not the ordinary path.
 
-npm publishes through trusted publishing, which checks the OIDC identity against a repository **and a workflow file**. Both
-`release-please.yml` and `publish.yml` are registered on npm as trusted publishers for `@lakeday/perch`. A workflow that
-publishes and is not registered fails with `npm error 404 ... PUT https://registry.npmjs.org/@lakeday%2fperch`, which is npm's
-way of saying unauthorized rather than missing. 0.3.0 cut a tag and a GitHub release that way and shipped no package, because
-only `publish.yml` was registered at the time.
+npm trusted publishing checks the OIDC identity against a repository and a workflow file. `release-please.yml` and
+`publish.yml` are both registered for `@lakeday/perch`; an unregistered workflow gets a 404 on publish, which is npm's way of
+saying unauthorized. The package also disallows tokens that bypass 2FA, so those two workflows are the only way anything
+reaches npm. Renaming either, or dropping `id-token: write`, stops releases until npm is told.
 
-The package also disallows tokens that bypass 2FA, so those two workflows are the only way anything reaches npm. Renaming
-either file, or dropping `id-token: write` from it, stops releases until npm is told. Keep both registered: `publish.yml` is
-the way back in when release-please cannot publish, and 0.3.0 had to be finished that way.
-
-The release job checks out the tag, not the branch, and fetches tags with it. release-please writes the tag and then this job
-would otherwise check out `main` with none: `git describe --exact-match` finds nothing and the published package answers
-`perch --version` with DEVELOPMENT. 0.3.2 shipped that way. A step before `npm publish` now compares the built version against
-`package.json` and fails the release rather than putting a wrong one on npm, where it cannot be replaced.
+The release job checks out the tag with tags fetched. Checking out `main` leaves the runner with none, `git describe` finds
+nothing, and the package ships answering `perch --version` with DEVELOPMENT. A step before `npm publish` compares the built
+version against `package.json` and fails the release, since npm versions cannot be replaced.
 
 `perch --version` is stamped at build time. A build sitting on its release tag with a clean tree reports that release; anything
 else reports `DEVELOPMENT` and the commit, because a working copy carries the same number in `package.json` and is not it.
