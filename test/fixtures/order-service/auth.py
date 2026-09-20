@@ -1,4 +1,4 @@
-# Deliberate bugs: documentation fixture, not production code.
+# Deliberate bugs: documentation fixture.
 """Who may act on an order."""
 
 import hashlib

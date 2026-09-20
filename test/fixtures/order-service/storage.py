@@ -1,4 +1,4 @@
-# Deliberate bugs: documentation fixture, not production code.
+# Deliberate bugs: documentation fixture.
 """Reading and writing order files."""
 
 import json

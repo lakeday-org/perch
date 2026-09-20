@@ -1,4 +1,4 @@
-# Deliberate bugs: documentation fixture, not production code.
+# Deliberate bugs: documentation fixture.
 """Turning a cart into a paid order."""
 
 from decimal import Decimal
