@@ -14,9 +14,9 @@ perch <command> [options]
 
 | Verb | What it does | Needs |
 | --- | --- | --- |
-| [`scan`](#perch-scan) | Reads the repository at `HEAD` and writes down what it found. | `TYPESAFE_API_KEY` |
+| [`scan`](#perch-scan) | Reads the repository at `HEAD` and writes down what it found. | `PERCH_API_KEY` |
 | [`issues`](#perch-issues) | The open issues, worst first. With an id, everything known about that one method. | nothing |
-| [`check`](#perch-check) | Asks about one file or method as it reads on disk. Records nothing. | `TYPESAFE_API_KEY` |
+| [`check`](#perch-check) | Asks about one file or method as it reads on disk. Records nothing. | `PERCH_API_KEY` |
 | [`rules`](#perch-rules) | `list`, `add`, `edit`, `remove`: changes `perch.yaml` without opening it. | nothing |
 | [`close`](#perch-close) | Sets issues aside so they stop being listed. | nothing |
 | [`reopen`](#perch-reopen) | Undoes `close`. | nothing |
@@ -168,13 +168,13 @@ not read.
 
 ```console
 $ perch doctor
-perch 0.2.3  node v25.5.0  darwin arm64
+perch DEVELOPMENT (9478295)  node v25.5.0  darwin arm64
 
 ✓ node        v25.5.0
-✗ key         TYPESAFE_API_KEY is not set
+✗ key         PERCH_API_KEY is not set
 ✓ git         git version 2.50.1 (Apple Git-155)
-✗ repository  /private/tmp/x is not in a git repository
-✓ results     /private/tmp/x/.perch
+✗ repository  /private/tmp/perch-doctor-d3mhms7w is not in a git repository
+✓ results     /private/tmp/perch-doctor-d3mhms7w/.perch
 ✓ rules       no perch.yaml, so perch asks only its own questions
 
   key: export it, or put it in a .env beside the repository
@@ -197,13 +197,21 @@ bug report as it stands.
 
 | Variable | Read by |
 | --- | --- |
-| `TYPESAFE_API_KEY` | `scan`, `check` |
-| `PERCH_BASE_URL` | `scan`, `check`: API base URL; defaults to `https://api.typesafe.ai/v1`. |
+| `PERCH_API_KEY` | `scan`, `check`: bearer token for the configured endpoint; required. |
+| `PERCH_BASE_URL` | `scan`, `check`: exact request URL; defaults to `https://api.typesafe.ai/v1/systemone`. |
+| `PERCH_MODEL_ID` | `scan`, `check`: model ID; defaults to `jev-latest`. |
 | `NO_COLOR` | Everything that prints. Piped output is uncolored anyway. |
 
-Set `PERCH_BASE_URL` to use a proxy, gateway, or local stand-in. perch appends
-`/systemone`; a trailing slash on the base URL is optional. Requests still use
-`TYPESAFE_API_KEY` as a bearer token and `jev-latest` as the model.
+Set these variables to use a proxy, gateway, or local stand-in. `PERCH_BASE_URL`
+is the complete URL to POST to, including its path and any query string.
+perch uses it unchanged, including a trailing slash when supplied.
+
+Set `PERCH_API_KEY` to the endpoint's bearer token and `PERCH_MODEL_ID` to the
+model to request. Existing installations must rename `TYPESAFE_API_KEY` to
+`PERCH_API_KEY` in their environment or `.env` file.
+
+Changing the endpoint or model causes the next scan to ask again, including
+file and search rules whose source has not changed.
 
 The endpoint must support the System One request and response format: typed
 questions over a state, answered with probabilities. An OpenAI-compatible chat

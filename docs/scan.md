@@ -72,8 +72,8 @@ looks complete while missing things.
 Every reading goes into `scan.jsonl`, rewritten whole each run. What it holds is
 what this run says about this commit. A reading carries forward when the request
 that produced it would go out word for word the same. That means the method's
-source, the neighbours in the state, and the wording of every question including
-custom rules. A hash on each reading is compared before anything is sent. A rescan
+source, the neighbours in the state, the endpoint and model, and the wording of
+every question including custom rules. A hash on each reading is compared before anything is sent. A rescan
 of untouched code costs nothing and reads the same to the percentage.
 
 ## 4. The questions

@@ -10,7 +10,7 @@ summary: Install, set the key, scan, and read the first thing it found.
 
 ## Requirements
 
-Node 22 or newer, git, and a TypeSafe API key. perch reads the repository at
+Node 22 or newer, git, and an API key for your endpoint. perch reads the repository at
 `HEAD`. The directory you run it in has to be a git checkout.
 
 ## Install
@@ -30,12 +30,13 @@ npx @lakeday/perch scan
 `scan` and `check` are the two commands that call a model.
 
 ```sh
-export TYPESAFE_API_KEY=...
+export PERCH_API_KEY=...
 ```
 
-For a compatible proxy or local stand-in, set `PERCH_BASE_URL` to its API base
-URL. Both commands append `/systemone` and use the same key. The default is
-`https://api.typesafe.ai/v1`; see [Environment](/cli/#environment) for the contract.
+For a proxy or local stand-in, set `PERCH_BASE_URL` to the complete request URL
+and `PERCH_MODEL_ID` to its model ID. Both commands use that URL unchanged.
+The defaults are `https://api.typesafe.ai/v1/systemone` and `jev-latest`;
+see [Environment](/cli/#environment) for the request contract.
 
 ## The first scan
 
@@ -64,8 +65,8 @@ perch at commit d4f7adf: 38 methods, read 2, 38 unchanged
 110 requests  81k tokens in / 5k out  $0.0034
 ```
 
-A method is read again only when its code, its neighbours or its questions have
-moved. That is what `38 unchanged` counts.
+A method is read again when its code, neighbours, questions, endpoint or model
+have changed. That is what `38 unchanged` counts.
 
 A first run over a large repository reads every method in scope. Narrow it while
 you are getting a feel for it:

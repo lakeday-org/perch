@@ -1,4 +1,5 @@
 /** TypeSafe System One client: typed questions over a state, answered with probabilities. */
+import { createHash } from 'node:crypto';
 
 export const DEFAULT_SYSTEM_ONE_MODEL = 'jev-latest';
 
@@ -6,19 +7,18 @@ export function createSystemOne({
   apiKey,
   model = DEFAULT_SYSTEM_ONE_MODEL,
   fetchImpl = globalThis.fetch,
-  baseUrl = 'https://api.typesafe.ai/v1',
+  baseUrl = 'https://api.typesafe.ai/v1/systemone',
   retryDelayMs = 2000,
   sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
   log = () => {},
 } = {}) {
-  if (!apiKey) throw new Error('TYPESAFE_API_KEY is not set. Export a TypeSafe API key before running perch scan.');
-  const endpoint = `${baseUrl.replace(/\/+$/, '')}/systemone`;
+  if (!apiKey) throw new Error('PERCH_API_KEY is not set. Export an API key before running perch scan or perch check.');
 
   async function request(body) {
     for (let attempt = 0; ; attempt++) {
       let response;
       try {
-        response = await fetchImpl(endpoint, { method: 'POST', headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+        response = await fetchImpl(baseUrl, { method: 'POST', headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
       } catch (error) {
         if (attempt >= 3) throw error;
         log(`System One request failed (${error.message}); retrying`);
@@ -39,6 +39,7 @@ export function createSystemOne({
 
   return {
     id: model,
+    cacheKey: createHash('sha256').update(JSON.stringify([baseUrl, model])).digest('hex'),
     /** Ask every question in one call; returns { model, answers, usage } with one answer per question id. */
     async ask(state, questions) {
       const response = await request({ model, state, questions });

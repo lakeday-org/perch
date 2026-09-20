@@ -9,6 +9,7 @@ import { parseScanTypes, questionSet } from '../src/ask.js';
 import { securityOf } from '../src/questions.js';
 import { methodStep, methodSteps, issueWeight, locateWhere, MAX_CHOICES, STATE_BUDGET } from '../src/questions.js';
 import { openStore } from '../src/store.js';
+import { createSystemOne } from '../src/systemone.js';
 import { formatDoctor, formatScanReport, gating, scanCount } from '../src/report.js';
 import { commitAll, fixtureOptions, makeGraphFixture, scriptedSystemOne } from './helpers.js';
 
@@ -75,6 +76,38 @@ describe('which issue types a scan asks about', () => {
 });
 
 describe('perch hunt', () => {
+  it('refreshes method, file and search answers when the model or endpoint changes', async () => {
+    const repo = await fixture();
+    await writeFile(join(repo.root, 'perch.yaml'), 'rules:\n  - name: file-rule\n    where: src/a.js\n    ensure: Returns a number.\n  - name: search-rule\n    where: src/a.js\n    ensure_present: A function returning a number.\n');
+    await commitAll(repo.root, 'file and search rules');
+    const service = scriptedSystemOne({ project: { 'file-rule': 0.99, 'search-rule': 0.99 } });
+    const requests = [];
+    const fetchImpl = async (url, init) => {
+      const { model, state, questions } = JSON.parse(init.body);
+      requests.push({ url, model, state, questions });
+      return new Response(JSON.stringify({ ...await service.ask(state, questions), model }));
+    };
+    const configurations = [
+      { model: 'model-a', baseUrl: 'http://localhost:8123/first' },
+      { model: 'model-b', baseUrl: 'http://localhost:8123/first' },
+      { model: 'model-b', baseUrl: 'http://localhost:8123/second' },
+    ];
+    for (const configuration of configurations) {
+      const systemOne = createSystemOne({ apiKey: 'fixture-key', fetchImpl, ...configuration });
+      requests.length = 0;
+      const run = await scanRepository(await withRevision(repo, { systemOne }));
+      expect(run.failed).toEqual([]);
+      expect(run.calls).toBe(4);
+      expect(requests.some(request => request.questions['file-rule'])).toBe(true);
+      expect(requests.some(request => request.questions['search-rule'])).toBe(true);
+      expect(requests.every(request => request.url === configuration.baseUrl && request.model === configuration.model)).toBe(true);
+
+      requests.length = 0;
+      await scanRepository(await withRevision(repo, { systemOne }));
+      expect(requests).toEqual([]);
+    }
+  });
+
   it('picks a window then a line when a method has more lines than a Choice can name', async () => {
     const lines = Array.from({ length: 400 }, (_, index) => `  x += ${index};`);
     const step = methodStep({ node: { path: 'a.rs', qualified_name: 'big', line: 1, end_line: 400 }, lines, callees: [], callers: [] });
@@ -267,9 +300,9 @@ describe('perch hunt', () => {
     expect((await openStore(repo.out).findings(0)).some(finding => finding.name === 'h')).toBe(false);
     // What doctor is for: what the run was doing, and the methods it could not read with the error, grouped by the error.
     const doctor = formatDoctor({ versions: { perch: '0.1.0', node: 'v22', platform: 'test' }, scan: null, run, out: repo.out, color: false,
-      checks: [{ name: 'key', ok: true, found: 'TYPESAFE_API_KEY, 8 characters' }, { name: 'git', ok: false, found: 'not on the path', fix: 'install git' }] });
+      checks: [{ name: 'key', ok: true, found: 'PERCH_API_KEY, 8 characters' }, { name: 'git', ok: false, found: 'not on the path', fix: 'install git' }] });
     // Whether perch can run at all comes first, with what to do about anything that cannot.
-    expect(doctor).toMatch(/^✓ key {2}TYPESAFE_API_KEY, 8 characters$/m);
+    expect(doctor).toMatch(/^✓ key {2}PERCH_API_KEY, 8 characters$/m);
     expect(doctor).toMatch(/^✗ git {2}not on the path$/m);
     expect(doctor).toMatch(/^ {2}git: install git$/m);
     // Which run, in one line, so the rest of it can be about what went wrong.

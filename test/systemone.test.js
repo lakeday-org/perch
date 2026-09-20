@@ -26,9 +26,21 @@ describe('system one client', () => {
     await expect(bad.ask({}, {})).rejects.toThrow('HTTP 422');
   });
 
+  it.each(['http://localhost:8123/infer', 'http://localhost:8123/infer/', 'http://localhost:8123/infer?version=2'])('posts to the exact configured URL %s', async baseUrl => {
+    const requests = [];
+    const client = createSystemOne({ apiKey: 'custom-key', model: 'custom-model', baseUrl,
+      fetchImpl: async (url, init) => { requests.push({ url, init }); return reply(200, { answers }); } });
+    const response = await client.ask({}, { has_bug: { type: 'noul' } });
+    expect(requests[0].url).toBe(baseUrl);
+    expect(requests[0].init.headers.authorization).toBe('Bearer custom-key');
+    expect(JSON.parse(requests[0].init.body).model).toBe('custom-model');
+    expect(client.id).toBe('custom-model');
+    expect(response.model).toBe('custom-model');
+  });
+
   it('rejects responses missing an answer and requires a key', async () => {
     const client = createSystemOne({ apiKey: 'k', fetchImpl: async () => reply(200, { answers: {} }) });
     await expect(client.ask({}, { has_bug: { type: 'noul' } })).rejects.toThrow('missing answers for has_bug');
-    expect(() => createSystemOne({ apiKey: '' })).toThrow('TYPESAFE_API_KEY');
+    expect(() => createSystemOne({ apiKey: '' })).toThrow('PERCH_API_KEY');
   });
 });

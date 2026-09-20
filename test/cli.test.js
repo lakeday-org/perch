@@ -44,7 +44,7 @@ describe('cli', () => {
     const { out, err, io } = capture();
     expect(await main(['--help'], io)).toBe(0);
     for (const verb of ['scan [target]', 'rules [list', 'issues [issue-id]', 'check <path', 'doctor']) expect(out[0]).toContain(verb);
-    expect(out[0]).toContain('PERCH_BASE_URL');
+    for (const name of ['PERCH_API_KEY', 'PERCH_BASE_URL', 'PERCH_MODEL_ID']) expect(out[0]).toContain(name);
     for (const gone of ['hunt', 'lint', 'refactor', 'report', 'publish', 'design', 'fix']) expect(out[0]).not.toMatch(new RegExp(`^\\s*${gone} `, 'm'));
     expect(await main(['check', '-h'], io)).toBe(0);
     expect(out.at(-1)).toContain('perch check: Ask about one piece of code, uncommitted');
@@ -111,17 +111,17 @@ describe('cli', () => {
     expect(VERSION === 'dev' || /^\d+\.\d+\.\d+$/.test(VERSION) || VERSION.startsWith('DEVELOPMENT')).toBe(true);
   });
 
-  it('needs a TypeSafe key to ask anything, but none to read what it already knows', async () => {
+  it('needs a perch API key to ask anything, but none to read what it already knows', async () => {
     const repo = await makeFixture();
     cleanups.push(repo);
     const { out, err, io } = capture();
     expect(await main(['scan', repo], io)).toBe(1);
-    expect(err.join('\n')).toContain('TYPESAFE_API_KEY');
+    expect(err.join('\n')).toContain('PERCH_API_KEY');
     expect(await main(['issues', '--out', join(repo, '.perch')], io)).toBe(0);
     expect(out.at(-1)).toBe('Nothing matches.');
   });
 
-  it.each(['scan', 'check'])('%s sends requests to the configured endpoint or the default', async command => {
+  it.each(['scan', 'check'])('%s uses the configured key, exact endpoint and model', async command => {
     const repo = await realpath(await makeFixture());
     cleanups.push(repo);
     await writeFile(join(repo, 'perch.yaml'), 'rules:\n  - name: endpoint-rule\n    where: src/clamp.js\n    ensure: The function returns a number.\n');
@@ -134,9 +134,15 @@ describe('cli', () => {
       const { state, questions } = JSON.parse(init.body);
       return new Response(JSON.stringify(await service.ask(state, questions)));
     });
-    for (const [index, baseUrl] of [undefined, 'http://localhost:8123/gateway/v1', 'http://localhost:8123/gateway/v1/'].entries()) {
+    const configurations = [
+      { PERCH_API_KEY: 'default-key' },
+      { PERCH_API_KEY: 'proxy-key', PERCH_BASE_URL: 'http://localhost:8123/infer', PERCH_MODEL_ID: 'custom-model' },
+      { PERCH_API_KEY: 'gateway-key', PERCH_BASE_URL: 'http://localhost:8123/infer/', PERCH_MODEL_ID: 'another-model' },
+      { PERCH_API_KEY: 'versioned-key', PERCH_BASE_URL: 'http://localhost:8123/infer?version=2', PERCH_MODEL_ID: 'model/v2' },
+    ];
+    for (const [index, env] of configurations.entries()) {
       const { out, err, io } = capture();
-      io.env = { TYPESAFE_API_KEY: 'fixture-key', ...(baseUrl ? { PERCH_BASE_URL: baseUrl } : {}) };
+      io.env = env;
       const args = command === 'scan'
         ? ['scan', repo, '--filter', 'rule=endpoint-rule']
         : ['check', 'src/clamp.js', '--rules', 'endpoint-rule'];
@@ -146,11 +152,22 @@ describe('cli', () => {
       expect(out.length).toBeGreaterThan(0);
       expect(requests.length).toBeGreaterThan(0);
       for (const { url, init } of requests) {
-        expect(url).toBe(baseUrl ? 'http://localhost:8123/gateway/v1/systemone' : 'https://api.typesafe.ai/v1/systemone');
-        expect(init.headers.authorization).toBe('Bearer fixture-key');
-        expect(JSON.parse(init.body)).toMatchObject({ model: 'jev-latest', questions: { 'endpoint-rule': { type: 'noul' } } });
+        expect(url).toBe(env.PERCH_BASE_URL ?? 'https://api.typesafe.ai/v1/systemone');
+        expect(init.headers.authorization).toBe(`Bearer ${env.PERCH_API_KEY}`);
+        expect(JSON.parse(init.body)).toMatchObject({ model: env.PERCH_MODEL_ID ?? 'jev-latest', questions: { 'endpoint-rule': { type: 'noul' } } });
       }
     }
+  });
+
+  it('doctor recognizes PERCH_API_KEY without printing its value', async () => {
+    const repo = await realpath(await makeFixture());
+    cleanups.push(repo);
+    vi.spyOn(process, 'cwd').mockReturnValue(repo);
+    const { out, io } = capture();
+    io.env = { PERCH_API_KEY: 'private-fixture-key' };
+    expect(await main(['doctor', '--json', '--out', join(repo, '.perch')], io)).toBe(0);
+    expect(JSON.parse(out.at(-1)).checks).toContainEqual({ name: 'key', ok: true, found: 'PERCH_API_KEY, 19 characters' });
+    expect(out.join('\n')).not.toContain(io.env.PERCH_API_KEY);
   });
 
   it('prints the table and nothing else, ten rows unless --all', async () => {
