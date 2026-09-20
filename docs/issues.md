@@ -35,10 +35,10 @@ is one row carrying three issues.
 | `Location` | The file and the line. For a defect, the line the model pointed at. |
 | `Type` | The class the row leads with: `defect`, `security`, `refactor`, `docs`, or `lint`. |
 | `Kind` | The issues themselves, likeliest first, with how sure perch is of each. |
-| `Severity` | How much a caller would feel it. The rubric weighs the defect and the vulnerability, so other rows leave it empty. |
+| `Severity` | How bad it would be for a caller. The rubric grades the defect and the vulnerability, so other rows are empty. |
 
-Severity prints as a band and a number, `P1 (0.9)`. The number places the row
-inside the band:
+Severity prints as a band and a number, `P1 (0.9)`. The number is where it falls
+within the band:
 
 ```
 P1 (0.9)   almost P0

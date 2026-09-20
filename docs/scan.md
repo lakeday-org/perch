@@ -244,7 +244,7 @@ shown = 3 − 1.90 = 1.1
 
 Which is why `P1 (0.9)` is nearly a `P0` and `P1 (1.2)` is settling toward `P2`.
 
-The rubric measures how much a caller would feel whatever is wrong. Its top
+The rubric grades how bad the problem would be for a caller. Its top
 level is a vulnerability in so many words. A defect and a vulnerability are both
 weighed by it, and both carry the band.
 
