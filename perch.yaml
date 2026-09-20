@@ -221,3 +221,10 @@ rules:
       is identified as a deliberately buggy fixture under test/fixtures/order-service.
       Describing it as application code or placing it at the repository root
       breaks this rule.
+  - name: codeql-scans-automatically
+    where: .github/workflows/codeql.yml
+    ensure: >-
+      CodeQL initializes with .github/codeql.yml and analyzes the repository
+      on pull requests, pushes to main and a weekly schedule, using standard
+      ubuntu-latest runners. A workflow that only checks out code, requires a
+      manual run or skips the analysis step breaks this rule.
