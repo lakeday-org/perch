@@ -14,8 +14,9 @@ probability, and the ranking is arithmetic over all of them. The only cutoff is
 
 ## 1. tree-sitter
 
-Every file tracked at `HEAD` with a known extension is parsed. Vendored and
-built files are excluded. So are two languages whose methods cannot be spliced
+Every file tracked at `HEAD` with a known extension is parsed.
+[Dependency, build, and cache directories](rules.md#ignored-paths) are excluded.
+So are two languages whose methods cannot be spliced
 back as one region. Dart splits a signature from its body. Elixir's functions
 are macro calls.
 

@@ -1,0 +1,8 @@
+- name: rule-context-respects-file-exclusions
+  where: src/scan.js
+  ensure: >-
+    Read the construction of the files map passed to askUnits and searchUnits.
+    Tracked dependency and generated files must pass the shared file eligibility
+    policy before their blobs are loaded into that map. Adding every remaining
+    blob regardless of eligibility breaks this rule, because prose rules can
+    read those files as neighboring context even when target selection skips them.

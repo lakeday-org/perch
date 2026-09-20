@@ -2,11 +2,12 @@
 import { join } from 'node:path';
 import { listTree, readBlobs } from './git.js';
 import { analyzeFiles, sourceFile } from './analysis.js';
+import { createFileSelector, EXCLUSIONS_PROFILE } from './exclusions.js';
 import { ANALYSIS_PROFILE } from './treesitter/types.ts';
 import { identity, openStore, readJson, writeJson } from './store.js';
 
 export function scanIdentity({ revision, paths }) {
-  return identity('scan', ANALYSIS_PROFILE, revision, [...paths].sort());
+  return identity('scan', ANALYSIS_PROFILE, EXCLUSIONS_PROFILE, revision, [...paths].sort());
 }
 
 const selected = paths => file => !paths.length || paths.some(path => file.path === path || file.path.startsWith(path.replace(/\/$/, '') + '/'));
@@ -22,7 +23,7 @@ export async function analyzeTree({ root, revision, out, analyzer, label = root,
   }
   await store.exclude(root);
   const tree = await listTree(root, revision);
-  const sources = tree.filter(sourceFile).filter(selected(paths));
+  const sources = tree.filter(createFileSelector(tree)).filter(sourceFile).filter(selected(paths));
   if (!sources.length) throw new Error('No supported source files in this repository');
   debug(`analyzing ${sources.length} source files`);
   // Blobs stream from one git process while the analyzer works through them in order.

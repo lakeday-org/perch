@@ -1,6 +1,7 @@
 /** Tree-sitter analysis of tracked source files: per-method metrics plus the calls and imports that link them. */
 import { createAnalyzer } from './treesitter/index.ts';
 import { sha256 } from './store.js';
+import { eligibleFile } from './exclusions.js';
 
 /**
  * Extensions perch reads, and the grammar each one is parsed with. Every language here was checked against the analyzer: the parser
@@ -20,11 +21,6 @@ export const languageOf = path => languages[path.split('.').at(-1)];
 export function createSourceAnalyzer() {
   return createAnalyzer();
 }
-
-/** File rules can read prose too, but share the scanner's generated/dependency file exclusions. Large source is read in chunks. */
-export const eligibleFile = item => item.type === 'blob' &&
-  !/(^|\/)(vendor|node_modules|dist|target|\.git|\.perch|\.lakeday|build|coverage)(\/|$)/.test(item.path) &&
-  !/\.min\.(?:[cm]?[jt]s|[jt]sx)$/.test(item.path);
 
 export const sourceFile = item => eligibleFile(item) && Boolean(languageOf(item.path));
 

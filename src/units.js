@@ -8,7 +8,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join, sep } from 'node:path';
 import { git, listTree } from './git.js';
-import { eligibleFile } from './analysis.js';
+import { createFileSelector } from './exclusions.js';
 import { sourceChunks } from './chunks.js';
 import { TOKEN_LIMITS, estimateTokens, questionBatches, IncompleteCheckError, ContextLimitError, withTokenRetries, requestScope } from './tokens.js';
 import { askKey, BUILTIN, compile, floorFor, installQuestions, merge, parseIgnored, parseQuestions, parseScanTypes, SEARCHES } from './ask.js';
@@ -136,7 +136,7 @@ export function selectUnits(rule, { scan, graph, files, tree, inScope = () => tr
     return [...graph.nodes.values()].filter(node => !node.test && sourceOf(node, files).includes(needle)).map(methodUnit).filter(spared);
   }
   if (rule.each === 'test') {
-    return tree.filter(item => eligibleFile(item) && matches(source, item.path))
+    return tree.filter(createFileSelector(tree)).filter(item => matches(source, item.path))
       .flatMap(item => testBlocks(files.get(item.path) ?? '', item.path).map(unit => ({ ...unit, hash: item.sha }))).filter(spared);
   }
   // A method comes from the scan, which only holds what tree-sitter could parse. A file comes from the git tree, because a rule
@@ -145,7 +145,7 @@ export function selectUnits(rule, { scan, graph, files, tree, inScope = () => tr
     return scan.files.filter(file => (SEARCHES(rule.kind) || !file.test) && matches(source, file.path))
       .flatMap(file => file.methods.map(method => methodUnit({ ...method, path: file.path }))).filter(spared);
   }
-  return tree.filter(item => eligibleFile(item) && matches(source, item.path))
+  return tree.filter(createFileSelector(tree)).filter(item => matches(source, item.path))
     .map(item => ({ id: item.path, path: item.path, name: item.path, line: 1, hash: item.sha })).filter(spared);
 }
 
