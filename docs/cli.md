@@ -157,6 +157,55 @@ perch reopen <issue-id>... [options]
 
 Puts closed issues back on the list.
 
+## perch setup
+
+```sh
+perch setup <claude-code | codex | pi | cursor> [options]
+```
+
+Writes the perch skill where that assistant reads it:
+
+```console
+$ perch setup claude-code
+Wrote .claude/skills/perch/SKILL.md for Claude Code.
+```
+
+| Assistant | File |
+| --- | --- |
+| `claude-code` | `.claude/skills/perch/SKILL.md` |
+| `codex` | `.codex/skills/perch/SKILL.md` |
+| `pi` | `.pi/skills/perch/SKILL.md` |
+| `cursor` | `.cursor/rules/perch.mdc` |
+
+The skill tells the assistant to scan what a branch changed, to read the JSON
+rather than the table, that a finding is a probability, to ask about one method
+after a fix, and to write a rule when the same mistake comes back. Cursor gets
+the same text under its own frontmatter, with `alwaysApply: true`.
+
+Commit the file. It is part of how the repository is worked on, the same as
+`perch.yaml`.
+
+Running it again on an unchanged file changes nothing and says so, so it is safe
+in a bootstrap script:
+
+```console
+$ perch setup claude-code
+.claude/skills/perch/SKILL.md is already this skill.
+```
+
+A file you have edited is kept. Exits 2 rather than overwriting it:
+
+```console
+$ perch setup claude-code
+.claude/skills/perch/SKILL.md is already there; perch setup claude-code --force replaces it
+```
+
+| Flag | |
+| --- | --- |
+| `--force` | Replace a skill file you have already edited. |
+
+[perch in a coding assistant](skill.md) is the longer version.
+
 ## perch doctor
 
 ```
@@ -222,9 +271,9 @@ endpoint alone does not provide that contract.
 | --- | --- |
 | `0` | Ran, and found nothing that fails. |
 | `1` | perch could not run here. `perch doctor` says what is wrong. |
-| `2` | The command line was wrong. |
+| `2` | The command line was wrong, or `perch setup` kept a file you had edited. |
 | `3` | Something that fails was found: a broken rule, a defect, or a vulnerability. |
 
-What fails is the question's own business. A question gates by default when it
-raises a defect, a vulnerability or a rule. `gate: no` says the answer is worth
-reading but should not fail the scan.
+Everything a scan asks about fails it. `scan_types` in `perch.yaml` decides what
+it asks about, and defaults to defects, vulnerabilities and rules. `gate: no` on
+a question records its answer without acting on it.
