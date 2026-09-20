@@ -97,9 +97,9 @@ perch issues --filter rule=no-silent-failure
 
 `perch issues --types` prints every value the three keys accept.
 
-A filtered list is ranked by what was filtered for. So `--filter type=security`
-leads with the likeliest vulnerability in the repository. Each row also reorders
-to lead with the match.
+A filtered list is ranked by what was filtered for, so `--filter type=security`
+puts the likeliest vulnerability first. Each row shows the matching issue first
+as well.
 
 ## Floors
 

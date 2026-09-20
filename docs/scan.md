@@ -264,18 +264,19 @@ A filter narrows the run, not only the report. `--filter rule=<name>` asks that
 one rule and skips every unit it does not cover, which is how a rule you have
 just written gets run on its own.
 
-A filtered list is also **ranked by what was filtered for**. Within a key the
-likeliest matching issue sets the score. Across keys they multiply:
+A filtered list is also **ranked by what was filtered for**. For each key, perch
+takes the highest probability among the issues that match it, then multiplies
+those together:
 
 ```
 strength = max(matching issues in key A) × max(matching issues in key B) × …
 ```
 
-So `--filter type=security` leads with the likeliest vulnerability in the
-repository. Each row also reorders to lead with the match. A row selected for a
-vulnerability keeps `refactor` out of its Type column.
+So `--filter type=security` puts the likeliest vulnerability first. Each row
+shows the matching issue first as well: a row selected for a vulnerability does
+not show `refactor` in its Type column.
 
-A filter reads the listed issues, so it inherits the floor. `type=security` is
-the methods probably carrying a vulnerability. A method that scored nonzero on
-one and fell under the floor is not there. `--min 80` narrows it further.
+A filter runs over the listed issues, so the floor still applies. `type=security`
+gives you the methods probably carrying a vulnerability, not every method that
+scored above zero on one. `--min 80` narrows it further.
 `--min 0` widens it to everything the scan answered.
