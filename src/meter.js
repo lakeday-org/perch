@@ -9,7 +9,7 @@ export const PRICES = {
 };
 
 /** A family nobody published a price for costs an unknown amount, which the summary says rather than guessing. */
-const priceOf = model => PRICES[model] ?? PRICES[String(model).split('-')[0]] ?? null;
+const priceOf = model => PRICES[String(model).split('-')[0]] ?? null;
 
 export function createMeter() {
   const models = new Map();
@@ -56,4 +56,13 @@ export function createMeter() {
 export const money = dollars => (dollars === null ? 'price unknown' : dollars < 0.01 ? `$${dollars.toFixed(4)}` : `$${dollars.toFixed(2)}`);
 
 /** A System One client whose every call is metered. */
-export const metered = (systemOne, meter) => ({ ...systemOne, async ask(state, questions) { const response = await systemOne.ask(state, questions); meter.add(response.model ?? systemOne.id, response.usage); return response; } });
+export const metered = (systemOne, meter) => ({ ...systemOne, async ask(state, questions, options) {
+  try {
+    const response = await systemOne.ask(state, questions, options);
+    meter.add(response.model ?? systemOne.id, response.usage, { requests: response.requests ?? 1 });
+    return response;
+  } catch (error) {
+    if (error.requests) meter.add(error.model ?? systemOne.id, error.usage ?? {}, { requests: error.requests });
+    throw error;
+  }
+} });

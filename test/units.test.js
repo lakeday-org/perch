@@ -102,12 +102,10 @@ describe('the units a rule is asked about', () => {
     const paths = ['src/kept.js', 'src/building/kept.js', 'src/kept.min.js',
       ...skipped.flatMap(dir => [`${dir}/skip.js`, `packages/app/${dir}/skip.js`])];
     const tree = paths.map(path => ({ path, type: 'blob', size: 10, sha: path }));
-    tree.push({ path: 'src/limit.js', type: 'blob', size: 1024 * 1024, sha: 'limit' },
-      { path: 'src/large.js', type: 'blob', size: 1024 * 1024 + 1, sha: 'large' },
-      { path: 'submodule.js', type: 'commit', size: 0, sha: 'submodule' });
+    tree.push({ path: 'submodule.js', type: 'commit', size: 0, sha: 'submodule' });
     const files = new Map(tree.map(item => [item.path, "test('example', () => {});\n"]));
     const selected = selectUnits({ where: '**/*.js', each }, { tree, files }).map(unit => unit.path);
-    expect(selected).toEqual(['src/kept.js', 'src/building/kept.js', 'src/limit.js']);
+    expect(selected).toEqual(['src/kept.js', 'src/building/kept.js']);
     expect(tree.filter(sourceFile).map(item => item.path)).toEqual(selected);
   });
 
@@ -117,8 +115,6 @@ describe('the units a rule is asked about', () => {
       ['node_modules/dependency/index.js', 'export function dependency() {}'],
       ['dist/output.js', 'export function generated() {}'],
       ['src/bundle.min.js', 'export function minified() {}'],
-      ['src/large.js', ' '.repeat(1024 * 1024 + 1)],
-      ['docs/large.md', 'x'.repeat(1024 * 1024 + 1)],
       ['vendor/README.md', 'Dependency documentation'],
       ['docs/guide.md', 'Project documentation'],
       ['notes.txt', 'Project notes'],

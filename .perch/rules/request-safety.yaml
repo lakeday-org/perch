@@ -1,0 +1,70 @@
+- name: size-retries-stop-with-an-error
+  where: src/tokens.js
+  ensure: >-
+    Read withTokenRetries's handling of repeated context-size errors. Its
+    loop has a finite stopping condition and throws an incomplete-check error
+    when it stops. Depending on the read callback to end otherwise unbounded
+    retries breaks this rule. Returning a value from the exhaustion branch
+    also breaks it: failure to complete a reading must reach the caller.
+- name: size-retries-reduce-the-budget
+  where: src/tokens.js
+  ensure: >-
+    Read the budget update after withTokenRetries catches a context-size
+    error. The next attempt receives a smaller token budget than the failed
+    attempt. Calculating a smaller value but resetting budget to initial,
+    or leaving budget unchanged, breaks this rule.
+- name: split-requests-preserve-results
+  where: src/systemone.js
+  ensure: >-
+    Inspect the successful return from ask when responses contains more than
+    one response. Its answers combine the question IDs from all those
+    responses. Returning answers from just the last response breaks this rule
+    because earlier questions would disappear from the result.
+- name: split-requests-account-for-all-usage
+  where: src/systemone.js
+  ensure: >-
+    Inspect the successful return from ask when responses contains more than
+    one response. Its usage totals the token usage of those responses.
+    Returning only the last response's usage breaks this rule because it
+    omits tokens consumed by the earlier successful batches.
+- name: failed-batches-do-not-return-partial-success
+  where: src/systemone.js
+  ensure: >-
+    Inspect the outer try/catch around the questionBatches loop in ask. When
+    sending a batch fails, that catch propagates the error to the caller.
+    Returning answers accumulated from earlier batches breaks this rule,
+    even if the returned answer object is nonempty. Attaching partial usage
+    to an error and then throwing it is allowed.
+- name: source-retries-rebuild-the-request
+  where: callers of withTokenRetries
+  ensure: >-
+    The callback passed to withTokenRetries uses its budget argument to
+    regenerate the source readings it sends, by invoking preparation or
+    chunking inside that callback. Ignoring the callback argument and loading
+    the initial configured budget again on each attempt breaks this rule.
+    Iterating the originally supplied steps
+    on every attempt without preparing them again breaks this rule, even if
+    the budget is checked first. Without a way to regenerate the readings,
+    a reduced-budget attempt must fail instead of resending the old steps.
+- name: incomplete-scans-keep-their-status
+  where: src/scan.js
+  ensure: >-
+    Inspect scanRepository's final assignment to run.status before it writes
+    runPath and returns. A nonempty run.incomplete must result in status
+    incomplete. An unconditional status complete breaks this rule, regardless
+    of whether earlier code collected incomplete reasons correctly.
+- name: incomplete-scans-retain-the-reasons
+  where: src/scan.js
+  ensure: >-
+    Inspect the assignment to run.incomplete. It retains the incomplete
+    method errors from run.failed and the incomplete file and search check
+    results. Replacing that collection with an empty array, or leaving one
+    of those sources out, breaks this rule because unread code disappears
+    from the run's explanation.
+- name: incomplete-scans-exit-with-an-error
+  where: src/cli.js
+  ensure: >-
+    Read the scan command's final reporting and exit decision. If the run
+    contains incomplete checks, it reports those reasons and returns the
+    execution-error exit code, even when there are no findings. Returning
+    the clean or findings exit code for that run breaks this rule.

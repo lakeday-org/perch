@@ -27,9 +27,9 @@ disk rather than out of a commit, so it works on uncommitted code.
 
 ## Open an issue before you open a pull request
 
-Every change gets a GitHub issue first, including the small ones. `gh issue create --title "..." --body "..."`, then close it from the
-pull request with `Closes #<n>` in the body. Two reasons: a repository with no issue history reads as abandoned to anyone deciding
-whether to depend on it, and the issue is where the reasoning lives when the diff does not show it.
+Open an issue for new, standalone work before opening its pull request. Close it from the pull request with `Closes #<n>`.
+Do not file new issues for review feedback, corrections, or follow-up work within a task or PR already in progress. Handle those
+in the existing task and PR.
 
 An issue is a sentence about what is wrong and a sentence about what would fix it. Not a plan, not a status update.
 
@@ -60,6 +60,10 @@ Not `fix: update API configuration` or `fix: address review feedback`. Those are
 
 ## Keep the pull request body about the change
 
+For bug fixes, PR titles and descriptions describe the defect. Say what was going wrong before explaining the correction.
+For example, use `fix: whole-file rules were scanning dependencies and build output`, rather than
+`fix: whole-file rules skip dependencies and build output`.
+
 Say what was wrong, what changed, and what a user has to do about it. Nothing else.
 
 Leave out:
@@ -73,6 +77,9 @@ Leave out:
 
 A reader should be able to skim it. Long prose paragraphs describing every field of every change are a worse version of the
 diff, which is on the next tab.
+
+PR comments answer review questions, identify blockers, or request decisions. Do not post work diaries, test inventories,
+confidence scores, mutation narratives, or summaries of passing CI. Keep that evidence in tests, CI, and local artifacts.
 
 ## Releases are not cut by hand
 
@@ -94,10 +101,10 @@ version against `package.json` and fails the release, since npm versions cannot 
 `perch --version` is stamped at build time. A build sitting on its release tag with a clean tree reports that release; anything
 else reports `DEVELOPMENT` and the commit, because a working copy carries the same number in `package.json` and is not it.
 
-## The rules in perch.yaml are asked of this repository
+## Repository rules
 
-`perch scan` asks them alongside its own questions, and a broken one fails the run. They are sentences, so writing a good one is
-writing a clear sentence:
+Custom rules live in `perch.yaml` and `.perch/rules/`. `perch scan` asks them alongside its own questions, and a broken one fails
+the run. They are sentences, so writing a good one is writing a clear sentence:
 
 - Say what breaks the rule, not only what satisfies it. `readme-shows-not-tells` reads 59% worded abstractly and 96% once it
   names a screenshot, a GIF and a fenced block.
@@ -123,7 +130,7 @@ rule=<name>` spans four files and read broken against the finished feature in ev
 held the whole claim. Split it until each part is a claim one reading can settle, or it belongs in a test instead.
 
 `perch close <id> --reason "..."` sets aside a finding you have read and decided about. The reason is what the next person reads
-instead of reopening it. Closures live in `.perch/closed.jsonl`, which is committed; everything else under `.perch` is a cache.
+instead of reopening it. Commit `.perch/closed.jsonl` and the rules in `.perch/rules/`; the other contents of `.perch` are generated output.
 
 ## Secrets
 
@@ -136,3 +143,5 @@ commit message. If one is ever committed, rotate it rather than rewriting histor
 change here, and CI tells that repository to rebuild when main moves.
 
 Examples in the docs are real output. If you change one, run the command and paste what it said.
+
+Document current behavior and usage. Keep internal refactor rationale and previous layouts out of user documentation.

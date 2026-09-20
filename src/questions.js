@@ -1,6 +1,8 @@
 /** The state one method is asked over, the questions perch adds to whatever the question set declares, and how answers are read. */
 import { compile, floorFor, issues, questionSet, readAnswer, setHash, vocabulary } from './ask.js';
 import { RULES_FILE } from './units.js';
+import { sourceChunks } from './chunks.js';
+import { TOKEN_LIMITS, estimateTokens, textTokens, questionBatches, IncompleteCheckError, ContextLimitError } from './tokens.js';
 
 /** The bands a severity score is named by, worst last, matching the rubric declared in the question set. */
 export const SEVERITY_BANDS = ['P3', 'P2', 'P1', 'P0'];
@@ -211,7 +213,7 @@ export const flagged = (answers, min = 0) => issuesOf(answers, min).some(issue =
 export const needsDesign = (answers, min = 0) => issuesOf(answers, min).some(isDesign);
 export const hasIssue = (answers, min = 0) => issuesOf(answers, min).length > 0;
 
-export const MAX_CALLEES = 8, MAX_CALLERS = 8, STATE_BUDGET = 48 * 1024, MODULE_SCOPE_BUDGET = 6 * 1024;
+export const MAX_CALLEES = 8, MAX_CALLERS = 8, STATE_BUDGET = TOKEN_LIMITS.state, MODULE_SCOPE_BUDGET = 2000;
 /** A Choice accepts at most 255 options; past that, pick a window then the line inside it. */
 export const MAX_CHOICES = 255;
 export const lineId = line => `L${String(line).padStart(4, '0')}`;
@@ -229,10 +231,10 @@ export function codeLineIds(lines, start, end) {
   return ids.length ? ids : [lineId(start)];
 }
 
-/** Split line ids into even windows of at most `limit` when a single Choice cannot name them all. */
+/** Partition lines into at most `limit` windows; a chosen window may need another partition. */
 export function lineWindows(ids, limit = MAX_CHOICES) {
   if (ids.length <= limit) return null;
-  const count = Math.ceil(ids.length / limit);
+  const count = Math.min(limit, Math.ceil(ids.length / limit));
   const size = Math.ceil(ids.length / count);
   return Array.from({ length: count }, (_, index) => ids.slice(index * size, (index + 1) * size)).filter(window => window.length);
 }
@@ -241,12 +243,14 @@ export const whereQuestion = ids => ({ type: 'choice', instructions: 'Which line
 export const whereWindowQuestion = windows => ({ type: 'choice', instructions: 'Which span of `method` contains the defect? If there is no defect, pick the span most likely to hide one.',
   criteria: Object.fromEntries(windows.map((ids, index) => [windowId(index), `${ids[0]}–${ids.at(-1)}`])) });
 
-/** A Choice holds 255 options, so a longer method costs a second request: pick the span, then the line inside it. */
+/** Narrow the chosen span repeatedly until its lines fit in one Choice, with at most 255 options at every stage. */
 export async function locateWhere({ systemOne, state, questions, windows }) {
   const first = await systemOne.ask(state, questions);
   if (!windows) return first;
   const index = Math.max(0, Number(String(first.answers.where_window?.choice ?? windowId(0)).slice(1)) - 1);
-  const second = await systemOne.ask(state, { where: whereQuestion(windows[index] ?? windows[0]) });
+  const ids = windows[index] ?? windows[0];
+  const next = lineWindows(ids);
+  const second = await locateWhere({ systemOne, state, questions: next ? { where_window: whereWindowQuestion(next) } : { where: whereQuestion(ids) }, windows: next });
   return { ...first, answers: { ...first.answers, ...second.answers }, usage: addUsage(first.usage, second.usage) };
 }
 export const tagged = (lines, start) => lines.map((text, index) => `${lineId(start + index)}| ${text}`).join('\n');
@@ -268,7 +272,7 @@ export function leadingComment(lines, line) {
 }
 
 /**
- * Without this, an identifier that is neither a callee nor an import is a name the model has to guess at. Cut at `budget` bytes,
+ * Without this, an identifier that is neither a callee nor an import is a name the model has to guess at. Cut at `budget` estimated tokens,
  * because a file's constants are worth less to the reading than its callers are.
  */
 export function moduleScope(lines, methods, budget = MODULE_SCOPE_BUDGET) {
@@ -280,9 +284,10 @@ export function moduleScope(lines, methods, budget = MODULE_SCOPE_BUDGET) {
     const text = lines[line - 1];
     if (inside.has(line) || !text.trim() || commentLine.test(text) || /^\s*(import|from|use|package)\b/.test(text)) continue;
     const entry = `${lineId(line)}| ${text}`;
-    if (size + entry.length > budget) { kept.push(`... (cut at ${budget} bytes)`); break; }
+    const tokens = textTokens(entry + '\n');
+    if (size + tokens > budget) { kept.push(`... (cut at ${budget} estimated tokens)`); break; }
     kept.push(entry);
-    size += entry.length + 1;
+    size += tokens;
   }
   return kept.join('\n') || null;
 }
@@ -293,12 +298,12 @@ export function moduleScope(lines, methods, budget = MODULE_SCOPE_BUDGET) {
  * so the module scope around them can be shown. `callees` and `callers` are [{ node, lines, site, calls }] with the neighbor's file
  * lines, the calling line (callers), and the names of the neighbor's own callees (second hop). `edges` are ["a -> b"] strings.
  */
-export function methodStep({ node, lines, imports = [], methods = [node], callees, callers, edges = [], budget = STATE_BUDGET, limits = [40, 20, 8, 3], maxCallees = MAX_CALLEES, maxCallers = MAX_CALLERS, asked = questionSet().filter(question => question.each === 'method') }) {
+export function methodStep({ node, lines, imports = [], methods = [node], moduleScopeText = moduleScope(lines, methods), callees, callers, edges = [], budget = STATE_BUDGET, limits = [40, 20, 8, 3], maxCallees = MAX_CALLEES, maxCallers = MAX_CALLERS, chunk = null, asked = questionSet().filter(question => question.each === 'method') }) {
   const build = (limit, own = Infinity, scope = true) => ({
     method: { path: node.path, name: node.qualified_name, leading_comment: leadingComment(lines, node.line) || null, metrics: node.metrics ?? null,
-      source: excerpt(lines, node.line, node.end_line, own) },
+      source: chunk ? tagged(chunk.source.split("\n"), chunk.line + node.line - 1) : excerpt(lines, node.line, node.end_line, own) },
     imports: imports.map(item => `${item.name}${item.alias !== item.name ? ` as ${item.alias}` : ''} from ${item.module}`),
-    module_scope: scope ? moduleScope(lines, methods) : null,
+    module_scope: scope ? moduleScopeText : null,
     calls: callees.slice(0, maxCallees).map(({ node: callee, lines: calleeLines, calls = [] }) =>
       ({ id: callee.id, name: callee.qualified_name, path: callee.path, source: excerpt(calleeLines, callee.line, callee.end_line, limit), calls: calls.map(short) })),
     called_by: callers.slice(0, maxCallers).map(({ node: caller, lines: callerLines, site, handover = false }) =>
@@ -309,30 +314,19 @@ export function methodStep({ node, lines, imports = [], methods = [node], callee
         source: excerpt(callerLines, caller.line, caller.end_line, limit, site ?? null) })),
     call_graph: edges,
   });
-  const over = () => JSON.stringify(state).length > budget;
+  const over = () => estimateTokens(state) > budget;
   let state = build(limits[0] === Infinity ? Infinity : 80);
   for (const limit of limits) { if (!over()) break; state = build(limit); }
-  // A method can be big enough on its own that no amount of trimming its neighbors helps. Drop the module scope, then work out
-  // how many of its lines fit in what is left rather than guessing: the rest is read in the next pass, so every line here is one
-  // fewer request. A request that cannot be sent reads nothing at all.
-  if (over()) {
-    state = build(limits.at(-1), Infinity, false);
-    if (over()) {
-      const count = node.end_line - node.line + 1;
-      const perLine = Math.max(1, Math.ceil(state.method.source.length / count));
-      const room = budget - (JSON.stringify(build(limits.at(-1), 0, false)).length + 64);
-      let own = Math.max(MIN_PASS_LINES, Math.floor(room / perLine));
-      state = build(limits.at(-1), own, false);
-      // The estimate is an average over lines that are not all the same length, so close the gap rather than trust it.
-      while (over() && own > MIN_PASS_LINES) { own = Math.max(MIN_PASS_LINES, Math.floor(own * 0.8)); state = build(limits.at(-1), own, false); }
-    }
-  }
+  if (over()) state = build(limits.at(-1), Infinity, false);
+  if (over()) throw new ContextLimitError(`${node.path}::${node.qualified_name}: method context exceeds the token budget`, budget / 2);
+  if (chunk) state.reading = { start_byte: chunk.startByte, end_byte: chunk.endByte, partial: chunk.partial };
+  if (over()) throw new ContextLimitError(`${node.path}: method metadata exceeds the token budget`, budget / 2);
   const { calls, called_by: calledBy } = state;
   const neighbors = [...calls, ...calledBy].filter((item, index, all) => all.findIndex(other => other.id === item.id) === index);
   // Only lines the model can see are lines it can point at: a trimmed method must not be asked about the part that was cut.
   const shown = [...state.method.source.matchAll(/^L(\d+)\|/gm)].map(match => Number(match[1]));
   const visible = new Set(shown.map(line => lineId(line)));
-  const lineIds = codeLineIds(lines, node.line, node.end_line).filter(id => visible.has(id));
+  const lineIds = codeLineIds(lines, shown[0] ?? node.line, shown.at(-1) ?? node.end_line).filter(id => visible.has(id));
   const windows = lineWindows(lineIds);
   // The questions themselves are declared, not written here: what perch asks of a method is data, so a repository can reword a
   // class or add one without this function hearing about it. What stays is what is not a question about your code — which line
@@ -349,36 +343,28 @@ export function methodStep({ node, lines, imports = [], methods = [node], callee
   for (const [index, caller] of calledBy.entries())
     questions[`misused_by_${index}`] = { type: 'noul', instructions: { caller: caller.id, question: 'Does `caller` call `method` in a way that violates the contract evident from the method\'s source, or rely on behavior the method does not guarantee?' },
       criteria: { true: 'The caller passes something the method does not handle, or depends on a result or side effect the method does not reliably provide', false: 'The caller uses the method as its source intends' } };
-  return { state, questions, asked, calls, calledBy, neighbors, windows, covers: { line: shown[0] ?? node.line, end_line: shown.at(-1) ?? node.end_line } };
+  return { state, questions, asked, calls, calledBy, neighbors, windows, covers: { line: shown[0] ?? node.line, end_line: shown.at(-1) ?? node.end_line, ...(chunk ? { start_byte: chunk.startByte, end_byte: chunk.endByte } : {}) } };
 }
 
-/** Lines of a method repeated at the start of the next pass, so a defect spanning the seam is in one pass whole. */
-export const PASS_OVERLAP = 20;
-/** However tight the budget, a pass this short is not worth a request. */
-const MIN_PASS_LINES = 40;
-/** Passes one method is worth. A method needing more than this is pathological, and its size is the finding. */
-export const MAX_PASSES = 8;
-
-/**
- * One method as the passes it takes to read it. Most methods are one pass. A method too long to send in a single request used to
- * be cut to its head, which reads 300 lines of a 20,000-line method and answers as if that were the method; instead it is read in
- * overlapping passes until it runs out or hits `MAX_PASSES`. Only the first pass carries the neighborhood, since the callers and
- * callees are about the method, not about a slice of it.
- */
+/** Native syntax chunks overlap in source bytes, including when one line spans multiple requests. */
 export function methodSteps({ node, lines, imports = [], methods = [node], callees = [], callers = [], edges = [], ...options }) {
-  const steps = [];
-  let start = node.line;
-  while (start <= node.end_line && steps.length < MAX_PASSES) {
-    const first = !steps.length;
-    const step = methodStep({ node: { ...node, line: start }, lines, imports: first ? imports : [], methods,
-      callees: first ? callees : [], callers: first ? callers : [], edges: first ? edges : [], ...options });
-    steps.push(step);
-    if (step.covers.end_line >= node.end_line) break;
-    const next = Math.max(step.covers.end_line - PASS_OVERLAP + 1, start + 1);
-    if (next <= start) break;
-    start = next;
+  const source = lines.slice(node.line - 1, node.end_line).join('\n');
+  const budget = options.budget ?? STATE_BUDGET;
+  const moduleScopeText = moduleScope(lines, methods);
+  let maxTokens = budget;
+  for (;;) {
+    const chunks = sourceChunks(source, { path: node.path, maxTokens });
+    try {
+      const steps = chunks.map((chunk, index) => methodStep({ node, lines, imports: index ? [] : imports, methods, moduleScopeText,
+        callees: index ? [] : callees, callers: index ? [] : callers, edges: index ? [] : edges,
+        ...options, budget, chunk: { ...chunk, partial: chunks.length > 1 } }));
+      for (const step of steps) questionBatches(step.state, step.questions);
+      return steps;
+    } catch (error) {
+      if (!(error instanceof IncompleteCheckError) || maxTokens <= 128) throw error;
+      maxTokens = Math.max(128, Math.floor(maxTokens / 2));
+    }
   }
-  return steps;
 }
 
 /**

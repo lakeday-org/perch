@@ -7,7 +7,7 @@ import globals from 'globals';
 import typescript from 'typescript-eslint';
 
 export default [
-  { ignores: ['dist/', 'node_modules/', '.perch/'] },
+  { ignores: ['dist/', 'node_modules/', '.perch/', 'test/fixtures/**'] },
   js.configs.recommended,
   ...typescript.configs.recommended,
   {

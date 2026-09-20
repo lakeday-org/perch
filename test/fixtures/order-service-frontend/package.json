@@ -1,0 +1,8 @@
+{
+  "name": "perch-fixture-order-service-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "tsc --noEmit && esbuild src/main.tsx --bundle --format=esm --jsx=automatic --outfile=dist/main.js" },
+  "dependencies": { "react": "^19.0.0", "react-dom": "^19.0.0" },
+  "devDependencies": { "@types/react": "^19.0.0", "@types/react-dom": "^19.0.0", "esbuild": "^0.27.7", "typescript": "^5.7.3" }
+}

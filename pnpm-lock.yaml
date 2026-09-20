@@ -8,12 +8,12 @@ importers:
 
   .:
     dependencies:
-      tree-sitter-wasm:
-        specifier: 2.0.1
-        version: 2.0.1
-      web-tree-sitter:
-        specifier: 0.27.0
-        version: 0.27.0
+      '@xberg-io/tree-sitter-language-pack':
+        specifier: 1.20.0
+        version: 1.20.0
+      gpt-tokenizer:
+        specifier: 4.0.0
+        version: 4.0.0
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
@@ -661,6 +661,62 @@ packages:
   '@vitest/utils@2.1.9':
     resolution: {integrity: sha512-v0psaMSkNJ3A2NMrUEHFRzJtDPFn+/VWZ5WxImB21T9fjucJRmS7xCS3ppEnARb9y11OAzaD+P2Ps+b+BGX5iQ==}
 
+  '@xberg-io/tree-sitter-language-pack-darwin-arm64@1.20.0':
+    resolution: {integrity: sha512-ZqqRLzERmFeN2oump1naAL13omQ01eW2c0YNIjWKfJylp0/WW3OAUVUjXWfY+EeStdZnTy4BBKm4FCuLefNkaA==}
+    engines: {node: '>= 22'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@xberg-io/tree-sitter-language-pack-darwin-x64@1.20.0':
+    resolution: {integrity: sha512-YSPbXeqNRZ803nhcw1RPZn/BpP1o8Ow6DykrWVmh5hSMHzZfyypcKBB43FZbrbg89yPO2f1bfRaiUhJASNjbDg==}
+    engines: {node: '>= 22'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@xberg-io/tree-sitter-language-pack-linux-arm64-gnu@1.20.0':
+    resolution: {integrity: sha512-CbaqXCPxhEHAieArGA9jHy4ATR82F9le9QIgUwTD0p30uaPfxeHB3pxUV0eDlXAA6JdBV0QTWVXNSvohidHB7A==}
+    engines: {node: '>= 22'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@xberg-io/tree-sitter-language-pack-linux-arm64-musl@1.20.0':
+    resolution: {integrity: sha512-F80KgFGcsIxNKL0OtDnnQmEcjJFBwp6gIOOdyl3mknDJkC9cL2MpYn6QnXAGhCWO02C0taoTyhexV2AfcUYylQ==}
+    engines: {node: '>= 22'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+
+  '@xberg-io/tree-sitter-language-pack-linux-x64-gnu@1.20.0':
+    resolution: {integrity: sha512-euirgtZPkxIeFg1YRfEQE5sjtr9GYUZ4bKQPGi95TiVtRxzjhQAVF4EVvjueSl/A/hCtalaXcWZ3/Xb071rLzw==}
+    engines: {node: '>= 22'}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@xberg-io/tree-sitter-language-pack-linux-x64-musl@1.20.0':
+    resolution: {integrity: sha512-2gC7+zHrLDFLMK7UXy9P9ohn8N2UoOSsFd1Sbn8a3XtbGmMgDPom0/JZZ/rMJra+2+hCQoHAwLZG3VioaY1UYg==}
+    engines: {node: '>= 22'}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@xberg-io/tree-sitter-language-pack-win32-arm64-msvc@1.20.0':
+    resolution: {integrity: sha512-77xYj6qht8z0XUpb4mjsbNC8SkQ8g2XMWU4OAIkZenURCZoqtMcnQuNykYO8opJ9twOzcBA640FlnoUTrh0sYw==}
+    engines: {node: '>= 22'}
+    cpu: [arm64]
+    os: [win32]
+
+  '@xberg-io/tree-sitter-language-pack-win32-x64-msvc@1.20.0':
+    resolution: {integrity: sha512-yutdxR4q56t1D1D9oX8DMgjdX3knxtMZJ8pt2h3HK2/1OkVa2eotOjKudbPgYicTlWsJKJ9EkH/6df5kFi6O/A==}
+    engines: {node: '>= 22'}
+    cpu: [x64]
+    os: [win32]
+
+  '@xberg-io/tree-sitter-language-pack@1.20.0':
+    resolution: {integrity: sha512-96fnqUv1H378/6g4KcC2uuVgOILiCMwqNJy0f3w6ab57rNCLBPnlkzsPTsqie4x1VABHi9J0zJ9kBizE+gzKUw==}
+    engines: {node: '>= 22'}
+
   acorn-jsx@5.3.2:
     resolution: {integrity: sha512-rq9s+JNhf0IChjtDXxllJ7g41oZk5SlXtp0LHwyA5cejwn7vKmKp4pPri6YEePv2PU65sAsegbXtIinmDFDXgQ==}
     peerDependencies:
@@ -830,6 +886,9 @@ packages:
   globals@17.12.0:
     resolution: {integrity: sha512-cezEd/DTyyht9cvSSURyygXPfy04GtWO/5e6ZPvH7fCtjKz9PYOmuawphw1Ctd1f6C+5JypXfGD7ahNMXvevBA==}
     engines: {node: '>=18'}
+
+  gpt-tokenizer@4.0.0:
+    resolution: {integrity: sha512-YAWIyzvuVUHEfW7tFfFAxH8qQb+Q3RU9nYOTy7skMNX5qzU6Q8jxTHZLyO56ug1vYvCR7wndzpd3jwD86/mhjQ==}
 
   hashery@1.5.1:
     resolution: {integrity: sha512-iZyKG96/JwPz1N55vj2Ie2vXbhu440zfUfJvSwEqEbeLluk7NnapfGqa7LH0mOsnDxTF85Mx8/dyR6HfqcbmbQ==}
@@ -1005,9 +1064,6 @@ packages:
     resolution: {integrity: sha512-n1cw8k1k0x4pgA2+9XrOkFydTerNcJ1zWCO5Nn9scWHTD+5tp8dghT2x1uduQePZTZgd3Tupf+x9BxJjeJi77Q==}
     engines: {node: '>=14.0.0'}
 
-  tree-sitter-wasm@2.0.1:
-    resolution: {integrity: sha512-VuJcTK89taP2UrkyW+sTYpIAfwk1pWgqxpTSDT2edCVajLjSOwKe6mVlfpjQckCYKVCm++ZXfS9J1N9S5CB3gg==}
-
   ts-api-utils@2.5.0:
     resolution: {integrity: sha512-OJ/ibxhPlqrMM0UiNHJ/0CKQkoKF243/AEmplt3qpRgkW8VG7IfOS41h7V8TjITqdByHzrjcS/2si+y4lIh8NA==}
     engines: {node: '>=18.12'}
@@ -1096,9 +1152,6 @@ packages:
         optional: true
       jsdom:
         optional: true
-
-  web-tree-sitter@0.27.0:
-    resolution: {integrity: sha512-XK08gj6RwTMQatAG7uVRP8MunqotL/XC19vHgkSPKmELgbGPBj4ECvB8haHOUnyj6ls2B8t42UTro14zxGgAHg==}
 
   which@2.0.2:
     resolution: {integrity: sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==}
@@ -1563,6 +1616,41 @@ snapshots:
       loupe: 3.2.1
       tinyrainbow: 1.2.0
 
+  '@xberg-io/tree-sitter-language-pack-darwin-arm64@1.20.0':
+    optional: true
+
+  '@xberg-io/tree-sitter-language-pack-darwin-x64@1.20.0':
+    optional: true
+
+  '@xberg-io/tree-sitter-language-pack-linux-arm64-gnu@1.20.0':
+    optional: true
+
+  '@xberg-io/tree-sitter-language-pack-linux-arm64-musl@1.20.0':
+    optional: true
+
+  '@xberg-io/tree-sitter-language-pack-linux-x64-gnu@1.20.0':
+    optional: true
+
+  '@xberg-io/tree-sitter-language-pack-linux-x64-musl@1.20.0':
+    optional: true
+
+  '@xberg-io/tree-sitter-language-pack-win32-arm64-msvc@1.20.0':
+    optional: true
+
+  '@xberg-io/tree-sitter-language-pack-win32-x64-msvc@1.20.0':
+    optional: true
+
+  '@xberg-io/tree-sitter-language-pack@1.20.0':
+    optionalDependencies:
+      '@xberg-io/tree-sitter-language-pack-darwin-arm64': 1.20.0
+      '@xberg-io/tree-sitter-language-pack-darwin-x64': 1.20.0
+      '@xberg-io/tree-sitter-language-pack-linux-arm64-gnu': 1.20.0
+      '@xberg-io/tree-sitter-language-pack-linux-arm64-musl': 1.20.0
+      '@xberg-io/tree-sitter-language-pack-linux-x64-gnu': 1.20.0
+      '@xberg-io/tree-sitter-language-pack-linux-x64-musl': 1.20.0
+      '@xberg-io/tree-sitter-language-pack-win32-arm64-msvc': 1.20.0
+      '@xberg-io/tree-sitter-language-pack-win32-x64-msvc': 1.20.0
+
   acorn-jsx@5.3.2(acorn@8.18.0):
     dependencies:
       acorn: 8.18.0
@@ -1783,6 +1871,8 @@ snapshots:
 
   globals@17.12.0: {}
 
+  gpt-tokenizer@4.0.0: {}
+
   hashery@1.5.1:
     dependencies:
       hookified: 1.15.1
@@ -1944,8 +2034,6 @@ snapshots:
 
   tinyspy@3.0.2: {}
 
-  tree-sitter-wasm@2.0.1: {}
-
   ts-api-utils@2.5.0(typescript@5.9.3):
     dependencies:
       typescript: 5.9.3
@@ -2034,8 +2122,6 @@ snapshots:
       - sugarss
       - supports-color
       - terser
-
-  web-tree-sitter@0.27.0: {}
 
   which@2.0.2:
     dependencies:

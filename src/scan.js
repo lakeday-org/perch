@@ -8,11 +8,13 @@
 import { join } from 'node:path';
 import { listTree, readBlob } from './git.js';
 import { analyzeTree } from './analyze.js';
+import { AuthenticationError } from './systemone.js';
 import { buildGraph } from './graph.js';
 import { askKey, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES } from './ask.js';
 import { issuesOf, label as kindLabel, methodSteps, locateWhere, readAnswers } from './questions.js';
 import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL } from './units.js';
 import { findingId, identity, openStore, writeJson } from './store.js';
+import { TOKEN_LIMITS, IncompleteCheckError, withTokenRetries, requestScope } from './tokens.js';
 export { findingId };
 
 /** Methods in flight at once. Each request carries a whole neighborhood and thirty questions, so this is where the size is. */
@@ -40,20 +42,25 @@ export function mergeAnswers(readings, questions = questionSet().filter(question
 }
 
 /** One System One reading of a method, in as many passes as its length takes, and the line they point at. */
-export async function questionMethod({ systemOne, node, step, steps = [step], lines, rules = [], debug = () => {} }) {
-  debug(`asking ${systemOne.id} about ${node.qualified_name} in ${node.path}:${node.line} (${Object.keys(steps[0].questions).length} questions${steps.length > 1 ? ` over ${steps.length} passes` : ''}${steps[0].windows ? `, then a line in the chosen window` : ''})`);
-  const readings = [];
-  let response;
-  for (const pass of steps) {
-    response = await locateWhere({ systemOne, state: pass.state, questions: pass.questions, windows: pass.windows });
-    readings.push(readAnswers(response.answers, pass));
-  }
-  const answers = mergeAnswers(readings, [...questionSet().filter(question => question.each === 'method' && !question.kind), ...rules]);
-  answers.where.text = lines[answers.where.line - 1]?.trim() ?? '';
-  // A method too long for even MAX_PASSES was read in part. Say so, rather than let the answers read as if they were the whole of it.
-  const to = steps.at(-1).covers.end_line;
-  if (to < node.end_line) answers.read = { passes: steps.length, to_line: to, of_line: node.end_line };
-  return { response, answers };
+export async function questionMethod({ systemOne, node, step, steps = [step], lines, rules = [], debug = () => {}, prepare }) {
+  systemOne = requestScope(systemOne);
+  return withTokenRetries(async budget => {
+    if (budget < (systemOne.limits?.state ?? TOKEN_LIMITS.state) && !prepare) throw new IncompleteCheckError('source cannot be rebuilt for a smaller token budget');
+    const active = steps?.[0] && budget === (systemOne.limits?.state ?? TOKEN_LIMITS.state) ? steps : prepare ? prepare(budget) : steps;
+    debug(`asking ${systemOne.id} about ${node.qualified_name} in ${node.path}:${node.line} (${Object.keys(active[0].questions).length} questions${active.length > 1 ? ` over ${active.length} passes` : ''}${active[0].windows ? `, then a line in the chosen window` : ''})`);
+    const readings = [];
+    let response;
+    for (const pass of active) {
+      response = await locateWhere({ systemOne, state: pass.state, questions: pass.questions, windows: pass.windows });
+      readings.push(readAnswers(response.answers, pass));
+    }
+    const answers = mergeAnswers(readings, [...questionSet().filter(question => question.each === 'method' && !question.kind), ...rules]);
+    answers.where.text = lines[answers.where.line - 1]?.trim() ?? '';
+    // A partial source reading must remain visible instead of looking like a complete method check.
+    const to = active.at(-1).covers.end_line;
+    if (to < node.end_line) answers.read = { passes: active.length, to_line: to, of_line: node.end_line };
+    return { response, answers };
+  }, systemOne.limits?.state);
 }
 
 /** Whether a label on an issue is one this question raises, so a run can say how often each of its own questions fired. */
@@ -216,18 +223,20 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const asked = questionsFor([...methodQuestions(kinds), ...rulesForMethod(rules, node)], filters, kindLabel);
     const own = asked.filter(question => question.kind);
     if (!asked.length) return { node, calleeIds, callerIds, rules: own, skip: true };
-    const steps = methodSteps({ node, lines: await linesOf(node), imports: file.imports, methods: file.methods, callees, callers, edges, asked });
-    return { node, calleeIds, callerIds, rules: own, steps, key: askKey(steps, asked, systemOne.cacheKey ?? systemOne.id) };
+    const lines = await linesOf(node);
+    const prepare = budget => methodSteps({ node, lines, imports: file.imports, methods: file.methods, callees, callers, edges, asked, budget });
+    const steps = prepare(systemOne.limits?.state);
+    return { node, calleeIds, callerIds, rules: own, steps, prepare, key: askKey(steps, asked, systemOne.cacheKey ?? systemOne.id) };
   };
   const ask = async nodeId => {
-    const { node, calleeIds, callerIds, rules: own, steps, key, skip } = await stepFor(nodeId);
+    const { node, calleeIds, callerIds, rules: own, steps, prepare, key, skip } = await stepFor(nodeId);
     if (skip) return { node, calleeIds, callerIds, rules: own, skipped: true };
     // The same state and the same questions have an answer already. Asking again would spend a request to be told what is on
     // disk, and would move the percentages on an issue nobody has touched, which is worse: a row you looked at yesterday should
     // read the same today unless the code did something.
     const before = earlier.get(node.id);
     if (before?.key === key) { debug(`${node.qualified_name} in ${node.path} is unchanged since it was read`); return { node, calleeIds, callerIds, rules: own, carried: before }; }
-    const { response, answers } = await questionMethod({ systemOne, node, steps, lines: await linesOf(node), rules: own, debug });
+    const { response, answers } = await questionMethod({ systemOne, node, steps, prepare, lines: await linesOf(node), rules: own, debug });
     return { node, calleeIds, callerIds, rules: own, response, answers, key };
   };
   /** Every reading this run made. The file is written whole at the end, so what this run did not cover is carried onto it. */
@@ -275,7 +284,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
       }
       if (!batch.length) break;
       let done = 0;
-      const settled = await Promise.all(batch.map(async nodeId => { try { const result = await ask(nodeId); progress(run.calls + ++done, total); return result; } catch (error) { progress(run.calls + ++done, total); const node = graph.nodes.get(nodeId); log(`${node.qualified_name} in ${node.path}: ${error.message}`); return { failed: { method: nodeId, id: findingId(nodeId), path: node.path, name: node.qualified_name, line: node.line, status: 'failed', error: error.message } }; } }));
+      const settled = await Promise.all(batch.map(async nodeId => { try { const result = await ask(nodeId); progress(run.calls + ++done, total); return result; } catch (error) { if (error instanceof AuthenticationError) throw error; progress(run.calls + ++done, total); const node = graph.nodes.get(nodeId); log(`${node.qualified_name} in ${node.path}: ${error.message}`); return { failed: { method: nodeId, id: findingId(nodeId), path: node.path, name: node.qualified_name, line: node.line, status: 'failed', error: error.message, incomplete: error instanceof IncompleteCheckError } }; } }));
       const results = settled.filter(result => !result.failed);
       for (const { failed } of settled.filter(result => result.failed)) {
         run.failed.push(failed); run.visited.push(failed);
@@ -299,6 +308,11 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const units = await askUnits({ ...over, rules: asking.filter(rule => !SEARCHES(rule.kind) && rule.each !== 'method'), parallel: unitParallel, progress: unitProgress });
     const searches = await searchUnits({ ...over, rules: asking.filter(rule => SEARCHES(rule.kind)), parallel: unitParallel, progress: searchProgress });
     run.carried += units.carried + searches.carried;
+    run.failed.push(...[...units.results, ...searches.results].filter(result => result.error));
+    run.incomplete = [
+      ...run.failed.filter(result => result.incomplete === true).map(result => `${result.path}::${result.name}: ${result.error}`),
+      ...[...units.results, ...searches.results].filter(result => result.incomplete).map(result => result.incomplete),
+    ];
     // What each rule actually covered. A selector that matches nothing is a rule that never fires and never says so, which is
     // the one kind of broken rule you cannot see by reading the report: it looks exactly like a rule nothing violates.
     // A rule about a file or a test has no reading to sit inside, so it is a check of its own. Every one is written down, passed
@@ -339,6 +353,6 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const byName = new Map(rules.map(rule => [rule.name, rule]));
     const unasked = [...checks.values()].filter(check => !said.has(check.id) && byName.get(check.rule)?.hash === check.rule_hash);
     await store.recordScan([...read, ...elsewhere, ...broken, ...unasked]);
-    run.remaining = walk.remaining(); run.status = 'complete'; run.completed_at = new Date().toISOString(); await writeJson(runPath, run); return run;
+    run.remaining = walk.remaining(); run.status = run.incomplete.length ? 'incomplete' : 'complete'; run.completed_at = new Date().toISOString(); await writeJson(runPath, run); return run;
   } catch (error) { run.status = 'failed'; run.error = error.message; await writeJson(runPath, run).catch(() => {}); throw error; }
 }

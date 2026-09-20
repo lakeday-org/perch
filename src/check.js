@@ -12,10 +12,11 @@ import { join } from 'node:path';
 import { languageOf } from './analysis.js';
 import { methodContext } from './context.js';
 import { questionMethod } from './scan.js';
-import { bodyOf, matches, neighbourhood, readLint, readRules, RULES_FILE, unitStep } from './units.js';
+import { bodyOf, matches, neighbourhood, readLint, readRules, RULES_FILE, unitSteps, askUnitSteps } from './units.js';
 import { BELIEVED, filterKeys, meaning, methodSteps, issuesOf } from './questions.js';
 import { floorFor } from './ask.js';
 import { openStore } from './store.js';
+import { requestScope } from './tokens.js';
 
 /** A check reads one file off disk, so there is no graph to draw a neighbourhood from: what `sees` can reach is that file. */
 const EMPTY_GRAPH = { nodes: new Map() };
@@ -89,6 +90,7 @@ const brokenHere = (rule, answers) => {
  * named the rules to ask. Asked together, since they do not depend on each other.
  */
 export async function checkTarget({ target, root, out, analyzer, systemOne, revision, only = [], debug = () => {} }) {
+  systemOne = requestScope(systemOne);
   const unit = await resolveTarget({ target, root, out, analyzer });
   const named = splitOnly(only);
   // Naming only classes the scan answers about means the rule file was not named, so none of it is asked.
@@ -102,9 +104,11 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
     contexts.get(rule.sees).push(rule);
   }
   const asked = (await Promise.all([...contexts].map(async ([sees, together]) => {
-    const { state, questions } = unitStep({ rules: together, unit, source: body, seen: neighbourhood(sees, unit, { graph: EMPTY_GRAPH, files: new Map([[unit.path, unit.text]]) }) });
+    const prepare = budget => unitSteps({ rules: together, unit, source: body, seen: neighbourhood(sees, unit, { graph: EMPTY_GRAPH, files: new Map([[unit.path, unit.text]]) }), budget });
+    const steps = prepare(systemOne.limits?.state);
     debug(`${together.map(rule => rule.name).join(', ')}: ${unit.name}`);
-    const { answers } = await systemOne.ask(state, questions);
+    const { answers, incomplete } = await askUnitSteps({ systemOne, steps, prepare, rules: together });
+    if (incomplete) throw new Error(`Check incomplete: ${unit.path} was checked in pieces; a whole-file conclusion was not established`);
     return together.map(rule => ({ rule: rule.name, said: rule.text, broken: brokenHere(rule, answers), floor: floorFor(rule, BELIEVED) }));
   }))).flat();
   // Each rule's own floor, the same one a scan reads it by. A flat 50% here called a rule broken that a scan would not list, so
@@ -123,8 +127,9 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
     if (context) {
       const node = { ...context.node, line: unit.line, end_line: unit.end_line, metrics: unit.metrics ?? context.node.metrics };
       const others = context.methods.filter(method => method.qualified_name !== unit.name);
-      const steps = methodSteps({ node, lines: unit.lines, imports: context.imports, methods: [...others, node], callees: context.callees, callers: context.callers });
-      const { answers } = await questionMethod({ systemOne, node, steps, lines: unit.lines, debug });
+      const prepare = budget => methodSteps({ node, lines: unit.lines, imports: context.imports, methods: [...others, node], callees: context.callees, callers: context.callers, budget });
+      const steps = prepare(systemOne.limits?.state);
+      const { answers } = await questionMethod({ systemOne, node, steps, prepare, lines: unit.lines, debug });
       issues = issuesOf({ ...answers, metrics: node.metrics });
       if (named.types.length) issues = issues.filter(issue => named.types.includes(issue.type));
     }

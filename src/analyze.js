@@ -2,10 +2,11 @@
 import { join } from 'node:path';
 import { listTree, readBlobs } from './git.js';
 import { analyzeFiles, sourceFile } from './analysis.js';
+import { ANALYSIS_PROFILE } from './treesitter/types.ts';
 import { identity, openStore, readJson, writeJson } from './store.js';
 
 export function scanIdentity({ revision, paths }) {
-  return identity('scan', revision, [...paths].sort());
+  return identity('scan', ANALYSIS_PROFILE, revision, [...paths].sort());
 }
 
 const selected = paths => file => !paths.length || paths.some(path => file.path === path || file.path.startsWith(path.replace(/\/$/, '') + '/'));

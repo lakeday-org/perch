@@ -1,6 +1,7 @@
-import type { Node } from "web-tree-sitter";
+import type { Node } from "./node";
 import type { Reference, ReferenceKind, SourceLocation } from "./types";
 import { isComment, isFunction, location, walkNodes } from "./metrics";
+import { callableName } from "./extensions";
 
 const IMPORT_TYPES = new Set([
   "import_statement",
@@ -86,7 +87,8 @@ function sourceRef(node: Node): string {
   return ownerId(node);
 }
 
-function referenceBase(node: Node): Node | null {
+function referenceBase(node: Node, language: string): Node | null {
+  if (language === 'kotlin' && node.type === 'call_expression') return node.namedChildren.find(node => !isComment(node)) ?? null;
   return child(node, "function", "callee", "name");
 }
 
@@ -250,18 +252,18 @@ function importReferences(node: Node, language: string): Reference[] {
   return references;
 }
 
-function callReference(node: Node): string {
+function callReference(node: Node, language: string): string {
   if (node.type === "method_invocation") {
     const object = text(child(node, "object"));
     const name = text(child(node, "name"));
     return validReference(object ? `${object}.${name}` : name);
   }
-  const callee = referenceBase(node);
-  return validReference(text(callee));
+  const callee = referenceBase(node, language);
+  return validReference(language === 'kotlin' ? text(callee).replaceAll('?.', '.') : text(callee));
 }
 
-function callReferenceRecord(node: Node): Reference {
-  const reference = callReference(node);
+function callReferenceRecord(node: Node, language: string): Reference {
+  const reference = callReference(node, language);
   return makeReference("call", node, {
     name: reference,
     reference,
@@ -304,8 +306,14 @@ export function collectReferences(root: Node, language: string): Reference[] {
     if (isComment(node)) continue;
     if (IMPORT_TYPES.has(node.type)) {
       references.push(...importReferences(node, language));
+    } else if (language === 'groovy' && node.type === 'func') {
+      const unit = node.parent, block = unit?.parent;
+      // A declaration's signature also contains a func node; only uses are calls.
+      if (block?.type === 'block' && block.namedChildren[0]?.id === unit?.id && callableName(block)) continue;
+      const name = validReference(text(node.namedChildren[0]));
+      references.push(makeReference('call', node, { name, reference: name }));
     } else if (CALL_TYPES.has(node.type)) {
-      references.push(callReferenceRecord(node));
+      references.push(callReferenceRecord(node, language));
     } else if (IDENTIFIER_TYPES.has(node.type) && isPassedAsValue(node) && validReference(text(node, 128))) {
       references.push(valueReference(node));
     }

@@ -1,0 +1,49 @@
+- name: parser-has-one-backend
+  where: src/treesitter/analyzer.ts
+  ensure: >-
+    Parsing uses only tree-sitter-language-pack. A parser failure remains an
+    explicit error or unsuccessful analysis; it never switches to another
+    parser or fabricates a successful result. No WASM asset loader is retained.
+- name: parser-tests-preserve-behavior
+  where: test/treesitter.test.ts
+  ensure: >-
+    The tests parse real source with the installed parser and check function
+    names, source locations, call references, imports and complexity against
+    independently written expectations. They do not mock the parser or derive
+    expected analysis from the actual result of that same analysis. The summary
+    test may compare summary and full analysis, but does not replace those
+    independent assertions.
+- name: grammar-errors-stay-visible
+  where: src/treesitter/analyzer.ts
+  ensure: >-
+    An unsupported language or failure to obtain a syntax tree cannot yield
+    parser_status parsed or usable metrics. The reason remains available to
+    the caller. A successful empty result in place of a parser failure breaks
+    this rule.
+- name: chunks-preserve-source
+  where: src/chunks.js
+  ensure: >-
+    The chunking path uses the language pack's built-in chunker and verifies
+    that its ranges cover the original source. Missing text or a chunk that
+    cannot fit produces an explicit incomplete-check error rather than being
+    dropped or sent oversized. Original source positions survive splitting.
+- name: large-files-are-not-silently-skipped
+  where: src/analysis.js
+  ensure: >-
+    Read eligibleFile and sourceFile. Neither rejects a file because its byte
+    size exceeds a threshold. A condition such as item.size <= 1024 * 1024
+    breaks this rule because it silently removes large authored files from
+    the scan. Directory and minified-file exclusions do not break the rule.
+- name: file-chunks-do-not-pretend-to-read-the-whole
+  where: mentions whole-file conclusion
+  ensure: >-
+    When this method handles a whole-file rule evaluated on separate chunks, the result
+    explicitly records that the whole-file conclusion is incomplete. Combining
+    passing chunk answers into an unconditional whole-file pass breaks this.
+- name: parser-registry-is-authoritative
+  where: src/treesitter/languages.ts
+  ensure: >-
+    Grammar availability is obtained from tree-sitter-language-pack rather
+    than a second parser or an obsolete WASM asset list. Filename conventions
+    and aliases may extend the package's detection. No unsupported language
+    is silently assigned a different programming language.

@@ -1,0 +1,15 @@
+- name: split-rules-live-under-dot-perch
+  where: src/units.js
+  ensure: >-
+    Read RULES_DIR and readRules. Split rule files are discovered under
+    .perch/rules alongside the root perch.yaml, including files on disk that
+    are not yet committed. Looking in a top-level perch directory instead,
+    or ignoring uncommitted rule files, breaks this rule.
+- name: generated-ignore-keeps-rule-files
+  where: src/store.js
+  ensure: >-
+    Read openStore's exclude method. The ignore file written into the default
+    .perch directory permits rules/ and its descendants to be committed, along
+    with closed.jsonl, while scan output remains ignored. Exempting only
+    closed.jsonl, or unignoring the rules directory while still ignoring its
+    contents, breaks this rule.

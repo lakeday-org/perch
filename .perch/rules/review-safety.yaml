@@ -1,0 +1,39 @@
+- name: size-errors-require-context-evidence
+  where: src/systemone.js
+  ensure: >-
+    In request's HTTP error handling, authentication-token errors and token
+    quota or rate-limit errors cannot trigger source-size retries. Matching
+    the word token near exceed or limit without identifying the request's
+    context size breaks this rule. HTTP 413 and explicit context-size error
+    codes are valid size signals.
+- name: file-unit-failures-stay-local
+  where: src/units.js
+  ensure: >-
+    In askUnits, a source-specific failure while preparing or asking one file
+    is recorded for that unit and leaves other units able to complete. The
+    protection covers preparing source chunks and locating a broken rule.
+    Letting one such error reject the entire batch breaks this rule.
+    Authentication and authorization errors must still stop the run.
+- name: search-uncertainty-does-not-hide-witnesses
+  where: src/units.js
+  ensure: >-
+    Read searchUnits's askOne and the Promise.all that calls it. If askOne
+    throws because a chunked unit lacks evidence, that exception is caught
+    locally so later units can still supply a witness. Letting it escape
+    searchUnits breaks this rule. No witness plus inconclusive units must
+    produce an incomplete result.
+- name: prepared-source-is-reused
+  where: '{src/scan.js,src/units.js}'
+  ensure: >-
+    Read the selection of active steps inside questionMethod or askUnitSteps.
+    When steps were supplied and the budget is still the initial budget,
+    those steps are used directly. Selecting prepare(budget) whenever prepare
+    exists breaks this rule, because the first attempt rebuilds work its
+    caller already prepared. Smaller-budget retries must still rebuild.
+- name: unit-request-work-is-bounded
+  where: src/tokens.js
+  ensure: >-
+    The client returned by requestScope shares a finite request counter
+    across its ask calls and the extra attempts made within each call. The
+    counter throws an incomplete-check error at its maximum. Returning success
+    at exhaustion or refreshing the allowance for every ask breaks this rule.
