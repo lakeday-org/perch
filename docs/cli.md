@@ -163,7 +163,8 @@ Puts closed issues back on the list.
 perch setup <claude-code | codex | pi | cursor> [options]
 ```
 
-Writes the perch skill:
+Installs instructions for using Perch in your coding assistant. Run this command
+from your repository:
 
 ```console
 $ perch setup claude-code
@@ -177,20 +178,15 @@ Wrote .claude/skills/perch/SKILL.md for Claude Code.
 | `pi` | `.pi/skills/perch/SKILL.md` |
 | `cursor` | `.cursor/rules/perch.mdc` |
 
-The skill tells the assistant to scan the branch instead of the whole
-repository, to read the JSON instead of the table, and to check one method after
-a fix. It explains that a finding is a probability, and that a mistake seen
-twice is worth a rule.
+If the installed file already matches the bundled version, no changes are made.
+To replace a modified or older file, use `--force`.
 
-Cursor gets the same text with its own frontmatter and `alwaysApply: true`.
-
-Commit the file, the same as `perch.yaml`.
-
-| Flag | |
+| Flag | Description |
 | --- | --- |
-| `--force` | Overwrite an edited skill file. Without it, perch exits 2. |
+| `--force` | Replace an existing file, including any local edits. |
 
-[perch in a coding assistant](skill.md) is the longer version.
+Commit the generated file to share these instructions with your team.
+See [Using Perch with coding assistants](skill.md) for more details.
 
 ## perch doctor
 
@@ -253,13 +249,15 @@ endpoint alone does not provide that contract.
 
 ## Exit codes
 
-| Code | |
+| Code | Meaning |
 | --- | --- |
-| `0` | Ran, and found nothing that fails. |
-| `1` | perch could not run here. `perch doctor` says what is wrong. |
-| `2` | The command line was wrong, or `perch setup` kept a file you had edited. |
-| `3` | Something that fails was found: a broken rule, a defect, or a vulnerability. |
+| `0` | Command completed successfully. |
+| `1` | Command failed. See the error message for details. |
+| `2` | Invalid arguments, or `perch setup` requires `--force` to replace an existing file. |
+| `3` | `scan` or `check` found issues. |
 
-Everything a scan asks about fails it. `scan_types` in `perch.yaml` decides what
-it asks about, and defaults to defects, vulnerabilities and rules. `gate: no` on
-a question records its answer without acting on it.
+By default, scans check for defects, security vulnerabilities, and custom rule
+violations. Use `scan_types` in `perch.yaml` to choose which issue types to check.
+
+A scan exits with code `3` when it finds an issue. Set `gate: false` on a question
+to record its results without changing the scan's exit code.

@@ -86,14 +86,11 @@ Extend perch with custom rules, in `perch.yaml`:
 
 ## Files perch writes
 
-| | |
+| Location | Contents |
 | --- | --- |
-| `.perch` | Results and cache. `--out` puts them somewhere else. |
-| `.perch/.gitignore` | Written with the results, so they stay out of `git status`. `closed.jsonl` is named back in, since it is meant to be committed. |
-| `perch.yaml` | `perch rules add`, `edit` and `remove` write it, keeping your comments and ordering. |
-| `.claude/`, `.codex/`, `.pi/`, `.cursor/` | `perch setup <assistant>` writes the skill file for that one. |
-
-`perch scan` and `perch check` write nothing else. `perch check` records nothing at all.
+| `.perch/` | Scan results and cache files. Use `--out <directory>` to choose another location. |
+| `perch.yaml` | Custom rules. Updated by `perch rules add`, `edit`, and `remove`. |
+| `.claude/`, `.codex/`, `.pi/`, `.cursor/` | Instructions installed for the selected assistant by `perch setup <assistant>`. |
 
 ## Development
 

@@ -38,16 +38,12 @@ describe('keeping results out of git status', () => {
     const store = openStore(repo.out);
     await store.exclude(repo.root);
 
-    // What pytest, ruff and cargo do in their own cache directories. perch used to append to .git/info/exclude: a change
-    // inside .git that nothing told you about, and that stayed after you deleted the results.
     const written = await readFile(join(repo.out, '.gitignore'), 'utf8');
     expect(written).toContain('*');
     expect(written).toContain('!closed.jsonl');
     expect(existsSync(join(repo.root, '.git', 'info', 'exclude'))
       && (await readFile(join(repo.root, '.git', 'info', 'exclude'), 'utf8')).includes('.perch')).toBe(false);
 
-    // `*` covers the ignore file itself, so it does not show up. closed.jsonl is named back in because it is meant to be
-    // committed, and that works because the directory is not ignored, only what is in it.
     await writeFile(join(repo.out, 'scan.jsonl'), '{}\n');
     await writeFile(join(repo.out, 'closed.jsonl'), '{}\n');
     const untracked = await git(['status', '--porcelain', '--untracked-files=all'], repo.root);

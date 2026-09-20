@@ -70,6 +70,3 @@ Results go to `.perch`:
 | `.perch/closed.jsonl` | What you set aside with `perch close`. Survives the next run. |
 
 `--out` points them somewhere else.
-
-A scan writes `.perch/.gitignore`, so the results stay out of `git status`.
-`closed.jsonl` is named back in, since it is worth committing.

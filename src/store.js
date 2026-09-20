@@ -73,15 +73,7 @@ export function openStore(out) {
     out,
     scanDir: id => join(out, 'scans', id),
     runDir: id => join(out, 'runs', id),
-    /**
-     * Keep results out of `git status` when they live inside the repository.
-     *
-     * A `.gitignore` in the results directory, which is what pytest, ruff and cargo do in theirs. This used to append to
-     * `.git/info/exclude`: a change inside `.git` that nothing told you about and that stayed after you deleted the results.
-     *
-     * `*` covers this file too, so it does not show up itself. `closed.jsonl` is named back in because it is meant to be
-     * committed. The directory is not ignored, only what is in it, or git would not re-include the one file.
-     */
+    /** Ignore cached results inside the repository while allowing closed.jsonl to be committed. */
     async exclude(root) {
       if (!out.startsWith(root + '/')) return;
       const path = join(out, '.gitignore');
