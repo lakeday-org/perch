@@ -84,7 +84,16 @@ Extend perch with custom rules, in `perch.yaml`:
 | [Command reference](https://docs.perchscan.com/cli/) | Every command, its flags, and what each exit code means. |
 | [Inside a scan](https://docs.perchscan.com/scan/) | The graph walk, the questions, and how probabilities turn into a ranking. |
 
-Results go in `.perch`, the one directory perch writes to.
+## Files perch writes
+
+| | |
+| --- | --- |
+| `.perch` | Results and cache. `--out` puts them somewhere else. |
+| `.git/info/exclude` | When the results live inside the repository, a scan adds `/.perch/*` and `!/.perch/closed.jsonl`, so results stay out of `git status` and closures stay in. |
+| `perch.yaml` | `perch rules add`, `edit` and `remove` write it, keeping your comments and ordering. |
+| `.claude/`, `.codex/`, `.pi/`, `.cursor/` | `perch setup <assistant>` writes the skill file for that one. |
+
+`perch scan` and `perch check` write nothing else. `perch check` records nothing at all.
 
 ## Development
 
