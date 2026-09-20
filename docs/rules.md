@@ -137,29 +137,47 @@ any one file. They search the likeliest units first and stop at the answer.
 
 ### The cost of a search
 
-A search stops at the first unit that answers, so a rule whose answer turns up
-early is cheap. A rule with no answer anywhere reads every unit it covers.
+A search is how you find out whether something is true of a codebase you have not
+read. That is worth having, and it is the most expensive thing perch does.
+
+It stops at the first unit that answers, so a rule that finds what it is looking
+for early is cheap. A rule with no answer anywhere reads every unit it covers.
+`ensure_absent` over `src/**/*.js` with `each: method` asks about every method in
+`src` before it can say nothing has the thing, and that is the case a clean
+codebase hits on every run. Three such rules account for most of a scan here.
 
 A rule reads at most 400 units, search or not. Past that the rest are skipped
 without a word, so an `ensure_present` rule over more than 400 units can report
 that nothing has the thing when something does.
 
-That is the expensive case, and it is the one a clean codebase hits. An
-`ensure_absent` rule over `src/**/*.js` with `each: method` searches every method
-in `src` before it can say nothing has the thing. Three such rules on this
-repository account for most of a scan's requests.
+`perch scan --filter rule=<name>` runs one rule on its own, which is how to see
+what a search costs.
 
-Narrow the scope and the cost falls with it:
+### From a search to a rule
+
+Use a search to find the problem. Once you know where it lives, write the rule
+against that place instead, and the cost goes with it.
+
+`where` takes the call graph, not just a glob:
 
 ```yaml
-- name: no-dead-command
-  where: "src/cli.js"      # not src/**/*.js
-  each: method
-  ensure_absent: A command or flag that is parsed and then never used.
+- name: closed-never-listed
+  where: callers of issues
+  ensure: >
+    This method passes the findings through visibleFindings before a person
+    sees them, or it is not producing a list for a person to read.
+
+- name: one-way-into-the-log
+  where: mentions .jsonl
+  ensure: >-
+    This method reads and writes the results files through the store, not by
+    opening them itself.
 ```
 
-`perch scan --filter rule=<name>` runs one rule on its own, which is how to see
-what a single search costs.
+Both are in this repository's `perch.yaml`. `callers of issues` is the handful of
+methods that call `issues()`. `mentions .jsonl` is the methods whose source names
+that string. A search over `src/**/*.js` would ask the same question of four
+hundred methods to reach the same answer.
 
 ## Wording a rule
 
