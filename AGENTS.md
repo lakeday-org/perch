@@ -27,9 +27,9 @@ disk rather than out of a commit, so it works on uncommitted code.
 
 ## Open an issue before you open a pull request
 
-Every change gets a GitHub issue first, including the small ones. `gh issue create --title "..." --body "..."`, then close it from the
-pull request with `Closes #<n>` in the body. Two reasons: a repository with no issue history reads as abandoned to anyone deciding
-whether to depend on it, and the issue is where the reasoning lives when the diff does not show it.
+Open an issue for new, standalone work before opening its pull request. Close it from the pull request with `Closes #<n>`.
+Do not file new issues for review feedback, corrections, or follow-up work within a task or PR already in progress. Handle those
+in the existing task and PR.
 
 An issue is a sentence about what is wrong and a sentence about what would fix it. Not a plan, not a status update.
 
