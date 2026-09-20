@@ -253,6 +253,15 @@ rules:
     # Floored at 60. This one is weak: it read 56% on "what fails is the question's own business", the plainest case in the docs,
     # and reads in the low fifties on pages with none. It catches a page full of it and will miss a single sentence.
     min: 60
+  - name: docs-no-refactor-history
+    where: "{README.md,skill.md,docs/**/*.md}"
+    ensure: >-
+      The page omits narratives about changes to Perch's own internal
+      organization. Justifying an internal refactor, comparing previous and
+      current file layouts, or telling users to move files from a retired
+      configuration directory breaks this rule. Current paths and settings
+      are allowed. The scan category named refactor and examples of scanning
+      user code are not histories of Perch's implementation.
   # The reference pages are excepted. scan.md explains how the walk, the questions and the ranking work; issues.md explains what
   # every column means and what the floor does. Explaining a design is what those pages are for, and this rule cannot tell that
   # from arguing for one: it reads 72 to 77 on both after the arguing is cut, against 71 on a task page with a decision argued

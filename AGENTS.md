@@ -98,10 +98,10 @@ version against `package.json` and fails the release, since npm versions cannot 
 `perch --version` is stamped at build time. A build sitting on its release tag with a clean tree reports that release; anything
 else reports `DEVELOPMENT` and the commit, because a working copy carries the same number in `package.json` and is not it.
 
-## The rules in perch.yaml are asked of this repository
+## Repository rules
 
-`perch scan` asks them alongside its own questions, and a broken one fails the run. They are sentences, so writing a good one is
-writing a clear sentence:
+Custom rules live in `perch.yaml` and `.perch/rules/`. `perch scan` asks them alongside its own questions, and a broken one fails
+the run. They are sentences, so writing a good one is writing a clear sentence:
 
 - Say what breaks the rule, not only what satisfies it. `readme-shows-not-tells` reads 59% worded abstractly and 96% once it
   names a screenshot, a GIF and a fenced block.
@@ -127,7 +127,7 @@ rule=<name>` spans four files and read broken against the finished feature in ev
 held the whole claim. Split it until each part is a claim one reading can settle, or it belongs in a test instead.
 
 `perch close <id> --reason "..."` sets aside a finding you have read and decided about. The reason is what the next person reads
-instead of reopening it. Closures live in `.perch/closed.jsonl`, which is committed; everything else under `.perch` is a cache.
+instead of reopening it. Commit `.perch/closed.jsonl` and the rules in `.perch/rules/`; the other contents of `.perch` are generated output.
 
 ## Secrets
 
@@ -140,3 +140,5 @@ commit message. If one is ever committed, rotate it rather than rewriting histor
 change here, and CI tells that repository to rebuild when main moves.
 
 Examples in the docs are real output. If you change one, run the command and paste what it said.
+
+Document current behavior and usage. Keep internal refactor rationale and previous layouts out of user documentation.

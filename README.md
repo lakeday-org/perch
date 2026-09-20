@@ -84,11 +84,13 @@ Extend perch with custom rules, in `perch.yaml`:
 | [Command reference](https://docs.perchscan.com/cli/) | Every command, its flags, and what each exit code means. |
 | [Inside a scan](https://docs.perchscan.com/scan/) | The graph walk, the questions, and how probabilities turn into a ranking. |
 
-## Files perch writes
+## Perch files
 
 | Location | Contents |
 | --- | --- |
-| `.perch/` | Scan results and cache files. Use `--out <directory>` to choose another location. |
+| `.perch/` | Generated scan results and cache files, alongside the committed files below. Use `--out <directory>` to choose another results location. |
+| `.perch/rules/` | Custom rules split across `.yaml` and `.yml` files. Commit these files. |
+| `.perch/closed.jsonl` | Dismissed findings and their reasons. Commit this file. |
 | `perch.yaml` | Custom rules. Updated by `perch rules add`, `edit`, and `remove`. |
 | `.claude/`, `.codex/`, `.pi/`, `.cursor/` | Instructions installed for the selected assistant by `perch setup <assistant>`. |
 

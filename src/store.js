@@ -73,11 +73,12 @@ export function openStore(out) {
     out,
     scanDir: id => join(out, 'scans', id),
     runDir: id => join(out, 'runs', id),
-    /** Ignore cached results inside the repository while allowing closed.jsonl to be committed. */
+    /** Ignore cached results while allowing closures and the default rule directory to be committed. */
     async exclude(root) {
       if (!out.startsWith(root + '/')) return;
       const path = join(out, '.gitignore');
-      const wanted = '# Written by perch. Results are a cache; closures are not.\n*\n!closed.jsonl\n';
+      const rules = out === join(root, '.perch') ? '!rules/\n' : '';
+      const wanted = '# Written by perch. Rules and closures are committed; scan output is not.\n/*\n!closed.jsonl\n' + rules;
       if (await readFile(path, 'utf8').catch(() => null) === wanted) return;
       await mkdir(out, { recursive: true });
       await writeFile(path, wanted);

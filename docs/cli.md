@@ -31,7 +31,8 @@ read. Every command that reads results takes
 ## perch scan
 
 Scores every method with tree-sitter, then reads them with System One, callers
-and callees in view. Custom rules in `perch.yaml` are asked in the same reading.
+and callees in view. Custom rules in `perch.yaml` and `.perch/rules/` are asked
+in the same reading.
 
 ```sh
 perch scan [target] [options]

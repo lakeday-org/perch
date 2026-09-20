@@ -6,7 +6,7 @@
  * file. Those are selected here and asked here.
  */
 import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { git, listTree } from './git.js';
 import { eligibleFile } from './analysis.js';
 import { sourceChunks } from './chunks.js';
@@ -16,7 +16,7 @@ import { leadingComment, lineId, lineWindows, locateWhere, tagged, whereQuestion
 import { findingId } from './store.js';
 
 /** Where rules live: one file until there are enough to split, then a directory of them. Both are source, both are reviewed. */
-export const RULES_FILE = 'perch.yaml', RULES_DIR = 'perch';
+export const RULES_FILE = 'perch.yaml', RULES_DIR = '.perch/rules';
 /** A rule is believed to be broken when the model puts more than half its weight there, the same line the scan draws. */
 export const BELIEVED = 0.5;
 /** Units one rule may ask about in a single run, so a mistyped selector cannot spend a repository's worth of requests. */
@@ -55,8 +55,10 @@ export async function readRules(root, revision) {
   const committed = (await listTree(root, revision)).map(item => item.path).filter(wanted);
   // A rule file that is on disk and not yet committed is still a rule file. Taking the list from the commit meant `perch rules
   // add` wrote a rule that nothing asked until someone committed it, and said nothing about why.
-  const here = [RULES_FILE, ...(await readdir(join(root, RULES_DIR)).catch(() => [])).map(name => `${RULES_DIR}/${name}`)].filter(wanted);
-  const paths = [...new Set([...committed, ...here])].sort();
+  const here = (await readdir(join(root, RULES_DIR), { recursive: true }).catch(() => []))
+    .map(name => `${RULES_DIR}/${name.split(sep).join('/')}`).filter(wanted);
+  // Root settings come first; split files keep their existing alphabetical override order.
+  const paths = [RULES_FILE, ...[...new Set([...committed, ...here])].filter(path => path !== RULES_FILE).sort()];
   const rules = [];
   for (const path of paths) {
     const text = await readFile(join(root, path), 'utf8').catch(() => git(['show', `${revision}:${path}`], root).catch(() => null));

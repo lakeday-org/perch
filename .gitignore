@@ -2,6 +2,7 @@ node_modules/
 dist/
 .perch/*
 !.perch/closed.jsonl
+!.perch/rules/
 .env
 
 # A lock or a half-written rule file, left by a perch that died mid-edit.

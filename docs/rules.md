@@ -13,7 +13,7 @@ A listing should honor a filter. A test should assert something real.
 
 You write the rule as a sentence. perch puts it to the model as a question.
 
-They live in `perch.yaml` at the root of the repository.
+They live in `perch.yaml` or YAML files under `.perch/rules/` at the repository root.
 
 ## The short form
 
@@ -57,6 +57,30 @@ defaults to the file as a whole. Narrow any of them when you need to:
 Custom rules ride in the request perch was already making about that method. A
 method covered by five rules costs one reading. Every question is scored against
 the code by itself, and the code is most of what the request carries.
+
+## Rule files
+
+Keep rules in `perch.yaml`, or split them into `.yaml` and `.yml` files under
+`.perch/rules/`. Subdirectories are supported. Each file contains a list of
+rules, using the same syntax as `perch.yaml`.
+
+Perch reads `perch.yaml` first, then the split files in alphabetical path order.
+A later definition with the same name replaces an earlier one. Edits and new
+files on disk apply before they are committed.
+
+Keep `ignore` and `scan_types` in the root `perch.yaml`. `perch rules list`
+includes split rules; `add`, `edit`, and `remove` write to `perch.yaml`. Edit
+split files directly.
+
+Commit `.perch/rules/` and `.perch/closed.jsonl`. Each scan updates
+`.perch/.gitignore` to keep output ignored and permit those paths.
+If your root `.gitignore` ignores `.perch` or its contents, replace that entry with:
+
+```gitignore
+.perch/*
+!.perch/closed.jsonl
+!.perch/rules/
+```
 
 ## Fields
 
@@ -294,8 +318,8 @@ what is asked and not just what is printed.
 
 ## perch rules
 
-`perch rules` changes the file without opening it, keeping comments and
-ordering:
+`perch rules list` includes rules from `perch.yaml` and `.perch/rules/`.
+The editing commands change `perch.yaml`, keeping comments and ordering:
 
 ```sh
 perch rules list
@@ -307,7 +331,7 @@ perch rules remove no-stale-docs
 ## Overriding perch's own questions
 
 The questions perch ships with are written in the same grammar, in `scan.yaml`
-inside the package. A rule in `perch.yaml` sharing a `name` with one of them
+inside the package. A rule in `perch.yaml` or `.perch/rules/` sharing a `name` with one of them
 replaces it. Reword a question that fits a codebase badly, or add a custom class
 alongside them.
 
