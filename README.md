@@ -84,7 +84,13 @@ Extend perch with custom rules, in `perch.yaml`:
 | [Command reference](https://docs.perchscan.com/cli/) | Every command, its flags, and what each exit code means. |
 | [Inside a scan](https://docs.perchscan.com/scan/) | The graph walk, the questions, and how probabilities turn into a ranking. |
 
-Results go in `.perch`, the one directory perch writes to.
+## Files perch writes
+
+| Location | Contents |
+| --- | --- |
+| `.perch/` | Scan results and cache files. Use `--out <directory>` to choose another location. |
+| `perch.yaml` | Custom rules. Updated by `perch rules add`, `edit`, and `remove`. |
+| `.claude/`, `.codex/`, `.pi/`, `.cursor/` | Instructions installed for the selected assistant by `perch setup <assistant>`. |
 
 ## Development
 

@@ -2,8 +2,8 @@
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { existsSync } from 'node:fs';
-import { appendFile, mkdir, readFile, rm } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { mkdir, rm } from 'node:fs/promises';
+import { dirname } from 'node:path';
 
 const execFileAsync = promisify(execFile);
 
@@ -46,16 +46,6 @@ export async function removeWorktree(root, dir) {
   try { await git(['worktree', 'remove', '--force', dir], root); }
   catch { await rm(dir, { recursive: true, force: true }); }
   await git(['worktree', 'prune'], root).catch(() => {});
-}
-
-/** Keep the results directory out of `git status` when it lives inside the repository. */
-export async function excludeFromStatus(root, pattern) {
-  const gitDir = (await git(['rev-parse', '--git-common-dir'], root)).trim();
-  const excludePath = join(gitDir.startsWith('/') ? gitDir : join(root, gitDir), 'info', 'exclude');
-  const current = await readFile(excludePath, 'utf8').catch(() => '');
-  if (current.split('\n').includes(pattern)) return;
-  await mkdir(dirname(excludePath), { recursive: true });
-  await appendFile(excludePath, `${current && !current.endsWith('\n') ? '\n' : ''}${pattern}\n`);
 }
 
 /** The content of one tracked blob, read without a checkout. */

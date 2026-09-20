@@ -157,14 +157,44 @@ perch reopen <issue-id>... [options]
 
 Puts closed issues back on the list.
 
+## perch setup
+
+```sh
+perch setup <claude-code | codex | pi | cursor> [options]
+```
+
+Installs instructions for using Perch in your coding assistant. Run this command
+from your repository:
+
+```console
+$ perch setup claude-code
+Wrote .claude/skills/perch/SKILL.md for Claude Code.
+```
+
+| Assistant | File |
+| --- | --- |
+| `claude-code` | `.claude/skills/perch/SKILL.md` |
+| `codex` | `.codex/skills/perch/SKILL.md` |
+| `pi` | `.pi/skills/perch/SKILL.md` |
+| `cursor` | `.cursor/rules/perch.mdc` |
+
+If the installed file already matches the bundled version, no changes are made.
+To replace a modified or older file, use `--force`.
+
+| Flag | Description |
+| --- | --- |
+| `--force` | Replace an existing file, including any local edits. |
+
+Commit the generated file to share these instructions with your team.
+See [Using Perch with coding assistants](skill.md).
+
 ## perch doctor
 
 ```
 perch doctor
 ```
 
-`perch doctor` says whether perch can run here, then what the last run could
-not read.
+Checks the local environment and reports errors from the most recent scan.
 
 ```console
 $ perch doctor
@@ -183,15 +213,10 @@ perch DEVELOPMENT (9478295)  node v25.5.0  darwin arm64
 No run yet. perch scan is what reads the code.
 ```
 
-It checks node, git and the API key. It checks the repository, a writable results
-directory and `perch.yaml`. Each is a tick or a cross, and every cross says what
-to do. It exits 1 when any check fails, so CI can run it before a scan.
+Returns exit code `1` if an environment check fails.
 
-Under the checks it lists every method the last run could not read, with the
-error beside it. A run that ended badly also gets the end of `.perch/scan.log`.
-
-It prints names, paths, counts and error messages, so it can be pasted into a
-bug report as it stands.
+The report also lists methods that could not be analyzed. For failed scans,
+it includes the end of `.perch/scan.log`.
 
 ## Environment
 
@@ -218,13 +243,15 @@ endpoint alone does not provide that contract.
 
 ## Exit codes
 
-| Code | |
+| Code | Meaning |
 | --- | --- |
-| `0` | Ran, and found nothing that fails. |
-| `1` | perch could not run here. `perch doctor` says what is wrong. |
-| `2` | The command line was wrong. |
-| `3` | Something that fails was found: a broken rule, a defect, or a vulnerability. |
+| `0` | Command completed successfully. |
+| `1` | Command failed. See the error message for details. |
+| `2` | Invalid arguments, or `perch setup` requires `--force` to replace an existing file. |
+| `3` | `scan` or `check` found issues. |
 
-What fails is the question's own business. A question gates by default when it
-raises a defect, a vulnerability or a rule. `gate: no` says the answer is worth
-reading but should not fail the scan.
+By default, scans check for defects, security vulnerabilities, and custom rule
+violations. Use `scan_types` in `perch.yaml` to choose which issue types to check.
+
+A scan exits with code `3` when it finds an issue. Set `gate: false` on a question
+to record its results without changing the scan's exit code.

@@ -32,6 +32,35 @@ async function fixture({ scanTypes } = {}) {
 /** Hunt options that re-read HEAD, since a test may commit between hunts. */
 const withRevision = async (repo, extra) => fixtureOptions(repo, { analyzer, revision: await revision(repo.root), ...extra });
 
+describe('keeping results out of git status', () => {
+  it('writes a .gitignore in the results directory, and leaves .git alone', async () => {
+    const repo = await fixture();
+    const store = openStore(repo.out);
+    await store.exclude(repo.root);
+
+    const written = await readFile(join(repo.out, '.gitignore'), 'utf8');
+    expect(written).toContain('*');
+    expect(written).toContain('!closed.jsonl');
+    expect(existsSync(join(repo.root, '.git', 'info', 'exclude'))
+      && (await readFile(join(repo.root, '.git', 'info', 'exclude'), 'utf8')).includes('.perch')).toBe(false);
+
+    await writeFile(join(repo.out, 'scan.jsonl'), '{}\n');
+    await writeFile(join(repo.out, 'closed.jsonl'), '{}\n');
+    const untracked = await git(['status', '--porcelain', '--untracked-files=all'], repo.root);
+    expect(untracked).toContain('.perch/closed.jsonl');
+    expect(untracked).not.toContain('scan.jsonl');
+    expect(untracked).not.toContain('.gitignore');
+  });
+
+  it('writes nothing when the results live outside the repository', async () => {
+    const repo = await fixture();
+    const outside = join(repo.root, '..', `perch-out-${Date.now()}`);
+    const store = openStore(outside);
+    await store.exclude(repo.root);
+    expect(existsSync(join(outside, '.gitignore'))).toBe(false);
+  });
+});
+
 describe('which issue types a scan asks about', () => {
   it('asks the three that can fail a run, and nothing else, unless perch.yaml says so', () => {
     // Refactor and docs never fail anything and read the same on every method that has ever been long. A scan of this
