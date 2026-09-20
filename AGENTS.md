@@ -78,6 +78,9 @@ Leave out:
 A reader should be able to skim it. Long prose paragraphs describing every field of every change are a worse version of the
 diff, which is on the next tab.
 
+PR comments answer review questions, identify blockers, or request decisions. Do not post work diaries, test inventories,
+confidence scores, mutation narratives, or summaries of passing CI. Keep that evidence in tests, CI, and local artifacts.
+
 ## Releases are not cut by hand
 
 release-please keeps one pull request open with the version bump and the changelog in it, amending as more lands on main.
