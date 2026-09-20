@@ -37,8 +37,8 @@ is one row carrying three issues.
 | `Kind` | The issues themselves, likeliest first, with how sure perch is of each. |
 | `Severity` | How much a caller would feel it. The rubric weighs the defect and the vulnerability, so other rows leave it empty. |
 
-Severity prints as a band and a number, `P1 (0.9)`. The number says where in the
-band the row sits:
+Severity prints as a band and a number, `P1 (0.9)`. The number places the row
+inside the band:
 
 ```
 P1 (0.9)   almost P0

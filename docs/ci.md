@@ -114,10 +114,10 @@ add requests:
 
 | | |
 | --- | --- |
-| A method | One request. Every question rides in it, so thirty questions cost what one costs. |
+| A method | One request. All the questions go in it, so thirty cost the same as one. |
 | A method too long for one request | Up to eight, in overlapping passes. |
-| A file rule | One request per file it covers, and one more for each file it breaks on, to find the line. |
-| `ensure_present` or `ensure_absent` | One per unit until a unit answers. See [the cost of a search](/rules/#the-cost-of-a-search). |
+| A file rule | One per file, plus one per failing file to locate the line. |
+| `ensure_present` or `ensure_absent` | One per unit, until one matches. See [the cost of a search](/rules/#the-cost-of-a-search). |
 
-`--since` decides how many methods are read and `--parallel` decides how fast
-they go, not how many requests there are. Output tokens are not billed.
+`--since` sets how many methods are read. `--parallel` sets how fast they go.
+Neither changes the request count. Output tokens are not billed.
