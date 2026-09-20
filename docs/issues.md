@@ -35,7 +35,7 @@ is one row carrying three issues.
 | `Location` | The file and the line. For a defect, the line the model pointed at. |
 | `Type` | The class the row leads with: `defect`, `security`, `refactor`, `docs`, or `lint`. |
 | `Kind` | The issues themselves, likeliest first, with how sure perch is of each. |
-| `Severity` | How much a caller would feel it. Empty on a row carrying neither a defect nor a vulnerability, since those are the two the rubric weighs. |
+| `Severity` | How much a caller would feel it. The rubric weighs the defect and the vulnerability, so other rows leave it empty. |
 
 Severity prints as a band and a number, `P1 (0.9)`. The number says where in the
 band the row sits:
@@ -110,8 +110,8 @@ perch issues --min 80     # only what it is very sure of
 perch issues --min 0      # everything it answered
 ```
 
-The floor decides what gets claimed. The ranking still uses every answer, so an
-issue at 49 percent weighs 0.49 in where its method sorts. See [the floor](/scan/#the-floor).
+The floor decides what is listed. The ranking uses every answer, so an issue at
+49 percent still weighs 0.49 in where its method sorts. See [the floor](/scan/#the-floor).
 
 ## Closing an issue
 
@@ -130,9 +130,8 @@ alone. `perch reopen <id>` puts it back.
 perch issues --closed     # include what you set aside
 ```
 
-Closed issues live in `.perch/closed.jsonl`, apart from the answers. A judgement
-you made has to survive the next run. Commit that file to share dismissals
-with the team.
+Closed issues live in `.perch/closed.jsonl`, apart from the answers, and survive
+the next run. Commit that file to share dismissals with the team.
 
 ## JSON
 

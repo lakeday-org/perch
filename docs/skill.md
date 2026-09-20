@@ -45,8 +45,8 @@ its own confidence. The real problem is often a few lines from the label. Read
 the code before changing it. Close what you decide is fine.
 
 **Check one method.** After a fix, `perch check path::method --json` asks about
-that method alone, off disk, recording nothing. A rescan would move the numbers
-on the issue being fixed.
+that method alone, off disk, recording nothing, so the numbers on the issue being
+fixed do not move.
 
 **Write a rule when a mistake repeats.** On the second correction, `perch rules
 add` catches it from then on. The skill tells the assistant to ask you first.

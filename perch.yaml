@@ -133,6 +133,9 @@ rules:
       one that is a sentence or a fragment of prose, such as Code perch does not
       read, Rewording what perch itself asks, One issue opened up, or Answers
       that are not yes-or-no.
+    # Floored at 75. docs/cli.md reads in the sixties with headings that are all plain noun phrases: perch scan, Exit codes.
+    # The real ones read in the eighties and nineties.
+    min: 75
   # Judges the opening rather than the page. Worded as a claim about every sentence, it ranked pages by length and nothing else:
   # a page rewritten entirely in 34-word run-ons read 92% and the same page in short sentences read 88%.
   - name: docs-sentences-are-short
@@ -247,6 +250,11 @@ rules:
       speaks for it, the rule stopped hedging, the table says, the README knows.
       A tool doing what it does is not this: a scan reads a file, a filter
       narrows a list.
+    # Floored at 60. This one is weak: it read 56% on "what fails is the question's own business", the plainest case in the docs,
+    # and reads in the low fifties on pages with none. It catches a page full of it and will miss a single sentence.
+    min: 60
+  # docs/scan.md is excepted. The page explains how the walk, the questions and the ranking work, so justification is what it is
+  # for. Six passages came out of it and the reading moved 82 to 77; the rest is the page doing its job.
   - name: docs-no-rationale
     where: "{README.md,skill.md,docs/**/*.md}"
     ensure: >-
@@ -255,3 +263,7 @@ rules:
       another, the cost of being wrong, why this was chosen over the
       alternative. Saying what a setting does and what happens when it is off is
       not this.
+    # Floored at 70. A clean page reads in the fifties and a page with a decision argued into it reads 71, so the band between is
+    # where the rule cannot tell them apart.
+    min: 70
+    except: docs/scan.md
