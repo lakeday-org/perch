@@ -129,8 +129,10 @@ rules:
     where: "{README.md,skill.md,docs/**/*.md}"
     ensure: >-
       Every heading names a task or a thing. A heading phrased as a question the
-      page then answers, such as What it costs to run or What it writes or Why
-      use this, breaks this.
+      page answers, such as What it writes or Why use this, breaks this. So does
+      one that is a sentence or a fragment of prose, such as Code perch does not
+      read, Rewording what perch itself asks, One issue opened up, or Answers
+      that are not yes-or-no.
   # Judges the opening rather than the page. Worded as a claim about every sentence, it ranked pages by length and nothing else:
   # a page rewritten entirely in 34-word run-ons read 92% and the same page in short sentences read 88%.
   - name: docs-sentences-are-short
@@ -233,7 +235,23 @@ rules:
   - name: codeql-scans-automatically
     where: .github/workflows/codeql.yml
     ensure: >-
-      CodeQL initializes with .github/codeql.yml and analyzes the repository
-      on pull requests, pushes to main and a weekly schedule, using standard
+      CodeQL initializes with .github/codeql.yml and analyzes the repository on
+      pull requests, pushes to main and a weekly schedule, using standard
       ubuntu-latest runners. A workflow that only checks out code, requires a
       manual run or skips the analysis step breaks this rule.
+  - name: docs-no-anthropomorphism
+    where: "{README.md,skill.md,docs/**/*.md}"
+    ensure: >-
+      Code, a question, a page or a table is not a person. A sentence giving one
+      a mind or a will breaks the rule: the question's own business, the parser
+      speaks for it, the rule stopped hedging, the table says, the README knows.
+      A tool doing what it does is not this: a scan reads a file, a filter
+      narrows a list.
+  - name: docs-no-rationale
+    where: "{README.md,skill.md,docs/**/*.md}"
+    ensure: >-
+      The page says what perch does and how to use it. A passage arguing for a
+      design decision belongs in a commit message: weighing one option against
+      another, the cost of being wrong, why this was chosen over the
+      alternative. Saying what a setting does and what happens when it is off is
+      not this.

@@ -27,7 +27,7 @@ worth stopping for is left out rather than reported and ignored.
 `perch rules list` prints the setting in a Fails column. `perch rules edit
 <name> --gate false` records a question's answer without acting on it.
 
-## Only what the branch changed
+## Branch scope
 
 `--since` narrows the scan to what moved:
 
@@ -78,7 +78,7 @@ jobs:
 Without the base branch in the checkout, `--since` has nothing to compare
 against, so `fetch-depth: 0` is not optional.
 
-## Reporting without gating
+## Reports without gating
 
 To collect findings without failing anything, read the JSON and decide yourself:
 
@@ -87,7 +87,7 @@ perch scan --since origin/main --json > perch.json || true
 jq '[.[] | select(.issues[]? | .type == "security" and .probability > 0.9)]' perch.json
 ```
 
-## Sharing what the team set aside
+## Shared closures
 
 `perch close` writes to `.perch/closed.jsonl`, which is kept separate from the
 answers so it can be committed. Commit it and the team's dismissals travel with

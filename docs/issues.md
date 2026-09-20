@@ -48,7 +48,7 @@ P1 (1.2)   settling toward P2
 The band is `round(mean)` and the number is `3 − mean`, over a distribution the
 model gives across all four levels. [Inside a scan](scan.md) works it through.
 
-## One issue, opened up
+## One issue in full
 
 ```console
 $ perch issues 723a2685
@@ -83,7 +83,7 @@ includes answers below the floor. A defect at 44% is left off the table, and
 vulnerability. The `Severity` line lower down carries the whole distribution, and
 the band and bracketed number are worked out from it.
 
-## Narrowing the list
+## Filters
 
 `--filter` takes `type=`, `kind=`, `severity=` and `rule=`. Clauses on the same
 key are alternatives, clauses on different keys all have to hold.
@@ -113,7 +113,7 @@ perch issues --min 0      # everything it answered
 The floor decides what gets claimed. The ranking still uses every answer, so an
 issue at 49 percent weighs 0.49 in where its method sorts. See [the floor](/scan/#the-floor).
 
-## Setting one aside
+## Closing an issue
 
 `perch close` takes a finding off the list:
 

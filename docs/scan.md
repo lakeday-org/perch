@@ -50,8 +50,8 @@ Nodes are named methods. An edge is drawn when a call resolves:
   callback, an event listener. These resolve only when the name is unique across
   the repository. The model is told the edge is a handover.
 
-Handover edges are how perch sees its own tool handlers. Without them the graph
-had 190 edges and 62 methods with no resolvable caller; with them, 588 and 46.
+Handover edges are how perch resolves tool handlers. On this repository they
+take the graph from 190 edges to 588, and unresolvable callers from 62 to 46.
 
 ## 3. The walk
 
@@ -66,8 +66,7 @@ Test methods are analyzed, so they can appear as callers, but never questioned.
 Up to `--parallel` methods are in flight at once.
 
 Every method in scope is read. Scope comes from `--paths` or `--since`, and
-nothing else. A cap on how many methods a run reads would leave a report that
-looks complete while missing things.
+nothing else. There is no cap on how many methods a run reads.
 
 Every reading goes into `scan.jsonl`, rewritten whole each run. What it holds is
 what this run says about this commit. A reading carries forward when the request
@@ -93,8 +92,8 @@ A method too long for one request is read in **overlapping passes**, each sized
 to what the budget actually holds. Only lines a pass can see are offered to its
 `where` question. The answers merge. The worst defect found anywhere is the
 method's defect. A vulnerability is the likeliest reading from any pass. The
-first pass carries the callers and callees. It speaks for the method's shape and
-its documentation. Eight passes is the cap. A longer method is read in part and says so, on the record and
+first pass carries the callers and callees, so it answers the questions about the
+method's shape and its documentation. Eight passes is the cap. A longer method is read in part and says so, on the record and
 in `perch issues <id>`.
 
 A method that still cannot be read is recorded against itself and the walk
@@ -135,15 +134,14 @@ the label they map to, so `boundary` reads as `off_by_one` and
 the labels, which are what `--filter kind=` takes.
 
 System One does not bill output tokens, so asking thirty questions of a method
-costs what asking one costs. That is why the set is wide rather than staged.
+costs what asking one costs. The whole set rides in one request.
 
 ### noul, choice and score
 
-`kind` was once eight independent yes/no questions. A defect has one kind, so it
-is a `choice`. The distribution it returns is what the row prints.
+A defect has one kind, so `kind` is a `choice`. The distribution it returns is
+what the row prints.
 
-`severity` was once three yes/no questions, and before that a single rating. It
-is a rubric, so it is a `score`:
+Severity is a rubric, so `severity` is a `score`:
 
 | Level | | Band |
 | --- | --- | --- |
@@ -152,16 +150,15 @@ is a rubric, so it is a `score`:
 | 2 | A wrong result or wrong state in ordinary use | `P1` |
 | 3 | Data lost, corrupted, or exposed, or a check that should stop someone bypassed | `P0` |
 
-The security classes stay independent yes/no questions, because they are: a
-method can be both injectable and leaking a secret.
+The security classes are independent yes/no questions. A method can be both
+injectable and leaking a secret.
 
 ## 5. Issues
 
 Each answer becomes at most one issue, carrying the probability that it is real.
 
-**A defect** is `has_bug`, labelled with the likeliest kind. The kind does not
-discount it. Multiplying the two would call a method half broken when it is
-certainly broken and merely of uncertain kind.
+**A defect** is `has_bug`, labelled with the likeliest kind. The probability is
+`has_bug` alone; the kind does not discount it.
 
 **A vulnerability** is the likeliest security class. Eight of the sixteen need
 something from outside to reach the method, so those are a joint probability:
@@ -171,8 +168,7 @@ P(vulnerable) = P(class) × P(exposed)
 ```
 
 The other eight cover memory safety, concurrency, type confusion and weak crypto.
-They are wrong whoever the caller is, so they are ungated. Gating them once hid a
-planted double-free scored `use_after_free 95%` behind `exposed 46%`.
+They are wrong whoever the caller is, so they are ungated.
 
 **Design issues** are the refactor the `refactor` choice picked, `1 − P(does what
 it claims)`, and `docs`.
@@ -209,8 +205,7 @@ weight = correctness × mean + design
 ```
 
 `mean` is the severity distribution's mean, worked out below. It is the only
-weighting in the ranking, and it is measured. The number it replaced was a `× 2`
-somebody made up.
+weighting in the ranking.
 
 Design problems weigh as themselves. They are the ones the rubric's own bottom
 level describes: no caller would notice.
@@ -253,10 +248,10 @@ The rubric measures how much a caller would feel whatever is wrong. Its top
 level is a vulnerability in so many words. A defect and a vulnerability are both
 weighed by it, and both carry the band.
 
-Naming a method by the band holding the most probability throws the rest away.
-A spread of P0 33% / P1 31% / P2 30% / P3 6% is called `P0` on a third of the
-mass. It then reads as worse than 54% on P1 and 29% on P0. The second does more
-damage, and the mean says so. `perch issues <id>` prints the whole distribution.
+The band names only where the most probability sits. P0 33% / P1 31% / P2 30% /
+P3 6% is called `P0` on a third of the mass, and reads as worse than 54% on P1
+with 29% on P0. The mean separates them, and `perch issues <id>` prints the
+whole distribution.
 
 ## 7. Filtering
 
@@ -269,9 +264,8 @@ A filter narrows the run, not only the report. `--filter rule=<name>` asks that
 one rule and skips every unit it does not cover, which is how a rule you have
 just written gets run on its own.
 
-A filtered list is also **ranked by what was filtered for**. Ranking it by
-overall weight would bury the strongest match. Within a key the likeliest
-matching issue speaks for it. Across keys they multiply:
+A filtered list is also **ranked by what was filtered for**. Within a key the
+likeliest matching issue sets the score. Across keys they multiply:
 
 ```
 strength = max(matching issues in key A) × max(matching issues in key B) × …
