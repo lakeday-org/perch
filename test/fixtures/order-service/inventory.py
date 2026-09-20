@@ -1,3 +1,4 @@
+# Deliberate bugs: documentation fixture, not production code.
 """Stock levels, reservations and restocking."""
 
 

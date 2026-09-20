@@ -2,10 +2,10 @@
 # things a parser cannot prove: whether a listing honors a filter, whether prose reads like a person wrote it, whether a
 # behavior is asserted anywhere. Editing a rule's wording re-asks it; leaving it alone costs nothing.
 
-# Code perch does not read at all. perch-example is an order service with a bug in every method, kept so the docs can show real
-# output; being told about them on every run is noise nobody acts on.
+# The order-service fixture has deliberate bugs so the docs can show real output.
+# Keep it out of ordinary repository scans.
 ignore:
-  - perch-example/**
+  - test/fixtures/order-service/**
 
 rules:
   - name: prose-not-generated
@@ -214,3 +214,10 @@ rules:
     ensure: >-
       Every question raising an issue fails the run unless it says gate: false.
       No issue type is exempt by being a judgement call.
+  - name: docs-identify-bug-fixture
+    where: docs/rules.md
+    ensure: >-
+      In the section about code perch does not read, the order-service example
+      is identified as a deliberately buggy fixture under test/fixtures/order-service.
+      Describing it as application code or placing it at the repository root
+      breaks this rule.

@@ -204,7 +204,7 @@ map instead, with the rules under `rules:`:
 
 ```yaml
 ignore:
-  - perch-example/**
+  - test/fixtures/order-service/**
   - fixtures/**
 
 rules:
@@ -214,8 +214,8 @@ rules:
 ```
 
 A path matching `ignore` is never read and never reported. This repository uses
-it for `perch-example`, an order service with a bug in every method. It exists so
-the docs can show real output.
+it for `test/fixtures/order-service`, a deliberately buggy order-service fixture.
+The docs use its bugs to show real output.
 
 The bare list form still works.
 

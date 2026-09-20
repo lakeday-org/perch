@@ -1,3 +1,4 @@
+# Deliberate bugs: documentation fixture, not production code.
 """Reading and writing order files."""
 
 import json

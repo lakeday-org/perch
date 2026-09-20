@@ -1,3 +1,4 @@
+# Deliberate bugs: documentation fixture, not production code.
 """Who may act on an order."""
 
 import hashlib

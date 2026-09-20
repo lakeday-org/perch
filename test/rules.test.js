@@ -99,7 +99,7 @@ describe('editing the rule file', () => {
 
   it('edits a rule file written as a map, with the rules under a key', async () => {
     const { root, read, rules } = await withRules(`ignore:
-  - perch-example/**
+  - test/fixtures/order-service/**
 
 rules:
   - name: prose
@@ -112,11 +112,11 @@ rules:
     expect((await rules()).map(rule => rule.name)).toEqual(['prose', 'second']);
     // The ignore list is untouched by a rule edit, and still parses as itself.
     const { parseIgnored } = await import('../src/ask.js');
-    expect(parseIgnored(await read(), RULES_FILE)).toEqual(['perch-example/**']);
+    expect(parseIgnored(await read(), RULES_FILE)).toEqual(['test/fixtures/order-service/**']);
     await editRule(root, 'prose', { min: 70 });
     await removeRule(root, 'second');
     expect((await rules()).map(rule => rule.name)).toEqual(['prose']);
-    expect(parseIgnored(await read(), RULES_FILE)).toEqual(['perch-example/**']);
+    expect(parseIgnored(await read(), RULES_FILE)).toEqual(['test/fixtures/order-service/**']);
   });
 
   it('refuses a name that is taken, since two rules with one name is a report nobody can act on', async () => {
