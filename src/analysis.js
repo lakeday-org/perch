@@ -1,10 +1,6 @@
 /** Tree-sitter analysis of tracked source files: per-method metrics plus the calls and imports that link them. */
-import { createRequire as makeRequire } from 'node:module';
-import { readFile } from 'node:fs/promises';
 import { createAnalyzer } from './treesitter/index.ts';
 import { sha256 } from './store.js';
-
-const resolveModule = makeRequire(import.meta.url);
 
 /**
  * Extensions perch reads, and the grammar each one is parsed with. Every language here was checked against the analyzer: the parser
@@ -21,18 +17,12 @@ const languages = {
 };
 export const languageOf = path => languages[path.split('.').at(-1)];
 
-function assetPath(name) {
-  if (name === 'web-tree-sitter.wasm') return resolveModule.resolve('web-tree-sitter/web-tree-sitter.wasm');
-  const language = name.slice('tree-sitter-'.length, -'.wasm'.length);
-  return resolveModule.resolve(`tree-sitter-wasm/${language}/tree-sitter-${language}.wasm`);
-}
-
 export function createSourceAnalyzer() {
-  return createAnalyzer({ loadAsset: async name => readFile(assetPath(name)) });
+  return createAnalyzer();
 }
 
-/** File rules can read prose too, but share the scanner's size and generated/dependency file exclusions. */
-export const eligibleFile = item => item.type === 'blob' && item.size <= 1024 * 1024 &&
+/** File rules can read prose too, but share the scanner's generated/dependency file exclusions. Large source is read in chunks. */
+export const eligibleFile = item => item.type === 'blob' &&
   !/(^|\/)(vendor|node_modules|dist|target|\.git|\.perch|\.lakeday|build|coverage)(\/|$)/.test(item.path) &&
   !/\.min\.(?:[cm]?[jt]s|[jt]sx)$/.test(item.path);
 

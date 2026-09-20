@@ -1,4 +1,4 @@
-import type { Node } from "web-tree-sitter";
+import type { Node } from "./node";
 import type { Reference, ReferenceKind, SourceLocation } from "./types";
 import { isComment, isFunction, location, walkNodes } from "./metrics";
 

@@ -37,11 +37,11 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:fixtures": "npm run build && node scripts/verify-fixtures.mjs",
     "check": "npm run lint && npm run typecheck && npm test"
   },
   "dependencies": {
-    "tree-sitter-wasm": "2.0.1",
-    "web-tree-sitter": "0.27.0",
+    "@xberg-io/tree-sitter-language-pack": "1.20.0",
     "yaml": "^2.9.1"
   },
   "devDependencies": {

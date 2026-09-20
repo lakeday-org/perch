@@ -9,6 +9,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { git, listTree } from './git.js';
 import { eligibleFile } from './analysis.js';
+import { sourceChunks, STATE_BYTES, jsonBytes, questionBatches, IncompleteCheckError } from './chunks.js';
 import { askKey, BUILTIN, compile, floorFor, installQuestions, merge, parseIgnored, parseQuestions, parseScanTypes, SEARCHES } from './ask.js';
 import { leadingComment, lineId, lineWindows, locateWhere, tagged, whereQuestion, whereWindowQuestion } from './questions.js';
 import { findingId } from './store.js';
@@ -242,21 +243,78 @@ export function unitStep({ rules, unit, source, seen = {} }) {
   return { state, questions: compile(rules) };
 }
 
+/** Every byte is visited; whole-file conclusions remain explicitly incomplete when only pieces fit. */
+export function unitSteps({ rules, unit, source, seen = {} }) {
+  const whole = unitStep({ rules, unit, source, seen });
+  try {
+    questionBatches(whole.state, whole.questions);
+    return [{ ...whole, chunk: { source, line: 1, startByte: 0, endByte: Buffer.byteLength(source) } }];
+  } catch (error) { if (!(error instanceof IncompleteCheckError)) throw error; }
+  const overhead = jsonBytes(unitStep({ rules, unit, source: '', seen }).state) + 1024;
+  let maxBytes = Math.min(STATE_BYTES / 2, STATE_BYTES - overhead);
+  for (;;) {
+    const chunks = sourceChunks(source, { path: unit.path, maxBytes });
+    try {
+      return chunks.map(chunk => {
+        const step = unitStep({ rules, unit, source: chunk.source, seen });
+        if (chunks.length > 1) step.state.reading = { partial: true, line: unit.line + chunk.line - 1, start_byte: chunk.startByte, end_byte: chunk.endByte };
+        questionBatches(step.state, step.questions);
+        return { ...step, chunk };
+      });
+    } catch (error) {
+      if (!(error instanceof IncompleteCheckError) || maxBytes <= 128) throw error;
+      maxBytes = Math.max(128, Math.floor(maxBytes / 2));
+    }
+  }
+}
+
+export async function askUnitSteps({ systemOne, steps, rules }) {
+  const answers = {}, evidence = {};
+  for (const step of steps) {
+    const response = await systemOne.ask(step.state, step.questions);
+    for (const rule of rules) {
+      const answer = response.answers[rule.name];
+      if (!answer || typeof answer.noul !== 'number') throw new Error(`Missing rule answer: ${rule.name}`);
+      const previous = answers[rule.name];
+      if (!previous || (rule.kind === 'ensure' ? answer.noul < previous.noul : answer.noul > previous.noul)) {
+        answers[rule.name] = answer; evidence[rule.name] = step.chunk;
+      }
+    }
+  }
+  return { answers, evidence, incomplete: steps.length > 1 };
+}
+
 /**
  * Where a broken rule is broken. A whole file scored 68% tells you nothing you can act on, so a file that fails is asked a second
  * question: which line. Only failing files are asked, so a clean run still costs one request each.
  */
 export async function locateBreak({ systemOne, rule, unit, body }) {
-  const lines = body.split('\n');
-  const ids = lines.map((text, index) => (text.trim() ? lineId(index + 1) : null)).filter(Boolean);
-  if (ids.length < 2) return unit.line;
+  let maxBytes = STATE_BYTES / 2;
+  let chunks;
+  for (;;) {
+    chunks = sourceChunks(body, { path: unit.path, maxBytes });
+    if (chunks.every(chunk => jsonBytes({ rule: rule.text, path: unit.path, source: tagged(chunk.source.split('\n'), unit.line + chunk.line - 1) }) <= STATE_BYTES)) break;
+    if (maxBytes <= 128) throw new IncompleteCheckError(`${unit.path}: location metadata is too large`);
+    maxBytes = Math.max(128, Math.floor(maxBytes / 2));
+  }
+  let picked = chunks[0], confidence = -1;
+  if (chunks.length > 1) for (const chunk of chunks) {
+    const { answers } = await systemOne.ask({ path: unit.path, source: chunk.source, reading: { partial: true } },
+      { has_break: { type: 'noul', instructions: `Does this excerpt contain evidence that the following rule is broken? ${rule.text}` } });
+    if (typeof answers.has_break?.noul !== 'number') throw new Error('Missing location evidence answer');
+    if (answers.has_break.noul > confidence) { confidence = answers.has_break.noul; picked = chunk; }
+  }
+  const start = unit.line + picked.line - 1, lines = picked.source.split('\n');
+  const ids = lines.flatMap((text, index) => text.trim() ? [lineId(start + index)] : []);
+  if (ids.length < 2) return start;
   const windows = lineWindows(ids);
-  const state = { rule: rule.name, path: unit.path, source: tagged(lines, 1) };
+  const state = { rule: rule.text, path: unit.path, source: tagged(lines, start) };
   const question = ids => ({ ...whereQuestion(ids), instructions: { rule: rule.text, question: 'Which line breaks `rule`? Pick the worst one.' } });
   const questions = windows ? { where_window: whereWindowQuestion(windows) } : { where: question(ids) };
-  const { answers } = await locateWhere({ systemOne, state, questions, windows: windows?.map(window => window) });
+  const { answers } = await locateWhere({ systemOne, state, questions, windows });
   const chosen = answers.where?.choice;
-  return chosen ? Number(String(chosen).slice(1)) : unit.line;
+  if (!ids.includes(chosen)) throw new Error(`Invalid location answer: ${chosen}`);
+  return Number(chosen.slice(1));
 }
 
 /** What one answer means: how sure the rule is broken, and the citation when there is one. */
@@ -310,22 +368,24 @@ export async function askUnits({ rules, scan, graph, files, tree, revision, syst
   const askOne = async ({ unit, sees, rules: over }) => {
     const source = files.get(unit.path) ?? '';
     const body = unit.part ? bodyOf(source, unit) : source;
-    const { state, questions } = unitStep({ rules: over, unit, source: body, seen: neighbourhood(sees, unit, { graph, files }) });
-    const key = askKey([{ state }], over, systemOne.cacheKey ?? systemOne.id);
+    const steps = unitSteps({ rules: over, unit, source: body, seen: neighbourhood(sees, unit, { graph, files }) });
+    const key = askKey(steps, over, systemOne.cacheKey ?? systemOne.id);
     // Nothing about this unit or these rules has changed since it was last asked, so the answer cannot have either.
     const before = over.map(rule => earlier.get(findingId(`${rule.name}::${unit.id}`))).filter(check => check?.key === key);
     if (before.length === over.length) { debug(`${over.map(rule => rule.name).join(', ')}: ${unit.name} is unchanged`); return { results: before, carried: before.length }; }
 
     debug(`${over.map(rule => rule.name).join(', ')}: ${unit.name}`);
-    const { answers } = await systemOne.ask(state, questions);
+    const { answers, evidence, incomplete } = await askUnitSteps({ systemOne, steps, rules: over });
     // A file that failed is asked which line failed; a method or a test block already has one. One question per broken rule,
     // since two rules broken in one file are rarely broken on the same line.
     const results = await Promise.all(over.map(async rule => {
       const broken = readLint(rule, answers).broken;
       const failing = broken > floorFor(rule, min);
-      const line = failing && !unit.part ? await locateBreak({ systemOne, rule, unit, body }) : unit.line;
+      const chunk = evidence[rule.name];
+      const line = failing && !unit.part ? await locateBreak({ systemOne, rule, unit: { ...unit, line: unit.line + chunk.line - 1 }, body: chunk.source }) : unit.line;
       const onLine = failing && !unit.part ? (source.split('\n')[line - 1] ?? '').trim() : '';
-      return checkOf(rule, unit, { broken, line, text: onLine.length > 110 ? `${onLine.slice(0, 110)}…` : onLine || null, revision, key });
+      return { ...checkOf(rule, unit, { broken, line, text: onLine.length > 110 ? `${onLine.slice(0, 110)}…` : onLine || null, revision, key }),
+        ...(incomplete ? { incomplete: `${unit.path}: ${rule.name} was checked in pieces; a whole-file conclusion was not established` } : {}) };
     }));
     return { results, carried: 0 };
   };
@@ -372,10 +432,12 @@ export async function searchUnits({ rules, scan, graph, files, tree, revision, s
   const askOne = async (rule, unit) => {
     const source = files.get(unit.path) ?? '';
     const body = unit.part ? bodyOf(source, unit) : source;
-    const { state, questions } = unitStep({ rules: [rule], unit, source: body, seen: neighbourhood(rule.sees, unit, { graph, files }) });
+    const steps = unitSteps({ rules: [rule], unit, source: body, seen: neighbourhood(rule.sees, unit, { graph, files }) });
     debug(`${rule.name}: ${unit.name}`);
-    const { answers } = await systemOne.ask(state, questions);
-    return readLint(rule, answers).here > min;
+    const { answers, incomplete } = await askUnitSteps({ systemOne, steps, rules: [rule] });
+    const found = readLint(rule, answers).here > min;
+    if (incomplete && !found) throw new IncompleteCheckError(`${unit.path}: ${rule.name} was not found in individual pieces; cross-piece evidence is unchecked`);
+    return found;
   };
 
   await Promise.all(running.map(async ({ rule, units, id, key }) => {

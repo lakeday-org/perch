@@ -1,48 +1,22 @@
-import { createRequire } from "node:module";
-import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import {
   SUPPORTED_LANGUAGES,
-  analyzeSource,
   createAnalyzer,
   languageForPath,
 } from "../src/treesitter/index";
 
-const require = createRequire(import.meta.url);
-
-function assetPath(name: string): string {
-  if (name === "web-tree-sitter.wasm") {
-    return require.resolve("web-tree-sitter/web-tree-sitter.wasm");
-  }
-  const language = name.slice("tree-sitter-".length, -".wasm".length);
-  return require.resolve(`tree-sitter-wasm/${language}/tree-sitter-${language}.wasm`);
-}
-
-function realAnalyzer() {
-  return createAnalyzer({
-    loadAsset: async (name) => readFile(assetPath(name)),
-  });
-}
+function realAnalyzer() { return createAnalyzer(); }
 
 describe("language registry", () => {
-  it("registers the pinned broad grammar set without pretending to support Lean", () => {
+  it("registers the language pack and detects source languages", () => {
     expect(SUPPORTED_LANGUAGES.length).toBeGreaterThan(30);
     expect(languageForPath("src/index.ts")).toBe("typescript");
     expect(languageForPath("src/view.tsx")).toBe("tsx");
     expect(languageForPath("Dockerfile")).toBe("dockerfile");
-    expect(languageForPath("Main.lean")).toBeNull();
   });
 });
 
 describe("Tree-sitter analysis", () => {
-  it("loads every registered grammar through the real WASM runtime", async () => {
-    const analyzer = realAnalyzer();
-    for (const language of SUPPORTED_LANGUAGES) {
-      const result = await analyzer.analyzeSource("", language);
-      expect(result.parser_status, language).not.toBe("resource-unavailable");
-    }
-  });
-
   it("parses JavaScript and returns Halstead, control-flow, locations, imports, and calls", async () => {
     const analyzer = realAnalyzer();
     const result = await analyzer.analyzeSource(
@@ -104,18 +78,6 @@ describe("Tree-sitter analysis", () => {
     expect(result.diagnostics.some((diagnostic) => diagnostic.kind === "syntax")).toBe(true);
     expect(result.diagnostics[0]?.location?.start.line).toBeGreaterThan(0);
   });
-
-  it("reports missing resources and unknown grammars explicitly", async () => {
-    const missing = await analyzeSource("const x = 1;", "javascript");
-    expect(missing.parser_status).toBe("resource-unavailable");
-    expect(missing.metrics).toBeNull();
-    expect(missing.diagnostics[0]?.kind).toBe("resource");
-
-    const unknown = await realAnalyzer().analyzeSource("theorem foo : True := by trivial", "lean");
-    expect(unknown.parser_status).toBe("unsupported");
-    expect(unknown.metrics).toBeNull();
-    expect(unknown.diagnostics[0]?.kind).toBe("unsupported");
-  });
 });
 
 
@@ -130,10 +92,32 @@ describe("scan summaries", () => {
     const { declarations, references: _references, ...expected } = full;
     expect(await analyzer.analyzeSummary(source, language)).toEqual({ ...expected, declaration_count: declarations.length });
   });
-  it("fails closed when the grammar is unavailable", async () => {
-    const analyzer = createAnalyzer({ loadAsset: () => { throw new Error("missing asset"); } });
-    const result = await analyzer.analyzeSummary("fn main() {}", "rust");
-    expect(result.parser_status).toBe("resource-unavailable");
-    expect(result.metrics).toBeNull();
-  });
+});
+
+const scanExamples = {
+  javascript: 'function probe(x) { return x; }',
+  typescript: 'function probe(x: number) { return x; }',
+  tsx: 'function probe() { return <div />; }',
+  python: 'def probe(x):\n    return x\n',
+  rust: 'fn probe(x: i32) -> i32 { x }',
+  go: 'package main\nfunc probe(x int) int { return x }',
+  java: 'class Example { int probe(int x) { return x; } }',
+  kotlin: 'fun probe(x: Int): Int { return x }',
+  scala: 'object Example { def probe(x: Int): Int = x }',
+  groovy: 'def probe(x) { return x }\n',
+  c: 'int probe(int x) { return x; }',
+  cpp: 'int probe(int x) { return x; }',
+  csharp: 'class Example { int probe(int x) { return x; } }',
+  ruby: 'def probe(x)\n x\nend',
+  php: '<?php function probe($x) { return $x; }',
+  lua: 'function probe(x) return x end',
+  swift: 'func probe(_ x: Int) -> Int { return x }',
+  zig: 'fn probe(x: i32) i32 { return x; }',
+  solidity: 'contract Example { function probe(uint x) public pure returns (uint) { return x; } }',
+  bash: 'probe() { echo "$1"; }',
+};
+it.each(Object.entries(scanExamples))('keeps callable declarations for the existing %s scanner language', async (language, source) => {
+  const result = await realAnalyzer().analyzeSource(source, language);
+  expect(result.parser_status).toBe('parsed');
+  expect(result.declarations.some(item => item.name === 'probe')).toBe(true);
 });

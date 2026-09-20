@@ -1,0 +1,7 @@
+{
+  "name": "perch-fixture-order-service-typescript",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "tsc", "start": "node dist/main.js" },
+  "devDependencies": { "typescript": "^5.7.3" }
+}

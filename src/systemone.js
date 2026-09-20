@@ -1,5 +1,6 @@
 /** TypeSafe System One client: typed questions over a state, answered with probabilities. */
 import { createHash } from 'node:crypto';
+import { questionBatches } from './chunks.js';
 
 export const DEFAULT_SYSTEM_ONE_MODEL = 'jev-latest';
 
@@ -40,12 +41,20 @@ export function createSystemOne({
   return {
     id: model,
     cacheKey: createHash('sha256').update(JSON.stringify([baseUrl, model])).digest('hex'),
-    /** Ask every question in one call; returns { model, answers, usage } with one answer per question id. */
+    /** Batch independent questions within the request budget and return one answer per question id. */
     async ask(state, questions) {
-      const response = await request({ model, state, questions });
-      const missing = Object.keys(questions).filter(id => !response.answers?.[id]);
-      if (missing.length) throw new Error(`System One response is missing answers for ${missing.join(', ')}`);
-      return { model: response.model ?? model, answers: response.answers, usage: response.usage ?? null };
+      const responses = [];
+      for (const batch of questionBatches(state, questions)) {
+        const response = await request({ model, state, questions: batch });
+        const missing = Object.keys(batch).filter(id => !response.answers?.[id]);
+        if (missing.length) throw new Error(`System One response is missing answers for ${missing.join(', ')}`);
+        responses.push(response);
+      }
+      if (responses.length === 1) return { model: responses[0].model ?? model, answers: responses[0].answers, usage: responses[0].usage ?? null };
+      const usage = {};
+      for (const response of responses) for (const [key, value] of Object.entries(response.usage ?? {}))
+        if (typeof value === 'number') usage[key] = (usage[key] ?? 0) + value;
+      return { model: responses.at(-1).model ?? model, answers: Object.assign({}, ...responses.map(response => response.answers)), usage, requests: responses.length };
     },
   };
 }

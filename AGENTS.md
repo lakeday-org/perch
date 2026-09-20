@@ -60,6 +60,10 @@ Not `fix: update API configuration` or `fix: address review feedback`. Those are
 
 ## Keep the pull request body about the change
 
+For bug fixes, PR titles and descriptions describe the defect. Say what was going wrong before explaining the correction.
+For example, use `fix: whole-file rules were scanning dependencies and build output`, rather than
+`fix: whole-file rules skip dependencies and build output`.
+
 Say what was wrong, what changed, and what a user has to do about it. Nothing else.
 
 Leave out:

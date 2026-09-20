@@ -11,12 +11,9 @@ export type {
   AnalysisDiagnostic,
   AnalysisTruncation,
   Analyzer,
-  AnalyzerOptions,
   ComplexityMetrics,
   Declaration,
   HalsteadMetrics,
-  MaybePromise,
-  ParserResources,
   ParserStatus,
   QualityMetrics,
   Reference,
@@ -26,5 +23,4 @@ export type {
   SourceLocation,
   SourcePoint,
   StructureHotspot,
-  WasmAsset,
 } from "./types";

@@ -37,7 +37,7 @@ await build({
   platform: 'node',
   format: 'esm',
   target: 'node22',
-  // Grammar and parser wasm files are read from node_modules at run time.
-  external: ['web-tree-sitter', 'tree-sitter-wasm'],
+  // Native parser bindings are loaded from the installed package at run time.
+  external: ['@xberg-io/tree-sitter-language-pack'],
   banner: { js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" },
 });

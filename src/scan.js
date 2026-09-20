@@ -13,6 +13,7 @@ import { askKey, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor
 import { issuesOf, label as kindLabel, methodSteps, locateWhere, readAnswers } from './questions.js';
 import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL } from './units.js';
 import { findingId, identity, openStore, writeJson } from './store.js';
+import { IncompleteCheckError } from './chunks.js';
 export { findingId };
 
 /** Methods in flight at once. Each request carries a whole neighborhood and thirty questions, so this is where the size is. */
@@ -50,7 +51,7 @@ export async function questionMethod({ systemOne, node, step, steps = [step], li
   }
   const answers = mergeAnswers(readings, [...questionSet().filter(question => question.each === 'method' && !question.kind), ...rules]);
   answers.where.text = lines[answers.where.line - 1]?.trim() ?? '';
-  // A method too long for even MAX_PASSES was read in part. Say so, rather than let the answers read as if they were the whole of it.
+  // A partial source reading must remain visible instead of looking like a complete method check.
   const to = steps.at(-1).covers.end_line;
   if (to < node.end_line) answers.read = { passes: steps.length, to_line: to, of_line: node.end_line };
   return { response, answers };
@@ -275,7 +276,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
       }
       if (!batch.length) break;
       let done = 0;
-      const settled = await Promise.all(batch.map(async nodeId => { try { const result = await ask(nodeId); progress(run.calls + ++done, total); return result; } catch (error) { progress(run.calls + ++done, total); const node = graph.nodes.get(nodeId); log(`${node.qualified_name} in ${node.path}: ${error.message}`); return { failed: { method: nodeId, id: findingId(nodeId), path: node.path, name: node.qualified_name, line: node.line, status: 'failed', error: error.message } }; } }));
+      const settled = await Promise.all(batch.map(async nodeId => { try { const result = await ask(nodeId); progress(run.calls + ++done, total); return result; } catch (error) { progress(run.calls + ++done, total); const node = graph.nodes.get(nodeId); log(`${node.qualified_name} in ${node.path}: ${error.message}`); return { failed: { method: nodeId, id: findingId(nodeId), path: node.path, name: node.qualified_name, line: node.line, status: 'failed', error: error.message, incomplete: error instanceof IncompleteCheckError } }; } }));
       const results = settled.filter(result => !result.failed);
       for (const { failed } of settled.filter(result => result.failed)) {
         run.failed.push(failed); run.visited.push(failed);
@@ -299,6 +300,10 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const units = await askUnits({ ...over, rules: asking.filter(rule => !SEARCHES(rule.kind) && rule.each !== 'method'), parallel: unitParallel, progress: unitProgress });
     const searches = await searchUnits({ ...over, rules: asking.filter(rule => SEARCHES(rule.kind)), parallel: unitParallel, progress: searchProgress });
     run.carried += units.carried + searches.carried;
+    run.incomplete = [
+      ...run.failed.filter(result => result.incomplete).map(result => `${result.path}::${result.name}: ${result.error}`),
+      ...[...units.results, ...searches.results].filter(result => result.incomplete).map(result => result.incomplete),
+    ];
     // What each rule actually covered. A selector that matches nothing is a rule that never fires and never says so, which is
     // the one kind of broken rule you cannot see by reading the report: it looks exactly like a rule nothing violates.
     // A rule about a file or a test has no reading to sit inside, so it is a check of its own. Every one is written down, passed
@@ -339,6 +344,6 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const byName = new Map(rules.map(rule => [rule.name, rule]));
     const unasked = [...checks.values()].filter(check => !said.has(check.id) && byName.get(check.rule)?.hash === check.rule_hash);
     await store.recordScan([...read, ...elsewhere, ...broken, ...unasked]);
-    run.remaining = walk.remaining(); run.status = 'complete'; run.completed_at = new Date().toISOString(); await writeJson(runPath, run); return run;
+    run.remaining = walk.remaining(); run.status = run.incomplete.length ? 'incomplete' : 'complete'; run.completed_at = new Date().toISOString(); await writeJson(runPath, run); return run;
   } catch (error) { run.status = 'failed'; run.error = error.message; await writeJson(runPath, run).catch(() => {}); throw error; }
 }

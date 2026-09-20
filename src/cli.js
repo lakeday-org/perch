@@ -409,10 +409,11 @@ const commands = {
     // counts the whole run. What was read and what it cost is context for a person watching, and goes under it on stderr.
     const rest = issues.filter(finding => !said.has(finding.path));
     print(io, { run, issues, usage: meter.toJSON() },
-      [formatScanReport(rest, { min, filters, summary: false, empty: '' }), scanTally(everything, min, undefined, filters)].filter(Boolean).join('\n\n'));
+      [formatScanReport(rest, { min, filters, summary: false, empty: '' }), run.incomplete?.length ? 'Scan incomplete: some checks could not be completed.' : scanTally(everything, min, undefined, filters)].filter(Boolean).join('\n\n'));
     io.note(scanCount(run), ...meter.lines());
     // The scan passes when nothing it gates on came back. Which questions those are is on the questions, so a defect and a
     // vulnerability count the same as a rule you wrote, and a method being large counts as nothing.
+    if (run.incomplete?.length) { io.note(...run.incomplete); return EXIT.broke; }
     return gating(issues, min).length ? EXIT.found : EXIT.clean;
   },
   /** perch rules list, add, edit and remove: the rule file as something you can change without opening it. */

@@ -56,4 +56,4 @@ export function createMeter() {
 export const money = dollars => (dollars === null ? 'price unknown' : dollars < 0.01 ? `$${dollars.toFixed(4)}` : `$${dollars.toFixed(2)}`);
 
 /** A System One client whose every call is metered. */
-export const metered = (systemOne, meter) => ({ ...systemOne, async ask(state, questions) { const response = await systemOne.ask(state, questions); meter.add(response.model ?? systemOne.id, response.usage); return response; } });
+export const metered = (systemOne, meter) => ({ ...systemOne, async ask(state, questions) { const response = await systemOne.ask(state, questions); meter.add(response.model ?? systemOne.id, response.usage, { requests: response.requests ?? 1 }); return response; } });

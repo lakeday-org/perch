@@ -1,4 +1,5 @@
-import type { Node } from "web-tree-sitter";
+import type { Node } from "./node";
+import { callableName } from "./extensions";
 import type {
   HalsteadMetrics,
   QualityMetrics,
@@ -219,6 +220,7 @@ export function isComment(node: Node): boolean {
 }
 
 export function isFunction(node: Node): boolean {
+  if (callableName(node)) return true;
   if (!FUNCTION_TYPES.has(node.type) || EXCLUDED_FUNCTION_TYPES.has(node.type)) return false;
   // JavaScript's grammar exposes the `function` keyword as a named leaf below
   // function_declaration. It is not a second callable declaration.
@@ -226,24 +228,8 @@ export function isFunction(node: Node): boolean {
   return true;
 }
 
-/**
- * Walk a syntax subtree without recursion or retaining a second tree. The
- * cursor is always disposed, even when the consumer stops early.
- */
-export function* walkNodes(root: Node): Generator<Node> {
-  const cursor = root.walk();
-  try {
-    while (true) {
-      yield cursor.currentNode;
-      if (cursor.gotoFirstChild()) continue;
-      while (!cursor.gotoNextSibling()) {
-        if (!cursor.gotoParent()) return;
-      }
-    }
-  } finally {
-    cursor.delete();
-  }
-}
+/** Walk the language pack's native tree without materializing a second syntax tree. */
+export function* walkNodes(root: Node): Generator<Node> { yield* root.walk(); }
 
 function childNodes(node: Node): Node[] {
   const children: Node[] = [];
@@ -362,12 +348,12 @@ function halstead(
   };
 }
 
-export function measure(root: Node, source: string, excludeNested = false): Measurement {
+export function measure(root: Node, excludeNested = false): Measurement {
   const operators = new Map<string, number>();
   const operands = new Map<string, number>();
   const codeLines = new Set<number>();
   const comments = new Set<number>();
-  const nonblank = nonblankLines(source);
+  const nonblank = new Set([...nonblankLines(root.text)].map(line => line + root.startPosition.row));
   let opaque_bytes = 0;
   const stack = [root];
   while (stack.length > 0) {
@@ -412,7 +398,7 @@ function text(node: Node | null | undefined, limit = 160): string {
 }
 
 export function functionName(node: Node): string {
-  let name = node.childForFieldName("name");
+  let name = callableName(node) ?? node.childForFieldName("name");
   if (!name) {
     const declarator = node.childForFieldName("declarator");
     if (declarator) {

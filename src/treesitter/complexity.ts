@@ -1,4 +1,4 @@
-import type { Node } from "web-tree-sitter";
+import type { Node } from "./node";
 import type { ComplexityMetrics, StructureHotspot } from "./types";
 import { isFunction } from "./metrics";
 

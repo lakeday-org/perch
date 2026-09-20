@@ -1,22 +1,6 @@
 import type { LanguageId } from "./languages";
 
-export const ANALYSIS_PROFILE = "tree-sitter-v8-v1" as const;
-export const CORE_ASSET = "web-tree-sitter.wasm" as const;
-
-/** A grammar or runtime asset accepted by the host loader. */
-export type WasmAsset = Uint8Array | ArrayBuffer | WebAssembly.Module;
-
-export type MaybePromise<T> = T | PromiseLike<T>;
-
-/**
- * The host controls where the parser assets live. This keeps Node file APIs
- * out of the Worker package and allows a job to load one grammar at a time.
- */
-export interface ParserResources {
-  loadAsset(name: string): MaybePromise<WasmAsset>;
-  /** Optional core bytes when the loader only serves language grammars. */
-  coreWasm?: Uint8Array | ArrayBuffer;
-}
+export const ANALYSIS_PROFILE = "language-pack-1.20-v1" as const;
 
 export interface SourcePoint {
   /** One-based source line. */
@@ -146,7 +130,6 @@ export interface AnalysisTruncation {
 export interface SourceAnalysis {
   profile: typeof ANALYSIS_PROFILE;
   language: LanguageId | string;
-  grammar_asset: string | null;
   parser_status: ParserStatus;
   parser_message: string | null;
   metrics: QualityMetrics | null;
@@ -159,10 +142,6 @@ export interface SourceAnalysis {
 /** File-level analysis without materializing function metrics or a reference graph. */
 export interface SourceSummary extends Omit<SourceAnalysis, "declarations" | "references"> {
   declaration_count: number;
-}
-
-export interface AnalyzerOptions {
-  resources?: ParserResources;
 }
 
 export interface Analyzer {
