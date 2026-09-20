@@ -2,7 +2,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { revision } from '../src/git.js';
-import { createSourceAnalyzer } from '../src/analysis.js';
+import { createSourceAnalyzer, sourceFile } from '../src/analysis.js';
 import { check } from '../src/ask.js';
 import { rulesFor } from '../src/check.js';
 import { expand, matches, neighbourhood, rank, readLint, readRules, selectUnits, testBlocks, unitStep } from '../src/units.js';
@@ -97,6 +97,44 @@ describe('which rules cover one point in the code', () => {
 });
 
 describe('the units a rule is asked about', () => {
+  it.each(['file', 'test'])('applies the scanner exclusions to %s units', each => {
+    const skipped = ['vendor', 'node_modules', 'dist', 'target', '.git', '.perch', '.lakeday', 'build', 'coverage'];
+    const paths = ['src/kept.js', 'src/building/kept.js', 'src/kept.min.js',
+      ...skipped.flatMap(dir => [`${dir}/skip.js`, `packages/app/${dir}/skip.js`])];
+    const tree = paths.map(path => ({ path, type: 'blob', size: 10, sha: path }));
+    tree.push({ path: 'src/limit.js', type: 'blob', size: 1024 * 1024, sha: 'limit' },
+      { path: 'src/large.js', type: 'blob', size: 1024 * 1024 + 1, sha: 'large' },
+      { path: 'submodule.js', type: 'commit', size: 0, sha: 'submodule' });
+    const files = new Map(tree.map(item => [item.path, "test('example', () => {});\n"]));
+    const selected = selectUnits({ where: '**/*.js', each }, { tree, files }).map(unit => unit.path);
+    expect(selected).toEqual(['src/kept.js', 'src/building/kept.js', 'src/limit.js']);
+    expect(tree.filter(sourceFile).map(item => item.path)).toEqual(selected);
+  });
+
+  it('sends only eligible files to file rules while retaining non-source text', async () => {
+    const repo = await repoWith('- name: eligible\n  where: "**/*"\n  ensure: "x"\n');
+    const additions = [
+      ['node_modules/dependency/index.js', 'export function dependency() {}'],
+      ['dist/output.js', 'export function generated() {}'],
+      ['src/bundle.min.js', 'export function minified() {}'],
+      ['src/large.js', ' '.repeat(1024 * 1024 + 1)],
+      ['docs/large.md', 'x'.repeat(1024 * 1024 + 1)],
+      ['vendor/README.md', 'Dependency documentation'],
+      ['docs/guide.md', 'Project documentation'],
+      ['notes.txt', 'Project notes'],
+    ];
+    for (const [path, source] of additions) {
+      await mkdir(join(repo.root, path, '..'), { recursive: true });
+      await writeFile(join(repo.root, path), source);
+    }
+    await commitAll(repo.root, 'file exclusions');
+    const calls = [];
+    const run = await scanRepository({ ...repo, revision: await revision(repo.root), analyzer, systemOne: answering(0.9, calls) });
+    const expected = ['README.md', 'docs/guide.md', 'notes.txt', 'package.json', 'src/a.js', 'src/b.js', 'test/a.test.js'];
+    expect(calls.filter(call => call.questions.eligible).map(call => call.state.file).sort()).toEqual(expected);
+    expect(run.coverage.find(rule => rule.name === 'eligible').units).toBe(expected.length);
+  });
+
   it('matches the two wildcards a rule file needs', () => {
     for (const [glob, path, want] of [
       ['**/*.md', 'README.md', true], ['**/*.md', 'doc/fix.md', true], ['**/*.md', 'src/a.js', false],

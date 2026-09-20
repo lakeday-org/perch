@@ -31,9 +31,12 @@ export function createSourceAnalyzer() {
   return createAnalyzer({ loadAsset: async name => readFile(assetPath(name)) });
 }
 
-export const sourceFile = item => item.type === 'blob' && Boolean(languageOf(item.path)) && item.size <= 1024 * 1024 &&
+/** File rules can read prose too, but share the scanner's size and generated/dependency file exclusions. */
+export const eligibleFile = item => item.type === 'blob' && item.size <= 1024 * 1024 &&
   !/(^|\/)(vendor|node_modules|dist|target|\.git|\.perch|\.lakeday|build|coverage)(\/|$)/.test(item.path) &&
   !/\.min\.(?:[cm]?[jt]s|[jt]sx)$/.test(item.path);
+
+export const sourceFile = item => eligibleFile(item) && Boolean(languageOf(item.path));
 
 export const testFile = path => /(^|\/)(tests?|__tests__)(\/|\.)|\.test\.|\.spec\./.test(path);
 
