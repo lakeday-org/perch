@@ -15,6 +15,12 @@ function groovyPrefix(node: Node): string[] {
 
 export function callableName(node: Node): Node | null {
   if (node.type === 'Decl') return node.namedChildren.find(child => child.type === 'FnProto')?.childForFieldName('function') ?? null;
+  if (node.type === 'lambda_literal') {
+    let parent = node.parent;
+    while (parent?.type === 'parenthesized_expression') parent = parent.parent;
+    if (parent?.type === 'property_declaration')
+      return parent.namedChildren.find(child => child.type === 'variable_declaration')?.namedChildren.find(child => child.type === 'simple_identifier') ?? null;
+  }
   const prefix = groovyPrefix(node);
   if (!prefix.length || prefix.some(word => ['return', 'throw', 'new', 'if', 'else', 'for', 'while', 'switch', 'catch', 'synchronized', 'assert'].includes(word))) return null;
   const call = node.namedChildren[0]?.namedChildren.find(child => child.type === 'func');

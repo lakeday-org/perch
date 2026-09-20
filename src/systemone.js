@@ -4,6 +4,14 @@ import { questionBatches, estimateTokens, TOKEN_LIMITS, ContextLimitError } from
 
 export const DEFAULT_SYSTEM_ONE_MODEL = 'jev-latest';
 
+/** Credentials apply to the whole run, so trying another file cannot repair their rejection. */
+export class AuthenticationError extends Error {
+  constructor(status, detail) {
+    super(`System One request failed with HTTP ${status}: ${detail.slice(0, 500)}`);
+    this.name = 'AuthenticationError'; this.status = status; this.detail = detail;
+  }
+}
+
 export function createSystemOne({
   apiKey,
   model = DEFAULT_SYSTEM_ONE_MODEL,
@@ -15,9 +23,11 @@ export function createSystemOne({
   limits = TOKEN_LIMITS,
 } = {}) {
   if (!apiKey) throw new Error('PERCH_API_KEY is not set. Export an API key before running perch scan or perch check.');
+  let authenticationFailure = null, firstRequest = null;
 
   async function request(body, attempted, beforeRequest) {
     for (let attempt = 0; ; attempt++) {
+      if (authenticationFailure) throw new AuthenticationError(authenticationFailure.status, authenticationFailure.detail);
       beforeRequest();
       let response;
       try {
@@ -38,9 +48,14 @@ export function createSystemOne({
       }
       if (!response.ok) {
         const detail = (await response.text().catch(() => '')).slice(0, 2000);
+        if (response.status === 401 || response.status === 403) {
+          authenticationFailure = new AuthenticationError(response.status, detail);
+          throw authenticationFailure;
+        }
         const accessError = /authenticat|authori[sz]|api[_ -]?key|token[^a-z]+(?:expired|invalid)|quota|rate[_ -]?limit|tokens? per (?:minute|second|day)/i.test(detail);
+        const sizedSubject = /\b(?:state|question|request body)\b[\s\S]{0,100}\b(?:exceed\w*|too (?:long|large))\b[\s\S]{0,50}(?:\btokens?\b|\blimit\b)|\brequest body\b[\s\S]{0,50}\btoo (?:long|large)\b/i.test(detail);
         const sizeError = response.status === 413 || ([400, 422].includes(response.status) && !accessError
-          && /\b(?:context_length_exceeded|max_tokens_exceeded|context_window_exceeded)\b|\b(?:context (?:length|window)|(?:input|prompt|request) (?:size|length|tokens?|token count))\b[\s\S]{0,100}\b(?:exceed\w*|too (?:long|large)|limit|maximum)\b|\b(?:exceed\w*|maximum)\b[\s\S]{0,80}\b(?:context (?:length|window)|(?:input|prompt|request) (?:size|length|token count))\b/i.test(detail));
+          && (sizedSubject || /\b(?:context_length_exceeded|max_tokens_exceeded|context_window_exceeded)\b|\b(?:context (?:length|window)|(?:input|prompt|request) (?:size|length|tokens?|token count))\b[\s\S]{0,100}\b(?:exceed\w*|too (?:long|large)|limit|maximum)\b|\b(?:exceed\w*|maximum)\b[\s\S]{0,80}\b(?:context (?:length|window)|(?:input|prompt|request) (?:size|length|token count))\b/i.test(detail)));
         if (sizeError) throw new ContextLimitError('server rejected the request size; rebuild with fewer estimated tokens', Math.floor(estimateTokens(body.state) / 2));
         throw new Error(`System One request failed with HTTP ${response.status}: ${detail.slice(0, 500)}`);
       }
@@ -48,10 +63,19 @@ export function createSystemOne({
     }
   }
 
+  /** The first real request checks credentials before concurrent units can spend requests on the same bad key. */
+  async function sendRequest(body, attempted, beforeRequest) {
+    if (firstRequest) await firstRequest;
+    if (authenticationFailure) throw new AuthenticationError(authenticationFailure.status, authenticationFailure.detail);
+    const pending = request(body, attempted, beforeRequest);
+    firstRequest ??= pending.then(() => {}, () => {});
+    return pending;
+  }
+
   return {
     id: model,
     limits,
-    cacheKey: createHash('sha256').update(JSON.stringify([baseUrl, model, limits, 'token-estimates-v1'])).digest('hex'),
+    cacheKey: createHash('sha256').update(JSON.stringify([baseUrl, model, { state: limits.state, single: limits.single, request: limits.request }, 'token-estimates-v1'])).digest('hex'),
     /** Batch independent questions within the request budget and return one answer per question id. */
     async ask(state, questions, { beforeRequest = () => {} } = {}) {
       const responses = [];
@@ -64,7 +88,7 @@ export function createSystemOne({
       };
       const send = async batch => {
         let response;
-        try { response = await request({ model, state, questions: batch }, () => requests++, beforeRequest); }
+        try { response = await sendRequest({ model, state, questions: batch }, () => requests++, beforeRequest); }
         catch (error) {
           if (!(error instanceof ContextLimitError)) throw error;
           const entries = Object.entries(batch);

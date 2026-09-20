@@ -33,7 +33,7 @@ export function requestScope(systemOne) {
   if (!Number.isSafeInteger(maximum) || maximum < 1) throw new Error('unit request allowance must be a positive integer');
   let requests = 0;
   const reserve = () => {
-    if (requests >= maximum) throw new IncompleteCheckError(`unit request allowance exhausted (${maximum} attempts); increase --max-unit-requests to continue`);
+    if (requests >= maximum) throw new IncompleteCheckError(`unit request allowance exhausted (${maximum} attempts)`);
     requests++;
   };
   return { ...systemOne, [scoped]: true, ask(state, questions) {

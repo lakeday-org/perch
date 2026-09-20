@@ -3,7 +3,6 @@ import { join } from 'node:path';
 import { repoRoot, revision as gitRevision } from './git.js';
 import { resolveTarget } from './target.js';
 import { createSystemOne } from './systemone.js';
-import { TOKEN_LIMITS } from './tokens.js';
 import { createSourceAnalyzer } from './analysis.js';
 import { openStore, resolveOut } from './store.js';
 import { analyzeTree } from './analyze.js';
@@ -28,7 +27,6 @@ export const VERSION = typeof PERCH_VERSION === 'string' ? PERCH_VERSION : 'dev'
 const options = {
   paths: ['--paths a,b', 'Only consider files under these repository paths', ['scan']],
   parallel: ['--parallel N', `How many methods to read at once (default ${DEFAULT_PARALLEL}; files and tests go ${UNIT_PARALLEL} at a time)`, ['scan']],
-  'max-unit-requests': ['--max-unit-requests N', `Request attempts per method or file check, including retries (default ${TOKEN_LIMITS.unitRequests})`, ['scan', 'check']],
   since: ['--since REF', 'Only what changed since this branch or commit', ['scan']],
   all: ['--all', 'List every row instead of the top 10', ['scan', 'issues']],
   limit: ['--limit N', `Rows per page (default ${TOP})`, ['issues']],
@@ -118,7 +116,7 @@ ${column(own.map(([flag, text]) => [flag, text]))}`;
  */
 export const EXIT = { clean: 0, broke: 1, usage: 2, found: 3 };
 
-const valued = new Set(['paths', 'parallel', 'max-unit-requests', 'min', 'filter', 'out', 'reason', 'kind', 'limit', 'page', 'since', 'rules',
+const valued = new Set(['paths', 'parallel', 'min', 'filter', 'out', 'reason', 'kind', 'limit', 'page', 'since', 'rules',
   'ensure', 'ensure_present', 'ensure_absent', 'where', 'except', 'each', 'sees', 'type', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', 'gate']);
 const switches = new Set(['force', 'all', 'json', 'verbose', 'closed', 'types', 'help', 'version']);
 
@@ -379,8 +377,7 @@ const commands = {
     // On the counter and in the log both. On the counter because a retry is the wait that looks like a hang, and in the log
     // because the counter is gone by the time anyone asks what the run was doing.
     const retrying = message => { methods.say(message); note(message); };
-    const limits = { ...TOKEN_LIMITS, unitRequests: positiveInteger('--max-unit-requests', io.flags['max-unit-requests'], TOKEN_LIMITS.unitRequests) };
-    const systemOne = metered(createSystemOne({ apiKey: io.env.PERCH_API_KEY || io.env.TYPESAFE_API_KEY, baseUrl: io.env.PERCH_BASE_URL, model: io.env.PERCH_MODEL_ID, limits, log: retrying }), meter);
+    const systemOne = metered(createSystemOne({ apiKey: io.env.PERCH_API_KEY || io.env.TYPESAFE_API_KEY, baseUrl: io.env.PERCH_BASE_URL, model: io.env.PERCH_MODEL_ID, log: retrying }), meter);
     // A file prints the moment it is finished rather than at the end, so a long run says what it is finding while it finds it.
     const said = new Set();
     const say = (path, findings) => {
@@ -468,8 +465,7 @@ const commands = {
   async check(io) {
     if (!io.argument) throw new UsageError('perch check needs a path, a path::method, or an issue id');
     const meter = createMeter();
-    const limits = { ...TOKEN_LIMITS, unitRequests: positiveInteger('--max-unit-requests', io.flags['max-unit-requests'], TOKEN_LIMITS.unitRequests) };
-    const systemOne = metered(createSystemOne({ apiKey: io.env.PERCH_API_KEY || io.env.TYPESAFE_API_KEY, baseUrl: io.env.PERCH_BASE_URL, model: io.env.PERCH_MODEL_ID, limits, log: io.debug }), meter);
+    const systemOne = metered(createSystemOne({ apiKey: io.env.PERCH_API_KEY || io.env.TYPESAFE_API_KEY, baseUrl: io.env.PERCH_BASE_URL, model: io.env.PERCH_MODEL_ID, log: io.debug }), meter);
     const root = await repoRoot(process.cwd());
     const only = io.flags.rules ? io.flags.rules.split(',').map(name => name.trim()).filter(Boolean) : [];
     const checked = await checkTarget({ target: io.argument, root, out: await resolveOut(io.flags.out), analyzer: createSourceAnalyzer(),

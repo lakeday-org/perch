@@ -9,7 +9,6 @@ import { methodSteps } from '../src/questions.js';
 import { questionMethod, scanRepository } from '../src/scan.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { addRule, editRule, removeRule } from '../src/rules.js';
-import { main } from '../src/cli.js';
 import { revision } from '../src/git.js';
 import { makeGraphFixture, commitAll, initRepo, scriptedSystemOne } from './helpers.js';
 
@@ -90,10 +89,10 @@ it.each([false, true])('continues past an inconclusive search unit and retains a
     return base.ask(state, questions);
   } };
   const run = await scanRepository({ ...options, systemOne, paths: ['docs'], unitParallel: 1 });
-  expect(run.status).toBe(witness ? 'complete' : 'incomplete');
-  expect(run.incomplete.length).toBe(witness ? 0 : 1);
+  expect(run.status).toBe('incomplete');
+  expect(run.incomplete.length).toBe(1);
   expect(run.broken).toHaveLength(0);
-  if (!witness) expect(run.incomplete[0]).toContain('cross-piece');
+  expect(run.incomplete[0]).toContain('cross-piece');
 });
 
 it('refuses an add shadowed by an uncommitted nested split rule without changing either file', async () => {
@@ -109,26 +108,24 @@ it('refuses an add shadowed by an uncommitted nested split rule without changing
   expect(await readFile(join(root, '.perch/rules/nested/check.yml'), 'utf8')).toBe(text);
 });
 
-it('applies the CLI allowance to localization and permits an explicit larger allowance', async () => {
-  const {root} = await fixture('- name: prose\n  where: docs/*.md\n  ensure: The text explains the API.\n', { 'bad.md': 'Missing reference.\nMissing example.\n' });
+it('counts file localization against the same internal allowance as the initial reading', async () => {
+  const options = await fixture('- name: prose\n  where: docs/*.md\n  ensure: The text explains the API.\n', { 'bad.md': 'Missing reference.\nMissing example.\n' });
   let requests = 0;
-  vi.stubGlobal('fetch', async (_url, init) => {
+  const fetchImpl = async (_url, init) => {
     requests++;
     const {questions} = JSON.parse(init.body);
     return reply(200, {answers: Object.fromEntries(Object.entries(questions).map(([name,q]) => [name, q.type === 'choice' ? {choice: Object.keys(q.criteria)[0]} : {noul:0.01}]))});
-  });
-  const output = [];
-  const run = limit => main(['scan', root, '--paths', 'docs', '--max-unit-requests', String(limit), '--json'], {
-    env: {PERCH_API_KEY:'fixture'}, stdout: text => output.push(text), stderr: () => {},
-  });
-  expect(await run(1)).toBe(1);
+  };
+  const run = limit => scanRepository({ ...options, paths: ['docs'], systemOne: createSystemOne({apiKey:'fixture',fetchImpl,limits:{state:24000,single:30000,request:60000,unitRequests:limit}}) });
+  const exhausted = await run(1);
+  expect(exhausted.status).toBe('incomplete');
   expect(requests).toBe(1);
-  expect(JSON.parse(output.at(-1)).run.incomplete.join('\n')).toContain('request allowance');
+  expect(exhausted.incomplete.join('\n')).toContain('request allowance');
   requests = 0;
-  expect(await run(2)).toBe(3);
+  const completed = await run(2);
+  expect(completed.broken).toHaveLength(1);
   expect(requests).toBe(2);
-  expect(JSON.parse(output.at(-1)).run.status).toBe('complete');
-  expect(await run(0)).toBe(2);
+  expect(completed.status).toBe('complete');
 });
 
 it('bounds requests across method chunks and leaves exhaustion incomplete', async () => {

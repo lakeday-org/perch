@@ -14,6 +14,7 @@ import { TOKEN_LIMITS, estimateTokens, questionBatches, IncompleteCheckError, Co
 import { askKey, BUILTIN, compile, floorFor, installQuestions, merge, parseIgnored, parseQuestions, parseScanTypes, SEARCHES } from './ask.js';
 import { leadingComment, lineId, lineWindows, locateWhere, tagged, whereQuestion, whereWindowQuestion } from './questions.js';
 import { findingId } from './store.js';
+import { AuthenticationError } from './systemone.js';
 
 /** Where rules live: one file until there are enough to split, then a directory of them. Both are source, both are reviewed. */
 export const RULES_FILE = 'perch.yaml', RULES_DIR = '.perch/rules';
@@ -52,7 +53,7 @@ export async function readScanTypes(root, revision) {
 
 export async function readRuleFiles(root, revision) {
   const wanted = path => path === RULES_FILE || (path.startsWith(`${RULES_DIR}/`) && /\.ya?ml$/.test(path));
-  const committed = (await listTree(root, revision)).map(item => item.path).filter(wanted);
+  const committed = revision ? (await listTree(root, revision)).map(item => item.path).filter(wanted) : [];
   // A rule file that is on disk and not yet committed is still a rule file. Taking the list from the commit meant `perch rules
   // add` wrote a rule that nothing asked until someone committed it, and said nothing about why.
   const here = (await readdir(join(root, RULES_DIR), { recursive: true }).catch(() => []))
@@ -61,7 +62,7 @@ export async function readRuleFiles(root, revision) {
   const paths = [RULES_FILE, ...[...new Set([...committed, ...here])].filter(path => path !== RULES_FILE).sort()];
   const files = [];
   for (const path of paths) {
-    const text = await readFile(join(root, path), 'utf8').catch(() => git(['show', `${revision}:${path}`], root).catch(() => null));
+    const text = await readFile(join(root, path), 'utf8').catch(() => revision ? git(['show', `${revision}:${path}`], root).catch(() => null) : null);
     if (text === null) continue;
     files.push({ path, text });
   }
@@ -420,7 +421,10 @@ export async function askUnits({ rules, scan, graph, files, tree, revision, syst
     const batch = work.slice(at, at + parallel);
     const answered = await Promise.all(batch.map(async item => {
       try { return await askOne(item); }
-      catch (error) { return { results: item.rules.map(rule => failedCheck(rule, item.unit, error, revision)), carried: 0 }; }
+      catch (error) {
+        if (error instanceof AuthenticationError) throw error;
+        return { results: item.rules.map(rule => failedCheck(rule, item.unit, error, revision)), carried: 0 };
+      }
     }));
     for (const [index, item] of batch.entries()) {
       asked += item.rules.length;
@@ -482,7 +486,10 @@ export async function searchUnits({ rules, scan, graph, files, tree, revision, s
       const batch = units.slice(at, at + parallel);
       const here = await Promise.all(batch.map(async unit => {
         try { return { found: await askOne(rule, unit) }; }
-        catch (error) { return { found: false, error: `${unit.path}: ${error.message}` }; }
+        catch (error) {
+          if (error instanceof AuthenticationError) throw error;
+          return { found: false, error: `${unit.path}: ${error.message}` };
+        }
       }));
       asked += batch.length;
       progress(asked, most);
@@ -499,7 +506,8 @@ export async function searchUnits({ rules, scan, graph, files, tree, revision, s
       results.push({ ...failedCheck(rule, where, new IncompleteCheckError(unresolved.join('; ')), revision), id });
       return;
     }
-    results.push({ ...checkOf(rule, where, { broken, line: where.line ?? 1, text: null, revision, key }), id });
+    results.push({ ...checkOf(rule, where, { broken, line: where.line ?? 1, text: null, revision, key: unresolved.length ? null : key }), id,
+      ...(unresolved.length ? { incomplete: unresolved.join('; ') } : {}) });
   }));
   return { results, asked, carried: carrying.length };
 }

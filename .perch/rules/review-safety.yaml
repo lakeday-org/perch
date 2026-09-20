@@ -9,10 +9,11 @@
 - name: file-unit-failures-stay-local
   where: src/units.js
   ensure: >-
-    In askUnits, a failure while preparing or asking one file is recorded for
-    that unit and leaves other units able to complete. The protection covers
-    preparing source chunks and locating a broken rule. Letting one such
-    error reject the entire batch breaks this rule.
+    In askUnits, a source-specific failure while preparing or asking one file
+    is recorded for that unit and leaves other units able to complete. The
+    protection covers preparing source chunks and locating a broken rule.
+    Letting one such error reject the entire batch breaks this rule.
+    Authentication and authorization errors must still stop the run.
 - name: search-uncertainty-does-not-hide-witnesses
   where: src/units.js
   ensure: >-

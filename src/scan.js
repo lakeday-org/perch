@@ -8,6 +8,7 @@
 import { join } from 'node:path';
 import { listTree, readBlob } from './git.js';
 import { analyzeTree } from './analyze.js';
+import { AuthenticationError } from './systemone.js';
 import { buildGraph } from './graph.js';
 import { askKey, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES } from './ask.js';
 import { issuesOf, label as kindLabel, methodSteps, locateWhere, readAnswers } from './questions.js';
@@ -283,7 +284,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
       }
       if (!batch.length) break;
       let done = 0;
-      const settled = await Promise.all(batch.map(async nodeId => { try { const result = await ask(nodeId); progress(run.calls + ++done, total); return result; } catch (error) { progress(run.calls + ++done, total); const node = graph.nodes.get(nodeId); log(`${node.qualified_name} in ${node.path}: ${error.message}`); return { failed: { method: nodeId, id: findingId(nodeId), path: node.path, name: node.qualified_name, line: node.line, status: 'failed', error: error.message, incomplete: error instanceof IncompleteCheckError } }; } }));
+      const settled = await Promise.all(batch.map(async nodeId => { try { const result = await ask(nodeId); progress(run.calls + ++done, total); return result; } catch (error) { if (error instanceof AuthenticationError) throw error; progress(run.calls + ++done, total); const node = graph.nodes.get(nodeId); log(`${node.qualified_name} in ${node.path}: ${error.message}`); return { failed: { method: nodeId, id: findingId(nodeId), path: node.path, name: node.qualified_name, line: node.line, status: 'failed', error: error.message, incomplete: error instanceof IncompleteCheckError } }; } }));
       const results = settled.filter(result => !result.failed);
       for (const { failed } of settled.filter(result => result.failed)) {
         run.failed.push(failed); run.visited.push(failed);

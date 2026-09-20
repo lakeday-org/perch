@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { parseDocument, Scalar } from 'yaml';
 import { BUILTIN, check, ENSURES, SHAPES, parseQuestions } from './ask.js';
 import { RULES_FILE, readRuleFiles } from './units.js';
+import { revision } from './git.js';
 
 export { SHAPES };
 
@@ -111,7 +112,8 @@ const legible = rule => check(Object.fromEntries(Object.entries(rule).filter(([,
 
 /** A root-file edit cannot change a definition supplied by a later split file. */
 async function editableAtRoot(root, name) {
-  for (const { path, text } of await readRuleFiles(root, 'HEAD')) {
+  const head = await revision(root).catch(() => null);
+  for (const { path, text } of await readRuleFiles(root, head)) {
     if (path !== RULES_FILE && parseQuestions(text, path, 'rule').some(rule => rule.name === name))
       throw new Error(`${name} is already a rule in ${path}; edit that file directly`);
   }

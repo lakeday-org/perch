@@ -1,0 +1,21 @@
+- name: authentication-failure-stops-unit-work
+  where: src/units.js
+  ensure: >-
+    In the per-unit catches of askUnits and searchUnits, authentication or
+    authorization failures escape to the run's caller. Turning them into
+    failed checks and continuing through the remaining units breaks this rule.
+    Source preparation errors and ordinary per-unit failures can stay local.
+- name: search-witness-does-not-erase-failures
+  where: mentions unresolved.push
+  ensure: >-
+    Read the result added after searchUnits finishes its unit batches. When
+    unresolved is nonempty, that result retains those error messages and
+    cannot qualify for cache reuse, even when settled names a witness.
+    Retaining errors only in the branch where no witness was found breaks
+    this rule. The witness still determines whether the condition was found.
+- name: request-ceiling-is-internal
+  where: src/cli.js
+  ensure: >-
+    The scan and check commands do not expose a max-unit-requests option or
+    configure the model client from such a CLI flag. The finite attempt
+    allowance is an internal safety bound, not a user-facing tuning parameter.
