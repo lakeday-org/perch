@@ -32,7 +32,8 @@ export function createSourceAnalyzer() {
 }
 
 export const sourceFile = item => item.type === 'blob' && Boolean(languageOf(item.path)) && item.size <= 1024 * 1024 &&
-  !/(^|\/)(vendor|node_modules|dist|target|\.git|\.perch|\.lakeday|build|coverage)(\/|$)/.test(item.path) && !/\.min\.js$/.test(item.path);
+  !/(^|\/)(vendor|node_modules|dist|target|\.git|\.perch|\.lakeday|build|coverage)(\/|$)/.test(item.path) &&
+  !/\.min\.(?:[cm]?[jt]s|[jt]sx)$/.test(item.path);
 
 export const testFile = path => /(^|\/)(tests?|__tests__)(\/|\.)|\.test\.|\.spec\./.test(path);
 
