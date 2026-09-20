@@ -1,3 +1,4 @@
+# Deliberate bugs: documentation fixture.
 """Line items, discounts and totals for a shopping cart."""
 
 from decimal import Decimal

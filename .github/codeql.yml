@@ -1,0 +1,4 @@
+name: perch
+# These defects are examples for the documentation, not application code.
+paths-ignore:
+  - 'test/fixtures/order-service/**'

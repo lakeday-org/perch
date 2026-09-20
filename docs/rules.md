@@ -204,7 +204,7 @@ map instead, with the rules under `rules:`:
 
 ```yaml
 ignore:
-  - perch-example/**
+  - generated/**
   - fixtures/**
 
 rules:
@@ -213,9 +213,7 @@ rules:
     ensure: A headline and one line, not a paragraph explaining the product.
 ```
 
-A path matching `ignore` is never read and never reported. This repository uses
-it for `perch-example`, an order service with a bug in every method. It exists so
-the docs can show real output.
+A path matching `ignore` is never read and never reported.
 
 The bare list form still works.
 

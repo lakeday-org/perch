@@ -1,3 +1,4 @@
+# Deliberate bugs: documentation fixture.
 """Stock levels, reservations and restocking."""
 
 

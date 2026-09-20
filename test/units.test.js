@@ -49,11 +49,11 @@ describe('code perch.yaml says not to read', () => {
     expect(parseQuestions(list, 'perch.yaml', 'rule')).toHaveLength(1);
     expect(parseIgnored(list, 'perch.yaml')).toEqual([]);
     // The map form carries both. A fixture with a bug in every method on purpose is read by nothing.
-    const map = 'ignore:\n  - perch-example/**\nrules:\n' + list.split('\n').map(l => l && '  ' + l).join('\n');
+    const map = 'ignore:\n  - test/fixtures/order-service/**\nrules:\n' + list.split('\n').map(l => l && '  ' + l).join('\n');
     expect(parseQuestions(map, 'perch.yaml', 'rule')).toHaveLength(1);
-    expect(parseIgnored(map, 'perch.yaml')).toEqual(['perch-example/**']);
-    expect(matches('perch-example/**', 'perch-example/cart.py')).toBe(true);
-    expect(matches('perch-example/**', 'src/cart.js')).toBe(false);
+    expect(parseIgnored(map, 'perch.yaml')).toEqual(['test/fixtures/order-service/**']);
+    expect(matches('test/fixtures/order-service/**', 'test/fixtures/order-service/cart.py')).toBe(true);
+    expect(matches('test/fixtures/order-service/**', 'src/cart.js')).toBe(false);
     // A file that reads as neither is a file somebody wrote wrong, and is said so rather than asking none of their rules.
     expect(() => parseQuestions('just a string\n', 'perch.yaml', 'rule')).toThrow('expected a list of rules');
     expect(() => parseIgnored('ignore: nope\n', 'perch.yaml')).toThrow('ignore is a list of globs');
