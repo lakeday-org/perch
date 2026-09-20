@@ -1,6 +1,7 @@
 import type { Node } from "./node";
 import type { Reference, ReferenceKind, SourceLocation } from "./types";
 import { isComment, isFunction, location, walkNodes } from "./metrics";
+import { callableName } from "./extensions";
 
 const IMPORT_TYPES = new Set([
   "import_statement",
@@ -304,6 +305,12 @@ export function collectReferences(root: Node, language: string): Reference[] {
     if (isComment(node)) continue;
     if (IMPORT_TYPES.has(node.type)) {
       references.push(...importReferences(node, language));
+    } else if (language === 'groovy' && node.type === 'func') {
+      const unit = node.parent, block = unit?.parent;
+      // A declaration's signature also contains a func node; only uses are calls.
+      if (block?.type === 'block' && block.namedChildren[0]?.id === unit?.id && callableName(block)) continue;
+      const name = validReference(text(node.namedChildren[0]));
+      references.push(makeReference('call', node, { name, reference: name }));
     } else if (CALL_TYPES.has(node.type)) {
       references.push(callReferenceRecord(node));
     } else if (IDENTIFIER_TYPES.has(node.type) && isPassedAsValue(node) && validReference(text(node, 128))) {

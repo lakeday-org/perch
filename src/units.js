@@ -10,7 +10,7 @@ import { join, sep } from 'node:path';
 import { git, listTree } from './git.js';
 import { eligibleFile } from './analysis.js';
 import { sourceChunks } from './chunks.js';
-import { TOKEN_LIMITS, estimateTokens, questionBatches, IncompleteCheckError, ContextLimitError, withTokenRetries } from './tokens.js';
+import { TOKEN_LIMITS, estimateTokens, questionBatches, IncompleteCheckError, ContextLimitError, withTokenRetries, requestScope } from './tokens.js';
 import { askKey, BUILTIN, compile, floorFor, installQuestions, merge, parseIgnored, parseQuestions, parseScanTypes, SEARCHES } from './ask.js';
 import { leadingComment, lineId, lineWindows, locateWhere, tagged, whereQuestion, whereWindowQuestion } from './questions.js';
 import { findingId } from './store.js';
@@ -50,7 +50,7 @@ export async function readScanTypes(root, revision) {
   return text === null ? null : parseScanTypes(text, RULES_FILE);
 }
 
-export async function readRules(root, revision) {
+export async function readRuleFiles(root, revision) {
   const wanted = path => path === RULES_FILE || (path.startsWith(`${RULES_DIR}/`) && /\.ya?ml$/.test(path));
   const committed = (await listTree(root, revision)).map(item => item.path).filter(wanted);
   // A rule file that is on disk and not yet committed is still a rule file. Taking the list from the commit meant `perch rules
@@ -59,12 +59,17 @@ export async function readRules(root, revision) {
     .map(name => `${RULES_DIR}/${name.split(sep).join('/')}`).filter(wanted);
   // Root settings come first; split files keep their existing alphabetical override order.
   const paths = [RULES_FILE, ...[...new Set([...committed, ...here])].filter(path => path !== RULES_FILE).sort()];
-  const rules = [];
+  const files = [];
   for (const path of paths) {
     const text = await readFile(join(root, path), 'utf8').catch(() => git(['show', `${revision}:${path}`], root).catch(() => null));
     if (text === null) continue;
-    rules.push(...parseQuestions(text, path, 'rule'));
+    files.push({ path, text });
   }
+  return files;
+}
+
+export async function readRules(root, revision) {
+  const rules = (await readRuleFiles(root, revision)).flatMap(({ path, text }) => parseQuestions(text, path, 'rule'));
   // A repository's own file can reword a question perch ships as well as add one, and a report of either has to be able to look
   // up what raised it, so the set in force is the two together.
   installQuestions(merge(BUILTIN, rules));
@@ -272,9 +277,10 @@ export function unitSteps({ rules, unit, source, seen = {}, budget = TOKEN_LIMIT
 }
 
 export async function askUnitSteps({ systemOne, steps, rules, prepare }) {
+  systemOne = requestScope(systemOne);
   return withTokenRetries(async budget => {
     if (budget < (systemOne.limits?.state ?? TOKEN_LIMITS.state) && !prepare) throw new IncompleteCheckError('source cannot be rebuilt for a smaller token budget');
-    const active = prepare ? prepare(budget) : steps;
+    const active = steps?.[0] && budget === (systemOne.limits?.state ?? TOKEN_LIMITS.state) ? steps : prepare ? prepare(budget) : steps;
     const answers = {}, evidence = {};
     for (const step of active) {
       const response = await systemOne.ask(step.state, step.questions);
@@ -296,6 +302,7 @@ export async function askUnitSteps({ systemOne, steps, rules, prepare }) {
  * question: which line. Only failing files are asked, so a clean run still costs one request each.
  */
 export async function locateBreak({ systemOne, rule, unit, body }) {
+  systemOne = requestScope(systemOne);
   return withTokenRetries(async budget => {
     let maxTokens = Math.floor(budget / 2);
     let chunks;
@@ -356,6 +363,12 @@ const checkOf = (rule, unit, { broken, line, text, revision, key }) => ({
   lint: { rule: rule.name, broken, text: rule.text, said: rule.text },
 });
 
+/** An unanswered rule remains in the report and cannot be reused as a successful cached check. */
+const failedCheck = (rule, unit, error, revision) => ({
+  ...checkOf(rule, unit, { broken: null, line: unit.line, text: null, revision, key: null }),
+  status: 'failed', error: error.message, incomplete: `${unit.path}: ${rule.name}: ${error.message}`,
+});
+
 /**
  * Every rule that is not about a method, asked of every unit it selects. One question, one unit, one request, `parallel` of them
  * at a time, and a second question to a file that failed about which line failed on it.
@@ -375,24 +388,25 @@ export async function askUnits({ rules, scan, graph, files, tree, revision, syst
   // File order, so a run reads top to bottom and two runs over the same tree ask in the same order.
   const work = [...contexts.values()].sort((a, b) => a.unit.path.localeCompare(b.unit.path) || a.unit.line - b.unit.line);
   const askOne = async ({ unit, sees, rules: over }) => {
+    const client = requestScope(systemOne);
     const source = files.get(unit.path) ?? '';
     const body = unit.part ? bodyOf(source, unit) : source;
     const prepare = budget => unitSteps({ rules: over, unit, source: body, seen: neighbourhood(sees, unit, { graph, files }), budget });
     const steps = prepare(systemOne.limits?.state);
     const key = askKey(steps, over, systemOne.cacheKey ?? systemOne.id);
     // Nothing about this unit or these rules has changed since it was last asked, so the answer cannot have either.
-    const before = over.map(rule => earlier.get(findingId(`${rule.name}::${unit.id}`))).filter(check => check?.key === key);
+    const before = over.map(rule => earlier.get(findingId(`${rule.name}::${unit.id}`))).filter(check => check?.key === key && !check.incomplete);
     if (before.length === over.length) { debug(`${over.map(rule => rule.name).join(', ')}: ${unit.name} is unchanged`); return { results: before, carried: before.length }; }
 
     debug(`${over.map(rule => rule.name).join(', ')}: ${unit.name}`);
-    const { answers, evidence, incomplete } = await askUnitSteps({ systemOne, steps, prepare, rules: over });
+    const { answers, evidence, incomplete } = await askUnitSteps({ systemOne: client, steps, prepare, rules: over });
     // A file that failed is asked which line failed; a method or a test block already has one. One question per broken rule,
     // since two rules broken in one file are rarely broken on the same line.
     const results = await Promise.all(over.map(async rule => {
       const broken = readLint(rule, answers).broken;
       const failing = broken > floorFor(rule, min);
       const chunk = evidence[rule.name];
-      const line = failing && !unit.part ? await locateBreak({ systemOne, rule, unit: { ...unit, line: unit.line + chunk.line - 1 }, body: chunk.source }) : unit.line;
+      const line = failing && !unit.part ? await locateBreak({ systemOne: client, rule, unit: { ...unit, line: unit.line + chunk.line - 1 }, body: chunk.source }) : unit.line;
       const onLine = failing && !unit.part ? (source.split('\n')[line - 1] ?? '').trim() : '';
       return { ...checkOf(rule, unit, { broken, line, text: onLine.length > 110 ? `${onLine.slice(0, 110)}…` : onLine || null, revision, key }),
         ...(incomplete ? { incomplete: `${unit.path}: ${rule.name} was checked in pieces; a whole-file conclusion was not established` } : {}) };
@@ -404,7 +418,10 @@ export async function askUnits({ rules, scan, graph, files, tree, revision, syst
   let asked = 0, carried = 0;
   for (let at = 0; at < work.length; at += parallel) {
     const batch = work.slice(at, at + parallel);
-    const answered = await Promise.all(batch.map(askOne));
+    const answered = await Promise.all(batch.map(async item => {
+      try { return await askOne(item); }
+      catch (error) { return { results: item.rules.map(rule => failedCheck(rule, item.unit, error, revision)), carried: 0 }; }
+    }));
     for (const [index, item] of batch.entries()) {
       asked += item.rules.length;
       carried += answered[index].carried;
@@ -433,7 +450,7 @@ export async function searchUnits({ rules, scan, graph, files, tree, revision, s
     const key = rule.sees === 'self' ? askKey([{ state: units.map(unit => [unit.id, unit.hash ?? null]) }], [rule], systemOne.cacheKey ?? systemOne.id) : null;
     return { rule, units, id, key, before: earlier.get(id) };
   });
-  const carrying = plans.filter(plan => plan.key && plan.before?.key === plan.key);
+  const carrying = plans.filter(plan => plan.key && plan.before?.key === plan.key && !plan.before.incomplete);
   const running = plans.filter(plan => !carrying.includes(plan));
   const most = running.reduce((total, plan) => total + plan.units.length, 0);
 
@@ -460,12 +477,17 @@ export async function searchUnits({ rules, scan, graph, files, tree, revision, s
     // has the thing is the one taken however many were read alongside it; what changes is that a search over four hundred
     // methods is a minute rather than most of an hour. At most one batch is spent past the answer.
     let settled = null;
+    const unresolved = [];
     for (let at = 0; at < units.length && !settled; at += parallel) {
       const batch = units.slice(at, at + parallel);
-      const here = await Promise.all(batch.map(unit => askOne(rule, unit)));
+      const here = await Promise.all(batch.map(async unit => {
+        try { return { found: await askOne(rule, unit) }; }
+        catch (error) { return { found: false, error: `${unit.path}: ${error.message}` }; }
+      }));
       asked += batch.length;
       progress(asked, most);
-      const found = here.indexOf(true);
+      unresolved.push(...here.filter(answer => answer.error).map(answer => answer.error));
+      const found = here.findIndex(answer => answer.found);
       if (found >= 0) settled = batch[found];
     }
     // A rule wanting the thing present is broken by nobody having it; one wanting it absent is broken by the unit that has it.
@@ -473,6 +495,10 @@ export async function searchUnits({ rules, scan, graph, files, tree, revision, s
     // reported against the rule file, where the claim is, and named for what it looked through.
     const broken = (rule.kind === 'ensure_present') === Boolean(settled) ? 0 : 1;
     const where = settled ?? { id: `search:${rule.name}`, path: RULES_FILE, name: String(rule.where), line: 1 };
+    if (!settled && unresolved.length) {
+      results.push({ ...failedCheck(rule, where, new IncompleteCheckError(unresolved.join('; ')), revision), id });
+      return;
+    }
     results.push({ ...checkOf(rule, where, { broken, line: where.line ?? 1, text: null, revision, key }), id });
   }));
   return { results, asked, carried: carrying.length };

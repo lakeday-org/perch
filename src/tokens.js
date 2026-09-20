@@ -2,7 +2,7 @@
 import { countTokens } from 'gpt-tokenizer/encoding/o200k_base';
 
 // Leave room below Jev's 32k per question and 64k per request limits for server formatting.
-export const TOKEN_LIMITS = Object.freeze({ state: 24000, single: 30000, request: 60000 });
+export const TOKEN_LIMITS = Object.freeze({ state: 24000, single: 30000, request: 60000, unitRequests: 64 });
 const literal = { disallowedSpecial: new Set() };
 
 /** o200k plus 20% headroom is an estimate, not Jev's exact tokenization. */
@@ -24,6 +24,23 @@ export class IncompleteCheckError extends Error {
 /** Only size failures trigger repacking; authentication and other validation errors propagate. */
 export class ContextLimitError extends IncompleteCheckError {
   constructor(message, budget) { super(message); this.name = 'ContextLimitError'; this.budget = budget; }
+}
+const scoped = Symbol('unit request allowance');
+/** Share a finite allowance across chunks, question batches, localization and retries for one reading. */
+export function requestScope(systemOne) {
+  if (systemOne[scoped]) return systemOne;
+  const maximum = systemOne.limits?.unitRequests ?? TOKEN_LIMITS.unitRequests;
+  if (!Number.isSafeInteger(maximum) || maximum < 1) throw new Error('unit request allowance must be a positive integer');
+  let requests = 0;
+  const reserve = () => {
+    if (requests >= maximum) throw new IncompleteCheckError(`unit request allowance exhausted (${maximum} attempts); increase --max-unit-requests to continue`);
+    requests++;
+  };
+  return { ...systemOne, [scoped]: true, ask(state, questions) {
+    reserve();
+    let first = true;
+    return systemOne.ask(state, questions, { beforeRequest() { if (first) first = false; else reserve(); } });
+  } };
 }
 export async function withTokenRetries(read, initial = TOKEN_LIMITS.state) {
   let budget = initial;

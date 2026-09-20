@@ -1,5 +1,5 @@
 import type { Node } from "./node";
-import { callableName } from "./extensions";
+import { callableName, extraScopeName } from "./extensions";
 import type {
   HalsteadMetrics,
   QualityMetrics,
@@ -220,6 +220,7 @@ export function isComment(node: Node): boolean {
 }
 
 export function isFunction(node: Node): boolean {
+  if (extraScopeName(node)) return false;
   if (callableName(node)) return true;
   if (!FUNCTION_TYPES.has(node.type) || EXCLUDED_FUNCTION_TYPES.has(node.type)) return false;
   // JavaScript's grammar exposes the `function` keyword as a named leaf below
@@ -432,7 +433,7 @@ export function functionName(node: Node): string {
 }
 
 function scopeName(node: Node): string | null {
-  let name = node.childForFieldName("name");
+  let name = extraScopeName(node) ?? node.childForFieldName("name");
   if (!name && node.type === "impl_item") name = node.childForFieldName("type");
   if (!name) name = node.namedChildren.find((child) => NAME_TYPES.has(child.type)) ?? null;
   return text(name) || null;
@@ -453,7 +454,7 @@ export function qualifiedFunctionName(node: Node): string {
   let parent = node.parent;
   while (parent) {
     if (isFunction(parent)) parts.push(functionName(parent));
-    else if (SCOPE_TYPES.has(parent.type)) {
+    else if (SCOPE_TYPES.has(parent.type) || extraScopeName(parent)) {
       const name = scopeName(parent);
       if (name) parts.push(name);
     }

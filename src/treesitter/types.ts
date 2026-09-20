@@ -1,6 +1,6 @@
 import type { LanguageId } from "./languages";
 
-export const ANALYSIS_PROFILE = "language-pack-1.20-v1" as const;
+export const ANALYSIS_PROFILE = "language-pack-1.20-v2" as const;
 
 export interface SourcePoint {
   /** One-based source line. */

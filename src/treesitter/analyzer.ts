@@ -3,10 +3,10 @@ import type { ProcessResult, StructureItem } from '@xberg-io/tree-sitter-languag
 import { ANALYSIS_PROFILE, type Analyzer, type Declaration, type SourceAnalysis, type SourceSummary } from './types';
 import { normalizeLanguage } from './languages';
 import { Node } from './node';
-import { functionDepth, functionName, parentFunctionName, qualityMetrics, qualifiedFunctionName, location, measure, walkNodes } from './metrics';
+import { functionDepth, functionName, isFunction, parentFunctionName, qualityMetrics, qualifiedFunctionName, location, measure, walkNodes } from './metrics';
 import { collectReferences } from './references';
 import { measureComplexity } from './complexity';
-import { extraDeclaration } from './extensions';
+import { hasSyntaxError } from './extensions';
 
 function unavailable(language: string, status: 'unsupported' | 'resource-unavailable', message: string): SourceAnalysis {
   return { profile: ANALYSIS_PROFILE, language, parser_status: status, parser_message: message,
@@ -14,7 +14,7 @@ function unavailable(language: string, status: 'unsupported' | 'resource-unavail
     truncated: { declarations: false, references: false, diagnostics: false } };
 }
 
-/** The pack supplies declarations; Perch adds call ownership and per-function risk measurements. */
+/** Native callable nodes extend the pack's structure records with call ownership and risk measurements. */
 function declarationsOf(items: StructureItem[], nodes: Map<string, Node>, language: string): Declaration[] {
   const result: Declaration[] = [];
   for (const item of items) {
@@ -40,10 +40,14 @@ function analysisOf(root: Node, language: string, built: ProcessResult): SourceA
   const remember = (items: StructureItem[]) => { for (const item of items) { wanted.add(`${item.span!.startByte}:${item.span!.endByte}`); remember(item.children ?? []); } };
   remember(structure);
   for (const node of walkNodes(root)) {
-    const extra = extraDeclaration(node, language);
-    if (extra) structure.push(extra);
     const key = `${node.startIndex}:${node.endIndex}`;
-    if (extra || wanted.has(key)) nodes.set(key, node);
+    if (isFunction(node) && !wanted.has(key)) {
+      const start = node.startPosition, end = node.endPosition;
+      structure.push({ kind: { type: 'Function' }, name: functionName(node),
+        span: { startByte: node.startIndex, endByte: node.endIndex, startLine: start.row, endLine: end.row, startColumn: start.column, endColumn: end.column }, children: [] });
+      wanted.add(key);
+    }
+    if (wanted.has(key)) nodes.set(key, node);
   }
   const diagnostics = (built.diagnostics ?? []).map(item => ({ kind: 'syntax' as const, message: item.message!,
     location: item.span ? { start: { line: item.span.startLine! + 1, column: item.span.startColumn! + 1, byte: item.span.startByte! },
@@ -51,10 +55,10 @@ function analysisOf(root: Node, language: string, built: ProcessResult): SourceA
   const measurement = measure(root, false);
   measurement.sloc = built.metrics!.codeLines!;
   measurement.comment_lines = built.metrics!.commentLines!;
-  return { profile: ANALYSIS_PROFILE, language, parser_status: root.nativeHasError() ? 'parse-error' : 'parsed',
+  return { profile: ANALYSIS_PROFILE, language, parser_status: hasSyntaxError(root, language) ? 'parse-error' : 'parsed',
     parser_message: diagnostics[0]?.message ?? null,
     metrics: qualityMetrics(measurement, measureComplexity(root, language, false)),
-    declarations: declarationsOf(structure, nodes, language),
+    declarations: declarationsOf(structure, nodes, language).sort((a, b) => a.location.start.byte - b.location.start.byte),
     // The pack's import records do not expose every binding/alias or call site. This extractor adds those graph edges.
     references: collectReferences(root, language), diagnostics,
     truncated: { declarations: false, references: false, diagnostics: false } };

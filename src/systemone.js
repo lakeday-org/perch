@@ -16,8 +16,9 @@ export function createSystemOne({
 } = {}) {
   if (!apiKey) throw new Error('PERCH_API_KEY is not set. Export an API key before running perch scan or perch check.');
 
-  async function request(body, attempted) {
+  async function request(body, attempted, beforeRequest) {
     for (let attempt = 0; ; attempt++) {
+      beforeRequest();
       let response;
       try {
         attempted();
@@ -37,8 +38,9 @@ export function createSystemOne({
       }
       if (!response.ok) {
         const detail = (await response.text().catch(() => '')).slice(0, 2000);
-        const sizeError = response.status === 413 || ([400, 422].includes(response.status)
-          && /context_length_exceeded|max_tokens_exceeded|(?:token|context)[\s\S]{0,80}(?:exceed|too (?:long|large)|limit)|(?:exceed|maximum)[\s\S]{0,80}(?:tokens|context length)/i.test(detail));
+        const accessError = /authenticat|authori[sz]|api[_ -]?key|token[^a-z]+(?:expired|invalid)|quota|rate[_ -]?limit|tokens? per (?:minute|second|day)/i.test(detail);
+        const sizeError = response.status === 413 || ([400, 422].includes(response.status) && !accessError
+          && /\b(?:context_length_exceeded|max_tokens_exceeded|context_window_exceeded)\b|\b(?:context (?:length|window)|(?:input|prompt|request) (?:size|length|tokens?|token count))\b[\s\S]{0,100}\b(?:exceed\w*|too (?:long|large)|limit|maximum)\b|\b(?:exceed\w*|maximum)\b[\s\S]{0,80}\b(?:context (?:length|window)|(?:input|prompt|request) (?:size|length|token count))\b/i.test(detail));
         if (sizeError) throw new ContextLimitError('server rejected the request size; rebuild with fewer estimated tokens', Math.floor(estimateTokens(body.state) / 2));
         throw new Error(`System One request failed with HTTP ${response.status}: ${detail.slice(0, 500)}`);
       }
@@ -51,7 +53,7 @@ export function createSystemOne({
     limits,
     cacheKey: createHash('sha256').update(JSON.stringify([baseUrl, model, limits, 'token-estimates-v1'])).digest('hex'),
     /** Batch independent questions within the request budget and return one answer per question id. */
-    async ask(state, questions) {
+    async ask(state, questions, { beforeRequest = () => {} } = {}) {
       const responses = [];
       let requests = 0;
       const usage = () => {
@@ -62,7 +64,7 @@ export function createSystemOne({
       };
       const send = async batch => {
         let response;
-        try { response = await request({ model, state, questions: batch }, () => requests++); }
+        try { response = await request({ model, state, questions: batch }, () => requests++, beforeRequest); }
         catch (error) {
           if (!(error instanceof ContextLimitError)) throw error;
           const entries = Object.entries(batch);

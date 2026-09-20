@@ -49,6 +49,7 @@ or a custom rule that broke.
 | `--paths a,b` | Only consider files under these repository paths. |
 | `--since REF` | Only what changed since this branch or commit. `--since origin/main` is what CI wants. |
 | `--parallel N` | How many methods to read at once. Default 8; files and tests go 32 at a time. |
+| `--max-unit-requests N` | Request attempts per method or file check, including retries and line lookups. Default 64. Exhaustion reports incomplete and exits 1. |
 | `--all` | List every row instead of the top 10. |
 | `--min P` | Only issues perch is at least P percent sure of. Default 50; `--min 0` shows everything it answered. |
 | `--out DIR` | Results directory. Default `.perch`. |
@@ -90,6 +91,7 @@ still wrong.
 | Flag | |
 | --- | --- |
 | `--rules a,b` | Ask only these: rule names, or `defect`, `security`, `refactor`, `docs`. |
+| `--max-unit-requests N` | Request attempts for this check, including retries and line lookups. Default 64. Exhaustion reports incomplete and exits 1. |
 | `--out DIR` | Results directory. Default `.perch`. |
 | `--json` | Print JSON instead of a summary. |
 | `--verbose` | Show every file, method, model call, and command. |

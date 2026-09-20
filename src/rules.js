@@ -7,8 +7,8 @@ import { readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { parseDocument, Scalar } from 'yaml';
-import { BUILTIN, check, ENSURES, SHAPES } from './ask.js';
-import { RULES_FILE } from './units.js';
+import { BUILTIN, check, ENSURES, SHAPES, parseQuestions } from './ask.js';
+import { RULES_FILE, readRuleFiles } from './units.js';
 
 export { SHAPES };
 
@@ -109,10 +109,19 @@ const write = (doc, key, value) => (NESTED.has(key) ? doc.createNode(value)
  */
 const legible = rule => check(Object.fromEntries(Object.entries(rule).filter(([, value]) => value !== undefined)), RULES_FILE, 'rule');
 
+/** A root-file edit cannot change a definition supplied by a later split file. */
+async function editableAtRoot(root, name) {
+  for (const { path, text } of await readRuleFiles(root, 'HEAD')) {
+    if (path !== RULES_FILE && parseQuestions(text, path, 'rule').some(rule => rule.name === name))
+      throw new Error(`${name} is already a rule in ${path}; edit that file directly`);
+  }
+}
+
 /** Add a rule, or refuse if that name is taken: two rules with one name is a report nobody can act on. */
 export async function addRule(root, rule) {
   return withLock(join(root, RULES_FILE), async () => {
     const { path, doc, rules, text } = await open(root);
+    await editableAtRoot(root, rule.name);
     if (named(rules, rule.name) >= 0) throw new Error(`${rule.name} is already a rule; perch rules edit ${rule.name} changes it`);
     legible(rule);
     const node = doc.createNode({});
@@ -133,6 +142,8 @@ export async function addRule(root, rule) {
 export async function editRule(root, name, changes) {
   return withLock(join(root, RULES_FILE), async () => {
     const { path, doc, rules, text } = await open(root);
+    await editableAtRoot(root, name);
+    if (changes.name && changes.name !== name) await editableAtRoot(root, changes.name);
     let at = named(rules, name);
     if (at < 0) {
       const shipped = BUILTIN.find(question => question.name === name);
@@ -168,6 +179,7 @@ export async function editRule(root, name, changes) {
 export async function removeRule(root, name) {
   return withLock(join(root, RULES_FILE), async () => {
     const { path, doc, rules, text } = await open(root);
+    await editableAtRoot(root, name);
     const at = named(rules, name);
     const shipped = BUILTIN.find(question => question.name === name);
     if (at < 0 && !shipped) throw new Error(`no question called ${name}; perch rules list shows them`);

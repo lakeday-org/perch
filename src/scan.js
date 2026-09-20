@@ -13,7 +13,7 @@ import { askKey, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor
 import { issuesOf, label as kindLabel, methodSteps, locateWhere, readAnswers } from './questions.js';
 import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL } from './units.js';
 import { findingId, identity, openStore, writeJson } from './store.js';
-import { TOKEN_LIMITS, IncompleteCheckError, withTokenRetries } from './tokens.js';
+import { TOKEN_LIMITS, IncompleteCheckError, withTokenRetries, requestScope } from './tokens.js';
 export { findingId };
 
 /** Methods in flight at once. Each request carries a whole neighborhood and thirty questions, so this is where the size is. */
@@ -42,9 +42,10 @@ export function mergeAnswers(readings, questions = questionSet().filter(question
 
 /** One System One reading of a method, in as many passes as its length takes, and the line they point at. */
 export async function questionMethod({ systemOne, node, step, steps = [step], lines, rules = [], debug = () => {}, prepare }) {
+  systemOne = requestScope(systemOne);
   return withTokenRetries(async budget => {
     if (budget < (systemOne.limits?.state ?? TOKEN_LIMITS.state) && !prepare) throw new IncompleteCheckError('source cannot be rebuilt for a smaller token budget');
-    const active = prepare ? prepare(budget) : steps;
+    const active = steps?.[0] && budget === (systemOne.limits?.state ?? TOKEN_LIMITS.state) ? steps : prepare ? prepare(budget) : steps;
     debug(`asking ${systemOne.id} about ${node.qualified_name} in ${node.path}:${node.line} (${Object.keys(active[0].questions).length} questions${active.length > 1 ? ` over ${active.length} passes` : ''}${active[0].windows ? `, then a line in the chosen window` : ''})`);
     const readings = [];
     let response;
@@ -306,8 +307,9 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const units = await askUnits({ ...over, rules: asking.filter(rule => !SEARCHES(rule.kind) && rule.each !== 'method'), parallel: unitParallel, progress: unitProgress });
     const searches = await searchUnits({ ...over, rules: asking.filter(rule => SEARCHES(rule.kind)), parallel: unitParallel, progress: searchProgress });
     run.carried += units.carried + searches.carried;
+    run.failed.push(...[...units.results, ...searches.results].filter(result => result.error));
     run.incomplete = [
-      ...run.failed.filter(result => result.incomplete).map(result => `${result.path}::${result.name}: ${result.error}`),
+      ...run.failed.filter(result => result.incomplete === true).map(result => `${result.path}::${result.name}: ${result.error}`),
       ...[...units.results, ...searches.results].filter(result => result.incomplete).map(result => result.incomplete),
     ];
     // What each rule actually covered. A selector that matches nothing is a rule that never fires and never says so, which is

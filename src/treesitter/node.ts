@@ -11,6 +11,7 @@ export class Node {
   get endPosition() { return this.native.endPosition(); }
   get isNamed() { return this.native.isNamed(); }
   nativeHasError() { return this.native.hasError(); }
+  get sexp() { return this.native.toSexp(); }
   get isError() { return this.native.isError(); }
   get isMissing() { return this.native.isMissing(); }
   get childCount() { return this.native.childCount(); }
