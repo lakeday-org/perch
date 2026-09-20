@@ -13,7 +13,7 @@ import { askKey, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor
 import { issuesOf, label as kindLabel, methodSteps, locateWhere, readAnswers } from './questions.js';
 import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL } from './units.js';
 import { findingId, identity, openStore, writeJson } from './store.js';
-import { IncompleteCheckError } from './chunks.js';
+import { TOKEN_LIMITS, IncompleteCheckError, withTokenRetries } from './tokens.js';
 export { findingId };
 
 /** Methods in flight at once. Each request carries a whole neighborhood and thirty questions, so this is where the size is. */
@@ -41,20 +41,24 @@ export function mergeAnswers(readings, questions = questionSet().filter(question
 }
 
 /** One System One reading of a method, in as many passes as its length takes, and the line they point at. */
-export async function questionMethod({ systemOne, node, step, steps = [step], lines, rules = [], debug = () => {} }) {
-  debug(`asking ${systemOne.id} about ${node.qualified_name} in ${node.path}:${node.line} (${Object.keys(steps[0].questions).length} questions${steps.length > 1 ? ` over ${steps.length} passes` : ''}${steps[0].windows ? `, then a line in the chosen window` : ''})`);
-  const readings = [];
-  let response;
-  for (const pass of steps) {
-    response = await locateWhere({ systemOne, state: pass.state, questions: pass.questions, windows: pass.windows });
-    readings.push(readAnswers(response.answers, pass));
-  }
-  const answers = mergeAnswers(readings, [...questionSet().filter(question => question.each === 'method' && !question.kind), ...rules]);
-  answers.where.text = lines[answers.where.line - 1]?.trim() ?? '';
-  // A partial source reading must remain visible instead of looking like a complete method check.
-  const to = steps.at(-1).covers.end_line;
-  if (to < node.end_line) answers.read = { passes: steps.length, to_line: to, of_line: node.end_line };
-  return { response, answers };
+export async function questionMethod({ systemOne, node, step, steps = [step], lines, rules = [], debug = () => {}, prepare }) {
+  return withTokenRetries(async budget => {
+    if (budget < (systemOne.limits?.state ?? TOKEN_LIMITS.state) && !prepare) throw new IncompleteCheckError('source cannot be rebuilt for a smaller token budget');
+    const active = prepare ? prepare(budget) : steps;
+    debug(`asking ${systemOne.id} about ${node.qualified_name} in ${node.path}:${node.line} (${Object.keys(active[0].questions).length} questions${active.length > 1 ? ` over ${active.length} passes` : ''}${active[0].windows ? `, then a line in the chosen window` : ''})`);
+    const readings = [];
+    let response;
+    for (const pass of active) {
+      response = await locateWhere({ systemOne, state: pass.state, questions: pass.questions, windows: pass.windows });
+      readings.push(readAnswers(response.answers, pass));
+    }
+    const answers = mergeAnswers(readings, [...questionSet().filter(question => question.each === 'method' && !question.kind), ...rules]);
+    answers.where.text = lines[answers.where.line - 1]?.trim() ?? '';
+    // A partial source reading must remain visible instead of looking like a complete method check.
+    const to = active.at(-1).covers.end_line;
+    if (to < node.end_line) answers.read = { passes: active.length, to_line: to, of_line: node.end_line };
+    return { response, answers };
+  }, systemOne.limits?.state);
 }
 
 /** Whether a label on an issue is one this question raises, so a run can say how often each of its own questions fired. */
@@ -217,18 +221,20 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const asked = questionsFor([...methodQuestions(kinds), ...rulesForMethod(rules, node)], filters, kindLabel);
     const own = asked.filter(question => question.kind);
     if (!asked.length) return { node, calleeIds, callerIds, rules: own, skip: true };
-    const steps = methodSteps({ node, lines: await linesOf(node), imports: file.imports, methods: file.methods, callees, callers, edges, asked });
-    return { node, calleeIds, callerIds, rules: own, steps, key: askKey(steps, asked, systemOne.cacheKey ?? systemOne.id) };
+    const lines = await linesOf(node);
+    const prepare = budget => methodSteps({ node, lines, imports: file.imports, methods: file.methods, callees, callers, edges, asked, budget });
+    const steps = prepare(systemOne.limits?.state);
+    return { node, calleeIds, callerIds, rules: own, steps, prepare, key: askKey(steps, asked, systemOne.cacheKey ?? systemOne.id) };
   };
   const ask = async nodeId => {
-    const { node, calleeIds, callerIds, rules: own, steps, key, skip } = await stepFor(nodeId);
+    const { node, calleeIds, callerIds, rules: own, steps, prepare, key, skip } = await stepFor(nodeId);
     if (skip) return { node, calleeIds, callerIds, rules: own, skipped: true };
     // The same state and the same questions have an answer already. Asking again would spend a request to be told what is on
     // disk, and would move the percentages on an issue nobody has touched, which is worse: a row you looked at yesterday should
     // read the same today unless the code did something.
     const before = earlier.get(node.id);
     if (before?.key === key) { debug(`${node.qualified_name} in ${node.path} is unchanged since it was read`); return { node, calleeIds, callerIds, rules: own, carried: before }; }
-    const { response, answers } = await questionMethod({ systemOne, node, steps, lines: await linesOf(node), rules: own, debug });
+    const { response, answers } = await questionMethod({ systemOne, node, steps, prepare, lines: await linesOf(node), rules: own, debug });
     return { node, calleeIds, callerIds, rules: own, response, answers, key };
   };
   /** Every reading this run made. The file is written whole at the end, so what this run did not cover is carried onto it. */

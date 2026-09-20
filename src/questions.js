@@ -1,7 +1,8 @@
 /** The state one method is asked over, the questions perch adds to whatever the question set declares, and how answers are read. */
 import { compile, floorFor, issues, questionSet, readAnswer, setHash, vocabulary } from './ask.js';
 import { RULES_FILE } from './units.js';
-import { sourceChunks, STATE_BYTES, jsonBytes, questionBatches, IncompleteCheckError } from './chunks.js';
+import { sourceChunks } from './chunks.js';
+import { TOKEN_LIMITS, estimateTokens, textTokens, questionBatches, IncompleteCheckError, ContextLimitError } from './tokens.js';
 
 /** The bands a severity score is named by, worst last, matching the rubric declared in the question set. */
 export const SEVERITY_BANDS = ['P3', 'P2', 'P1', 'P0'];
@@ -212,7 +213,7 @@ export const flagged = (answers, min = 0) => issuesOf(answers, min).some(issue =
 export const needsDesign = (answers, min = 0) => issuesOf(answers, min).some(isDesign);
 export const hasIssue = (answers, min = 0) => issuesOf(answers, min).length > 0;
 
-export const MAX_CALLEES = 8, MAX_CALLERS = 8, STATE_BUDGET = STATE_BYTES, MODULE_SCOPE_BUDGET = 6 * 1024;
+export const MAX_CALLEES = 8, MAX_CALLERS = 8, STATE_BUDGET = TOKEN_LIMITS.state, MODULE_SCOPE_BUDGET = 2000;
 /** A Choice accepts at most 255 options; past that, pick a window then the line inside it. */
 export const MAX_CHOICES = 255;
 export const lineId = line => `L${String(line).padStart(4, '0')}`;
@@ -271,7 +272,7 @@ export function leadingComment(lines, line) {
 }
 
 /**
- * Without this, an identifier that is neither a callee nor an import is a name the model has to guess at. Cut at `budget` bytes,
+ * Without this, an identifier that is neither a callee nor an import is a name the model has to guess at. Cut at `budget` estimated tokens,
  * because a file's constants are worth less to the reading than its callers are.
  */
 export function moduleScope(lines, methods, budget = MODULE_SCOPE_BUDGET) {
@@ -283,9 +284,10 @@ export function moduleScope(lines, methods, budget = MODULE_SCOPE_BUDGET) {
     const text = lines[line - 1];
     if (inside.has(line) || !text.trim() || commentLine.test(text) || /^\s*(import|from|use|package)\b/.test(text)) continue;
     const entry = `${lineId(line)}| ${text}`;
-    if (size + entry.length > budget) { kept.push(`... (cut at ${budget} bytes)`); break; }
+    const tokens = textTokens(entry + '\n');
+    if (size + tokens > budget) { kept.push(`... (cut at ${budget} estimated tokens)`); break; }
     kept.push(entry);
-    size += entry.length + 1;
+    size += tokens;
   }
   return kept.join('\n') || null;
 }
@@ -312,13 +314,13 @@ export function methodStep({ node, lines, imports = [], methods = [node], module
         source: excerpt(callerLines, caller.line, caller.end_line, limit, site ?? null) })),
     call_graph: edges,
   });
-  const over = () => jsonBytes(state) > budget;
+  const over = () => estimateTokens(state) > budget;
   let state = build(limits[0] === Infinity ? Infinity : 80);
   for (const limit of limits) { if (!over()) break; state = build(limit); }
   if (over()) state = build(limits.at(-1), Infinity, false);
-  if (over()) throw new IncompleteCheckError(`${node.path}::${node.qualified_name}: method context is too large`);
+  if (over()) throw new ContextLimitError(`${node.path}::${node.qualified_name}: method context exceeds the token budget`, budget / 2);
   if (chunk) state.reading = { start_byte: chunk.startByte, end_byte: chunk.endByte, partial: chunk.partial };
-  if (over()) throw new IncompleteCheckError(`${node.path}: method metadata exceeds the request budget`);
+  if (over()) throw new ContextLimitError(`${node.path}: method metadata exceeds the token budget`, budget / 2);
   const { calls, called_by: calledBy } = state;
   const neighbors = [...calls, ...calledBy].filter((item, index, all) => all.findIndex(other => other.id === item.id) === index);
   // Only lines the model can see are lines it can point at: a trimmed method must not be asked about the part that was cut.
@@ -349,18 +351,18 @@ export function methodSteps({ node, lines, imports = [], methods = [node], calle
   const source = lines.slice(node.line - 1, node.end_line).join('\n');
   const budget = options.budget ?? STATE_BUDGET;
   const moduleScopeText = moduleScope(lines, methods);
-  let maxBytes = Math.floor(budget / 2);
+  let maxTokens = budget;
   for (;;) {
-    const chunks = sourceChunks(source, { path: node.path, maxBytes });
+    const chunks = sourceChunks(source, { path: node.path, maxTokens });
     try {
       const steps = chunks.map((chunk, index) => methodStep({ node, lines, imports: index ? [] : imports, methods, moduleScopeText,
         callees: index ? [] : callees, callers: index ? [] : callers, edges: index ? [] : edges,
-        ...options, chunk: { ...chunk, partial: chunks.length > 1 } }));
+        ...options, budget, chunk: { ...chunk, partial: chunks.length > 1 } }));
       for (const step of steps) questionBatches(step.state, step.questions);
       return steps;
     } catch (error) {
-      if (!(error instanceof IncompleteCheckError) || maxBytes <= 128) throw error;
-      maxBytes = Math.max(128, Math.floor(maxBytes / 2));
+      if (!(error instanceof IncompleteCheckError) || maxTokens <= 128) throw error;
+      maxTokens = Math.max(128, Math.floor(maxTokens / 2));
     }
   }
 }

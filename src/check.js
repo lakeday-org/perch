@@ -102,9 +102,10 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
     contexts.get(rule.sees).push(rule);
   }
   const asked = (await Promise.all([...contexts].map(async ([sees, together]) => {
-    const steps = unitSteps({ rules: together, unit, source: body, seen: neighbourhood(sees, unit, { graph: EMPTY_GRAPH, files: new Map([[unit.path, unit.text]]) }) });
+    const prepare = budget => unitSteps({ rules: together, unit, source: body, seen: neighbourhood(sees, unit, { graph: EMPTY_GRAPH, files: new Map([[unit.path, unit.text]]) }), budget });
+    const steps = prepare(systemOne.limits?.state);
     debug(`${together.map(rule => rule.name).join(', ')}: ${unit.name}`);
-    const { answers, incomplete } = await askUnitSteps({ systemOne, steps, rules: together });
+    const { answers, incomplete } = await askUnitSteps({ systemOne, steps, prepare, rules: together });
     if (incomplete) throw new Error(`Check incomplete: ${unit.path} was checked in pieces; a whole-file conclusion was not established`);
     return together.map(rule => ({ rule: rule.name, said: rule.text, broken: brokenHere(rule, answers), floor: floorFor(rule, BELIEVED) }));
   }))).flat();
@@ -124,8 +125,9 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
     if (context) {
       const node = { ...context.node, line: unit.line, end_line: unit.end_line, metrics: unit.metrics ?? context.node.metrics };
       const others = context.methods.filter(method => method.qualified_name !== unit.name);
-      const steps = methodSteps({ node, lines: unit.lines, imports: context.imports, methods: [...others, node], callees: context.callees, callers: context.callers });
-      const { answers } = await questionMethod({ systemOne, node, steps, lines: unit.lines, debug });
+      const prepare = budget => methodSteps({ node, lines: unit.lines, imports: context.imports, methods: [...others, node], callees: context.callees, callers: context.callers, budget });
+      const steps = prepare(systemOne.limits?.state);
+      const { answers } = await questionMethod({ systemOne, node, steps, prepare, lines: unit.lines, debug });
       issues = issuesOf({ ...answers, metrics: node.metrics });
       if (named.types.length) issues = issues.filter(issue => named.types.includes(issue.type));
     }

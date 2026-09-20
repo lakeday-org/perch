@@ -6,7 +6,7 @@ import { makeGraphFixture, commitAll, scriptedSystemOne } from './helpers.js';
 import { revision } from '../src/git.js';
 import { scanRepository } from '../src/scan.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
-import { STATE_BYTES, jsonBytes, IncompleteCheckError } from '../src/chunks.js';
+import { TOKEN_LIMITS, estimateTokens, IncompleteCheckError } from '../src/tokens.js';
 import { locateBreak } from '../src/units.js';
 
 const cleanups = [];
@@ -36,7 +36,7 @@ it('checks a file over 1 MiB in bounded requests and reports the whole-file judg
   const client = scriptedSystemOne();
   const sent = [];
   const systemOne = { id: client.id, async ask(state, questions) {
-    expect(jsonBytes(state)).toBeLessThanOrEqual(STATE_BYTES);
+    expect(estimateTokens(state)).toBeLessThanOrEqual(TOKEN_LIMITS.state);
     if (questions.prose) { sent.push(state.reading); return { answers: { prose: { type: 'noul', noul: 0.95 } } }; }
     return client.ask(state, questions);
   } };
@@ -49,7 +49,7 @@ it('checks a file over 1 MiB in bounded requests and reports the whole-file judg
   expect(run.coverage.find(rule => rule.name === 'prose').units).toBe(1);
   vi.stubGlobal('fetch', async (_url, init) => {
     const request = JSON.parse(init.body);
-    expect(jsonBytes(request.state)).toBeLessThanOrEqual(STATE_BYTES);
+    expect(estimateTokens(request.state)).toBeLessThanOrEqual(TOKEN_LIMITS.state);
     return { ok: true, status: 200, json: async () => ({ answers: Object.fromEntries(Object.keys(request.questions).map(name => [name, { noul: 0.95 }])) }) };
   });
   const output = [], errors = [];
@@ -65,7 +65,7 @@ it('checks a file over 1 MiB in bounded requests and reports the whole-file judg
 it('keeps the original line number when locating a problem in a later chunk', async () => {
   const body = 'safe\n'.repeat(10000) + 'BROKEN\n';
   const systemOne = { async ask(state, questions) {
-    expect(jsonBytes(state)).toBeLessThanOrEqual(STATE_BYTES);
+    expect(estimateTokens(state)).toBeLessThanOrEqual(TOKEN_LIMITS.state);
     if (questions.has_break) return { answers: { has_break: { noul: state.source.includes('BROKEN') ? 0.99 : 0.01 } } };
     expect(state.rule).toContain('No BROKEN marker');
     if (questions.where_window) {

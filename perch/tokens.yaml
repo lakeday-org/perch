@@ -1,0 +1,24 @@
+- name: requests-use-token-estimates
+  where: src/tokens.js
+  ensure: >-
+    The request budget counts estimated tokens from the state and questions,
+    including criteria. The estimator uses text tokenization and explicitly
+    treats it as approximate. Comparing character counts or UTF-8 byte counts
+    to the token limits, ignoring question text, or claiming another model's
+    tokenizer is Jev's exact tokenizer breaks this rule.
+- name: oversized-requests-change-before-retry
+  where: src/systemone.js
+  ensure: >-
+    When the server rejects a request because it exceeds a context or token
+    limit, the client divides the questions or returns a distinct size error
+    carrying a smaller source token budget for the caller to rebuild. It does
+    not retry the identical oversized payload. Authentication failures and
+    unrelated validation errors are not treated as token-limit failures.
+- name: token-budget-tests-use-independent-controls
+  where: test/chunks.test.js
+  ensure: >-
+    The request-budget tests compare outgoing requests with an independent
+    tokenizer count, and use equal-length texts with different token densities
+    to distinguish token budgeting from a file-length cutoff. Large-source
+    tests also verify original text and positions. Only comparing a helper's
+    output with that same helper's output breaks this rule.
