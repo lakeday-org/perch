@@ -48,7 +48,31 @@ chore: bump the parser
 `fix:` is a patch, `feat:` is a minor, `feat!:` or a `BREAKING CHANGE:` footer is a major. Anything else moves nothing, so a
 fix titled without its prefix ships in no release and nobody finds out until they look for it.
 
-The body of a commit is prose. Say what was wrong and why the change is the answer, not what the diff shows.
+The title lands in the release notes, where it is read by someone who does not know the pull request exists. Name the change
+from their side:
+
+```
+feat!: PERCH_API_KEY replaces TYPESAFE_API_KEY
+fix: perch scan <dir> read the whole repository
+```
+
+Not `fix: update API configuration` or `fix: address review feedback`. Those are true of half the commits in the project.
+
+## Keep the pull request body about the change
+
+Say what was wrong, what changed, and what a user has to do about it. Nothing else.
+
+Leave out:
+
+- Merge order and branch names. `Depends on #78, merge that first` is stale the moment it merges, and the base branch already
+  says it. Put it in a comment if someone needs to know.
+- Test counts, lint, typecheck, build. CI reports all of it, and a body claiming 107 tests pass is a claim a reader has to
+  check against a run that already says so.
+- How the work was done. Which rule was written first, what failed before it passed, how many attempts a wording took. That
+  belongs in the commit body if anywhere.
+
+A reader should be able to skim it. Long prose paragraphs describing every field of every change are a worse version of the
+diff, which is on the next tab.
 
 ## Releases are not cut by hand
 
