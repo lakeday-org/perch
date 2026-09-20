@@ -35,10 +35,10 @@ is one row carrying three issues.
 | `Location` | The file and the line. For a defect, the line the model pointed at. |
 | `Type` | The class the row leads with: `defect`, `security`, `refactor`, `docs`, or `lint`. |
 | `Kind` | The issues themselves, likeliest first, with how sure perch is of each. |
-| `Severity` | How much a caller would feel it. Empty on a row carrying neither a defect nor a vulnerability, since those are the two the rubric weighs. |
+| `Severity` | How bad it would be for a caller. The rubric grades the defect and the vulnerability, so other rows are empty. |
 
-Severity prints as a band and a number, `P1 (0.9)`. The number says where in the
-band the row sits:
+Severity prints as a band and a number, `P1 (0.9)`. The number is where it falls
+within the band:
 
 ```
 P1 (0.9)   almost P0
@@ -48,7 +48,7 @@ P1 (1.2)   settling toward P2
 The band is `round(mean)` and the number is `3 − mean`, over a distribution the
 model gives across all four levels. [Inside a scan](scan.md) works it through.
 
-## One issue, opened up
+## One issue in full
 
 ```console
 $ perch issues 723a2685
@@ -83,7 +83,7 @@ includes answers below the floor. A defect at 44% is left off the table, and
 vulnerability. The `Severity` line lower down carries the whole distribution, and
 the band and bracketed number are worked out from it.
 
-## Narrowing the list
+## Filters
 
 `--filter` takes `type=`, `kind=`, `severity=` and `rule=`. Clauses on the same
 key are alternatives, clauses on different keys all have to hold.
@@ -97,9 +97,9 @@ perch issues --filter rule=no-silent-failure
 
 `perch issues --types` prints every value the three keys accept.
 
-A filtered list is ranked by what was filtered for. So `--filter type=security`
-leads with the likeliest vulnerability in the repository. Each row also reorders
-to lead with the match.
+A filtered list is ranked by what was filtered for, so `--filter type=security`
+puts the likeliest vulnerability first. Each row shows the matching issue first
+as well.
 
 ## Floors
 
@@ -110,10 +110,10 @@ perch issues --min 80     # only what it is very sure of
 perch issues --min 0      # everything it answered
 ```
 
-The floor decides what gets claimed. The ranking still uses every answer, so an
-issue at 49 percent weighs 0.49 in where its method sorts. See [the floor](/scan/#the-floor).
+The floor decides what is listed. The ranking uses every answer, so an issue at
+49 percent still weighs 0.49 in where its method sorts. See [the floor](/scan/#the-floor).
 
-## Setting one aside
+## Closing an issue
 
 `perch close` takes a finding off the list:
 
@@ -130,9 +130,7 @@ alone. `perch reopen <id>` puts it back.
 perch issues --closed     # include what you set aside
 ```
 
-Closed issues live in `.perch/closed.jsonl`, apart from the answers. A judgement
-you made has to survive the next run. Commit that file to share dismissals
-with the team.
+Closed issues live in `.perch/closed.jsonl`.
 
 ## JSON
 

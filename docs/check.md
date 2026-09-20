@@ -32,7 +32,7 @@ perch check 92c7781e
 It asks every rule that covers the target, plus the scan's own questions when the
 target is a method.
 
-## Narrowing to what you just changed
+## Narrowing by rule
 
 `--rules` takes rule names out of `perch.yaml`, or the classes the scan asks
 about: `defect`, `security`, `refactor`, `docs`.
@@ -68,7 +68,7 @@ reading.
 `issues` is a list of claims, so it has a floor. `check` answers the question you
 asked, and reports whatever came back.
 
-## No record
+## Side effects
 
 Nothing. The issue that sent you there stays open in `.perch`. The next
 `perch scan` re-reads that method and finds it gone.

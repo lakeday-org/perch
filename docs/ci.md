@@ -27,7 +27,7 @@ worth stopping for is left out rather than reported and ignored.
 `perch rules list` prints the setting in a Fails column. `perch rules edit
 <name> --gate false` records a question's answer without acting on it.
 
-## Only what the branch changed
+## Branch scope
 
 `--since` narrows the scan to what moved:
 
@@ -78,7 +78,7 @@ jobs:
 Without the base branch in the checkout, `--since` has nothing to compare
 against, so `fetch-depth: 0` is not optional.
 
-## Reporting without gating
+## Reports without gating
 
 To collect findings without failing anything, read the JSON and decide yourself:
 
@@ -87,22 +87,30 @@ perch scan --since origin/main --json > perch.json || true
 jq '[.[] | select(.issues[]? | .type == "security" and .probability > 0.9)]' perch.json
 ```
 
-## Sharing what the team set aside
+## Shared closures
 
-`perch close` writes to `.perch/closed.jsonl`, which is kept separate from the
-answers so it can be committed. Commit it and the team's dismissals travel with
-the repository, so CI does not re-report what somebody already looked at.
-
-Add the rest of `.perch` to `.gitignore`:
-
-```
-.perch/*
-!.perch/closed.jsonl
-```
+`perch close` writes to `.perch/closed.jsonl`. perch ignores the rest of `.perch`
+and not that file, so commit it and the team's dismissals travel with the
+repository. CI then leaves alone what somebody has already looked at.
 
 ## Cost
 
-One HTTP request per method read. `--since` decides how many methods that is,
-`--parallel` decides how fast they go, and neither changes the total. Output
-tokens are not billed, so asking thirty questions of a method costs what asking
-one costs.
+A scan of this repository, 416 methods and 20 rules:
+
+```console
+perch at commit 40839bc: 416 methods, read 416, 119 unchanged
+1225 requests  3.2M tokens in / 365k out  $0.13
+```
+
+416 of those requests are the methods. The other 809 are the rules. Four things
+add requests:
+
+| | |
+| --- | --- |
+| A method | One request. All the questions go in it, so thirty cost the same as one. |
+| A method too long for one request | Up to eight, in overlapping passes. |
+| A file rule | One per file, plus one per failing file to locate the line. |
+| `ensure_present` or `ensure_absent` | One per unit, until one matches. See [the cost of a search](/rules/#the-cost-of-a-search). |
+
+`--since` sets how many methods are read. `--parallel` sets how fast they go.
+Neither changes the request count. Output tokens are not billed.

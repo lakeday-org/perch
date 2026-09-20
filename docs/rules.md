@@ -118,8 +118,7 @@ shallowest first. `callers` is what sits above it, nearest first.
 `ensure` has to hold everywhere, so every unit it covers is asked.
 
 `ensure_present` and `ensure_absent` are claims about the codebase rather than
-any one file. They search the likeliest units first and stop at the answer, for a
-fraction of a whole sweep.
+any one file. They search the likeliest units first and stop at the answer.
 
 ```yaml
 - name: issues-closable
@@ -136,7 +135,51 @@ fraction of a whole sweep.
     A command or flag that is parsed and then never used.
 ```
 
-## Writing a good one
+### The cost of a search
+
+A search is how you find out whether something is true of a codebase you have not
+read. That is worth having, and it is the most expensive thing perch does.
+
+It stops at the first unit that answers, so a rule that finds what it is looking
+for early is cheap. A rule with no answer anywhere reads every unit it covers.
+`ensure_absent` over `src/**/*.js` with `each: method` asks about every method in
+`src` before it can say nothing has the thing, and that is the case a clean
+codebase hits on every run. Three such rules account for most of a scan here.
+
+A rule reads at most 400 units, search or not. Past that the rest are skipped
+without a word, so an `ensure_present` rule over more than 400 units can report
+that nothing has the thing when something does.
+
+`perch scan --filter rule=<name>` runs one rule on its own, which is how to see
+what a search costs.
+
+### From a search to a rule
+
+Use a search to find the problem. Once you know where it lives, write the rule
+against that place instead, and the cost goes with it.
+
+`where` takes the call graph, not just a glob:
+
+```yaml
+- name: closed-never-listed
+  where: callers of issues
+  ensure: >
+    This method passes the findings through visibleFindings before a person
+    sees them, or it is not producing a list for a person to read.
+
+- name: one-way-into-the-log
+  where: mentions .jsonl
+  ensure: >-
+    This method reads and writes the results files through the store, not by
+    opening them itself.
+```
+
+Both are in this repository's `perch.yaml`. `callers of issues` is the handful of
+methods that call `issues()`. `mentions .jsonl` is the methods whose source names
+that string. A search over `src/**/*.js` would ask the same question of four
+hundred methods to reach the same answer.
+
+## Wording a rule
 
 A rule is read by a model. Write it the way you would explain it to somebody
 joining the team, and say what breaks it:
@@ -197,7 +240,7 @@ recorded and not acted on:
 perch rules edit docs-succinct --gate false
 ```
 
-## Code perch does not read
+## Ignored paths
 
 `perch.yaml` is a list of rules. To say what a scan should skip entirely, write it as a
 map instead, with the rules under `rules:`:
@@ -249,7 +292,7 @@ perch at commit 54a38d6: 13 methods, read 13
 That is 13 requests against 52 for the default run, because the filter narrows
 what is asked and not just what is printed.
 
-## Editing perch.yaml from the command line
+## perch rules
 
 `perch rules` changes the file without opening it, keeping comments and
 ordering:
@@ -261,7 +304,7 @@ perch rules edit env-read-once --except "src/cli.js,src/config.js"
 perch rules remove no-stale-docs
 ```
 
-## Rewording what perch itself asks
+## Overriding perch's own questions
 
 The questions perch ships with are written in the same grammar, in `scan.yaml`
 inside the package. A rule in `perch.yaml` sharing a `name` with one of them
@@ -281,9 +324,9 @@ Every question carries a floor, in percent. Below it, an answer is not listed.
 | 70% | `does_what_it_claims`, and every defect and vulnerability class |
 | 60% | `has_bug`, `refactor` |
 
-A model asked four hundred times answers in the fifties a great deal. A 51% row
-reads like a 95% one while being a coin flip. Each floor is where that question
-stopped hedging on this codebase. Another codebase may land elsewhere.
+A 51% answer is a coin flip that prints like a claim, so each question carries a
+floor under which perch does not list it. The floors above were set against this
+codebase; another may want different ones.
 
 `--min` sets a floor for a whole run. Both apply and the higher wins. Asking for
 `--min 90` gets you nothing at 73%, whatever a question set for itself.
@@ -305,9 +348,9 @@ perch rules edit comment-says-why --min 0  # take a floor off
 
 Raising a floor until a rule keeps nothing is turning it off with extra steps.
 A question answering in the seventies about most of a codebase is a wrong
-question, not a wrong number. See [writing a good one](#writing-a-good-one).
+question, not a wrong number. See [writing a good one](#wording-a-rule).
 
-## Answers that are not yes-or-no
+## Longhand questions
 
 `ensure` is shorthand for a yes-or-no question. A rule can instead be written out
 in the grammar `scan.yaml` uses. Reach for that when the answer is a pick from a

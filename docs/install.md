@@ -76,7 +76,7 @@ perch scan --paths src
 perch scan --since origin/main
 ```
 
-## Reading what it found
+## The issue list
 
 `perch scan` reports by file. `perch issues` ranks across the whole repository,
 worst first:
@@ -100,7 +100,7 @@ That prints everything perch answered about the method. The severity distributio
 shows the line the defect points at and how sure that pick was. It also lists the callers and callees that
 were in view.
 
-## Changing something and asking again
+## Checking a change
 
 `perch check` puts the same questions to code as it reads on disk, uncommitted.
 Nothing is recorded, so it is the one to run while you are working:

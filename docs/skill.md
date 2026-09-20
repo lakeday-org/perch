@@ -45,18 +45,15 @@ its own confidence. The real problem is often a few lines from the label. Read
 the code before changing it. Close what you decide is fine.
 
 **Check one method.** After a fix, `perch check path::method --json` asks about
-that method alone, off disk, recording nothing. A rescan would move the numbers
-on the issue being fixed.
+that method alone, off disk, recording nothing, so the numbers on the issue being
+fixed do not move.
 
 **Write a rule when a mistake repeats.** On the second correction, `perch rules
 add` catches it from then on. The skill tells the assistant to ask you first.
 
 **Tune a rule against two controls.** A new rule is a draft. The skill tells the
 assistant to put it to a file that should pass and a copy deliberately broken.
-A rule answering the same about both is measuring something else. It also
-carries the two ways that goes wrong: a rule worded as a claim about every line
-of a file ends up measuring the file's length, and one narrowed to hunt the
-single worst line fires on clean files.
+A rule answering the same about both is measuring something else.
 
 ## Editing it
 
@@ -73,13 +70,9 @@ bootstrap script.
 
 ## Cursor
 
-The Cursor rule is written with `alwaysApply: true`. Claude Code, Codex and pi
-pick a skill off a list when they judge it relevant. Cursor would leave it to
-whether the description matched the turn. "Fix this bug" reads as something else
-entirely.
+The Cursor rule carries `alwaysApply: true`, so it is loaded on every turn.
+Claude Code, Codex and pi instead pick a skill off a list when its description
+matches what you asked for.
 
-The cost of being wrong runs one way. Loaded when it was spare, it is a few
-kilobytes nobody reads. Missing when it mattered, the assistant either never
-thinks of perch or runs it from general knowledge of the shell. That is where
-scanning a repository to check one line comes from, and reading exit 3 as a
-crash.
+The file is a few kilobytes. Leave `alwaysApply` on unless you are short of
+context.
