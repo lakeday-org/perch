@@ -214,13 +214,6 @@ rules:
     ensure: >-
       Every question raising an issue fails the run unless it says gate: false.
       No issue type is exempt by being a judgement call.
-  - name: docs-identify-bug-fixture
-    where: docs/rules.md
-    ensure: >-
-      In the section about code perch does not read, the order-service example
-      is identified as a deliberately buggy fixture under test/fixtures/order-service.
-      Describing it as application code or placing it at the repository root
-      breaks this rule.
   - name: codeql-scans-automatically
     where: .github/workflows/codeql.yml
     ensure: >-

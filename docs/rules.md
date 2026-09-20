@@ -204,7 +204,7 @@ map instead, with the rules under `rules:`:
 
 ```yaml
 ignore:
-  - test/fixtures/order-service/**
+  - generated/**
   - fixtures/**
 
 rules:
@@ -213,9 +213,7 @@ rules:
     ensure: A headline and one line, not a paragraph explaining the product.
 ```
 
-A path matching `ignore` is never read and never reported. This repository uses
-it for `test/fixtures/order-service`, a deliberately buggy order-service fixture.
-The docs use its bugs to show real output.
+A path matching `ignore` is never read and never reported.
 
 The bare list form still works.
 
