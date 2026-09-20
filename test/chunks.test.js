@@ -72,8 +72,9 @@ describe('complete request budgets', () => {
 
   it('reserves room for long method questions before choosing source chunks', () => {
     const source = 'function big() { return "' + 'x'.repeat(50000) + '"; }';
-    const asked = [{ name: 'q', type: 'noul', ask: 'Check this rule. '.repeat(1500) }];
+    const asked = [{ name: 'q', type: 'noul', ask: 'Check this rule. '.repeat(5500) }];
     const steps = methodSteps({ node: { path: 'big.js', qualified_name: 'big', line: 1, end_line: 1 }, lines: [source], asked });
+    expect(steps.length).toBeGreaterThan(1);
     expect(steps.at(-1).covers.end_byte).toBe(Buffer.byteLength(source));
     for (const step of steps) expect(() => questionBatches(step.state, step.questions)).not.toThrow();
   });
