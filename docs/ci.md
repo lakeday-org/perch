@@ -89,9 +89,8 @@ jq '[.[] | select(.issues[]? | .type == "security" and .probability > 0.9)]' per
 
 ## Shared closures
 
-`perch close` writes to `.perch/closed.jsonl`. perch ignores the rest of `.perch`
-and not that file, so commit it and the team's dismissals travel with the
-repository. CI then leaves alone what somebody has already looked at.
+`perch close` writes to `.perch/closed.jsonl`. Commit it to share the team's
+dismissals. CI then leaves alone what somebody has already looked at.
 
 ## Cost
 
