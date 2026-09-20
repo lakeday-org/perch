@@ -163,7 +163,7 @@ Puts closed issues back on the list.
 perch setup <claude-code | codex | pi | cursor> [options]
 ```
 
-Writes the perch skill where that assistant reads it:
+Writes the perch skill:
 
 ```console
 $ perch setup claude-code
@@ -177,23 +177,21 @@ Wrote .claude/skills/perch/SKILL.md for Claude Code.
 | `pi` | `.pi/skills/perch/SKILL.md` |
 | `cursor` | `.cursor/rules/perch.mdc` |
 
-The skill tells the assistant to scan what a branch changed, to read the JSON
-rather than the table, that a finding is a probability, to ask about one method
-after a fix, and to write a rule when the same mistake comes back. Cursor gets
-the same text under its own frontmatter, with `alwaysApply: true`.
+The skill covers scanning what a branch changed, reading the JSON rather than
+the table, treating a finding as a probability, checking one method after a fix,
+and writing a rule when the same mistake comes back. Cursor uses the same text
+under its own frontmatter, with `alwaysApply: true`.
 
-Commit the file. It is part of how the repository is worked on, the same as
-`perch.yaml`.
+Commit the file, the same as `perch.yaml`.
 
-Running it again on an unchanged file changes nothing and says so, so it is safe
-in a bootstrap script:
+Re-running on an unchanged file is a no-op, so it is safe in a bootstrap script:
 
 ```console
 $ perch setup claude-code
 .claude/skills/perch/SKILL.md is already this skill.
 ```
 
-A file you have edited is kept. Exits 2 rather than overwriting it:
+An edited file is never overwritten. Exits 2 instead:
 
 ```console
 $ perch setup claude-code
