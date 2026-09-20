@@ -186,7 +186,7 @@ To replace a modified or older file, use `--force`.
 | `--force` | Replace an existing file, including any local edits. |
 
 Commit the generated file to share these instructions with your team.
-See [Using Perch with coding assistants](skill.md) for more details.
+See [Using Perch with coding assistants](skill.md).
 
 ## perch doctor
 
@@ -194,8 +194,7 @@ See [Using Perch with coding assistants](skill.md) for more details.
 perch doctor
 ```
 
-`perch doctor` says whether perch can run here, then what the last run could
-not read.
+Checks the local environment and reports errors from the most recent scan.
 
 ```console
 $ perch doctor
@@ -214,15 +213,10 @@ perch DEVELOPMENT (9478295)  node v25.5.0  darwin arm64
 No run yet. perch scan is what reads the code.
 ```
 
-It checks node, git and the API key. It checks the repository, a writable results
-directory and `perch.yaml`. Each is a tick or a cross, and every cross says what
-to do. It exits 1 when any check fails, so CI can run it before a scan.
+Returns exit code `1` if an environment check fails.
 
-Under the checks it lists every method the last run could not read, with the
-error beside it. A run that ended badly also gets the end of `.perch/scan.log`.
-
-It prints names, paths, counts and error messages, so it can be pasted into a
-bug report as it stands.
+The report also lists methods that could not be analyzed. For failed scans,
+it includes the end of `.perch/scan.log`.
 
 ## Environment
 
