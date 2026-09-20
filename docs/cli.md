@@ -184,23 +184,9 @@ under its own frontmatter, with `alwaysApply: true`.
 
 Commit the file, the same as `perch.yaml`.
 
-Re-running on an unchanged file is a no-op, so it is safe in a bootstrap script:
-
-```console
-$ perch setup claude-code
-.claude/skills/perch/SKILL.md is already this skill.
-```
-
-An edited file is never overwritten. Exits 2 instead:
-
-```console
-$ perch setup claude-code
-.claude/skills/perch/SKILL.md is already there; perch setup claude-code --force replaces it
-```
-
 | Flag | |
 | --- | --- |
-| `--force` | Replace a skill file you have already edited. |
+| `--force` | Overwrite an edited skill file. Without it, perch exits 2. |
 
 [perch in a coding assistant](skill.md) is the longer version.
 
