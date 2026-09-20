@@ -177,10 +177,12 @@ Wrote .claude/skills/perch/SKILL.md for Claude Code.
 | `pi` | `.pi/skills/perch/SKILL.md` |
 | `cursor` | `.cursor/rules/perch.mdc` |
 
-The skill covers scanning what a branch changed, reading the JSON rather than
-the table, treating a finding as a probability, checking one method after a fix,
-and writing a rule when the same mistake comes back. Cursor uses the same text
-under its own frontmatter, with `alwaysApply: true`.
+The skill tells the assistant to scan the branch instead of the whole
+repository, to read the JSON instead of the table, and to check one method after
+a fix. It explains that a finding is a probability, and that a mistake seen
+twice is worth a rule.
+
+Cursor gets the same text with its own frontmatter and `alwaysApply: true`.
 
 Commit the file, the same as `perch.yaml`.
 
