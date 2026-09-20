@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { appendFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import { excludeFromStatus, git, repoRoot } from './git.js';
+import { git, repoRoot } from './git.js';
 import { BELIEVED, flagged, issuesOf, issueWeight } from './questions.js';
 
 export const sha256 = text => createHash('sha256').update(text).digest('hex');
@@ -73,14 +73,22 @@ export function openStore(out) {
     out,
     scanDir: id => join(out, 'scans', id),
     runDir: id => join(out, 'runs', id),
-    /** Keep results out of `git status` when they live inside the repository. */
+    /**
+     * Keep results out of `git status` when they live inside the repository.
+     *
+     * A `.gitignore` in the results directory, which is what pytest, ruff and cargo do in theirs. This used to append to
+     * `.git/info/exclude`: a change inside `.git` that nothing told you about and that stayed after you deleted the results.
+     *
+     * `*` covers this file too, so it does not show up itself. `closed.jsonl` is named back in because it is meant to be
+     * committed. The directory is not ignored, only what is in it, or git would not re-include the one file.
+     */
     async exclude(root) {
       if (!out.startsWith(root + '/')) return;
-      // Everything under it but not what you decided. Excluding the directory itself would make closed.jsonl unreachable: git
-      // will not re-include a file whose parent is excluded, so a `!` for it anywhere else could never have worked.
-      const dir = out.slice(root.length + 1).split('/')[0];
-      await excludeFromStatus(root, `/${dir}/*`);
-      await excludeFromStatus(root, `!/${dir}/closed.jsonl`);
+      const path = join(out, '.gitignore');
+      const wanted = '# Written by perch. Results are a cache; closures are not.\n*\n!closed.jsonl\n';
+      if (await readFile(path, 'utf8').catch(() => null) === wanted) return;
+      await mkdir(out, { recursive: true });
+      await writeFile(path, wanted);
     },
     /**
      * What the last scan found, rewritten whole every time. Nothing here is a cache of a model answer: a scan asks every question

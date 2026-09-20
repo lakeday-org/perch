@@ -71,6 +71,5 @@ Results go to `.perch`:
 
 `--out` points them somewhere else.
 
-A scan keeps `.perch` out of `git status` by adding `/.perch/*` and
-`!/.perch/closed.jsonl` to `.git/info/exclude`. Closures stay visible because
-they are worth committing.
+A scan writes `.perch/.gitignore`, so the results stay out of `git status`.
+`closed.jsonl` is named back in, since it is worth committing.

@@ -89,7 +89,7 @@ Extend perch with custom rules, in `perch.yaml`:
 | | |
 | --- | --- |
 | `.perch` | Results and cache. `--out` puts them somewhere else. |
-| `.git/info/exclude` | When the results live inside the repository, a scan adds `/.perch/*` and `!/.perch/closed.jsonl`, so results stay out of `git status` and closures stay in. |
+| `.perch/.gitignore` | Written with the results, so they stay out of `git status`. `closed.jsonl` is named back in, since it is meant to be committed. |
 | `perch.yaml` | `perch rules add`, `edit` and `remove` write it, keeping your comments and ordering. |
 | `.claude/`, `.codex/`, `.pi/`, `.cursor/` | `perch setup <assistant>` writes the skill file for that one. |
 
