@@ -136,6 +136,9 @@ describe('cli', () => {
     });
     const configurations = [
       { PERCH_API_KEY: 'default-key' },
+      { TYPESAFE_API_KEY: 'legacy-key' },
+      { PERCH_API_KEY: 'preferred-key', TYPESAFE_API_KEY: 'legacy-key' },
+      { PERCH_API_KEY: '', TYPESAFE_API_KEY: 'legacy-key' },
       { PERCH_API_KEY: 'proxy-key', PERCH_BASE_URL: 'http://localhost:8123/infer', PERCH_MODEL_ID: 'custom-model' },
       { PERCH_API_KEY: 'gateway-key', PERCH_BASE_URL: 'http://localhost:8123/infer/', PERCH_MODEL_ID: 'another-model' },
       { PERCH_API_KEY: 'versioned-key', PERCH_BASE_URL: 'http://localhost:8123/infer?version=2', PERCH_MODEL_ID: 'model/v2' },
@@ -153,21 +156,26 @@ describe('cli', () => {
       expect(requests.length).toBeGreaterThan(0);
       for (const { url, init } of requests) {
         expect(url).toBe(env.PERCH_BASE_URL ?? 'https://api.typesafe.ai/v1/systemone');
-        expect(init.headers.authorization).toBe(`Bearer ${env.PERCH_API_KEY}`);
+        expect(init.headers.authorization).toBe(`Bearer ${env.PERCH_API_KEY || env.TYPESAFE_API_KEY}`);
         expect(JSON.parse(init.body)).toMatchObject({ model: env.PERCH_MODEL_ID ?? 'jev-latest', questions: { 'endpoint-rule': { type: 'noul' } } });
       }
     }
   });
 
-  it('doctor recognizes PERCH_API_KEY without printing its value', async () => {
+  it.each([
+    [{ PERCH_API_KEY: 'private-fixture-key' }, 'PERCH_API_KEY, 19 characters'],
+    [{ TYPESAFE_API_KEY: 'legacy-fixture-key' }, 'TYPESAFE_API_KEY, 18 characters'],
+    [{ PERCH_API_KEY: 'private-fixture-key', TYPESAFE_API_KEY: 'legacy-fixture-key' }, 'PERCH_API_KEY, 19 characters'],
+    [{ PERCH_API_KEY: '', TYPESAFE_API_KEY: 'legacy-fixture-key' }, 'TYPESAFE_API_KEY, 18 characters'],
+  ])('doctor recognizes the configured API key without printing its value (%j)', async (env, found) => {
     const repo = await realpath(await makeFixture());
     cleanups.push(repo);
     vi.spyOn(process, 'cwd').mockReturnValue(repo);
     const { out, io } = capture();
-    io.env = { PERCH_API_KEY: 'private-fixture-key' };
+    io.env = env;
     expect(await main(['doctor', '--json', '--out', join(repo, '.perch')], io)).toBe(0);
-    expect(JSON.parse(out.at(-1)).checks).toContainEqual({ name: 'key', ok: true, found: 'PERCH_API_KEY, 19 characters' });
-    expect(out.join('\n')).not.toContain(io.env.PERCH_API_KEY);
+    expect(JSON.parse(out.at(-1)).checks).toContainEqual({ name: 'key', ok: true, found });
+    for (const value of Object.values(env).filter(Boolean)) expect(out.join('\n')).not.toContain(value);
   });
 
   it('prints the table and nothing else, ten rows unless --all', async () => {

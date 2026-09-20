@@ -15,6 +15,8 @@ rules:
       PERCH_MODEL_ID from their environment to the client's apiKey, baseUrl
       and model options. Omitting any of these overrides from either command
       breaks this rule.
+      Both commands fall back to TYPESAFE_API_KEY when PERCH_API_KEY is absent
+      or empty; a nonempty PERCH_API_KEY takes precedence.
   - name: configured-endpoint-is-exact
     where: src/systemone.js
     ensure: >-

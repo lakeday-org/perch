@@ -207,8 +207,7 @@ is the complete URL to POST to, including its path and any query string.
 perch uses it unchanged, including a trailing slash when supplied.
 
 Set `PERCH_API_KEY` to the endpoint's bearer token and `PERCH_MODEL_ID` to the
-model to request. Existing installations must rename `TYPESAFE_API_KEY` to
-`PERCH_API_KEY` in their environment or `.env` file.
+model to request.
 
 Changing the endpoint or model causes the next scan to ask again, including
 file and search rules whose source has not changed.

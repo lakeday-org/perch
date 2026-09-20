@@ -377,7 +377,7 @@ const commands = {
     // On the counter and in the log both. On the counter because a retry is the wait that looks like a hang, and in the log
     // because the counter is gone by the time anyone asks what the run was doing.
     const retrying = message => { methods.say(message); note(message); };
-    const systemOne = metered(createSystemOne({ apiKey: io.env.PERCH_API_KEY, baseUrl: io.env.PERCH_BASE_URL, model: io.env.PERCH_MODEL_ID, log: retrying }), meter);
+    const systemOne = metered(createSystemOne({ apiKey: io.env.PERCH_API_KEY || io.env.TYPESAFE_API_KEY, baseUrl: io.env.PERCH_BASE_URL, model: io.env.PERCH_MODEL_ID, log: retrying }), meter);
     // A file prints the moment it is finished rather than at the end, so a long run says what it is finding while it finds it.
     const said = new Set();
     const say = (path, findings) => {
@@ -464,7 +464,7 @@ const commands = {
   async check(io) {
     if (!io.argument) throw new UsageError('perch check needs a path, a path::method, or an issue id');
     const meter = createMeter();
-    const systemOne = metered(createSystemOne({ apiKey: io.env.PERCH_API_KEY, baseUrl: io.env.PERCH_BASE_URL, model: io.env.PERCH_MODEL_ID, log: io.debug }), meter);
+    const systemOne = metered(createSystemOne({ apiKey: io.env.PERCH_API_KEY || io.env.TYPESAFE_API_KEY, baseUrl: io.env.PERCH_BASE_URL, model: io.env.PERCH_MODEL_ID, log: io.debug }), meter);
     const root = await repoRoot(process.cwd());
     const only = io.flags.rules ? io.flags.rules.split(',').map(name => name.trim()).filter(Boolean) : [];
     const checked = await checkTarget({ target: io.argument, root, out: await resolveOut(io.flags.out), analyzer: createSourceAnalyzer(),
