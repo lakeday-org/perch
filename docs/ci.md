@@ -67,7 +67,7 @@ jobs:
 
       - name: scan what this branch changed
         env:
-          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+          PERCH_API_KEY: ${{ secrets.PERCH_API_KEY }}
         run: perch scan --since origin/${{ github.base_ref }}
 
       - name: the worst of what it found

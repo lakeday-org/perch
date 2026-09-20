@@ -1,9 +1,9 @@
 import { execFile } from 'node:child_process';
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { main, parseArgs, VERSION } from '../src/cli.js';
 import { parseFilters } from '../src/questions.js';
 import { parseQuestions, questionSet, questionsFor } from '../src/ask.js';
@@ -18,7 +18,11 @@ import { commitAll, fixtureOptions, makeFixture, makeGraphFixture, scriptedSyste
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const cleanups = [];
-afterEach(async () => { for (const dir of cleanups.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  for (const dir of cleanups.splice(0)) await rm(dir, { recursive: true, force: true });
+});
 
 function capture() {
   const out = [], err = [];
@@ -40,12 +44,15 @@ describe('cli', () => {
     const { out, err, io } = capture();
     expect(await main(['--help'], io)).toBe(0);
     for (const verb of ['scan [target]', 'rules [list', 'issues [issue-id]', 'check <path', 'doctor']) expect(out[0]).toContain(verb);
+    for (const name of ['PERCH_API_KEY', 'PERCH_BASE_URL', 'PERCH_MODEL_ID']) expect(out[0]).toContain(name);
     for (const gone of ['hunt', 'lint', 'refactor', 'report', 'publish', 'design', 'fix']) expect(out[0]).not.toMatch(new RegExp(`^\\s*${gone} `, 'm'));
     expect(await main(['check', '-h'], io)).toBe(0);
     expect(out.at(-1)).toContain('perch check: Ask about one piece of code, uncommitted');
     expect(out.at(-1)).toContain('--rules');
+    expect(out.at(-1)).toContain('PERCH_BASE_URL');
     expect(await main(['scan', '-h'], io)).toBe(0);
     expect(out.at(-1)).toContain('perch scan: Find issues');
+    expect(out.at(-1)).toContain('PERCH_BASE_URL');
     for (const gone of ['hunt', 'lint', 'refactor', 'report', 'fix']) expect(await main([gone], io)).toBe(2);
     expect(await main(['issues', '--limit', '0'], io)).toBe(2);
     expect(err.join('\n')).toContain('--limit must be a positive integer');
@@ -104,14 +111,71 @@ describe('cli', () => {
     expect(VERSION === 'dev' || /^\d+\.\d+\.\d+$/.test(VERSION) || VERSION.startsWith('DEVELOPMENT')).toBe(true);
   });
 
-  it('needs a TypeSafe key to ask anything, but none to read what it already knows', async () => {
+  it('needs a perch API key to ask anything, but none to read what it already knows', async () => {
     const repo = await makeFixture();
     cleanups.push(repo);
     const { out, err, io } = capture();
     expect(await main(['scan', repo], io)).toBe(1);
-    expect(err.join('\n')).toContain('TYPESAFE_API_KEY');
+    expect(err.join('\n')).toContain('PERCH_API_KEY');
     expect(await main(['issues', '--out', join(repo, '.perch')], io)).toBe(0);
     expect(out.at(-1)).toBe('Nothing matches.');
+  });
+
+  it.each(['scan', 'check'])('%s uses the configured key, exact endpoint and model', async command => {
+    const repo = await realpath(await makeFixture());
+    cleanups.push(repo);
+    await writeFile(join(repo, 'perch.yaml'), 'rules:\n  - name: endpoint-rule\n    where: src/clamp.js\n    ensure: The function returns a number.\n');
+    await commitAll(repo, 'add file rule');
+    vi.spyOn(process, 'cwd').mockReturnValue(repo);
+    const service = scriptedSystemOne({ project: { 'endpoint-rule': 0.99 } });
+    const requests = [];
+    vi.stubGlobal('fetch', async (url, init) => {
+      requests.push({ url, init });
+      const { state, questions } = JSON.parse(init.body);
+      return new Response(JSON.stringify(await service.ask(state, questions)));
+    });
+    const configurations = [
+      { PERCH_API_KEY: 'default-key' },
+      { TYPESAFE_API_KEY: 'legacy-key' },
+      { PERCH_API_KEY: 'preferred-key', TYPESAFE_API_KEY: 'legacy-key' },
+      { PERCH_API_KEY: '', TYPESAFE_API_KEY: 'legacy-key' },
+      { PERCH_API_KEY: 'proxy-key', PERCH_BASE_URL: 'http://localhost:8123/infer', PERCH_MODEL_ID: 'custom-model' },
+      { PERCH_API_KEY: 'gateway-key', PERCH_BASE_URL: 'http://localhost:8123/infer/', PERCH_MODEL_ID: 'another-model' },
+      { PERCH_API_KEY: 'versioned-key', PERCH_BASE_URL: 'http://localhost:8123/infer?version=2', PERCH_MODEL_ID: 'model/v2' },
+    ];
+    for (const [index, env] of configurations.entries()) {
+      const { out, err, io } = capture();
+      io.env = env;
+      const args = command === 'scan'
+        ? ['scan', repo, '--filter', 'rule=endpoint-rule']
+        : ['check', 'src/clamp.js', '--rules', 'endpoint-rule'];
+      requests.length = 0;
+      const code = await main([...args, '--json', '--out', join(repo, `.perch-${index}`)], io);
+      expect(code, err.join('\n')).toBe(0);
+      expect(out.length).toBeGreaterThan(0);
+      expect(requests.length).toBeGreaterThan(0);
+      for (const { url, init } of requests) {
+        expect(url).toBe(env.PERCH_BASE_URL ?? 'https://api.typesafe.ai/v1/systemone');
+        expect(init.headers.authorization).toBe(`Bearer ${env.PERCH_API_KEY || env.TYPESAFE_API_KEY}`);
+        expect(JSON.parse(init.body)).toMatchObject({ model: env.PERCH_MODEL_ID ?? 'jev-latest', questions: { 'endpoint-rule': { type: 'noul' } } });
+      }
+    }
+  });
+
+  it.each([
+    [{ PERCH_API_KEY: 'private-fixture-key' }, 'PERCH_API_KEY, 19 characters'],
+    [{ TYPESAFE_API_KEY: 'legacy-fixture-key' }, 'TYPESAFE_API_KEY, 18 characters'],
+    [{ PERCH_API_KEY: 'private-fixture-key', TYPESAFE_API_KEY: 'legacy-fixture-key' }, 'PERCH_API_KEY, 19 characters'],
+    [{ PERCH_API_KEY: '', TYPESAFE_API_KEY: 'legacy-fixture-key' }, 'TYPESAFE_API_KEY, 18 characters'],
+  ])('doctor recognizes the configured API key without printing its value (%j)', async (env, found) => {
+    const repo = await realpath(await makeFixture());
+    cleanups.push(repo);
+    vi.spyOn(process, 'cwd').mockReturnValue(repo);
+    const { out, io } = capture();
+    io.env = env;
+    expect(await main(['doctor', '--json', '--out', join(repo, '.perch')], io)).toBe(0);
+    expect(JSON.parse(out.at(-1)).checks).toContainEqual({ name: 'key', ok: true, found });
+    for (const value of Object.values(env).filter(Boolean)) expect(out.join('\n')).not.toContain(value);
   });
 
   it('prints the table and nothing else, ten rows unless --all', async () => {

@@ -32,9 +32,10 @@ export async function runChecks({ root, out, env, versions }) {
     ? ok('node', versions.node)
     : bad('node', versions.node, `perch needs node ${NEEDS_NODE} or newer`));
 
-  checks.push(env.TYPESAFE_API_KEY
-    ? ok('key', `TYPESAFE_API_KEY, ${env.TYPESAFE_API_KEY.length} characters`)
-    : bad('key', 'TYPESAFE_API_KEY is not set', 'export it, or put it in a .env beside the repository'));
+  const keyName = env.PERCH_API_KEY ? 'PERCH_API_KEY' : 'TYPESAFE_API_KEY';
+  checks.push(env[keyName]
+    ? ok('key', `${keyName}, ${env[keyName].length} characters`)
+    : bad('key', 'PERCH_API_KEY is not set', 'export it, or put it in a .env beside the repository'));
 
   const version = await git(['--version'], root).then(text => text.trim()).catch(error => error);
   checks.push(typeof version === 'string'

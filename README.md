@@ -28,7 +28,7 @@ Semantic code linting with Jev.
 
 ```sh
 npm install -g @lakeday/perch
-export TYPESAFE_API_KEY=...
+export PERCH_API_KEY=...
 ```
 
 ```console

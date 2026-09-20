@@ -217,7 +217,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const own = asked.filter(question => question.kind);
     if (!asked.length) return { node, calleeIds, callerIds, rules: own, skip: true };
     const steps = methodSteps({ node, lines: await linesOf(node), imports: file.imports, methods: file.methods, callees, callers, edges, asked });
-    return { node, calleeIds, callerIds, rules: own, steps, key: askKey(steps, asked) };
+    return { node, calleeIds, callerIds, rules: own, steps, key: askKey(steps, asked, systemOne.cacheKey ?? systemOne.id) };
   };
   const ask = async nodeId => {
     const { node, calleeIds, callerIds, rules: own, steps, key, skip } = await stepFor(nodeId);

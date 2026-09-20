@@ -8,6 +8,22 @@ ignore:
   - test/fixtures/order-service/**
 
 rules:
+  - name: cli-honors-api-configuration
+    where: src/cli.js
+    ensure: >-
+      The scan and check commands pass PERCH_API_KEY, PERCH_BASE_URL and
+      PERCH_MODEL_ID from their environment to the client's apiKey, baseUrl
+      and model options. Omitting any of these overrides from either command
+      breaks this rule.
+      Both commands fall back to TYPESAFE_API_KEY when PERCH_API_KEY is absent
+      or empty; a nonempty PERCH_API_KEY takes precedence.
+  - name: configured-endpoint-is-exact
+    where: src/systemone.js
+    ensure: >-
+      An explicitly configured endpoint URL is used unchanged for requests.
+      Appending a route such as /systemone, removing a trailing slash, or
+      replacing the supplied path or query breaks this rule.
+
   - name: prose-not-generated
     where: "**/*.md"
     ensure: >

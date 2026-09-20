@@ -187,11 +187,10 @@ export const installQuestions = set => { installed = set; return set; };
 export const setHash = (questions = questionSet()) => sha(questions.map(question => `${question.name}:${question.hash}`).sort().join('\n')).slice(0, 16);
 
 /**
- * What was put to the model, as one value. Two requests carrying the same state and asking the same questions must come back the
- * same, so the second need not be sent: this is what "the same" means, and it covers the code, everything around it that went
- * into the request, and the wording of every question, your rules included.
+ * The state, questions and client that produced an answer. Changing the endpoint or model must ask again even when the code
+ * and rules are unchanged. The client's identity contains no API key.
  */
-export const askKey = (steps, asked) => sha(JSON.stringify([steps.map(step => step.state), asked.map(question => question.hash).sort()]));
+export const askKey = (steps, asked, client) => sha(JSON.stringify([steps.map(step => step.state), asked.map(question => question.hash).sort(), client]));
 
 /**
  * How sure this one has to be before it counts. Both floors apply and the higher wins: a question that hedges sets its own, and

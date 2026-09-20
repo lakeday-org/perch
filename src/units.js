@@ -310,7 +310,7 @@ export async function askUnits({ rules, scan, graph, files, tree, revision, syst
     const source = files.get(unit.path) ?? '';
     const body = unit.part ? bodyOf(source, unit) : source;
     const { state, questions } = unitStep({ rules: over, unit, source: body, seen: neighbourhood(sees, unit, { graph, files }) });
-    const key = askKey([{ state }], over);
+    const key = askKey([{ state }], over, systemOne.cacheKey ?? systemOne.id);
     // Nothing about this unit or these rules has changed since it was last asked, so the answer cannot have either.
     const before = over.map(rule => earlier.get(findingId(`${rule.name}::${unit.id}`))).filter(check => check?.key === key);
     if (before.length === over.length) { debug(`${over.map(rule => rule.name).join(', ')}: ${unit.name} is unchanged`); return { results: before, carried: before.length }; }
@@ -359,7 +359,7 @@ export async function searchUnits({ rules, scan, graph, files, tree, revision, s
     // key is all of them, in the order it would read them. A search that is shown more than its unit is not keyed on what it was
     // shown, so it is asked again rather than reused on a guess.
     const id = findingId(`${rule.name}::search`);
-    const key = rule.sees === 'self' ? askKey([{ state: units.map(unit => [unit.id, unit.hash ?? null]) }], [rule]) : null;
+    const key = rule.sees === 'self' ? askKey([{ state: units.map(unit => [unit.id, unit.hash ?? null]) }], [rule], systemOne.cacheKey ?? systemOne.id) : null;
     return { rule, units, id, key, before: earlier.get(id) };
   });
   const carrying = plans.filter(plan => plan.key && plan.before?.key === plan.key);
