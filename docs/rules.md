@@ -138,8 +138,11 @@ any one file. They search the likeliest units first and stop at the answer.
 ### The cost of a search
 
 A search stops at the first unit that answers, so a rule whose answer turns up
-early is cheap. A rule with no answer anywhere reads every unit it covers, up to
-400.
+early is cheap. A rule with no answer anywhere reads every unit it covers.
+
+A rule reads at most 400 units, search or not. Past that the rest are skipped
+without a word, so an `ensure_present` rule over more than 400 units can report
+that nothing has the thing when something does.
 
 That is the expensive case, and it is the one a clean codebase hits. An
 `ensure_absent` rule over `src/**/*.js` with `each: method` searches every method
