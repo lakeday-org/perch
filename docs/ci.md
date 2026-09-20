@@ -78,6 +78,29 @@ jobs:
 Without the base branch in the checkout, `--since` has nothing to compare
 against, so `fetch-depth: 0` is not optional.
 
+### Fork contributions to Perch
+
+GitHub withholds repository secrets from fork `pull_request` workflows, even
+after a maintainer approves the workflow run. Perch's ordinary CI therefore
+skips its paid scan for forks. The build, lint and tests still run after any
+approval required by the repository's Actions settings.
+
+To approve a paid scan, open **Actions → scan pull request → Run workflow**.
+Select the default branch, enter the PR number and paste its full head commit
+SHA. Starting this workflow authorizes the model requests for that commit.
+It rejects closed PRs and commits that no longer match the PR head. A later
+push needs a new run with its new SHA.
+
+The workflow builds Perch from the default branch and reads the contribution
+from Git objects without checking out its files. It never runs the fork's
+package scripts or loads its `.env`. Rules in the contribution are still read
+as data. Findings fail the workflow with exit code 3; its summary identifies
+the scanned commit. This manual workflow is separate from the PR's automatic
+checks; inspect its result in Actions before merging.
+
+The repository's fork-workflow approval setting controls the ordinary checks
+separately. Changing that setting does not authorize paid scans.
+
 ## Reporting without gating
 
 To collect findings without failing anything, read the JSON and decide yourself:

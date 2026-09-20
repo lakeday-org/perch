@@ -54,7 +54,8 @@ jobs:
     runs-on: ubuntu-latest
     # Pull requests and nothing else. A merge to main is code that was scanned as the pull request it arrived in, and scanning it
     # again says the same thing for the same money. A fork's pull request is given no secrets, so it cannot run this either and
-    # the whole job is skipped rather than failing over a key it was never going to have.
+    # the whole job is skipped rather than failing over a key it was never going to have. A maintainer can approve a paid fork
+    # scan by starting scan-pr.yml with the PR number and exact head SHA; that workflow runs trusted default-branch code.
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
     env:
       PERCH_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}

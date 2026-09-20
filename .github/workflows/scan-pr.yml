@@ -1,0 +1,63 @@
+name: scan pull request
+run-name: 'Scan PR #${{ inputs.pr }} at ${{ inputs.sha }}'
+
+# Starting this workflow is the maintainer's approval to spend on this exact commit.
+# Fork workflow approval cannot grant secrets to a pull_request run.
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+        type: string
+      sha:
+        description: Full head commit SHA reviewed for this scan
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: paid-pr-scan-${{ inputs.pr }}
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    name: approved perch scan
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The dispatch's default-branch commit supplies all executable code.
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Prepare the approved contribution as data
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr }}
+          PR_SHA: ${{ inputs.sha }}
+        run: bash .github/scripts/prepare-pr-scan.sh
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Scan the approved commit
+        env:
+          PERCH_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+          SCAN_TARGET: ${{ steps.pr.outputs.target }}
+          BASE_SHA: ${{ steps.pr.outputs.base_sha }}
+          PR_NUMBER: ${{ inputs.pr }}
+          PR_SHA: ${{ inputs.sha }}
+        run: |
+          printf 'Scanning PR #%s at `%s` against `%s`.\n' "$PR_NUMBER" "$PR_SHA" "$BASE_SHA" >> "$GITHUB_STEP_SUMMARY"
+          node bin/perch.mjs scan "$SCAN_TARGET" --since "$BASE_SHA" --out "$RUNNER_TEMP/perch-results"
