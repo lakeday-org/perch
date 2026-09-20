@@ -95,15 +95,16 @@ describe('the question grammar', () => {
   });
 
   it('says which answers fail a scan, the same way for a question perch ships and one you wrote', () => {
-    // Something wrong fails it: a defect, a vulnerability, a rule saying your code holds a property.
+    // Everything a scan asks about fails it. A run that reports something and passes anyway teaches people to read past it,
+    // which is what thirty-two refactor rows a run were doing. A type not worth stopping for is left out of scan_types.
     const named = name => BUILTIN.find(question => question.name === name);
     expect(named('has_bug').gate).toBe(true);
     expect(named('injection').gate).toBe(true);
     expect(check({ name: 'comment-says-why', where: 'src/**', ensure: 'A comment says why.' }, at).gate).toBe(true);
-    // Something large or undocumented does not, since neither is wrong and a run nobody can green is a run nobody reads.
-    expect(named('refactor').gate).toBe(false);
-    expect(named('documented').gate).toBe(false);
-    // Nor does a question that only feeds another: `kind` names a defect and `exposed` gates the classes that need it.
+    expect(named('refactor').gate).toBe(true);
+    expect(named('documented').gate).toBe(true);
+    // A question that only feeds another raises no issue and fails nothing: `kind` names a defect, `exposed` gates the classes
+    // that need it.
     expect(named('kind').gate).toBe(false);
     expect(named('exposed').gate).toBe(false);
     // And a question says otherwise either way, which is how a judgement call gets read without stopping anything.

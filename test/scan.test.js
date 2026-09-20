@@ -166,11 +166,11 @@ describe('perch hunt', () => {
     expect(shown).not.toMatch(/^ID +Method/m);
     expect(hunt.to_read).toBe(4);
 
-    // What the run comes back on. The defect fails it and the refactor does not, and both were found by questions perch ships:
-    // whose question raised a finding has nothing to do with whether it stops anything.
+    // What the run comes back on. This fixture asked for refactor and docs, so they fail it like the defect does: a type worth
+    // asking about is worth stopping for, and one that is not is left out of scan_types.
     const failing = gating(await openStore(repo.out).issues());
     expect(failing.map(issue => issue.label)).toContain('off_by_one');
-    expect(failing.map(issue => issue.label)).not.toContain('too_big');
+    expect(failing.map(issue => issue.label)).toContain('too_big');
 
     // A second run over code nothing has touched asks nothing: the same state and the same questions have an answer already, and
     // asking again would spend a request to be told what is on disk while moving the numbers on an issue nobody has touched.

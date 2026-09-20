@@ -209,3 +209,8 @@ rules:
     where: src/scan.js
     ensure: >-
       A type named by --filter is asked even when scan_types leaves it out.
+  - name: every-type-fails-a-run
+    where: src/ask.js
+    ensure: >-
+      Every question raising an issue fails the run unless it says gate: false.
+      No issue type is exempt by being a judgement call.

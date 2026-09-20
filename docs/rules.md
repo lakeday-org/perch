@@ -167,22 +167,24 @@ vulnerability.
 
 ## Gates
 
-Every question says whether an answer fails the run or is only worth reading.
-`perch rules list` shows it in the Fails column. A custom rule is read no
-differently from perch's own:
+Every question a scan asks fails the run. `perch rules list` shows it in the
+Fails column, and a custom rule is read no differently from perch's own:
 
 ```console
 $ perch rules list
-Question          From        Asks         Fails  Over
-comment-says-why  perch.yaml  ensure >65%  yes    src/**/*.js
-has_bug           builtin     noul >60%    yes    **/*
-refactor          builtin     choice >60%  no     **/*
-documented        builtin     noul >75%    no     **/*
+Question                     From        Asks            Fails  Over
+has_bug                      builtin     noul >60%       yes    **/*
+refactor                     builtin     choice >60%     yes    **/*
+documented                   builtin     noul >75%       yes    **/*
 ```
 
-A rule, a defect and a vulnerability fail by default. A judgement call does not,
-because a run nobody can get green is a run people stop reading. `gate:` says
-otherwise either way:
+There is no type that gets asked about and cannot fail. A run that reports
+something and passes anyway teaches people to read past it. If a type is not
+worth stopping for, leave it out of [`scan_types`](#issue-types) and do not ask
+about it.
+
+`gate: false` turns one question off, for the case where you want the answer
+recorded and not acted on:
 
 ```yaml
 - name: docs-succinct
@@ -192,7 +194,6 @@ otherwise either way:
 ```
 
 ```sh
-perch rules edit refactor --gate true    # make a big method stop a run
 perch rules edit docs-succinct --gate false
 ```
 
@@ -220,12 +221,11 @@ The bare list form still works.
 
 ## Issue types
 
-A scan asks about defects, vulnerabilities and rules. Those are the three that
-can fail it.
+A scan asks about defects, vulnerabilities and rules.
 
-`refactor` and `docs` are judgement calls. They never fail a run, and they read
-the same on every method that has ever been long. A scan of this repository
-reported 32 of them against 0 defects, so they are asked only when you say so:
+`refactor` and `docs` read the same on every method that has ever been long. A
+scan of this repository reported 32 of them against 0 defects, so they are asked
+only when you say so. Asked, they fail a run like anything else:
 
 ```yaml
 scan_types: [defect, security, lint, refactor, docs]

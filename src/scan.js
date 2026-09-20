@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { listTree, readBlob } from './git.js';
 import { analyzeTree } from './analyze.js';
 import { buildGraph } from './graph.js';
-import { askKey, CORRECTNESS, floorFor, GATED_TYPES, questionSet, questionsFor, SEARCHES } from './ask.js';
+import { askKey, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES } from './ask.js';
 import { issuesOf, label as kindLabel, methodSteps, locateWhere, readAnswers } from './questions.js';
 import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL } from './units.js';
 import { findingId, identity, openStore, writeJson } from './store.js';
@@ -129,17 +129,17 @@ const createLineReader = (root, graph) => {
 /**
  * The issue types a scan asks about. `scan_types` in `perch.yaml` decides; omitted, it is the three that can fail a run.
  *
- * Refactor and docs are judgement calls that never fail anything and read the same on every method that has ever been long. A
- * scan of this repository reported 32 of them against 0 defects, so the list a person opens was mostly rows they came for
- * nothing. A filter naming one asks for it anyway, since narrowing a report to a type you did not ask the questions for would
- * report that you have none of them.
+ * Refactor and docs read the same on every method that has ever been long. A scan of this repository reported 32 of them
+ * against 0 defects, so the list a person opened was mostly rows they came for nothing. A filter naming one asks for it anyway,
+ * since narrowing a report to a type you did not ask the questions for would report that you have none of them. Asked, they
+ * fail a run like anything else.
  */
 /** perch's own questions for a method, narrowed to the issue types this run asks about. A question raising none is feeder for one that does, so it stays. */
 const methodQuestions = kinds => questionSet().filter(question => question.each === 'method' && !question.kind
   && (!question.issue || kinds.has(question.issue.type)));
 
 export const typesAsked = (scanTypes, filters = []) => new Set([
-  ...(scanTypes ?? GATED_TYPES),
+  ...(scanTypes ?? DEFAULT_TYPES),
   ...filters.filter(clause => clause.key === 'type').map(clause => clause.value),
 ]);
 
