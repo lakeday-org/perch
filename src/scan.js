@@ -9,9 +9,9 @@ import { join } from 'node:path';
 import { listTree, readBlob } from './git.js';
 import { analyzeTree } from './analyze.js';
 import { buildGraph } from './graph.js';
-import { askKey, CORRECTNESS, floorFor, questionSet, questionsFor, SEARCHES } from './ask.js';
+import { askKey, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES } from './ask.js';
 import { issuesOf, label as kindLabel, methodSteps, locateWhere, readAnswers } from './questions.js';
-import { asRules, askUnits, matches, readIgnored, readRules, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL } from './units.js';
+import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL } from './units.js';
 import { findingId, identity, openStore, writeJson } from './store.js';
 export { findingId };
 
@@ -126,6 +126,23 @@ const createLineReader = (root, graph) => {
  * What a run covers is `paths`, which is a directory you named or what a branch changed. There is no cap on how many methods it
  * reads: a number that stops partway through leaves a report that looks complete and is not.
  */
+/**
+ * The issue types a scan asks about. `scan_types` in `perch.yaml` decides; omitted, it is the three that can fail a run.
+ *
+ * Refactor and docs read the same on every method that has ever been long. A scan of this repository reported 32 of them
+ * against 0 defects, so the list a person opened was mostly rows they came for nothing. A filter naming one asks for it anyway,
+ * since narrowing a report to a type you did not ask the questions for would report that you have none of them. Asked, they
+ * fail a run like anything else.
+ */
+/** perch's own questions for a method, narrowed to the issue types this run asks about. A question raising none is feeder for one that does, so it stays. */
+const methodQuestions = kinds => questionSet().filter(question => question.each === 'method' && !question.kind
+  && (!question.issue || kinds.has(question.issue.type)));
+
+export const typesAsked = (scanTypes, filters = []) => new Set([
+  ...(scanTypes ?? DEFAULT_TYPES),
+  ...filters.filter(clause => clause.key === 'type').map(clause => clause.value),
+]);
+
 export async function scanRepository({ root, revision, out, analyzer, systemOne, label = root, github = null, paths = [], parallel = DEFAULT_PARALLEL,
   unitParallel = UNIT_PARALLEL, min = 0.5, filters = [], onFile = () => {}, progress = () => {}, unitProgress = () => {}, searchProgress = () => {}, scanProgress = () => {}, log = () => {}, debug = () => {} }) {
   const store = openStore(out);
@@ -135,6 +152,8 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const graph = buildGraph(scan.files);
   if (!scan.candidates.length) throw new Error('No methods to read in this repository');
   const rules = asRules(await readRules(root, revision));
+  // Which issue types this run asks about, and so which of perch's own questions ride in every request.
+  const kinds = typesAsked(await readScanTypes(root, revision), filters);
   // --since and --paths say what this run reads, not what perch knows. A method outside is neither read nor reported here, and
   // what the last run said about it is carried onto the file at the end rather than dropped.
   // What perch.yaml says not to read at all, on top of what this run was asked to cover. A fixture kept so the docs can show real
@@ -194,7 +213,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // not six.
     // A filter narrows what is asked, not just what is printed. Asking thirty questions about a method to print two is paying
     // for twenty-eight answers nobody reads, and a method no kept question covers is not read at all.
-    const asked = questionsFor([...questionSet().filter(question => question.each === 'method' && !question.kind), ...rulesForMethod(rules, node)], filters, kindLabel);
+    const asked = questionsFor([...methodQuestions(kinds), ...rulesForMethod(rules, node)], filters, kindLabel);
     const own = asked.filter(question => question.kind);
     if (!asked.length) return { node, calleeIds, callerIds, rules: own, skip: true };
     const steps = methodSteps({ node, lines: await linesOf(node), imports: file.imports, methods: file.methods, callees, callers, edges, asked });

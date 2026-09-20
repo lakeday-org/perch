@@ -20,13 +20,12 @@ summary: What CI can gate on, what it cannot, and a GitHub Actions job for pull 
 CI shows those as different results. A run that could not start never reads as
 a run that found a bug.
 
-Something wrong is a defect, a vulnerability, or a custom rule that broke. A
-method being large or undocumented is not wrong, so it is reported and does not
-fail the run.
+Everything a scan asks about fails it. `scan_types` in `perch.yaml` decides what
+it asks about, and defaults to defects, vulnerabilities and rules. A type not
+worth stopping for is left out rather than reported and ignored.
 
-`gate:` on a question decides whether its findings fail a run. `perch rules
-list` prints that setting in a Fails column. `perch rules edit <name> --gate
-false` turns it off for one question.
+`perch rules list` prints the setting in a Fails column. `perch rules edit
+<name> --gate false` records a question's answer without acting on it.
 
 ## Only what the branch changed
 

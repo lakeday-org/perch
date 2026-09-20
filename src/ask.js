@@ -64,16 +64,16 @@ function expand(rule) {
 }
 
 /**
- * Whether a finding from this question fails the scan.
+ * Whether a finding from this question fails the scan. It does, unless the question says `gate: false`.
  *
- * Something wrong does: a defect, a vulnerability, a rule saying your code holds a property. Something large or undocumented
- * does not, since neither is wrong. `gate: false` says a question is worth reading and not worth failing over, which is where a
- * judgement call belongs.
+ * There is no type that is asked about and cannot fail. A run that reports something and passes anyway teaches people to read
+ * past it, which is what the refactor rows were doing: thirty-two of them on every run, none of which stopped anything. If a
+ * type is not worth failing on, leave it out of `scan_types` and do not ask about it.
+ *
+ * A search rule declares no issue of its own, so reading the issue alone left every ensure_present and ensure_absent rule
+ * ungated: broken at 100% and the run still passed. A rule is a rule whichever shape it is written in.
  */
-const GATED = new Set(['defect', 'security', 'lint']);
-// A search rule declares no issue of its own, so reading the type alone left every ensure_present and ensure_absent rule
-// ungated: broken at 100% and the run still passed. A rule is a rule whichever shape it is written in.
-const gates = question => (question.gate === undefined ? GATED.has(question.issue?.type) || SEARCHES(question.kind) : question.gate);
+const gates = question => (question.gate === undefined ? Boolean(question.issue) || SEARCHES(question.kind) : question.gate);
 
 /** A question that cannot be understood is a mistake to fix now, not a question to skip quietly at the point it would have mattered. */
 export function check(question, at, noun = 'question') {
@@ -145,6 +145,25 @@ export function parseIgnored(text, at) {
   const ignore = doc.ignore ?? [];
   if (!Array.isArray(ignore) || ignore.some(glob => typeof glob !== 'string')) throw new Error(`${at}: ignore is a list of globs`);
   return ignore;
+}
+
+/** What a scan asks about unless `perch.yaml` names its own set. */
+export const DEFAULT_TYPES = ['defect', 'security', 'lint'];
+
+/**
+ * The issue types a scan asks about, from `scan_types` in `perch.yaml`.
+ *
+ * Refactor and docs read the same on every method that has ever been long. A scan of this repository reported 32 of them
+ * against 0 defects, so the list a person opens was mostly rows they came for nothing. They are asked when this names them,
+ * and `--filter type=refactor` asks for them one run at a time. Asked, they fail a run like anything else.
+ */
+export function parseScanTypes(text, at) {
+  const doc = text.trim() ? parse(text) : [];
+  if (Array.isArray(doc) || !doc) return null;
+  const types = doc.scan_types;
+  if (types === undefined) return null;
+  if (!Array.isArray(types) || types.some(type => typeof type !== 'string')) throw new Error(`${at}: scan_types is a list of issue types`);
+  return types.map(type => String(type).trim().toLowerCase());
 }
 
 /** The questions perch ships with, read once. The file is the source of truth; nothing here is duplicated in code. */

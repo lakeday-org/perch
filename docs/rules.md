@@ -167,22 +167,24 @@ vulnerability.
 
 ## Gates
 
-Every question says whether an answer fails the run or is only worth reading.
-`perch rules list` shows it in the Fails column. A custom rule is read no
-differently from perch's own:
+Every question a scan asks fails the run. `perch rules list` shows it in the
+Fails column, and a custom rule is read no differently from perch's own:
 
 ```console
 $ perch rules list
-Question          From        Asks         Fails  Over
-comment-says-why  perch.yaml  ensure >65%  yes    src/**/*.js
-has_bug           builtin     noul >60%    yes    **/*
-refactor          builtin     choice >60%  no     **/*
-documented        builtin     noul >75%    no     **/*
+Question                     From        Asks            Fails  Over
+has_bug                      builtin     noul >60%       yes    **/*
+refactor                     builtin     choice >60%     yes    **/*
+documented                   builtin     noul >75%       yes    **/*
 ```
 
-A rule, a defect and a vulnerability fail by default. A judgement call does not,
-because a run nobody can get green is a run people stop reading. `gate:` says
-otherwise either way:
+There is no type that gets asked about and cannot fail. A run that reports
+something and passes anyway teaches people to read past it. If a type is not
+worth stopping for, leave it out of [`scan_types`](#issue-types) and do not ask
+about it.
+
+`gate: false` turns one question off, for the case where you want the answer
+recorded and not acted on:
 
 ```yaml
 - name: docs-succinct
@@ -192,7 +194,6 @@ otherwise either way:
 ```
 
 ```sh
-perch rules edit refactor --gate true    # make a big method stop a run
 perch rules edit docs-succinct --gate false
 ```
 
@@ -217,6 +218,38 @@ it for `perch-example`, an order service with a bug in every method. It exists s
 the docs can show real output.
 
 The bare list form still works.
+
+## Issue types
+
+A scan asks about defects, vulnerabilities and rules.
+
+`refactor` and `docs` read the same on every method that has ever been long. A
+scan of this repository reported 32 of them against 0 defects, so they are asked
+only when you say so. Asked, they fail a run like anything else:
+
+```yaml
+scan_types: [defect, security, lint, refactor, docs]
+
+rules:
+  - name: no-narrative-prose
+    where: "**/*.md"
+    ensure: A headline and one line, not a paragraph explaining the product.
+```
+
+The list is the whole set, not an addition to the defaults. `scan_types:
+[security]` asks about vulnerabilities and nothing else.
+
+A filter asks for a type whichever way `scan_types` is written:
+
+```console
+$ perch scan src/meter.js --filter type=refactor
+✓ nothing to report
+perch at commit 54a38d6: 13 methods, read 13
+13 requests  33k tokens in / 3k out  $0.0014
+```
+
+That is 13 requests against 52 for the default run, because the filter narrows
+what is asked and not just what is printed.
 
 ## Editing perch.yaml from the command line
 

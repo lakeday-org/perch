@@ -198,10 +198,11 @@ rules:
     // A rule fails a run by default, since it is a claim you made about your own code, and this one says otherwise.
     expect((await rules()).find(rule => rule.name === 'loose').gate).toBe(false);
     // And a question perch ships is turned the other way the same way, by being copied into your file with the change on it.
-    await editRule(root, 'refactor', { gate: true });
+    // Everything perch asks about fails a run, so turning one off is the direction that has to be written down.
+    await editRule(root, 'refactor', { gate: false });
     installQuestions(merge(BUILTIN, await rules()));
-    expect(questionSet().find(question => question.name === 'refactor').gate).toBe(true);
-    expect(BUILTIN.find(question => question.name === 'refactor').gate).toBe(false);
+    expect(questionSet().find(question => question.name === 'refactor').gate).toBe(false);
+    expect(BUILTIN.find(question => question.name === 'refactor').gate).toBe(true);
     installQuestions(BUILTIN);
   });
 
