@@ -89,16 +89,9 @@ jq '[.[] | select(.issues[]? | .type == "security" and .probability > 0.9)]' per
 
 ## Shared closures
 
-`perch close` writes to `.perch/closed.jsonl`, which is kept separate from the
-answers so it can be committed. Commit it and the team's dismissals travel with
-the repository, so CI does not re-report what somebody already looked at.
-
-Add the rest of `.perch` to `.gitignore`:
-
-```
-.perch/*
-!.perch/closed.jsonl
-```
+`perch close` writes to `.perch/closed.jsonl`. perch ignores the rest of `.perch`
+and not that file, so commit it and the team's dismissals travel with the
+repository. CI then leaves alone what somebody has already looked at.
 
 ## Cost
 

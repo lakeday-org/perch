@@ -130,8 +130,7 @@ alone. `perch reopen <id>` puts it back.
 perch issues --closed     # include what you set aside
 ```
 
-Closed issues live in `.perch/closed.jsonl`, apart from the answers, and survive
-the next run. Commit that file to share dismissals with the team.
+Closed issues live in `.perch/closed.jsonl`.
 
 ## JSON
 
