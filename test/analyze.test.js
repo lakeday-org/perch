@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { git, revision } from '../src/git.js';
-import { createSourceAnalyzer } from '../src/analysis.js';
+import { createSourceAnalyzer, sourceFile } from '../src/analysis.js';
 import { analyzeTree } from '../src/analyze.js';
 import { fixtureOptions, makeFixture, makeGraphFixture } from './helpers.js';
 
@@ -16,6 +16,16 @@ async function fixture(make = makeFixture) {
   cleanups.push(root);
   return { root, revision: await revision(root), out: join(root, '.perch') };
 }
+
+describe('source selection', () => {
+  it('leaves every minified JavaScript and TypeScript variant out of analysis', () => {
+    const extensions = ['js', 'mjs', 'cjs', 'jsx', 'ts', 'mts', 'cts', 'tsx'];
+    for (const extension of extensions) {
+      expect(sourceFile({ type: 'blob', path: `src/app.min.${extension}`, size: 100 })).toBe(false);
+      expect(sourceFile({ type: 'blob', path: `src/app.${extension}`, size: 100 })).toBe(true);
+    }
+  });
+});
 
 describe('perch scan', () => {
   it('ranks methods at the revision without a worktree or a model', async () => {
