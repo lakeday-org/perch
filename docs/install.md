@@ -33,6 +33,10 @@ npx @lakeday/perch scan
 export TYPESAFE_API_KEY=...
 ```
 
+For a compatible proxy or local stand-in, set `PERCH_BASE_URL` to its API base
+URL. Both commands append `/systemone` and use the same key. The default is
+`https://api.typesafe.ai/v1`; see [Environment](/cli/#environment) for the contract.
+
 ## The first scan
 
 ```sh

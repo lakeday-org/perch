@@ -198,7 +198,16 @@ bug report as it stands.
 | Variable | Read by |
 | --- | --- |
 | `TYPESAFE_API_KEY` | `scan`, `check` |
+| `PERCH_BASE_URL` | `scan`, `check`: API base URL; defaults to `https://api.typesafe.ai/v1`. |
 | `NO_COLOR` | Everything that prints. Piped output is uncolored anyway. |
+
+Set `PERCH_BASE_URL` to use a proxy, gateway, or local stand-in. perch appends
+`/systemone`; a trailing slash on the base URL is optional. Requests still use
+`TYPESAFE_API_KEY` as a bearer token and `jev-latest` as the model.
+
+The endpoint must support the System One request and response format: typed
+questions over a state, answered with probabilities. An OpenAI-compatible chat
+endpoint alone does not provide that contract.
 
 ## Exit codes
 

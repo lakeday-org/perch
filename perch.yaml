@@ -8,6 +8,13 @@ ignore:
   - test/fixtures/order-service/**
 
 rules:
+  - name: cli-honors-api-base-url
+    where: src/cli.js
+    ensure: >-
+      The scan and check commands pass PERCH_BASE_URL from their environment
+      to the System One client's baseUrl option. Constructing either command's
+      client without that override breaks this rule.
+
   - name: prose-not-generated
     where: "**/*.md"
     ensure: >

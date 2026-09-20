@@ -12,12 +12,13 @@ export function createSystemOne({
   log = () => {},
 } = {}) {
   if (!apiKey) throw new Error('TYPESAFE_API_KEY is not set. Export a TypeSafe API key before running perch scan.');
+  const endpoint = `${baseUrl.replace(/\/+$/, '')}/systemone`;
 
   async function request(body) {
     for (let attempt = 0; ; attempt++) {
       let response;
       try {
-        response = await fetchImpl(`${baseUrl}/systemone`, { method: 'POST', headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+        response = await fetchImpl(endpoint, { method: 'POST', headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
       } catch (error) {
         if (attempt >= 3) throw error;
         log(`System One request failed (${error.message}); retrying`);
