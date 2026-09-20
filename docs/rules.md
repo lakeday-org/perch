@@ -118,8 +118,7 @@ shallowest first. `callers` is what sits above it, nearest first.
 `ensure` has to hold everywhere, so every unit it covers is asked.
 
 `ensure_present` and `ensure_absent` are claims about the codebase rather than
-any one file. They search the likeliest units first and stop at the answer, for a
-fraction of a whole sweep.
+any one file. They search the likeliest units first and stop at the answer.
 
 ```yaml
 - name: issues-closable
@@ -135,6 +134,29 @@ fraction of a whole sweep.
   ensure_absent: >
     A command or flag that is parsed and then never used.
 ```
+
+### The cost of a search
+
+A search stops at the first unit that answers, so a rule whose answer turns up
+early is cheap. A rule with no answer anywhere reads every unit it covers, up to
+400.
+
+That is the expensive case, and it is the one a clean codebase hits. An
+`ensure_absent` rule over `src/**/*.js` with `each: method` searches every method
+in `src` before it can say nothing has the thing. Three such rules on this
+repository account for most of a scan's requests.
+
+Narrow the scope and the cost falls with it:
+
+```yaml
+- name: no-dead-command
+  where: "src/cli.js"      # not src/**/*.js
+  each: method
+  ensure_absent: A command or flag that is parsed and then never used.
+```
+
+`perch scan --filter rule=<name>` runs one rule on its own, which is how to see
+what a single search costs.
 
 ## Wording a rule
 

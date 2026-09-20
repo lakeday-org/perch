@@ -102,7 +102,22 @@ Add the rest of `.perch` to `.gitignore`:
 
 ## Cost
 
-One HTTP request per method read. `--since` decides how many methods that is,
-`--parallel` decides how fast they go, and neither changes the total. Output
-tokens are not billed, so asking thirty questions of a method costs what asking
-one costs.
+A scan of this repository, 416 methods and 20 rules:
+
+```console
+perch at commit 40839bc: 416 methods, read 416, 119 unchanged
+1225 requests  3.2M tokens in / 365k out  $0.13
+```
+
+416 of those requests are the methods. The other 809 are the rules. Four things
+add requests:
+
+| | |
+| --- | --- |
+| A method | One request. Every question rides in it, so thirty questions cost what one costs. |
+| A method too long for one request | Up to eight, in overlapping passes. |
+| A file rule | One request per file it covers, and one more for each file it breaks on, to find the line. |
+| `ensure_present` or `ensure_absent` | One per unit until a unit answers. See [the cost of a search](/rules/#the-cost-of-a-search). |
+
+`--since` decides how many methods are read and `--parallel` decides how fast
+they go, not how many requests there are. Output tokens are not billed.
