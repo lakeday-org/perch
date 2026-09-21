@@ -3,12 +3,12 @@
  * should not mean stopping to find the file, and an agent that spots a pattern worth a rule has no business rewriting YAML by
  * string surgery. Comments and the order of what is already there survive every edit.
  */
-import { readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { parseDocument, Scalar } from 'yaml';
 import { BUILTIN, check, ENSURES, SHAPES, parseQuestions } from './ask.js';
-import { RULES_FILE, readRuleFiles } from './units.js';
+import { RULES_DIR, RULES_FILE, readRuleFiles } from './units.js';
 import { revision } from './git.js';
 
 export { SHAPES };
@@ -31,14 +31,14 @@ const NESTED = new Set(['options', 'levels', 'issue']);
  * as `[ { name: r1, ... } ]`. Every later edit reparses that and keeps the style, so one missing file at the start meant a rule
  * file nobody could read from then on.
  */
-async function open(root) {
-  const path = join(root, RULES_FILE);
+async function open(root, file = RULES_FILE) {
+  const path = join(root, file);
   const text = await readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
   const doc = parseDocument(text);
   if (!doc.contents || !doc.contents.items) doc.contents = doc.createNode([]);
   // The text it was parsed from goes back with it, because the write puts the whole document down again and has to know it is
   // putting it down over the one it picked up.
-  return { path, doc, rules: rulesOf(doc), text };
+  return { path, file, doc, rules: rulesOf(doc), text };
 }
 
 /**
@@ -63,12 +63,15 @@ function rulesOf(doc) {
  * A lock left by something that died would wedge the file for good, so waiting for one is given up on rather than waited out,
  * and the message says what to delete.
  */
-async function withLock(path, work) {
+async function withLock(root, file, work) {
+  const path = join(root, file);
   const lock = `${path}.lock`;
+  // A split file named for the first time has no directory yet, and the lock goes in it before the file does.
+  await mkdir(dirname(path), { recursive: true });
   for (let tries = 0; ; tries++) {
     try { await writeFile(lock, `${process.pid}\n`, { flag: 'wx' }); break; } catch (error) {
       if (error.code !== 'EEXIST') throw error;
-      if (tries >= 50) throw new Error(`${RULES_FILE} is being edited by another perch. If none is running, delete ${RULES_FILE}.lock`, { cause: error });
+      if (tries >= 50) throw new Error(`${file} is being edited by another perch. If none is running, delete ${file}.lock`, { cause: error });
       await new Promise(resolve => setTimeout(resolve, 20));
     }
   }
@@ -83,9 +86,9 @@ async function withLock(path, work) {
  * The lock holds other perch commands off, and this holds off everything else: an editor with the file open, a script, a hand.
  * Read again and refused if it moved, which turns losing somebody's rule into being told to run the command again.
  */
-async function save(path, doc, was) {
+async function save(path, file, doc, was) {
   const now = await readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
-  if (now !== was) throw new Error(`${RULES_FILE} changed while perch was editing it, so nothing was written. Run that again.`);
+  if (now !== was) throw new Error(`${file} changed while perch was editing it, so nothing was written. Run that again.`);
   const tmp = `${path}.${randomUUID().slice(0, 8)}.tmp`;
   await writeFile(tmp, String(doc));
   await rename(tmp, path);
@@ -108,28 +111,50 @@ const write = (doc, key, value) => (NESTED.has(key) ? doc.createNode(value)
  * A rule is put through the same reading a scan gives it before it is written down. Writing one the next command refuses leaves
  * the file wedged: every verb parses it, so a rule perch cannot understand stops you listing, editing or removing anything.
  */
-const legible = rule => check(Object.fromEntries(Object.entries(rule).filter(([, value]) => value !== undefined)), RULES_FILE, 'rule');
+const legible = (rule, file = RULES_FILE) => check(Object.fromEntries(Object.entries(rule).filter(([, value]) => value !== undefined)), file, 'rule');
 
-/** A root-file edit cannot change a definition supplied by a later split file. */
-async function editableAtRoot(root, name) {
-  const head = await revision(root).catch(() => null);
-  for (const { path, text } of await readRuleFiles(root, head)) {
-    if (path !== RULES_FILE && parseQuestions(text, path, 'rule').some(rule => rule.name === name))
-      throw new Error(`${name} is already a rule in ${path}; edit that file directly`);
-  }
+/**
+ * The files a rule may be written to: the root file, or a YAML file under `.perch/rules/`. Anything else is a path a scan would
+ * never read, so a rule written there would be a rule nothing asks.
+ */
+export function ruleFile(file) {
+  const path = String(file).split('\\').join('/').replace(/^\.\//, '');
+  if (path === RULES_FILE || (path.startsWith(`${RULES_DIR}/`) && /\.ya?ml$/.test(path))) return path;
+  throw new Error(`a rule file is ${RULES_FILE} or a .yaml file under ${RULES_DIR}/, not ${file}`);
 }
 
-/** Add a rule, or refuse if that name is taken: two rules with one name is a report nobody can act on. */
-export async function addRule(root, rule) {
-  return withLock(join(root, RULES_FILE), async () => {
-    const { path, doc, rules, text } = await open(root);
-    await editableAtRoot(root, rule.name);
-    if (named(rules, rule.name) >= 0) throw new Error(`${rule.name} is already a rule; perch rules edit ${rule.name} changes it`);
-    legible(rule);
+/** Every file that defines a rule by that name, in the order a scan reads them: the last one is the definition in force. */
+export async function filesDefining(root, name) {
+  const head = await revision(root).catch(() => null);
+  return (await readRuleFiles(root, head)).filter(({ path, text }) => parseQuestions(text, path, 'rule').some(rule => rule.name === name)).map(({ path }) => path);
+}
+
+/**
+ * Which file a command works on. Named, it is that one, and a rule that lives somewhere else is an error rather than a second
+ * copy. Unnamed, it is wherever the rule already is, and the root file for one that is nowhere yet.
+ */
+async function fileFor(root, name, file) {
+  const defined = await filesDefining(root, name);
+  if (file === undefined) return { file: defined.at(-1) ?? RULES_FILE, defined };
+  const chosen = ruleFile(file);
+  const elsewhere = defined.filter(path => path !== chosen);
+  if (elsewhere.length) throw new Error(`${name} is a rule in ${elsewhere.join(' and ')}, not ${chosen}`);
+  return { file: chosen, defined };
+}
+
+/** Add a rule, or refuse if that name is taken anywhere: two rules with one name is a report nobody can act on. */
+export async function addRule(root, rule, { file } = {}) {
+  const chosen = ruleFile(file ?? RULES_FILE);
+  return withLock(root, chosen, async () => {
+    const { path, doc, rules, text } = await open(root, chosen);
+    const defined = await filesDefining(root, rule.name);
+    if (defined.length || named(rules, rule.name) >= 0)
+      throw new Error(`${rule.name} is already a rule in ${defined[0] ?? chosen}; perch rules edit ${rule.name} changes it`);
+    legible(rule, chosen);
     const node = doc.createNode({});
     for (const key of FIELDS) if (rule[key] !== undefined) node.set(key, write(doc, key, rule[key]));
     rules.items.push(node);
-    await save(path, doc, text);
+    await save(path, chosen, doc, text);
     return rule;
   });
 }
@@ -141,11 +166,14 @@ export async function addRule(root, rule) {
  * from then on yours is the one in force. Nothing is edited in place inside the package, so an upgrade still brings new questions
  * and you can see in one file everything this repository has decided to say differently.
  */
-export async function editRule(root, name, changes) {
-  return withLock(join(root, RULES_FILE), async () => {
-    const { path, doc, rules, text } = await open(root);
-    await editableAtRoot(root, name);
-    if (changes.name && changes.name !== name) await editableAtRoot(root, changes.name);
+export async function editRule(root, name, changes, { file: inFile } = {}) {
+  const { file } = await fileFor(root, name, inFile);
+  return withLock(root, file, async () => {
+    const { path, doc, rules, text } = await open(root, file);
+    if (changes.name && changes.name !== name) {
+      const taken = await filesDefining(root, changes.name);
+      if (taken.length) throw new Error(`${changes.name} is already a rule in ${taken[0]}`);
+    }
     let at = named(rules, name);
     if (at < 0) {
       const shipped = BUILTIN.find(question => question.name === name);
@@ -167,8 +195,8 @@ export async function editRule(root, name, changes) {
     // null takes a key off, which is how a floor is removed rather than recorded as zero.
     for (const key of FIELDS) if (changes[key] === null) node.delete(key);
     for (const key of FIELDS) if (changes[key] !== undefined && changes[key] !== null) node.set(key, write(doc, key, changes[key]));
-    legible(node.toJSON());
-    await save(path, doc, text);
+    legible(node.toJSON(), file);
+    await save(path, file, doc, text);
     return name;
   });
 }
@@ -178,16 +206,16 @@ export async function editRule(root, name, changes) {
  * is a line saying so rather than a silence you would have to know to look for. Either way the answer to "is this still asked" is
  * in this one file.
  */
-export async function removeRule(root, name) {
-  return withLock(join(root, RULES_FILE), async () => {
-    const { path, doc, rules, text } = await open(root);
-    await editableAtRoot(root, name);
+export async function removeRule(root, name, { file: inFile } = {}) {
+  const { file } = await fileFor(root, name, inFile);
+  return withLock(root, file, async () => {
+    const { path, doc, rules, text } = await open(root, file);
     const at = named(rules, name);
     const shipped = BUILTIN.find(question => question.name === name);
     if (at < 0 && !shipped) throw new Error(`no question called ${name}; perch rules list shows them`);
     if (at < 0) rules.items.push(doc.createNode({ name, disabled: true }));
     else rules.items.splice(at, 1);
-    await save(path, doc, text);
-    return { name, turnedOff: at < 0 };
+    await save(path, file, doc, text);
+    return { name, file, turnedOff: at < 0 };
   });
 }

@@ -1,0 +1,8 @@
+- name: rules-commands-write-any-rule-file
+  where: src/rules.js
+  ensure: >-
+    perch rules add, edit and remove can change any rule file: perch.yaml by
+    default, or a file under .perch/rules/ named on the command. A rule that
+    lives in a split file is edited or removed there. Refusing to change a rule
+    because it lives in a split file, or telling the user to edit that file
+    directly, breaks this rule.

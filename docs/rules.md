@@ -69,8 +69,8 @@ A later definition with the same name replaces an earlier one. Edits and new
 files on disk apply before they are committed.
 
 Keep `ignore` and `scan_types` in the root `perch.yaml`. `perch rules list`
-includes split rules; `add`, `edit`, and `remove` write to `perch.yaml`. Edit
-split files directly.
+shows every file. `add` writes to `perch.yaml` unless `--file` names a split
+file; `edit` and `remove` find the file a rule is in.
 
 Commit `.perch/rules/` and `.perch/closed.jsonl`. Each scan updates
 `.perch/.gitignore` to keep output ignored and permit those paths.
@@ -359,12 +359,16 @@ what is asked and not just what is printed.
 
 ## perch rules
 
-`perch rules list` includes rules from `perch.yaml` and `.perch/rules/`.
-The editing commands change `perch.yaml`, keeping comments and ordering:
+`perch rules list` shows the rules in `perch.yaml` and `.perch/rules/`, with the
+file each is in. `add` writes to `perch.yaml`, or to the split file `--file`
+names, creating it if needed. `edit` and `remove` find the file a rule is in.
+Comments and ordering are kept.
 
 ```sh
 perch rules list
+perch rules list --file .perch/rules/docs.yaml
 perch rules add no-stale-docs --where "docs/**/*.md" --ensure_absent "docs for code that was deleted"
+perch rules add docs-no-rationale --file .perch/rules/docs.yaml --where "docs/**/*.md" --ensure "..."
 perch rules edit env-read-once --except "src/cli.js,src/config.js"
 perch rules remove no-stale-docs
 ```

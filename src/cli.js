@@ -9,11 +9,11 @@ import { analyzeTree } from './analyze.js';
 import { covers, DEFAULT_PARALLEL, scanRepository } from './scan.js';
 import { BELIEVED, filterKeys, filterStrength, matchesFilters, parseFilters } from './questions.js';
 import { splitStale } from './context.js';
-import { changedPaths, readRules, RULES_FILE, RULES_DIR, UNIT_PARALLEL } from './units.js';
+import { changedPaths, readRuleFiles, readRules, RULES_FILE, RULES_DIR, UNIT_PARALLEL } from './units.js';
 import { checkTarget } from './check.js';
 import { runChecks } from './checks.js';
-import { addRule, editRule, KINDS as RULE_KINDS, removeRule } from './rules.js';
-import { allQuestions, SHAPES } from './ask.js';
+import { addRule, editRule, KINDS as RULE_KINDS, removeRule, ruleFile } from './rules.js';
+import { allQuestions, parseQuestions, SHAPES } from './ask.js';
 import { installSkill, TARGET_NAMES, TARGETS } from './setup.js';
 import { createMeter, metered } from './meter.js';
 import { formatDoctor, formatFilterKeys, gating, useColor, formatFinding, formatIssues, formatCheck, formatRules, formatScanReport, issueCount, scanCount, scanTally, TOP, visibleFindings } from './report.js';
@@ -35,6 +35,7 @@ const options = {
   min: ['--min P', `Only issues it is at least P percent sure of (default ${BELIEVED * 100}; --min 0 shows everything). On a rule, the floor for that one alone`, ['scan', 'issues', 'rules']],
   filter: ['--filter k=v', 'Only issues matching, e.g. type=security, kind=too big, severity=P1 (comma-separated)', ['scan', 'issues']],
   gate: ['--gate yes|no', 'Whether breaking this one fails a scan. Defaults to yes for a defect, a vulnerability or a rule', ['rules']],
+  file: ['--file F', `The rule file: ${RULES_FILE} or a .yaml under ${RULES_DIR}/. add creates it; list shows only it`, ['rules']],
   types: ['--types', 'Print everything --filter accepts and stop', ['issues']],
   rules: ['--rules a,b', 'Ask only these: rule names, or defect, security, refactor, docs', ['check']],
   ensure: ['--ensure TEXT', 'What has to be true of every file or method it covers', ['rules']],
@@ -65,7 +66,7 @@ const ALIASES = { findings: 'issues' };
 
 const commandHelp = {
   scan: { args: '[target]', summary: 'Find issues', detail: `Scores every method with tree-sitter, then reads them with System One, callers and callees in view. Custom rules in ${RULES_FILE} and ${RULES_DIR}/ are asked in the same reading, so they cost nothing extra on a method perch was reading anyway.\n\nA method is reused when its code, neighbours, questions, endpoint and model are unchanged since the last run. The answer would be the same one, and asking for it would move the numbers on an issue you have already looked at. Delete .perch/scan.jsonl to ask about everything again.\n\ntarget is the file or directory to read, and defaults to where you are. --paths and --since narrow it further, and --since origin/main is what CI wants. Exits 3 on anything it found. Every type it asks about fails the run; scan_types in perch.yaml decides which those are, and defaults to defect, security and lint. Needs PERCH_API_KEY. PERCH_BASE_URL sets the exact request URL; PERCH_MODEL_ID selects the model.` },
-  rules: { args: '[list | add <name> | edit <name> | remove <name>]', summary: `Change ${RULES_FILE} without opening it`, detail: `Custom rules are questions perch asks alongside its own, written in the same grammar as the ones it ships with in scan.yaml. perch scan asks them; this writes them, keeping comments and ordering.\n\nMost are a yes-or-no, so --ensure is usually the only flag needed. It covers what a parser can't: whether a comment says why, whether a test asserts what you claim.\n\n  perch rules add no-stale-docs --where "docs/**/*.md" --ensure_absent "docs for code that was deleted"\n\nAn answer that is not yes-or-no is written out: --ask with --type and the options or levels it offers, and --issue for what an answer means. --when names a question this one is only as likely as.\n\n  perch rules add handles_absence --type choice --each method --where "src/**/*.js" \\\n    --ask "How does this method handle a value that is missing?" \\\n    --options "checks=It checks for it; ignores=It carries on with the missing value" \\\n    --issue "type=defect,label=handles_absence,except=checks"` },
+  rules: { args: '[list | add <name> | edit <name> | remove <name>]', summary: `Change ${RULES_FILE} without opening it`, detail: `Custom rules are questions perch asks alongside its own, written in the same grammar as the ones it ships with in scan.yaml. perch scan asks them; this writes them, keeping comments and ordering.\n\nRules live in ${RULES_FILE} or in .yaml files under ${RULES_DIR}/. add writes to ${RULES_FILE} unless --file names a split file; edit and remove find the file a rule is in; list shows every file, or one file with --file.\n\nMost are a yes-or-no, so --ensure is usually the only flag needed. It covers what a parser can't: whether a comment says why, whether a test asserts what you claim.\n\n  perch rules add no-stale-docs --where "docs/**/*.md" --ensure_absent "docs for code that was deleted"\n\nAn answer that is not yes-or-no is written out: --ask with --type and the options or levels it offers, and --issue for what an answer means. --when names a question this one is only as likely as.\n\n  perch rules add handles_absence --type choice --each method --where "src/**/*.js" \\\n    --ask "How does this method handle a value that is missing?" \\\n    --options "checks=It checks for it; ignores=It carries on with the missing value" \\\n    --issue "type=defect,label=handles_absence,except=checks"` },
   issues: { args: '[issue-id]', summary: 'List what the scan found, or show one', detail: 'Worst first. --filter narrows the list, --types prints what it accepts, --closed includes closed ones, --all lists every row. Give it an id to see everything known about that method. perch findings does the same thing.' },
   check: { args: '<path | path::method | issue-id>', summary: 'Ask about one piece of code, uncommitted', detail: 'Reads that one file off disk and asks about the point you named: every rule that covers it, plus the scan\'s own questions for a method. --rules narrows it to specific rules, or to defect, security, refactor or docs. Nothing is committed or recorded, so run it on work in progress. Exits 3 while something is still wrong. Needs PERCH_API_KEY. PERCH_BASE_URL sets the exact request URL; PERCH_MODEL_ID selects the model.' },
   close: { args: '<issue-id>...', summary: 'Set issues aside', detail: 'Stops an issue being listed: a false positive, or code you have looked at and are not changing. --reason is kept and shown by perch issues <id>. It stays closed through later scans and later edits, and perch reopen is the only thing that brings it back.\n\nIt covers the kinds on that issue now, so a defect found in the method later is a new thing and is listed. --kind closes some of them and leaves the rest:\n\n  perch close 2638fb16 --kind docs' },
@@ -117,7 +118,7 @@ ${column(own.map(([flag, text]) => [flag, text]))}`;
 export const EXIT = { clean: 0, broke: 1, usage: 2, found: 3 };
 
 const valued = new Set(['paths', 'parallel', 'min', 'filter', 'out', 'reason', 'kind', 'limit', 'page', 'since', 'rules',
-  'ensure', 'ensure_present', 'ensure_absent', 'where', 'except', 'each', 'sees', 'type', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', 'gate']);
+  'ensure', 'ensure_present', 'ensure_absent', 'where', 'except', 'each', 'sees', 'type', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', 'gate', 'file']);
 const switches = new Set(['force', 'all', 'json', 'verbose', 'closed', 'types', 'help', 'version']);
 
 export function parseArgs(argv) {
@@ -328,17 +329,23 @@ async function manageRules(io, action, name) {
   if (action === 'list') {
     // Everything in force, not just what this repository added: a question perch ships is asked of your code the same way, and
     // it is editable the same way, so leaving it off the list would be hiding half of what a scan does.
-    const own = new Set((await readRules(root, await gitRevision(root))).map(rule => rule.name));
-    const all = [...allQuestions()].sort((a, b) => Number(own.has(b.name)) - Number(own.has(a.name)));
-    print(io, all.map(rule => ({ name: rule.name, from: own.has(rule.name) ? RULES_FILE : 'perch', disabled: Boolean(rule.disabled),
+    const head = await gitRevision(root);
+    await readRules(root, head);
+    // Which file each rule is in, the last definition winning the way a scan reads them. --file lists that one file alone.
+    const own = new Map();
+    for (const { path, text } of await readRuleFiles(root, head)) for (const rule of parseQuestions(text, path, 'rule')) own.set(rule.name, path);
+    const only = io.flags.file === undefined ? null : ruleFile(io.flags.file);
+    const all = [...allQuestions()].filter(rule => !only || own.get(rule.name) === only).sort((a, b) => Number(own.has(b.name)) - Number(own.has(a.name)));
+    print(io, all.map(rule => ({ name: rule.name, from: own.get(rule.name) ?? 'perch', disabled: Boolean(rule.disabled),
       type: rule.type, kind: rule.kind, where: rule.where, each: rule.each, sees: rule.sees, except: rule.except ?? null,
       when: rule.when ?? null, text: rule.text ?? rule.ask })), formatRules(all, { own }));
     return EXIT.clean;
   }
   if (!name) throw new UsageError(`perch rules ${action} needs a name`);
+  const file = io.flags.file;
   if (action === 'remove') {
-    const { turnedOff } = await removeRule(root, name);
-    io.stdout(turnedOff ? `Turned off ${name}, which perch ships. perch rules edit ${name} turns it back on.` : `Removed ${name}.`);
+    const { turnedOff, file: from } = await removeRule(root, name, { file });
+    io.stdout(turnedOff ? `Turned off ${name}, which perch ships. perch rules edit ${name} turns it back on.` : `Removed ${name} from ${from}.`);
     return EXIT.clean;
   }
   if (RULE_KINDS.filter(key => written[key]).length > 1) throw new UsageError('a rule asks one thing: give one of --ensure, --ensure_present, --ensure_absent');
@@ -347,11 +354,11 @@ async function manageRules(io, action, name) {
   if (action === 'add') {
     if (!RULE_KINDS.some(key => written[key]) && !written.ask) throw new UsageError(`perch rules add needs --ensure, --ensure_present, --ensure_absent, or --ask`);
     // Everything, unless you say otherwise. A rule that covers the whole repository is a fine rule to want.
-    await addRule(root, { name, where: '**/*', ...written });
-    io.stdout(`Added ${name}.`);
+    await addRule(root, { name, where: '**/*', ...written }, { file });
+    io.stdout(`Added ${name} to ${file === undefined ? RULES_FILE : ruleFile(file)}.`);
     return EXIT.clean;
   }
-  await editRule(root, name, written);
+  await editRule(root, name, written, { file });
   io.stdout(`Changed ${name}.`);
   return EXIT.clean;
 }
