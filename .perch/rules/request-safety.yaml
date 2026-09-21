@@ -61,10 +61,11 @@
     results. Replacing that collection with an empty array, or leaving one
     of those sources out, breaks this rule because unread code disappears
     from the run's explanation.
-- name: incomplete-scans-exit-with-an-error
+- name: incomplete-checks-do-not-decide-the-exit-code
   where: src/cli.js
   ensure: >-
-    Read the scan command's final reporting and exit decision. If the run
-    contains incomplete checks, it reports those reasons and returns the
-    execution-error exit code, even when there are no findings. Returning
-    the clean or findings exit code for that run breaks this rule.
+    Read the scan command's final reporting and exit decision. When the run
+    has incomplete checks, it reports each reason on stderr and still returns
+    the clean exit code when nothing gated came back, or the findings exit
+    code when something did. Returning the execution-error exit code because
+    a check was incomplete breaks this rule, and so does dropping the reasons.
