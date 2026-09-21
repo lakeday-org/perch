@@ -1,0 +1,8 @@
+- name: method-context-drops-neighbours-before-refusing
+  where: src/questions.js
+  ensure: >-
+    When a method's request is still over budget after its callers' and
+    callees' excerpts have been shortened, the method is shown fewer
+    neighbours, down to none, before the request is refused. Throwing because
+    the neighbourhood does not fit, without first reducing how many neighbours
+    are shown, breaks this rule.

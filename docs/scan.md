@@ -87,7 +87,9 @@ costs one reading.
 A request carries the method's source with each line tagged
 `L0042|`, the comment above it, and its metrics. It carries the file's imports
 and module scope. It also carries up to 8 callees with the names of their own
-callees. It carries up to 8 callers with the line where each calls it.
+callees. It carries up to 8 callers with the line where each calls it. When
+they do not fit, each neighbour is shortened, then fewer are shown, down to
+none, before the method is given up on.
 
 A method too long for one request is read in **overlapping passes**, each sized
 to what the budget actually holds. Only lines a pass can see are offered to its
