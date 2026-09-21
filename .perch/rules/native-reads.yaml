@@ -1,0 +1,7 @@
+- name: node-wrapper-reads-each-native-value-once
+  where: src/treesitter/node.ts
+  ensure: >-
+    Node keeps a native node's kind, byte offsets, positions and child count
+    after the first read, so a second read of the same property on the same
+    instance does not call into the native node again. A getter that calls the
+    native method on every access breaks this rule.
