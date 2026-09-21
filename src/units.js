@@ -10,7 +10,7 @@ import { join, sep } from 'node:path';
 import { git, listTree } from './git.js';
 import { createFileSelector } from './exclusions.js';
 import { sourceChunks } from './chunks.js';
-import { TOKEN_LIMITS, estimateTokens, questionBatches, IncompleteCheckError, ContextLimitError, withTokenRetries, requestScope } from './tokens.js';
+import { TOKEN_LIMITS, estimateTokens, textTokens, questionBatches, IncompleteCheckError, ContextLimitError, withTokenRetries, requestScope } from './tokens.js';
 import { askKey, BUILTIN, compile, floorFor, installQuestions, merge, parseIgnored, parseQuestions, parseScanTypes, SEARCHES } from './ask.js';
 import { leadingComment, lineId, lineWindows, locateWhere, tagged, whereQuestion, whereWindowQuestion } from './questions.js';
 import { findingId } from './store.js';
@@ -252,8 +252,28 @@ export function unitStep({ rules, unit, source, seen = {} }) {
   return { state, questions: compile(rules) };
 }
 
-/** Every byte is visited; whole-file conclusions remain explicitly incomplete when only pieces fit. */
+/**
+ * What a unit is shown besides itself has to leave room for the unit. `sees: file` on a method in a large file put the whole
+ * file beside every piece, so the pieces shrank to nothing and the request was still too big. The companion is cut to fit
+ * half the budget, and says so, rather than costing the unit its reading.
+ */
+function fitSeen(seen, budget) {
+  if (typeof seen.file_source !== 'string') return seen;
+  const room = Math.floor(budget / 2) - estimateTokens({ ...seen, file_source: '' }) - 256;
+  if (textTokens(seen.file_source) <= room) return seen;
+  if (room <= 64) return { ...seen, file_source: '(too large to show beside this unit)' };
+  // Tokens scale with length, so one proportional cut lands close; the loop shaves off what the estimate under-counted.
+  let text = seen.file_source.slice(0, Math.floor(seen.file_source.length * room / textTokens(seen.file_source)));
+  while (text.length && textTokens(text) > room) text = text.slice(0, Math.floor(text.length * 0.9));
+  return { ...seen, file_source: `${text}\n… (cut to fit; ${seen.file_source.length - text.length} characters not shown)` };
+}
+
+/**
+ * Every byte is visited. A file that took more than one piece is answered from its pieces: `askUnitSteps` keeps the lowest score
+ * for `ensure` and the piece likeliest to have the thing for a search, and that is the file's answer.
+ */
 export function unitSteps({ rules, unit, source, seen = {}, budget = TOKEN_LIMITS.state }) {
+  seen = fitSeen(seen, budget);
   const whole = unitStep({ rules, unit, source, seen });
   try {
     questionBatches(whole.state, whole.questions, { ...TOKEN_LIMITS, state: budget });
@@ -294,7 +314,7 @@ export async function askUnitSteps({ systemOne, steps, rules, prepare }) {
         }
       }
     }
-    return { answers, evidence, incomplete: active.length > 1 };
+    return { answers, evidence };
   }, systemOne.limits?.state);
 }
 
@@ -400,7 +420,7 @@ export async function askUnits({ rules, scan, graph, files, tree, revision, syst
     if (before.length === over.length) { debug(`${over.map(rule => rule.name).join(', ')}: ${unit.name} is unchanged`); return { results: before, carried: before.length }; }
 
     debug(`${over.map(rule => rule.name).join(', ')}: ${unit.name}`);
-    const { answers, evidence, incomplete } = await askUnitSteps({ systemOne: client, steps, prepare, rules: over });
+    const { answers, evidence } = await askUnitSteps({ systemOne: client, steps, prepare, rules: over });
     // A file that failed is asked which line failed; a method or a test block already has one. One question per broken rule,
     // since two rules broken in one file are rarely broken on the same line.
     const results = await Promise.all(over.map(async rule => {
@@ -409,8 +429,7 @@ export async function askUnits({ rules, scan, graph, files, tree, revision, syst
       const chunk = evidence[rule.name];
       const line = failing && !unit.part ? await locateBreak({ systemOne: client, rule, unit: { ...unit, line: unit.line + chunk.line - 1 }, body: chunk.source }) : unit.line;
       const onLine = failing && !unit.part ? (source.split('\n')[line - 1] ?? '').trim() : '';
-      return { ...checkOf(rule, unit, { broken, line, text: onLine.length > 110 ? `${onLine.slice(0, 110)}…` : onLine || null, revision, key }),
-        ...(incomplete ? { incomplete: `${unit.path}: ${rule.name} was checked in pieces; a whole-file conclusion was not established` } : {}) };
+      return checkOf(rule, unit, { broken, line, text: onLine.length > 110 ? `${onLine.slice(0, 110)}…` : onLine || null, revision, key });
     }));
     return { results, carried: 0 };
   };
@@ -466,10 +485,8 @@ export async function searchUnits({ rules, scan, graph, files, tree, revision, s
     const prepare = budget => unitSteps({ rules: [rule], unit, source: body, seen: neighbourhood(rule.sees, unit, { graph, files }), budget });
     const steps = prepare(systemOne.limits?.state);
     debug(`${rule.name}: ${unit.name}`);
-    const { answers, incomplete } = await askUnitSteps({ systemOne, steps, prepare, rules: [rule] });
-    const found = readLint(rule, answers).here > min;
-    if (incomplete && !found) throw new IncompleteCheckError(`${unit.path}: ${rule.name} was not found in individual pieces; cross-piece evidence is unchecked`);
-    return found;
+    const { answers } = await askUnitSteps({ systemOne, steps, prepare, rules: [rule] });
+    return readLint(rule, answers).here > min;
   };
 
   await Promise.all(running.map(async ({ rule, units, id, key }) => {
