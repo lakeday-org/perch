@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { listTree, readBlob } from './git.js';
 import { analyzeTree } from './analyze.js';
 import { AuthenticationError } from './systemone.js';
+import { createFileSelector } from './exclusions.js';
 import { buildGraph } from './graph.js';
 import { askKey, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES } from './ask.js';
 import { issuesOf, label as kindLabel, methodSteps, locateWhere, readAnswers } from './questions.js';
@@ -301,7 +302,8 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const files = new Map();
     for (const file of scan.files) files.set(file.path, (await linesOf({ id: file.path, path: file.path })).join('\n'));
     const tree = await listTree(root, revision);
-    for (const item of tree) if (item.type === 'blob' && !files.has(item.path)) files.set(item.path, await readBlob(root, item.sha).catch(() => ''));
+    const eligible = createFileSelector(tree);
+    for (const item of tree) if (eligible(item) && !files.has(item.path)) files.set(item.path, await readBlob(root, item.sha).catch(() => ''));
     const over = { scan, graph, files, tree, revision, systemOne, inScope, min, debug, earlier: checks };
     const kept = new Set(questionsFor(rules, filters, kindLabel).map(rule => rule.name));
     const asking = rules.filter(rule => kept.has(rule.name));

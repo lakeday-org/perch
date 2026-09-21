@@ -266,6 +266,47 @@ perch rules edit docs-succinct --gate false
 
 ## Ignored paths
 
+Perch excludes common dependency, build, and cache directories from method scans,
+file rules, test rules, searches, and neighboring context. The exclusions apply to
+every file type, including languages without method analysis, at any depth in a
+repository.
+
+Common excluded locations include:
+
+| Ecosystem | Directories |
+| --- | --- |
+| Shared | `vendor`, `third_party`, `third-party`, `thirdparty`, `3rdparty`, `build`, `dist`, `out`, `target`, `coverage`, `.cache` |
+| JavaScript and frontend | `node_modules`, `.next`, `.nuxt`, `.output`, `.svelte-kit`, `.angular`, `.parcel-cache`, `.turbo`, `.yarn/cache`, `.yarn/unplugged` |
+| Python | `.venv`, `venv`, `site-packages`, `__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox`, `.nox` |
+| JVM and Android | `.gradle`, `.bloop`, `.metals`, `.scala-build`, `.cxx`, `.externalNativeBuild` |
+| C and C++ | `CMakeFiles`, `cmake-build-*`, `_deps`, `bazel-bin`, `bazel-out`, `bazel-testlogs` |
+| Swift and Objective-C | `.build`, `Pods`, `DerivedData`, `Carthage/Build`, `Carthage/Checkouts` |
+| Rust and Zig | `target`, `.zig-cache`, `zig-cache`, `zig-out` |
+| Dart and Flutter | `.dart_tool`, `.pub-cache`, `.pub` |
+| Haskell, Elixir, Erlang, and OCaml | `.stack-work`, `dist-newstyle`, `.cabal-sandbox`, `_build`, `.elixir_ls` |
+| Other package and tool caches | `lua_modules`, `blib`, `.precomp`, `renv/library`, `renv/staging`, `packrat/lib`, `.cpcache`, `.godot`, `.import` |
+
+Some directory names also hold authored code. Perch excludes these only beside a
+tracked project marker:
+
+| Project marker | Excluded directories beside it |
+| --- | --- |
+| `*.csproj`, `*.fsproj`, `*.vbproj` | `bin`, `Bin`, `obj`, `Obj` |
+| `mix.exs`, `rebar.config` | `deps` |
+| `hardhat.config.js`, `.ts`, `.cjs`, `.mjs`, `.cts`, or `.mts` | `cache`, `artifacts` |
+| `foundry.toml` | `cache`, `broadcast` |
+| `*.uproject` | `Binaries`, `Intermediate`, `Saved` |
+
+For Unity projects identified by `ProjectSettings/ProjectVersion.txt`, Perch
+excludes `Library`, `Temp`, `Obj`, `Logs`, `UserSettings`, and `Builds` at the
+project root. A directory below the repository root containing a tracked
+`pyvenv.cfg` is excluded in full.
+Directories such as `bin`, `lib`, `packages`, and `deps` elsewhere remain readable.
+Minified JavaScript and TypeScript files are excluded. Large source files are
+chunked rather than excluded by size.
+
+Use `ignore` for custom dependency and output locations.
+
 `perch.yaml` is a list of rules. To say what a scan should skip entirely, write it as a
 map instead, with the rules under `rules:`:
 
