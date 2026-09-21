@@ -26,6 +26,27 @@ describe('system one client', () => {
     await expect(bad.ask({}, {})).rejects.toThrow('HTTP 422');
   });
 
+  it.each([
+    'the request exceeds the 64k token limit',
+    'questions exceed the 32k token limit',
+    'state exceeds the 32k token limit per question',
+    'The request body is too large',
+    'input is over the maximum of 65536 tokens',
+  ])('treats %j as a size rejection and asks for a smaller request', async detail => {
+    // The subject of a size rejection is whatever the server calls it. Requiring `state` or `question` meant the 64k
+    // per-request limit, worded as `request`, fell through to a hard error and the method failed instead of repacking.
+    const client = createSystemOne({ apiKey: 'k', fetchImpl: async () => reply(400, { error: detail }) });
+    await expect(client.ask({ big: 'x'.repeat(4000) }, { has_bug: { type: 'noul' } })).rejects.toThrow('rejected the request size');
+  });
+
+  it.each([
+    'Invalid API token; check your plan limits',
+    'Your monthly token quota has been exceeded',
+  ])('does not mistake %j for a size rejection', async detail => {
+    const client = createSystemOne({ apiKey: 'k', fetchImpl: async () => reply(400, { error: detail }) });
+    await expect(client.ask({}, { has_bug: { type: 'noul' } })).rejects.toThrow('HTTP 400');
+  });
+
   it.each(['http://localhost:8123/infer', 'http://localhost:8123/infer/', 'http://localhost:8123/infer?version=2'])('posts to the exact configured URL %s', async baseUrl => {
     const requests = [];
     const client = createSystemOne({ apiKey: 'custom-key', model: 'custom-model', baseUrl,

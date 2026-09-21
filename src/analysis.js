@@ -65,7 +65,8 @@ export async function analyzeFiles(files, { analyzer, readSource, progress = () 
     // difference between a counter that looks alive and one that looks hung.
     await new Promise(resolve => setImmediate(resolve));
     const analysis = await analyzer.analyzeSource(source, languageOf(file.path));
-    if (!['parsed', 'parse-error'].includes(analysis.parser_status)) throw new Error(`Parser unavailable for ${file.path}: ${analysis.parser_message}`);
+    // The parser being unavailable for one file is that file's failure. It used to end the run with zero requests, so one
+    // generated file too large to walk cost every other file its reading. perch doctor lists it with the others.
     if (analysis.parser_status !== 'parsed') {
       coverage.parse_failures++;
       if (coverage.parser_diagnostics.length < 20)

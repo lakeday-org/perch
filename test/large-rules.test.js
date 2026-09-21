@@ -56,10 +56,14 @@ it('checks a file over 1 MiB in bounded requests and reports the whole-file judg
   const code = await main(['scan', root, '--filter', 'rule=prose'], {
     env: { PERCH_API_KEY: 'fixture' }, stdout: text => output.push(text), stderr: text => errors.push(text),
   });
-  expect(code, JSON.stringify({output, errors})).toBe(1);
-  expect(output.join('\n')).toContain('Scan incomplete');
-  expect(output.join('\n')).not.toContain('nothing to report');
+  // An incomplete check is reported like a method perch could not read, and does not decide the exit code. Returning 1 here
+  // told CI perch could not run, on a run that had just printed its findings, and one oversize file made that permanent.
+  expect(code, JSON.stringify({output, errors})).toBe(0);
+  expect(errors.join('\n')).toContain('1 check incomplete; perch doctor lists them');
   expect(errors.join('\n')).toContain('whole-file conclusion was not established');
+  expect(output.join('\n')).not.toContain('Scan incomplete');
+  // The tally still prints. Nothing gated came back, so the run is clean; the check that could not finish is on stderr.
+  expect(output.join('\n')).toContain('nothing to report');
 });
 
 it('keeps the original line number when locating a problem in a later chunk', async () => {

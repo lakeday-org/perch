@@ -27,6 +27,19 @@ describe('large source reads', () => {
     }
   }, 30000);
 
+  it('terminates when a split lands inside an emoji or a CJK character', () => {
+    // overlapStart skipped forward past continuation bytes, which could land exactly on `high`; then neither branch moved the
+    // range and the search spun for good. A README with emoji big enough to chunk hung the scan on CPU with no output.
+    const line = 'line N 😀😀😀 中文 🚀 text\n';
+    const source = Array.from({ length: 400 }, (_, i) => line.replace('N', String(i))).join('');
+    for (const maxTokens of [64, 100, 200]) {
+      const chunks = sourceChunks(source, { path: 'a.md', maxTokens });
+      expect(chunks.length).toBeGreaterThan(1);
+      // Every chunk is still whole UTF-8: re-encoding what was decoded gives the bytes back.
+      for (const chunk of chunks) expect(Buffer.from(chunk.source).length).toBe(chunk.endByte - chunk.startByte);
+    }
+  });
+
   it('keeps UTF-8 positions and covers prose as well as code', () => {
     const source = '# Guide\n\n' + 'Résumé: 日本語 😀.\n'.repeat(5000);
     const chunks = sourceChunks(source, { path: 'guide.md', maxTokens: 1000 });
