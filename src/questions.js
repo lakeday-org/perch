@@ -299,25 +299,30 @@ export function moduleScope(lines, methods, budget = MODULE_SCOPE_BUDGET) {
  * lines, the calling line (callers), and the names of the neighbor's own callees (second hop). `edges` are ["a -> b"] strings.
  */
 export function methodStep({ node, lines, imports = [], methods = [node], moduleScopeText = moduleScope(lines, methods), callees, callers, edges = [], budget = STATE_BUDGET, limits = [40, 20, 8, 3], maxCallees = MAX_CALLEES, maxCallers = MAX_CALLERS, chunk = null, asked = questionSet().filter(question => question.each === 'method') }) {
-  const build = (limit, own = Infinity, scope = true) => ({
+  const build = (limit, own = Infinity, scope = true, [fewerCallees, fewerCallers] = [maxCallees, maxCallers]) => ({
     method: { path: node.path, name: node.qualified_name, leading_comment: leadingComment(lines, node.line) || null, metrics: node.metrics ?? null,
       source: chunk ? tagged(chunk.source.split("\n"), chunk.line + node.line - 1) : excerpt(lines, node.line, node.end_line, own) },
     imports: imports.map(item => `${item.name}${item.alias !== item.name ? ` as ${item.alias}` : ''} from ${item.module}`),
     module_scope: scope ? moduleScopeText : null,
-    calls: callees.slice(0, maxCallees).map(({ node: callee, lines: calleeLines, calls = [] }) =>
+    calls: callees.slice(0, fewerCallees).map(({ node: callee, lines: calleeLines, calls = [] }) =>
       ({ id: callee.id, name: callee.qualified_name, path: callee.path, source: excerpt(calleeLines, callee.line, callee.end_line, limit), calls: calls.map(short) })),
-    called_by: callers.slice(0, maxCallers).map(({ node: caller, lines: callerLines, site, handover = false }) =>
+    called_by: callers.slice(0, fewerCallers).map(({ node: caller, lines: callerLines, site, handover = false }) =>
       ({ id: caller.id, name: caller.qualified_name, path: caller.path,
         ...(handover
           ? { hands_method_on_at: site ?? null, note: 'this caller does not call the method here: it passes it on to be called later, so the call itself is not in view' }
           : { calls_method_at: site ?? null }),
         source: excerpt(callerLines, caller.line, caller.end_line, limit, site ?? null) })),
-    call_graph: edges,
+    // The edges are the neighbourhood drawn as lines, so they go when the neighbourhood does.
+    call_graph: fewerCallees || fewerCallers ? edges : [],
   });
   const over = () => estimateTokens(state) > budget;
   let state = build(limits[0] === Infinity ? Infinity : 80);
   for (const limit of limits) { if (!over()) break; state = build(limit); }
   if (over()) state = build(limits.at(-1), Infinity, false);
+  // Fewer neighbours before none, and none before refusing: a method read without its callers is a weaker reading than one
+  // read with them, and a method not read at all is no reading. Shortening the excerpts alone left the count at eight each, so
+  // a method in a dense graph failed the same way on every retry.
+  for (const fewer of [4, 2, 1, 0]) { if (!over()) break; state = build(limits.at(-1), Infinity, false, [Math.min(fewer, maxCallees), Math.min(fewer, maxCallers)]); }
   if (over()) throw new ContextLimitError(`${node.path}::${node.qualified_name}: method context exceeds the token budget`, budget / 2);
   if (chunk) state.reading = { start_byte: chunk.startByte, end_byte: chunk.endByte, partial: chunk.partial };
   if (over()) throw new ContextLimitError(`${node.path}: method metadata exceeds the token budget`, budget / 2);

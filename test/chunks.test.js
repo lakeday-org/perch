@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { sourceChunks } from '../src/chunks.js';
 import { TOKEN_LIMITS, estimateTokens, textTokens, questionBatches } from '../src/tokens.js';
 import { countTokens } from 'gpt-tokenizer/encoding/o200k_base';
-import { methodSteps, STATE_BUDGET } from '../src/questions.js';
+import { methodStep, methodSteps, STATE_BUDGET } from '../src/questions.js';
 import { unitSteps } from '../src/units.js';
 import { createSystemOne } from '../src/systemone.js';
 import { createMeter, metered } from '../src/meter.js';
@@ -143,4 +143,34 @@ it('counts Unicode, escaped strings, and literal special-token spellings as text
     expect(chunk.source).not.toContain('�');
     expect(tokens(chunk.source)).toBeLessThan(TOKEN_LIMITS.single);
   }
+});
+
+describe('a method whose neighbourhood does not fit', () => {
+  const neighbour = (name, size) => ({ node: { id: `n.js::${name}`, path: 'n.js', qualified_name: name, line: 1, end_line: size }, lines: Array.from({ length: size }, (_, i) => `  const ${name}_${i} = compute(${i}, "${'x'.repeat(60)}");`), site: 1, calls: [] });
+  const node = { id: 'a.js::small', path: 'a.js', qualified_name: 'small', line: 1, end_line: 3 };
+  const lines = ['function small(x) {', '  return x + 1;', '}'];
+  const callees = Array.from({ length: 8 }, (_, i) => neighbour(`callee${i}`, 400));
+  const callers = Array.from({ length: 8 }, (_, i) => neighbour(`caller${i}`, 400));
+  const edges = [...callees, ...callers].map(item => `${item.node.qualified_name} -> small`);
+
+  it('shows fewer neighbours before refusing, and reads the method alone when none fit', () => {
+    // At this budget the sixteen 3-line excerpts plus their names and edges do not fit; shortening alone threw here on every retry.
+    const step = methodStep({ node, lines, callees, callers, edges, budget: 1400 });
+    const shown = step.calls.length + step.calledBy.length;
+    expect(shown).toBeGreaterThan(0);
+    expect(shown).toBeLessThan(16);
+    expect(step.state.method.source).toContain('return x + 1');
+    // Room for the method and nothing else: the smallest neighbour excerpt is more than the margin.
+    const bare = estimateTokens(methodStep({ node, lines, callees: [], callers: [], edges: [] }).state);
+    const alone = methodStep({ node, lines, callees, callers, edges, budget: bare + 20 });
+    expect(alone.calls).toEqual([]);
+    expect(alone.calledBy).toEqual([]);
+    expect(alone.state.call_graph).toEqual([]);
+    expect(alone.state.method.source).toContain('return x + 1');
+    expect(Object.keys(alone.questions).some(name => name.startsWith('misuse'))).toBe(false);
+  });
+
+  it('still refuses when the method itself does not fit', () => {
+    expect(() => methodStep({ node, lines, callees, callers, edges, budget: 40 })).toThrow('exceeds the token budget');
+  });
 });
