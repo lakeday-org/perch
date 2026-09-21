@@ -26,9 +26,12 @@ Semantic code linting with Jev.
 
 ## Getting started
 
+perch asks Jev, TypeSafe's model. Create an API key at
+[console.typesafe.ai](https://console.typesafe.ai) and set it as `PERCH_API_KEY`.
+
 ```sh
 npm install -g @lakeday/perch
-export PERCH_API_KEY=...
+export PERCH_API_KEY=<your TypeSafe API key>
 ```
 
 ```console
