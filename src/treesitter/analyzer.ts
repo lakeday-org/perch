@@ -49,7 +49,7 @@ function analysisOf(root: Node, language: string, built: ProcessResult): SourceA
     }
     if (wanted.has(key)) nodes.set(key, node);
   }
-  const syntaxError = hasSyntaxError(root, language);
+  const syntaxError = hasSyntaxError(root);
   const diagnostics = (syntaxError ? built.diagnostics ?? [] : []).map(item => ({ kind: 'syntax' as const, message: item.message!,
     location: item.span ? { start: { line: item.span.startLine! + 1, column: item.span.startColumn! + 1, byte: item.span.startByte! },
       end: { line: item.span.endLine! + 1, column: item.span.endColumn! + 1, byte: item.span.endByte! } } : null }));

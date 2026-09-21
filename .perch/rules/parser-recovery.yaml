@@ -1,0 +1,8 @@
+- name: a-missing-token-does-not-fail-the-file
+  where: src/treesitter/extensions.ts
+  ensure: >-
+    hasSyntaxError reports a syntax error only when the tree holds an ERROR
+    node, in any language. A tree whose only recovery is a MISSING node, such
+    as a semicolon tree-sitter inserted after a JavaScript statement or a C++
+    macro invocation, is a parsed file. Treating every hasError tree as a parse
+    error, or rescuing MISSING nodes for one language only, breaks this rule.
