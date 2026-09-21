@@ -1,0 +1,7 @@
+- name: question-batches-stop-at-the-gateway-count-limit
+  where: src/tokens.js
+  ensure: >-
+    questionBatches starts a new batch when the current one holds the number
+    of questions the gateway accepts per request, 128, as well as when the next
+    question would exceed the token budget. Splitting on token size alone, so
+    that 129 small questions land in one request, breaks this rule.

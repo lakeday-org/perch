@@ -139,7 +139,8 @@ the label they map to, so `boundary` reads as `off_by_one` and
 the labels, which are what `--filter kind=` takes.
 
 System One does not bill output tokens, so asking thirty questions of a method
-costs what asking one costs. The whole set rides in one request.
+costs what asking one costs. The whole set rides in one request, up to 128
+questions; more than that take a second.
 
 ### noul, choice and score
 
