@@ -131,7 +131,7 @@ it('counts file localization against the same internal allowance as the initial 
   expect(completed.status).toBe('complete');
 });
 
-it('bounds requests across method chunks and leaves exhaustion incomplete', async () => {
+it('refuses a method reading that needs more requests than the allowance before sending any', async () => {
   const source = 'function huge() {\n' + '  work();\n'.repeat(300) + '}';
   const node = { path: 'huge.js', qualified_name: 'huge', line: 1, end_line: 302 };
   let requests = 0;
@@ -142,8 +142,23 @@ it('bounds requests across method chunks and leaves exhaustion incomplete', asyn
     return reply(200, await scripted.ask(state, questions));
   } });
   const prepare = budget => methodSteps({ node, lines: source.split('\n'), budget });
-  await expect(questionMethod({ systemOne, node, lines: source.split('\n'), steps: prepare(600), prepare })).rejects.toThrow(/request.*allowance|request.*budget/i);
-  expect(requests).toBe(4);
+  // The pass count is known from the steps. Finding out by sending meant the first four were accepted, paid for and discarded.
+  await expect(questionMethod({ systemOne, node, lines: source.split('\n'), steps: prepare(600), prepare })).rejects.toThrow(/needs \d+ requests and the allowance for one unit is 4, so none were sent/);
+  expect(requests).toBe(0);
+});
+
+it('refuses a file reading that needs more requests than the allowance before sending any', async () => {
+  const options = await fixture('- name: prose\n  where: docs/*.md\n  ensure: The text explains the API.\n', { 'long.md': 'A sentence about the API.\n'.repeat(400) });
+  let requests = 0;
+  const fetchImpl = async (_url, init) => {
+    requests++;
+    const {questions} = JSON.parse(init.body);
+    return reply(200, {answers: Object.fromEntries(Object.keys(questions).map(name => [name, {noul:0.95}]))});
+  };
+  const run = await scanRepository({ ...options, paths: ['docs'], systemOne: createSystemOne({apiKey:'fixture',fetchImpl,limits:{state:600,single:30000,request:60000,unitRequests:2}}) });
+  expect(requests).toBe(0);
+  expect(run.status).toBe('incomplete');
+  expect(run.incomplete.join('\n')).toMatch(/needs \d+ requests and the allowance for one unit is 2, so none were sent/);
 });
 
 it('counts rejected question batches and source retries against the same unit allowance', async () => {
@@ -154,5 +169,7 @@ it('counts rejected question batches and source retries against the same unit al
   } });
   const prepare = budget => unitSteps({rules, unit:{path:'example.js',line:1}, source:'function run() { return stock; }\n'.repeat(500), budget});
   await expect(askUnitSteps({systemOne, rules, steps:prepare(), prepare})).rejects.toThrow(/request.*allowance|request.*budget/i);
-  expect(requests).toBe(3);
+  // The rejected requests count. The retry that would need more than what is left of the allowance is refused unsent.
+  expect(requests).toBeGreaterThan(0);
+  expect(requests).toBeLessThan(3);
 });

@@ -302,6 +302,7 @@ export async function askUnitSteps({ systemOne, steps, rules, prepare }) {
   return withTokenRetries(async budget => {
     if (budget < (systemOne.limits?.state ?? TOKEN_LIMITS.state) && !prepare) throw new IncompleteCheckError('source cannot be rebuilt for a smaller token budget');
     const active = steps?.[0] && budget === (systemOne.limits?.state ?? TOKEN_LIMITS.state) ? steps : prepare ? prepare(budget) : steps;
+    systemOne.fits(active);
     const answers = {}, evidence = {};
     for (const step of active) {
       const response = await systemOne.ask(step.state, step.questions);

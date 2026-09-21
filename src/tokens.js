@@ -25,8 +25,18 @@ export class IncompleteCheckError extends Error {
 export class ContextLimitError extends IncompleteCheckError {
   constructor(message, budget) { super(message); this.name = 'ContextLimitError'; this.budget = budget; }
 }
+/** How many requests a reading takes: one per question batch of each pass, and one more for a pass that then locates a line. */
+export function requestsFor(steps, limits = TOKEN_LIMITS) {
+  return steps.reduce((total, step) => total + questionBatches(step.state, step.questions, limits).length + (step.windows ? 1 : 0), 0);
+}
+
 const scoped = Symbol('unit request allowance');
-/** Share a finite allowance across chunks, question batches, localization and retries for one reading. */
+/**
+ * Share a finite allowance across chunks, question batches, localization and retries for one reading.
+ *
+ * A reading that needs more than the allowance is refused before its first request. The count is known from the passes and
+ * their batches, and finding out by sending meant a 1.5 MB function had 64 requests accepted and paid for, then thrown away.
+ */
 export function requestScope(systemOne) {
   if (systemOne[scoped]) return systemOne;
   const maximum = systemOne.limits?.unitRequests ?? TOKEN_LIMITS.unitRequests;
@@ -36,7 +46,11 @@ export function requestScope(systemOne) {
     if (requests >= maximum) throw new IncompleteCheckError(`unit request allowance exhausted (${maximum} attempts)`);
     requests++;
   };
-  return { ...systemOne, [scoped]: true, ask(state, questions) {
+  const fits = steps => {
+    const needed = requestsFor(steps, { ...TOKEN_LIMITS, ...systemOne.limits });
+    if (requests + needed > maximum) throw new IncompleteCheckError(`the reading needs ${needed} requests and the allowance for one unit is ${maximum}, so none were sent`);
+  };
+  return { ...systemOne, [scoped]: true, allowance: maximum, fits, ask(state, questions) {
     reserve();
     let first = true;
     return systemOne.ask(state, questions, { beforeRequest() { if (first) first = false; else reserve(); } });
