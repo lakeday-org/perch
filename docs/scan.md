@@ -84,7 +84,7 @@ request, beside perch's. Every question is scored against the state by itself,
 and the state is most of what the request carries. A method covered by five rules
 costs one reading.
 
-One HTTP request per method. The state carries the method with its lines tagged
+The request for a method carries it with its lines tagged
 `L0042|`, the comment above it, and its metrics. It carries the file's imports
 and module scope. It also carries up to 8 callees with the names of their own
 callees. It carries up to 8 callers with the line where each calls it.
