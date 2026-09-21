@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.4](https://github.com/lakeday-org/perch/compare/v0.3.3...v0.3.4) (2026-09-21)
+
+
+### Features
+
+* scan_types decides which issue types a scan asks about ([#62](https://github.com/lakeday-org/perch/issues/62)) ([27868d0](https://github.com/lakeday-org/perch/commit/27868d0b1a7c0abb9626aaedb78f2a86f820f100))
+
+
+### Bug Fixes
+
+* a scan could hang, crash, or pass on an unread file ([#93](https://github.com/lakeday-org/perch/issues/93)) ([06d577b](https://github.com/lakeday-org/perch/commit/06d577baea50332831205a67bb4a6d2fe0f02448))
+* allow custom API endpoints and models ([ba775a9](https://github.com/lakeday-org/perch/commit/ba775a9940b63c162679964b29f84b8ca8e54d59))
+* dependency and build directories were entering scans across languages ([#92](https://github.com/lakeday-org/perch/issues/92)) ([b4ad713](https://github.com/lakeday-org/perch/commit/b4ad7138cbba00bf28a06ededf81f09519f10301))
+* file rules skip the files method scanning excludes ([#88](https://github.com/lakeday-org/perch/issues/88)) ([77aee23](https://github.com/lakeday-org/perch/commit/77aee23dc0f2ea32e9b4718574da44696da88926))
+* large files were skipped or exceeded Jev's request limits ([#89](https://github.com/lakeday-org/perch/issues/89)) ([aa3f08c](https://github.com/lakeday-org/perch/commit/aa3f08cac7060affab55e7c8d387897337560c0e))
+* minified JavaScript variants stay out of scans ([#82](https://github.com/lakeday-org/perch/issues/82)) ([2d2fded](https://github.com/lakeday-org/perch/commit/2d2fdeda9a56a48674fdf8ba2df7b06490e18248))
+* write .perch/.gitignore instead of editing .git/info/exclude ([#76](https://github.com/lakeday-org/perch/issues/76)) ([f494ffe](https://github.com/lakeday-org/perch/commit/f494ffe3218dbbbdd317470b1843d7b611fb86ef))
+
 ## [0.3.3](https://github.com/lakeday-org/perch/compare/v0.3.2...v0.3.3) (2026-09-19)
 
 
