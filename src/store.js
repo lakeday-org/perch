@@ -23,6 +23,26 @@ export async function readJson(path, fallback) {
   catch (error) { if (error.code === 'ENOENT') return fallback; throw error; }
 }
 
+const RUN_ROWS = ['visited', 'broken', 'failed'];
+/** A running scan publishes its counters only after the new answer rows are on disk. */
+async function readRun(path) {
+  const record = await readJson(path, null);
+  if (!record || record.journal_bytes === undefined) return record;
+  const { journal_bytes: bytes, ...run } = record;
+  const journal = await readFile(join(dirname(path), 'progress.jsonl'));
+  if (!Number.isSafeInteger(bytes) || bytes < 0 || journal.length < bytes || (bytes && journal[bytes - 1] !== 10)) {
+    throw new Error(`Incomplete scan checkpoint: ${path}`);
+  }
+  for (const key of RUN_ROWS) run[key] = [];
+  // An append interrupted before the header was replaced belongs to the next checkpoint. Ignore that tail, including a
+  // partial JSON line. Keep the journal after finalization so a reader holding the previous header can still finish reading it.
+  for (const line of journal.subarray(0, bytes).toString('utf8').split('\n').filter(Boolean)) {
+    const batch = JSON.parse(line);
+    for (const key of RUN_ROWS) run[key].push(...batch[key]);
+  }
+  return run;
+}
+
 /** The results directory: --out, else .perch under the enclosing git root (or the working directory). */
 export async function resolveOut(out, cwd = process.cwd()) {
   if (out) return resolve(cwd, out);
@@ -64,7 +84,8 @@ export function openStore(out) {
   const records = async (kind, file) => {
     const list = [];
     for (const entry of await entries(join(out, kind))) {
-      const record = entry.isDirectory() ? await readJson(join(out, kind, entry.name, file), null) : null;
+      const path = join(out, kind, entry.name, file);
+      const record = entry.isDirectory() ? await (kind === 'runs' ? readRun(path) : readJson(path, null)) : null;
       if (record) list.push(record);
     }
     return list.sort(byCreation);
@@ -73,6 +94,27 @@ export function openStore(out) {
     out,
     scanDir: id => join(out, 'scans', id),
     runDir: id => join(out, 'runs', id),
+    /** Append each batch once; the completed or failed run still has a self-contained run.json. Calls must be awaited. */
+    async startRun(run) {
+      const path = join(store.runDir(run.id), 'run.json');
+      const journal = join(store.runDir(run.id), 'progress.jsonl');
+      await writeJson(path, run);
+      await writeFile(journal, '');
+      const lengths = Object.fromEntries(RUN_ROWS.map(key => [key, 0]));
+      let bytes = 0;
+      return async (final = false) => {
+        if (final) { await writeJson(path, run); return; }
+        const batch = Object.fromEntries(RUN_ROWS.map(key => [key, run[key].slice(lengths[key])]));
+        if (RUN_ROWS.some(key => batch[key].length)) {
+          const line = JSON.stringify(batch) + '\n';
+          await appendFile(journal, line);
+          bytes += Buffer.byteLength(line);
+          for (const key of RUN_ROWS) lengths[key] = run[key].length;
+        }
+        const { visited, broken, failed, ...header } = run;
+        await writeJson(path, { ...header, journal_bytes: bytes });
+      };
+    },
     /** Ignore cached results while allowing closures and the default rule directory to be committed. */
     async exclude(root) {
       if (!out.startsWith(root + '/')) return;

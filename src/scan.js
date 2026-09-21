@@ -5,7 +5,6 @@
  * rides in that method's own request and costs nothing extra to ask. A rule about a file or a test is not about a method at all,
  * and gets its own request after the walk.
  */
-import { join } from 'node:path';
 import { listTree, readBlob } from './git.js';
 import { analyzeTree } from './analyze.js';
 import { AuthenticationError } from './systemone.js';
@@ -14,7 +13,7 @@ import { buildGraph } from './graph.js';
 import { askKey, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES } from './ask.js';
 import { issuesOf, label as kindLabel, methodSteps, locateWhere, readAnswers } from './questions.js';
 import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL } from './units.js';
-import { findingId, identity, openStore, writeJson } from './store.js';
+import { findingId, identity, openStore } from './store.js';
 import { TOKEN_LIMITS, IncompleteCheckError, withTokenRetries, requestScope } from './tokens.js';
 export { findingId };
 
@@ -174,11 +173,11 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   // rules about files still cover what it did touch. Erroring here failed the run and skipped those rules as well.
   const candidateIds = candidates.map(candidate => candidate.id);
   const created = new Date().toISOString(), id = identity('scan', revision, created);
-  const dir = store.runDir(id), runPath = join(dir, 'run.json');
+  const dir = store.runDir(id);
   const total = candidateIds.length;
   const run = { id, status: 'running', target: label, github, root, revision, model: systemOne.id, paths, parallel, scan_id: scan.id, out: dir, created_at: created,
     methods: total, to_read: total, rules: rules.length, filters, edges: graph.edgeCount(), calls: 0, carried: 0, skipped: 0, checked: 0, visited: [], broken: [], failed: [], usage: { input_tokens: 0, output_tokens: 0 } };
-  await writeJson(runPath, run);
+  const saveRun = await store.startRun(run);
 
   // A file is reported the moment every method in it has been accounted for, rather than the run being held back to the end. A
   // method that could not be read counts: a file must not wait forever on one that will never arrive.
@@ -294,7 +293,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
       }
       inARow = results.length ? 0 : inARow + settled.length;
       if (inARow >= parallel * 2) throw new Error(`${inARow} methods in a row could not be read; last error: ${run.failed.at(-1)?.error ?? 'unknown'}`);
-      await record(results); await writeJson(runPath, run);
+      await record(results); await saveRun();
     }
 
     // What is left is every rule that is not about a method, and every claim about the codebase rather than about one file. The
@@ -355,6 +354,6 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const byName = new Map(rules.map(rule => [rule.name, rule]));
     const unasked = [...checks.values()].filter(check => !said.has(check.id) && byName.get(check.rule)?.hash === check.rule_hash);
     await store.recordScan([...read, ...elsewhere, ...broken, ...unasked]);
-    run.remaining = walk.remaining(); run.status = run.incomplete.length ? 'incomplete' : 'complete'; run.completed_at = new Date().toISOString(); await writeJson(runPath, run); return run;
-  } catch (error) { run.status = 'failed'; run.error = error.message; await writeJson(runPath, run).catch(() => {}); throw error; }
+    run.remaining = walk.remaining(); run.status = run.incomplete.length ? 'incomplete' : 'complete'; run.completed_at = new Date().toISOString(); await saveRun(true); return run;
+  } catch (error) { run.status = 'failed'; run.error = error.message; await saveRun(true).catch(() => {}); throw error; }
 }

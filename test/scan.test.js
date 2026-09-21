@@ -171,12 +171,24 @@ describe('perch hunt', () => {
   it('walks every method once from riskiest down, logs each, and skips unchanged methods next time', async () => {
     const repo = await fixture({ scanTypes: ['defect', 'security', 'lint', 'refactor', 'docs'] });
     const systemOne = scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.9, where: 'L0004', kind: 'boundary', severity: 2, refactor: 'split', documented: 0.3 } });
-    const seen = [];
-    const hunt = await scanRepository(await withRevision(repo, { systemOne, onFile: (path, findings) => seen.push({ path, findings }) }));
+    const seen = [], checkpoints = [];
+    const ask = systemOne.ask.bind(systemOne);
+    systemOne.ask = async (...args) => {
+      checkpoints.push(await openStore(repo.out).latestRun());
+      return ask(...args);
+    };
+    const hunt = await scanRepository(await withRevision(repo, { systemOne, parallel: 1, onFile: (path, findings) => seen.push({ path, findings }) }));
 
     expect(hunt.status).toBe('complete');
     expect(hunt.calls).toBe(4);
     expect(hunt.remaining).toBe(0);
+    expect(checkpoints.filter(run => run.calls > 0).length).toBeGreaterThan(0);
+    for (const checkpoint of checkpoints) {
+      expect(checkpoint.status).toBe('running');
+      expect(checkpoint.visited).toHaveLength(checkpoint.calls);
+      expect(checkpoint.visited).toEqual(hunt.visited.slice(0, checkpoint.calls));
+    }
+    expect(await openStore(repo.out).latestRun()).toEqual(hunt);
     expect(hunt.visited.map(visit => visit.method)[0]).toBe('src/a.js::f');
     expect(new Set(hunt.visited.map(visit => visit.method))).toEqual(new Set(['src/a.js::f', 'src/a.js::g', 'src/b.js::h', 'src/b.js::k']));
     const f = hunt.visited.find(visit => visit.method === 'src/a.js::f');
