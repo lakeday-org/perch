@@ -27,8 +27,8 @@ npx @lakeday/perch scan
 
 ## The key
 
-`scan` and `check` are the two commands that call a model. Create an API key at
-[console.typesafe.ai](https://console.typesafe.ai) and set it as `PERCH_API_KEY`:
+Create an API key at [console.typesafe.ai](https://console.typesafe.ai) and set
+it as `PERCH_API_KEY`:
 
 ```sh
 export PERCH_API_KEY=<your TypeSafe API key>
