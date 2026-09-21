@@ -338,7 +338,8 @@ export function formatRules(rules, { width = WIDTH(), own = new Set() } = {}) {
   // A question written out longhand rather than with `ensure` is listed under what it asks for, since that is what it is.
   // The floor is part of what a question asks for, so it is on the row rather than only in the file.
   const asks = rule => (rule.disabled ? 'off' : `${rule.kind ?? rule.type}${rule.min == null ? '' : ` >${rule.min}%`}`);
-  const from = rule => (own.has(rule.name) ? RULES_FILE : 'builtin');
+  // A Map says which file each rule is in; a Set only says it is yours, which is the root file.
+  const from = rule => (own.get?.(rule.name) ?? (own.has(rule.name) ? RULES_FILE : 'builtin'));
   // Whether an answer fails the run, which is the difference between a question you have to act on and one you can read later.
   const fails = rule => (rule.disabled ? '-' : rule.gate ? 'yes' : 'no');
   const named = Math.max(8, ...rules.map(rule => rule.name.length));

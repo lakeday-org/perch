@@ -95,17 +95,19 @@ it.each([false, true])('continues past an inconclusive search unit and retains a
   expect(run.incomplete[0]).toContain('cross-piece');
 });
 
-it('refuses an add shadowed by an uncommitted nested split rule without changing either file', async () => {
+it('refuses an add shadowed by an uncommitted nested split rule, and edits or removes that rule where it is', async () => {
   const root = await realpath(await makeGraphFixture()); roots.push(root);
   await writeFile(join(root, 'perch.yaml'), '# local rules\n[]\n');
   await mkdir(join(root, '.perch/rules/nested'), { recursive: true });
   const text = '- name: duplicate\n  where: src/*.js\n  ensure: Original assertion.\n';
   await writeFile(join(root, '.perch/rules/nested/check.yml'), text);
   await expect(addRule(root, { name: 'duplicate', where: 'src/*.js', ensure: 'Ignored assertion.' })).rejects.toThrow(/already.*\.perch\/rules\/nested\/check.yml/);
-  await expect(editRule(root, 'duplicate', { ensure: 'Ignored edit.' })).rejects.toThrow(/edit that file directly/);
-  await expect(removeRule(root, 'duplicate')).rejects.toThrow(/edit that file directly/);
-  expect(await readFile(join(root, 'perch.yaml'), 'utf8')).toBe('# local rules\n[]\n');
   expect(await readFile(join(root, '.perch/rules/nested/check.yml'), 'utf8')).toBe(text);
+  await editRule(root, 'duplicate', { ensure: 'Edited assertion.' });
+  expect(await readFile(join(root, '.perch/rules/nested/check.yml'), 'utf8')).toContain('Edited assertion.');
+  expect(await removeRule(root, 'duplicate')).toMatchObject({ file: '.perch/rules/nested/check.yml', turnedOff: false });
+  expect(await readFile(join(root, '.perch/rules/nested/check.yml'), 'utf8')).not.toContain('duplicate');
+  expect(await readFile(join(root, 'perch.yaml'), 'utf8')).toBe('# local rules\n[]\n');
 });
 
 it('counts file localization against the same internal allowance as the initial reading', async () => {

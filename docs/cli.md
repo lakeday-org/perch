@@ -100,7 +100,8 @@ still wrong.
 perch rules [list | add <name> | edit <name> | remove <name>] [options]
 ```
 
-Writes `perch.yaml`, keeping comments and ordering.
+Writes `perch.yaml`, or the split file under `.perch/rules/` that `--file` names, keeping comments and ordering.
+`edit` and `remove` find the file a rule is in.
 
 Most rules are a yes-or-no, so `--ensure` is usually the only flag you need. `--where` defaults
 to `**/*` and the unit defaults to the file as a whole:
@@ -119,6 +120,7 @@ perch rules add no-narrative-prose --ensure "A headline and one line, not a para
 | `--each U` | Ask about each `file`, `method`, or `test` rather than the file as a whole. |
 | `--sees S` | What a file or test is shown besides itself: `file`, `calls`, `callers`, or `neighbors`. |
 | `--min P` | The floor for this rule alone, in percent. |
+| `--file F` | The rule file: `perch.yaml` or a `.yaml` under `.perch/rules/`. `add` creates it. `list` shows only it. |
 | `--json` | Print JSON instead of a summary. |
 
 An answer that is not yes-or-no is written out:

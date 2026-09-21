@@ -1,9 +1,9 @@
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { addRule, editRule, removeRule } from '../src/rules.js';
+import { addRule, editRule, filesDefining, removeRule, ruleFile } from '../src/rules.js';
 import { asRules, readRules, RULES_FILE } from '../src/units.js';
 import { BUILTIN, installQuestions, merge, questionSet } from '../src/ask.js';
 import { revision } from '../src/git.js';
@@ -157,7 +157,7 @@ rules:
   it('turns off a question perch ships, and turns it back on', async () => {
     const { root, read, rules } = await withRules(STARTING);
     // A shipped question is not in your file to delete, so stopping it is a line saying so rather than a silence.
-    expect(await removeRule(root, 'weak_crypto')).toEqual({ name: 'weak_crypto', turnedOff: true });
+    expect(await removeRule(root, 'weak_crypto')).toEqual({ name: 'weak_crypto', file: RULES_FILE, turnedOff: true });
     expect(await read()).toContain('name: weak_crypto');
     const off = (await rules()).find(rule => rule.name === 'weak_crypto');
     expect(off).toMatchObject({ disabled: true });
@@ -230,5 +230,66 @@ rules:
     // Only the yes-or-no is run as a rule; the other is asked of a method as a question, by the scan.
     expect(asRules(questions).map(rule => rule.name)).toEqual(['prose']);
     expect(questions[1]).toMatchObject({ type: 'choice', kind: null, each: 'method' });
+  });
+});
+
+describe('rules split across files', () => {
+  const SPLIT = `- name: docs-short
+  where: "docs/**/*.md"
+  ensure: Sentences are short.
+`;
+  async function withSplit() {
+    const { root, read, rules } = await withRules(STARTING);
+    await mkdir(join(root, '.perch/rules'), { recursive: true });
+    await writeFile(join(root, '.perch/rules/docs.yaml'), SPLIT);
+    return { root, read, rules, split: () => readFile(join(root, '.perch/rules/docs.yaml'), 'utf8') };
+  }
+
+  it('adds to the file --file names, creating it, and to perch.yaml otherwise', async () => {
+    const { root, read, rules } = await withSplit();
+    await addRule(root, { name: 'docs-plain', where: 'docs/**/*.md', ensure: 'Plain words.' }, { file: '.perch/rules/prose.yaml' });
+    expect(await readFile(join(root, '.perch/rules/prose.yaml'), 'utf8')).toContain('name: docs-plain');
+    expect(await read()).not.toContain('docs-plain');
+    await addRule(root, { name: 'at-root', where: '**/*', ensure: 'x' });
+    expect(await read()).toContain('name: at-root');
+    expect((await rules()).map(rule => rule.name)).toEqual(['prose', 'at-root', 'docs-short', 'docs-plain']);
+    // A directory that is not there yet is made on the way; a path outside the rule files is not a rule file.
+    await addRule(root, { name: 'deep', where: '**/*', ensure: 'x' }, { file: '.perch/rules/team/deep.yml' });
+    expect(await filesDefining(root, 'deep')).toEqual(['.perch/rules/team/deep.yml']);
+    await expect(addRule(root, { name: 'lost', where: '**/*', ensure: 'x' }, { file: 'rules/lost.yaml' })).rejects.toThrow('not rules/lost.yaml');
+    expect(() => ruleFile('.perch/rules/notes.txt')).toThrow('.yaml file under .perch/rules/');
+  });
+
+  it('refuses a name that is taken in any file, and says which', async () => {
+    const { root, split } = await withSplit();
+    await expect(addRule(root, { name: 'docs-short', where: '**/*', ensure: 'x' })).rejects.toThrow('already a rule in .perch/rules/docs.yaml');
+    await expect(addRule(root, { name: 'prose', where: '**/*', ensure: 'x' }, { file: '.perch/rules/docs.yaml' })).rejects.toThrow('already a rule in perch.yaml');
+    expect(await split()).toBe(SPLIT);
+  });
+
+  it('edits and removes a rule in the file it lives in', async () => {
+    const { root, read, rules, split } = await withSplit();
+    await editRule(root, 'docs-short', { ensure: 'Sentences are under twenty words.' });
+    expect(await split()).toContain('under twenty words');
+    expect(await read()).toBe(STARTING);
+    expect((await rules()).find(rule => rule.name === 'docs-short').text).toBe('Sentences are under twenty words.');
+    expect(await removeRule(root, 'docs-short')).toEqual({ name: 'docs-short', file: '.perch/rules/docs.yaml', turnedOff: false });
+    expect(await split()).not.toContain('docs-short');
+    expect((await rules()).map(rule => rule.name)).toEqual(['prose']);
+  });
+
+  it('refuses --file for a rule that lives somewhere else', async () => {
+    const { root, split } = await withSplit();
+    await expect(editRule(root, 'docs-short', { min: 70 }, { file: 'perch.yaml' })).rejects.toThrow('docs-short is a rule in .perch/rules/docs.yaml, not perch.yaml');
+    await expect(removeRule(root, 'prose', { file: '.perch/rules/docs.yaml' })).rejects.toThrow('prose is a rule in perch.yaml, not .perch/rules/docs.yaml');
+    expect(await split()).toBe(SPLIT);
+  });
+
+  it('turns a shipped question off in the file --file names, and renames only to a free name', async () => {
+    const { root, read, split } = await withSplit();
+    expect(await removeRule(root, 'weak_crypto', { file: '.perch/rules/docs.yaml' })).toEqual({ name: 'weak_crypto', file: '.perch/rules/docs.yaml', turnedOff: true });
+    expect(await split()).toContain('name: weak_crypto');
+    expect(await read()).toBe(STARTING);
+    await expect(editRule(root, 'prose', { name: 'docs-short' })).rejects.toThrow('docs-short is already a rule in .perch/rules/docs.yaml');
   });
 });
