@@ -57,7 +57,9 @@ jobs:
     # the whole job is skipped rather than failing over a key it was never going to have.
     if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
     env:
-      PERCH_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+      PERCH_API_KEY: ${{ secrets.PERCH_STAGING_API_KEY }}
+      PERCH_BASE_URL: https://dash-staging.perchscan.com/v1/systemone
+      PERCH_MODEL_ID: jev-latest
     steps:
       - uses: actions/checkout@v4
         with:
