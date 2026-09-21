@@ -1,0 +1,8 @@
+- name: file-rules-read-in-pieces-get-an-answer
+  where: src/units.js
+  ensure: >-
+    A file rule on a file too big for one request is answered from its pieces:
+    ensure takes the lowest score across pieces, ensure_present and
+    ensure_absent take the piece most likely to have the thing, and that is the
+    file's answer. Marking the check incomplete, or refusing a conclusion, only
+    because the file took more than one piece breaks this rule.

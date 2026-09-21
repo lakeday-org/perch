@@ -26,7 +26,7 @@ it('reports an oversized method request as incomplete even when other methods su
   expect(run.incomplete).toEqual([expect.stringContaining('question and context are too large')]);
 });
 
-it('checks a file over 1 MiB in bounded requests and reports the whole-file judgment as incomplete', async () => {
+it('checks a file over 1 MiB in bounded requests and answers the rule from the pieces', async () => {
   const root = await realpath(await makeGraphFixture()); cleanups.push(root);
   await mkdir(join(root, 'docs'));
   const body = '# Reference\n\n' + 'Documented behavior.\n'.repeat(60000);
@@ -44,8 +44,10 @@ it('checks a file over 1 MiB in bounded requests and reports the whole-file judg
   expect(sent.length).toBeGreaterThan(10);
   expect(sent[0].start_byte).toBe(0);
   expect(sent.at(-1).end_byte).toBe(Buffer.byteLength(body));
-  expect(run.incomplete).toEqual([expect.stringContaining('whole-file conclusion was not established')]);
-  expect(run.status).toBe('incomplete');
+  // The lowest score across the pieces is the file's answer. Marking every multi-piece read incomplete meant a large document
+  // never got a verdict, and was re-read and paid for on every scan.
+  expect(run.incomplete).toEqual([]);
+  expect(run.status).toBe('complete');
   expect(run.coverage.find(rule => rule.name === 'prose').units).toBe(1);
   vi.stubGlobal('fetch', async (_url, init) => {
     const request = JSON.parse(init.body);
@@ -56,13 +58,10 @@ it('checks a file over 1 MiB in bounded requests and reports the whole-file judg
   const code = await main(['scan', root, '--filter', 'rule=prose'], {
     env: { PERCH_API_KEY: 'fixture' }, stdout: text => output.push(text), stderr: text => errors.push(text),
   });
-  // An incomplete check is reported like a method perch could not read, and does not decide the exit code. Returning 1 here
-  // told CI perch could not run, on a run that had just printed its findings, and one oversize file made that permanent.
   expect(code, JSON.stringify({output, errors})).toBe(0);
-  expect(errors.join('\n')).toContain('1 check incomplete; perch doctor lists them');
-  expect(errors.join('\n')).toContain('whole-file conclusion was not established');
+  expect(errors.join('\n')).not.toContain('incomplete');
   expect(output.join('\n')).not.toContain('Scan incomplete');
-  // The tally still prints. Nothing gated came back, so the run is clean; the check that could not finish is on stderr.
+  // The tally still prints. Nothing gated came back, so the run is clean.
   expect(output.join('\n')).toContain('nothing to report');
 });
 

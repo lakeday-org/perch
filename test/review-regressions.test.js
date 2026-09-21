@@ -81,7 +81,7 @@ it('records unchunkable file checks and continues other files', async () => {
   expect(JSON.parse(await readFile(join(run.out, 'run.json'), 'utf8')).status).toBe('incomplete');
 });
 
-it.each([false, true])('continues past an inconclusive search unit and retains a later witness: %s', async witness => {
+it.each([false, true])('answers a search over a file read in pieces, and a later witness still counts: %s', async witness => {
   const options = await fixture('- name: evidence\n  where: docs/*.md\n  ensure_present: a verified receipt\n', { 'a.md': 'plain words\n'.repeat(200), 'b.md': witness ? 'verified receipt' : 'nothing here' });
   const base = scriptedSystemOne();
   const systemOne = { ...base, limits: { state: 400 }, async ask(state, questions) {
@@ -89,10 +89,11 @@ it.each([false, true])('continues past an inconclusive search unit and retains a
     return base.ask(state, questions);
   } };
   const run = await scanRepository({ ...options, systemOne, paths: ['docs'], unitParallel: 1 });
-  expect(run.status).toBe('incomplete');
-  expect(run.incomplete.length).toBe(1);
-  expect(run.broken).toHaveLength(0);
-  expect(run.incomplete[0]).toContain('cross-piece');
+  // A search over a file that took several pieces is answered by the piece likeliest to have the thing. With no witness
+  // anywhere, the rule is broken; it is not an open question.
+  expect(run.status).toBe('complete');
+  expect(run.incomplete).toEqual([]);
+  expect(run.broken).toHaveLength(witness ? 0 : 1);
 });
 
 it('refuses an add shadowed by an uncommitted nested split rule, and edits or removes that rule where it is', async () => {

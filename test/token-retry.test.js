@@ -50,7 +50,9 @@ it('rebuilds a rejected whole-file request and preserves all source ranges', asy
   expect(new Set(rejected).size).toBe(rejected.length);
   expect(accepted[0].start_byte).toBe(0);
   expect(accepted.at(-1).end_byte).toBe(Buffer.byteLength(source));
-  expect(result.incomplete).toBe(true);
+  // The pieces' answers are the file's answer; nothing is left open because the file took more than one request.
+  expect(result.answers.stock.noul).toBe(0.95);
+  expect(result).not.toHaveProperty('incomplete');
 });
 
 it('retries oversized method readings and keeps the defect at its original line', async () => {
