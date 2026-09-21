@@ -262,8 +262,9 @@ function fitSeen(seen, budget) {
   const room = Math.floor(budget / 2) - estimateTokens({ ...seen, file_source: '' }) - 256;
   if (textTokens(seen.file_source) <= room) return seen;
   if (room <= 64) return { ...seen, file_source: '(too large to show beside this unit)' };
-  let text = seen.file_source;
-  while (textTokens(text) > room) text = text.slice(0, Math.floor(text.length * Math.min(0.9, room / textTokens(text))));
+  // Tokens scale with length, so one proportional cut lands close; the loop shaves off what the estimate under-counted.
+  let text = seen.file_source.slice(0, Math.floor(seen.file_source.length * room / textTokens(seen.file_source)));
+  while (text.length && textTokens(text) > room) text = text.slice(0, Math.floor(text.length * 0.9));
   return { ...seen, file_source: `${text}\n… (cut to fit; ${seen.file_source.length - text.length} characters not shown)` };
 }
 
