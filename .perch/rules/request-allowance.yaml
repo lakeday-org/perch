@@ -1,0 +1,8 @@
+- name: readings-over-the-allowance-are-refused-before-sending
+  where: src/scan.js
+  ensure: >-
+    Before questionMethod sends a method's first request, it compares how many
+    requests the reading will take, across its passes and question batches,
+    against the unit request allowance, and refuses the reading as incomplete
+    when the reading needs more. Sending requests that the allowance will cut
+    off partway through breaks this rule.

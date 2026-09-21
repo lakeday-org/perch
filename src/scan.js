@@ -47,6 +47,7 @@ export async function questionMethod({ systemOne, node, step, steps = [step], li
   return withTokenRetries(async budget => {
     if (budget < (systemOne.limits?.state ?? TOKEN_LIMITS.state) && !prepare) throw new IncompleteCheckError('source cannot be rebuilt for a smaller token budget');
     const active = steps?.[0] && budget === (systemOne.limits?.state ?? TOKEN_LIMITS.state) ? steps : prepare ? prepare(budget) : steps;
+    systemOne.fits(active);
     debug(`asking ${systemOne.id} about ${node.qualified_name} in ${node.path}:${node.line} (${Object.keys(active[0].questions).length} questions${active.length > 1 ? ` over ${active.length} passes` : ''}${active[0].windows ? `, then a line in the chosen window` : ''})`);
     const readings = [];
     let response;

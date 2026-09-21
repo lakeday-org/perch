@@ -97,7 +97,9 @@ to what the budget actually holds. Only lines a pass can see are offered to its
 method's defect. A vulnerability is the likeliest reading from any pass. The
 first pass carries the callers and callees, so it answers the questions about the
 method's shape and its documentation. Eight passes is the cap. A longer method is read in part and says so, on the record and
-in `perch issues <id>`.
+in `perch issues <id>`. One reading is allowed 64 requests across its passes and
+question batches. A reading that would need more is refused before any is sent,
+and `perch doctor` lists it.
 
 A method that still cannot be read is recorded against itself and the walk
 carries on. `perch doctor` lists them with the error each one failed on. When
