@@ -7,7 +7,9 @@ function overlapStart(bytes, end, tokens) {
   let low = 0, high = end;
   while (low < high) {
     let mid = Math.floor((low + high) / 2);
-    while (mid < end && (bytes[mid] & 0xc0) === 0x80) mid++;
+    // Back up to the character's lead byte. Skipping forward could land on `high` itself, and then neither branch moved the
+    // range: an emoji or CJK character straddling the midpoint hung the search for good.
+    while (mid > low && (bytes[mid] & 0xc0) === 0x80) mid--;
     if (textTokens(bytes.subarray(mid, end).toString('utf8')) <= tokens) high = mid;
     else low = mid + 1;
     if (high - low < 4) break;

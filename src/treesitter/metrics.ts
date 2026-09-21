@@ -381,7 +381,9 @@ export function measure(root: Node, excludeNested = false): Measurement {
       recordToken(node, operators, operands);
       continue;
     }
-    stack.push(...childNodes(node));
+    // One at a time. Spreading the children of a block with hundreds of thousands of statements into one call threw
+    // RangeError, which analysis.js read as the parser being unavailable and ended the whole scan.
+    for (const child of childNodes(node)) stack.push(child);
   }
   const sloc = [...codeLines].filter((line) => nonblank.has(line)).length;
   return {

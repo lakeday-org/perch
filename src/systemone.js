@@ -53,7 +53,7 @@ export function createSystemOne({
           throw authenticationFailure;
         }
         const accessError = /authenticat|authori[sz]|api[_ -]?key|token[^a-z]+(?:expired|invalid)|quota|rate[_ -]?limit|tokens? per (?:minute|second|day)/i.test(detail);
-        const sizedSubject = /\b(?:state|question|request body)\b[\s\S]{0,100}\b(?:exceed\w*|too (?:long|large))\b[\s\S]{0,50}(?:\btokens?\b|\blimit\b)|\brequest body\b[\s\S]{0,50}\btoo (?:long|large)\b/i.test(detail);
+        const sizedSubject = /\b(?:state|questions?|request(?: body)?|payload|input|prompt)\b[\s\S]{0,100}\b(?:exceed\w*|too (?:long|large)|over the)\b[\s\S]{0,50}(?:\btokens?\b|\blimit\b|\bmaximum\b)|\b(?:request(?: body)?|payload)\b[\s\S]{0,50}\btoo (?:long|large)\b/i.test(detail);
         const sizeError = response.status === 413 || ([400, 422].includes(response.status) && !accessError
           && (sizedSubject || /\b(?:context_length_exceeded|max_tokens_exceeded|context_window_exceeded)\b|\b(?:context (?:length|window)|(?:input|prompt|request) (?:size|length|tokens?|token count))\b[\s\S]{0,100}\b(?:exceed\w*|too (?:long|large)|limit|maximum)\b|\b(?:exceed\w*|maximum)\b[\s\S]{0,80}\b(?:context (?:length|window)|(?:input|prompt|request) (?:size|length|token count))\b/i.test(detail)));
         if (sizeError) throw new ContextLimitError('server rejected the request size; rebuild with fewer estimated tokens', Math.floor(estimateTokens(body.state) / 2));

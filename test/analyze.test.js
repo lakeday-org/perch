@@ -27,6 +27,35 @@ describe('source selection', () => {
   });
 });
 
+describe('one file that cannot be analyzed', () => {
+  it('parses a block with hundreds of thousands of statements', async () => {
+    // metrics.ts spread every child of a block into one stack.push call, so a generated function with 200k+ statements threw
+    // RangeError, analysis.js read that as the parser being unavailable, and the whole scan ended with zero requests.
+    const source = `function generated() {\n${'a = 1;\n'.repeat(220000)}}\n`;
+    const result = await analyzer.analyzeSource(source, 'javascript');
+    expect(result.parser_status).toBe('parsed');
+    expect(result.declarations.map(declaration => declaration.qualified_name)).toContain('generated');
+  }, 120_000);
+
+  it('records a file the parser cannot handle as that file\'s failure and reads the rest', async () => {
+    const repo = await fixture();
+    // Whatever the parser could not do with one file is that file's parse failure. It used to throw out of analyzeTree, so
+    // every other file in the repository went unread.
+    let failed = 0;
+    const failing = { analyzeSource: async (source, language) => {
+      if (!source.includes('export function clamp')) return analyzer.analyzeSource(source, language);
+      failed++;
+      return { parser_status: 'resource-unavailable', parser_message: 'Maximum call stack size exceeded', declarations: [], references: [], diagnostics: [] };
+    } };
+    const scan = await analyzeTree(fixtureOptions(repo, { analyzer: failing }));
+    expect(scan.status).toBe('complete');
+    expect(failed).toBe(1);
+    expect(scan.coverage.parse_failures).toBe(failed);
+    expect(scan.coverage.parser_diagnostics.every(item => item.status === 'resource-unavailable')).toBe(true);
+    expect(scan.coverage.parsed).toBeGreaterThan(0);
+  });
+});
+
 describe('perch scan', () => {
   it('ranks methods at the revision without a worktree or a model', async () => {
     const repo = await fixture();
