@@ -31,7 +31,7 @@ Create an API key at [console.typesafe.ai](https://console.typesafe.ai) and set
 it as `PERCH_API_KEY`:
 
 ```sh
-export PERCH_API_KEY=...
+export PERCH_API_KEY=<your TypeSafe API key>
 ```
 
 For a proxy or local stand-in, set `PERCH_BASE_URL` to the complete request URL

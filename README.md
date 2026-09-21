@@ -31,7 +31,7 @@ it as `PERCH_API_KEY`.
 
 ```sh
 npm install -g @lakeday/perch
-export PERCH_API_KEY=...
+export PERCH_API_KEY=<your TypeSafe API key>
 ```
 
 ```console
