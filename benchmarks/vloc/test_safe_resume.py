@@ -5,13 +5,51 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from safe_resume import main, saved_answers, snapshot_key, Stopped
+from safe_resume import main, resume, saved_answers, snapshot_key, Stopped
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_concurrent_cases_scan_identical_snapshot_once_and_keep_own_labels(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            metadata = {'case_ids': ['one', 'two'], 'harness_sha256': 'original', 'jobs': 2}
+            (root / 'experiment.json').write_text(json.dumps(metadata))
+            rows = [dict(alpha_id=case, repo_full_name='owner/repo', vulnerable_content_md5='same',
+                         merge_content_md5='fixed', cwes='[]', cves=json.dumps([case]),
+                         ground_truth_files=json.dumps([file])) for case, file in [('one', 'a.py'), ('two', 'b.py')]]
+            def write(path, value):
+                path.parent.mkdir(parents=True, exist_ok=True); path.write_text(json.dumps(value))
+            def scan(row, phase, _options, directory, _rules):
+                with (root / 'executed').open('a') as stream: stream.write(row['alpha_id'] + '\n')
+                path = directory / row['alpha_id'] / phase
+                write(path / 'store/runs/test/run.json', {'visited': [
+                    {'method': 'f', 'path': 'a.py', 'status': 'read', 'key': 'key', 'answers_set': True}]})
+                result = {'id': row['alpha_id'], 'phase': phase, 'status': 'complete', 'seconds': 1,
+                          'usage': {'jev': {'cost': 1}}, 'predicted_files': ['a.py'], 'ground_truth_files': json.loads(row['ground_truth_files'])}
+                write(path / 'result.json', result); return result
+            bench = SimpleNamespace(DEFAULT_CACHE=root, manifest=lambda _cache: rows, PHASES=['before', 'after'],
+                                    write_json=write, run_phase=scan, subprocess=SimpleNamespace(run=None),
+                                    ground_truth=lambda row: json.loads(row['ground_truth_files']),
+                                    file_scores=lambda _predicted, _expected: {}, summarize=lambda results, _ids: {'count': len(results)})
+            def run(_argv):
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    results = list(pool.map(lambda row: bench.run_phase(row, 'before', None, root, None), rows))
+                self.assertEqual({result['id'] for result in results}, {'one', 'two'})
+                return 0
+            bench.main = run
+            self.assertEqual(resume(bench, SimpleNamespace(budget_usd=90, baseline=root, name='test'), root, 0), 0)
+            self.assertEqual(len((root / 'executed').read_text().splitlines()), 1)
+            results = [json.loads((root / row['alpha_id'] / 'before/result.json').read_text()) for row in rows]
+            reused = next(result for result in results if 'reused_from' in result)
+            self.assertEqual(reused['usage'], {})
+            self.assertEqual(reused['cves'], [reused['id']])
+            self.assertEqual(reused['ground_truth_files'], ['a.py' if reused['id'] == 'one' else 'b.py'])
+            self.assertEqual(reused['ground_truth_files_visited'], ['a.py'] if reused['id'] == 'one' else [])
+
     def test_scanner_child_keeps_exclusive_lock_after_parent_closes_it(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
