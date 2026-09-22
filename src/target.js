@@ -1,5 +1,5 @@
 /** Resolve a scan target to a repository root and the path under it the run covers. */
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { originUrl, repoRoot } from './git.js';
 
@@ -19,9 +19,12 @@ export function parseGithub(text) {
  * read every method in the repository and bill for it.
  */
 export async function resolveTarget(target = '.', { out } = {}) {
-  const where = resolve(target);
   // A target that is not there reads as a spawn failure from deep inside git, which says the wrong thing about the wrong tool.
-  if (!existsSync(where)) throw new Error(`${target} is not a file or directory. perch scan --help`);
+  if (!existsSync(resolve(target))) throw new Error(`${target} is not a file or directory. perch scan --help`);
+  // git reports the root with every symlink resolved. The target has to be resolved the same way before one is taken relative
+  // to the other, or /var/folders/x on macOS sits outside /private/var/folders/x, the scope matches nothing, and a run of zero
+  // methods reports itself complete.
+  const where = realpathSync(resolve(target));
   // git is asked from a directory, so a file target is asked from the directory holding it.
   const from = statSync(where).isDirectory() ? where : dirname(where);
   // Same, for a path that is in no repository at all: git says it, and perch says which path and what to do about it.
