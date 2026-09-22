@@ -74,6 +74,12 @@ export async function analyzeFiles(files, { analyzer, readSource, progress = () 
       continue;
     }
     coverage.parsed++;
+    // A file read around a syntax error is a parsed file with a note: perch doctor shows the line, and the count says how many.
+    if (analysis.diagnostics?.length) {
+      coverage.parsed_with_errors = (coverage.parsed_with_errors ?? 0) + 1;
+      if (coverage.parser_diagnostics.length < 20)
+        coverage.parser_diagnostics.push({ path: file.path, status: 'parsed', message: analysis.parser_message, diagnostics: analysis.diagnostics.slice(0, 8) });
+    }
     functions += analysis.declarations.length;
     const methods = methodsOf(file.path, analysis.declarations, source.split('\n'));
     const byNode = new Map(methods.map(method => [method.node, method.id]));

@@ -38,19 +38,20 @@ export function extraScopeName(node: Node): Node | null {
   return null;
 }
 
-/** Kotlin classMemberDeclarations permits optional separators: https://kotlinlang.org/spec/syntax-and-grammar.html */
-export function hasSyntaxError(root: Node, language: string): boolean {
+/** Tokens the parser fills in that end a statement it had already read whole. Any other MISSING token is a broken construct. */
+const FILLED = new Set([';', '_automatic_semicolon']);
+
+/**
+ * A parse error is an ERROR node, text the parser could not place, or a MISSING token other than a statement terminator. A
+ * MISSING `;` is the parser completing a statement it read whole: the semicolon JavaScript leaves out before a line that starts
+ * with `[`, a C++ macro invocation at file scope with none after it, Kotlin's optional member separator. Files like that were
+ * dropped whole, every method in them unread, on a tree that had every method in it. A MISSING `)` is not that, and stays an
+ * error. The S-expression is read because native child iteration omits hidden missing tokens.
+ */
+export function hasSyntaxError(root: Node): boolean {
   if (!root.nativeHasError()) return false;
-  if (language !== 'kotlin') return true;
-  const original = root.sexp;
-  let checked = original;
-  for (const node of root.walk()) {
-    if (node.type !== 'class_body' || !node.nativeHasError() || node.namedChildren.some(child => child.nativeHasError())) continue;
-    // This grammar inserts a hidden missing separator after an otherwise valid member.
-    // Native child iteration omits that hidden token; its S-expression preserves it.
-    const body = node.sexp;
-    const optional = body.replaceAll('(MISSING _automatic_semicolon)', '');
-    if (optional !== body && !/\((?:ERROR|MISSING)\b/.test(optional)) checked = checked.replace(body, optional);
-  }
-  return checked === original || /\((?:ERROR|MISSING)\b/.test(checked);
+  const sexp = root.sexp;
+  if (/\(ERROR\b/.test(sexp)) return true;
+  // A quoted token is punctuation, `(MISSING ")")`; a bare one is a hidden rule, `(MISSING _automatic_semicolon)`.
+  return [...sexp.matchAll(/\(MISSING (?:"([^"]+)"|([^\s()]+))\)/g)].some(match => !FILLED.has(match[1] ?? match[2]));
 }

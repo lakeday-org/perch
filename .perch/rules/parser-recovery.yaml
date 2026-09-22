@@ -1,0 +1,9 @@
+- name: a-syntax-error-costs-the-file-one-declaration-not-all
+  where: src/treesitter/analyzer.ts
+  ensure: >-
+    When a tree has a syntax error, every declaration whose own subtree has
+    none is kept and the file is parsed, with the diagnostics recorded. A
+    declaration with an ERROR or an unfilled MISSING token inside it is left
+    out. The file is a parse error only when no declaration is usable.
+    Reporting the whole file as a parse error because the tree has an error
+    somewhere breaks this rule.

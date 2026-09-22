@@ -22,6 +22,9 @@ function declarationsOf(items: StructureItem[], nodes: Map<string, Node>, langua
       const span = item.span!;
       const node = nodes.get(`${span.startByte}:${span.endByte}`);
       if (!node) throw new Error(`No syntax node for declaration ${item.name} at ${span.startByte}`);
+      // A declaration the parser could not read whole is not offered as a method; the ones around it still are. Nested
+      // declarations are read on their own, since a broken outer function says nothing about an inner one.
+      if (hasSyntaxError(node)) { result.push(...declarationsOf(item.children ?? [], nodes, language)); continue; }
       result.push({ id: `function:${node.startIndex}`, kind: 'function', syntax_kind: node.type,
         name: ['kotlin', 'cpp'].includes(language) ? functionName(node) : item.name ?? '<anonymous>', qualified_name: qualifiedFunctionName(node), parent_function: parentFunctionName(node),
         function_depth: functionDepth(node), line: span.startLine! + 1,
@@ -49,7 +52,8 @@ function analysisOf(root: Node, language: string, built: ProcessResult): SourceA
     }
     if (wanted.has(key)) nodes.set(key, node);
   }
-  const syntaxError = hasSyntaxError(root, language);
+  const syntaxError = hasSyntaxError(root);
+  const declarations = declarationsOf(structure, nodes, language).sort((a, b) => a.location.start.byte - b.location.start.byte);
   const diagnostics = (syntaxError ? built.diagnostics ?? [] : []).map(item => ({ kind: 'syntax' as const, message: item.message!,
     location: item.span ? { start: { line: item.span.startLine! + 1, column: item.span.startColumn! + 1, byte: item.span.startByte! },
       end: { line: item.span.endLine! + 1, column: item.span.endColumn! + 1, byte: item.span.endByte! } } : null }));
@@ -57,10 +61,13 @@ function analysisOf(root: Node, language: string, built: ProcessResult): SourceA
   measurement.sloc = built.metrics!.codeLines!;
   measurement.comment_lines = built.metrics!.commentLines!;
   if (syntaxError && !diagnostics.length) diagnostics.push({ kind: 'syntax', message: 'Syntax error in source', location: location(root) });
-  return { profile: ANALYSIS_PROFILE, language, parser_status: syntaxError ? 'parse-error' : 'parsed',
+  // tree-sitter recovers locally, so a tree with an error in it still holds the declarations the error did not touch. Dropping
+  // the file for one bad line, in any language, cost every method in it: a Flow import, a Groovy wildcard import, a C attribute
+  // macro. The file is a parse error only when nothing in it can be read.
+  return { profile: ANALYSIS_PROFILE, language, parser_status: syntaxError && !declarations.length ? 'parse-error' : 'parsed',
     parser_message: diagnostics[0]?.message ?? null,
     metrics: qualityMetrics(measurement, measureComplexity(root, language, false)),
-    declarations: declarationsOf(structure, nodes, language).sort((a, b) => a.location.start.byte - b.location.start.byte),
+    declarations,
     // The pack's import records do not expose every binding/alias or call site. This extractor adds those graph edges.
     references: collectReferences(root, language), diagnostics,
     truncated: { declarations: false, references: false, diagnostics: false } };
