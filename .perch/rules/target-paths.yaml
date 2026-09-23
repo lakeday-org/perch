@@ -1,0 +1,8 @@
+- name: a-target-through-a-symlink-scans-the-same-code
+  where: src/target.js
+  ensure: >-
+    resolveTarget puts the target through the filesystem's real path before
+    taking it relative to the repository root git reports, so a target reached
+    through a symlink, such as /var/folders on macOS for /private/var/folders,
+    yields the same scope as the real path. Taking the unresolved target
+    relative to the resolved root breaks this rule.
