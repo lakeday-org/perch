@@ -56,10 +56,20 @@ export function buildGraph(files) {
     if (!entry) return null;
     return entry.byQualified.get(name) ?? entry.byName.get(name)?.[0] ?? null;
   };
-  const sameDirectory = (file, name) => {
-    for (const other of files) if (other !== file && dirname(other.path) === dirname(file.path) && other.language === file.language) { const id = lookup(other.path, name); if (id) return id; }
-    return null;
-  };
+  // Unqualified Go calls resolve within a package. Index names once instead of searching the entire repository for each call.
+  // Keep file order and the per-file lookup preference, including ambiguous names, identical to the ordinary lookup.
+  const packages = new Map();
+  for (const file of files) {
+    if (file.language !== 'go') continue;
+    const directory = dirname(file.path);
+    if (!packages.has(directory)) packages.set(directory, new Map());
+    const names = packages.get(directory), entry = byPath.get(file.path);
+    for (const name of new Set([...entry.byName.keys(), ...entry.byQualified.keys()])) {
+      if (!names.has(name)) names.set(name, []);
+      names.get(name).push({ file, id: lookup(file.path, name) });
+    }
+  }
+  const sameDirectory = (file, name) => packages.get(dirname(file.path))?.get(name)?.find(entry => entry.file !== file)?.id ?? null;
   const viaImport = (file, alias, tail) => {
     const imported = file.imports.find(item => item.alias === alias);
     if (!imported) return null;
