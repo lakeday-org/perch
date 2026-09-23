@@ -4,6 +4,27 @@ import { buildGraph, resolveModule } from '../src/graph.js';
 const method = (path, name, line, risk = 10) => ({ id: `${path}::${name}`, node: `function:${line}`, name: name.split('.').at(-1), qualified_name: name, line, end_line: line + 2, hash: 'h', metrics: { risk_score: risk } });
 
 describe('method graph', () => {
+  it('preserves Go package order, top-level preference, language boundaries and unresolved calls', () => {
+    const file = (path, language, names, calls = [], values = []) => ({ path, language, methods: names.map((name, i) => method(path, name, i + 1)), calls, values, imports: [] });
+    const files = [
+      file('other/a.go', 'go', ['helper']),
+      file('pkg/a.js', 'javascript', ['helper']),
+      file('pkg/a.go', 'go', ['Runner.Run'], [
+        { from: 'pkg/a.go::Runner.Run', name: 'helper', line: 2 },
+        { from: 'pkg/a.go::Runner.Run', name: 'unknown', line: 3 },
+      ], [{ from: 'pkg/a.go::Runner.Run', name: 'callback', line: 4 }]),
+      file('pkg/b.go', 'go', ['Receiver.helper', 'helper', 'callback']),
+      file('pkg/c.go', 'go', ['helper', 'callback']),
+      file('pkg/d.go', 'go', ['helper', 'Run'], [{ from: 'pkg/d.go::Run', name: 'helper', line: 2 }]),
+    ];
+    const graph = buildGraph(files);
+    expect(graph.callees('pkg/a.go::Runner.Run')).toEqual(['pkg/b.go::helper', 'pkg/b.go::callback']);
+    expect(graph.callees('pkg/d.go::Run')).toEqual(['pkg/d.go::helper']);
+    expect(graph.callers('pkg/b.go::helper')).toEqual(['pkg/a.go::Runner.Run']);
+    expect(graph.isDynamic('pkg/a.go::Runner.Run', 'pkg/b.go::callback')).toBe(true);
+    expect(graph.site('pkg/a.go::Runner.Run', 'pkg/b.go::callback')).toBe(4);
+  });
+
   it('resolves module specifiers per language', () => {
     const paths = new Set(['src/a.js', 'src/b.ts', 'src/dir/index.js', 'pkg/__init__.py', 'pkg/util.py', 'pkg/sub/mod.py', 'crate/src/lib.rs', 'crate/src/util.rs', 'crate/src/net/mod.rs']);
     expect(resolveModule('src/a.js', './b.js', 'javascript', paths)).toBe('src/b.ts');
