@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -36,6 +36,19 @@ describe('resolveTarget', () => {
     // No scope is the whole tree. A scan narrows on --paths or --since from here, and on nothing otherwise.
     expect(resolved.scope).toBe(null);
     expect(resolved.kind).toBe('local');
+  });
+
+  it('scans the same code through a symlink as through the real path', async () => {
+    const root = await repo();
+    // macOS hands out /var/folders/... for a temporary directory and git reports /private/var/folders/...; a target taken
+    // relative to that root sat outside it, matched nothing, and the run reported zero methods, complete.
+    const link = `${root}-link`;
+    await symlink(root, link);
+    cleanups.push(link);
+    const resolved = await resolveTarget(join(link, 'docs'), {});
+    expect(resolved.scope).toBe('docs');
+    expect(resolved.root).toBe(await realpath(root));
+    expect((await resolveTarget(link, {})).scope).toBe(null);
   });
 
   it('keeps the directory it was given as the scope', async () => {
