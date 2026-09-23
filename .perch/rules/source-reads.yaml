@@ -1,0 +1,7 @@
+- name: whole-file-source-is-read-only-for-rules-that-need-it
+  where: src/scan.js
+  ensure: >-
+    After the method walk, scanRepository reads the tree listing and every
+    file's source only when some rule is not a method rule or is a search,
+    since method questions carry their own source. Reading every blob in the
+    tree on a scan whose rules are all method rules breaks this rule.
