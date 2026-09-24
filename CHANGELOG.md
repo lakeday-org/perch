@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.3.5](https://github.com/lakeday-org/perch/compare/v0.3.4...v0.3.5) (2026-09-24)
+
+
+### Bug Fixes
+
+* a method whose neighbourhood did not fit the budget was never read ([#103](https://github.com/lakeday-org/perch/issues/103)) ([182b5a4](https://github.com/lakeday-org/perch/commit/182b5a4308bf715efa740934f878090b72f29776))
+* a reading over the request allowance was sent partway before being dropped ([#104](https://github.com/lakeday-org/perch/issues/104)) ([5754679](https://github.com/lakeday-org/perch/commit/5754679b00f88a4e1afb36f8b89fb825cafd9653))
+* a request could carry more questions than the gateway accepts ([#121](https://github.com/lakeday-org/perch/issues/121)) ([6a399b7](https://github.com/lakeday-org/perch/commit/6a399b735b7aca43a6db9bffa679d8adbf7b28b4))
+* a scan target reached through a symlink read no methods ([#146](https://github.com/lakeday-org/perch/issues/146)) ([69b519d](https://github.com/lakeday-org/perch/commit/69b519d903e5528ca32557fce61d0e2e7d90ced6))
+* a scan with no API credits reported nothing to report and exited 0 ([#145](https://github.com/lakeday-org/perch/issues/145)) ([a6c5960](https://github.com/lakeday-org/perch/commit/a6c5960fbf5fc0d481df0dc9e6f55e5d6db929c3))
+* a scan with only method rules still read every file's source ([#148](https://github.com/lakeday-org/perch/issues/148)) ([05b46d6](https://github.com/lakeday-org/perch/commit/05b46d6893010d3b997e8b0671d822114ed63af8))
+* a syntax error anywhere in a file dropped every method in it ([#140](https://github.com/lakeday-org/perch/issues/140)) ([f0acade](https://github.com/lakeday-org/perch/commit/f0acade2d67b2faebfc601149a477403644e7afc))
+* Improve large document scanning ([#102](https://github.com/lakeday-org/perch/issues/102)) ([5500d69](https://github.com/lakeday-org/perch/commit/5500d696a0930ad89f79bfc8f000eed68f5aea38))
+* large scans repeatedly rewrote every previous answer ([#116](https://github.com/lakeday-org/perch/issues/116)) ([37822e3](https://github.com/lakeday-org/perch/commit/37822e310b99ba7c2395ecf74481a795dd61c29c))
+* perch rules could not add to, edit or remove from a split rule file ([#100](https://github.com/lakeday-org/perch/issues/100)) ([9a2dbd8](https://github.com/lakeday-org/perch/commit/9a2dbd806a157e8e4b66b016913fe1aad56ca00b))
+* question batches were capped at 128 when System One limits tokens ([#152](https://github.com/lakeday-org/perch/issues/152)) ([014fc18](https://github.com/lakeday-org/perch/commit/014fc18cab0073207544778ec960b5fb155002d6))
+* reference extraction rejected non-ASCII names and misread TypeScript imports ([#147](https://github.com/lakeday-org/perch/issues/147)) ([9e0d66c](https://github.com/lakeday-org/perch/commit/9e0d66cd35bc08da1a816231826cf00dc632f6e5))
+* unqualified Go calls searched every file in the repository ([#127](https://github.com/lakeday-org/perch/issues/127)) ([159dbec](https://github.com/lakeday-org/perch/commit/159dbec8a52cb5cf0ffc9e70f30d0e56b45c7f2e))
+
+
+### Performance Improvements
+
+* the node wrapper called into native code on every property read ([#105](https://github.com/lakeday-org/perch/issues/105)) ([50df913](https://github.com/lakeday-org/perch/commit/50df913752eba33d2e1f1648228c947766b0c944))
+
 ## [0.3.4](https://github.com/lakeday-org/perch/compare/v0.3.3...v0.3.4) (2026-09-21)
 
 
