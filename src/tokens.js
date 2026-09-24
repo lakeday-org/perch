@@ -1,9 +1,8 @@
 /** Request sizes are token estimates. Jev does not publish its tokenizer. */
 import { countTokens } from 'gpt-tokenizer/encoding/o200k_base';
 
-// Leave room below Jev's 32k per question and 64k per request limits for server formatting. The gateway takes at most 128
-// questions in one request.
-export const TOKEN_LIMITS = Object.freeze({ state: 24000, single: 30000, request: 60000, unitRequests: 64, questions: 128 });
+// Leave room below Jev's 32k per question and 64k per request limits for server formatting.
+export const TOKEN_LIMITS = Object.freeze({ state: 24000, single: 30000, request: 60000, unitRequests: 64 });
 const literal = { disallowedSpecial: new Set() };
 
 /** o200k plus 20% headroom is an estimate, not Jev's exact tokenization. */
@@ -71,11 +70,9 @@ export async function withTokenRetries(read, initial = TOKEN_LIMITS.state) {
 }
 /**
  * Count state once, include every question and criterion, and preserve each question intact. A batch closes when the next
- * question would not fit the request, or when it holds as many questions as the gateway accepts: 129 small ones fit the tokens
- * and were still refused.
+ * question would not fit the request.
  */
 export function questionBatches(state, questions, limits = TOKEN_LIMITS) {
-  const most = limits.questions ?? TOKEN_LIMITS.questions;
   const size = estimateTokens(state);
   if (size > limits.state) throw new ContextLimitError('request state exceeds its estimated token budget', Math.floor(limits.state / 2));
   const batches = [];
@@ -86,8 +83,7 @@ export function questionBatches(state, questions, limits = TOKEN_LIMITS) {
       throw new ContextLimitError(`question ${name} and its context exceed the estimated token budget`, Math.floor(size / 2));
     if (question.criteria && Object.keys(question.criteria).length > 255)
       throw new IncompleteCheckError(`question ${name} has more than 255 choices`);
-    const held = Object.keys(current).length;
-    if ((total + tokens > limits.request || held >= most) && held) { batches.push(current); current = {}; total = size + 64; }
+    if (total + tokens > limits.request && Object.keys(current).length) { batches.push(current); current = {}; total = size + 64; }
     if (total + tokens > limits.request) throw new ContextLimitError(`question ${name} exceeds the request token budget`, Math.floor(size / 2));
     current[name] = question;
     total += tokens;
