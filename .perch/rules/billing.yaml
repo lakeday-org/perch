@@ -1,0 +1,8 @@
+- name: no-credits-stops-the-run
+  where: src/systemone.js
+  ensure: >-
+    An HTTP 402 response, the endpoint saying the account has no credits, is
+    treated exactly like 401 and 403: it raises the authentication failure
+    that stops every unit in the run. Handling 402 as an ordinary failed
+    request, so each unit is recorded as unread and the scan continues,
+    breaks this rule.

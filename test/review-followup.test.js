@@ -54,7 +54,7 @@ async function docsFixture(rules, count = 70) {
   return {root, revision:await revision(root), out:join(root,'.perch'), analyzer:createSourceAnalyzer(), paths:['docs']};
 }
 
-it.each([401, 403])('stops file and search scans after one HTTP %i authentication failure', async status => {
+it.each([401, 402, 403])('stops file and search scans after one HTTP %i authentication or billing failure', async status => {
   for (const kind of ['ensure', 'ensure_present']) {
     const options = await docsFixture(`- name: a\n  where: docs/*.md\n  ${kind}: Verified documentation.\n- name: b\n  where: docs/*.md\n  ${kind}: Verified examples.\n`);
     let requests = 0;

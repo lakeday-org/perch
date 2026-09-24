@@ -48,7 +48,9 @@ export function createSystemOne({
       }
       if (!response.ok) {
         const detail = (await response.text().catch(() => '')).slice(0, 2000);
-        if (response.status === 401 || response.status === 403) {
+        // 402 is the account out of credits. Every request will get the same answer, so it stops the run the way a bad key
+        // does; read as one unit's failure it left a scan of nothing but file rules printing "nothing to report" and exiting 0.
+        if ([401, 402, 403].includes(response.status)) {
           authenticationFailure = new AuthenticationError(response.status, detail);
           throw authenticationFailure;
         }
