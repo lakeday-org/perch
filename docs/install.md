@@ -103,16 +103,12 @@ were in view.
 
 ## Checking a change
 
-`perch check` puts the same questions to code as it reads on disk, uncommitted.
-Nothing is recorded, so it is the one to run while you are working:
+`perch check` scans the code on disk, uncommitted edits included, and saves nothing. Run it while you work:
 
 ```sh
-perch check 3a7c6bfe                          # whatever raised that issue
-perch check scripts/build.mjs::build          # a method, by name
-perch check scripts/build.mjs                 # a whole file
+perch check 3a7c6bfe                   # the method behind an issue
+perch check scripts/build.mjs::build   # one method
+perch check scripts/build.mjs          # one file
 ```
 
-It exits 3 while something is still wrong, which is what a loop needs.
-
-
-- [perch in CI](/ci/) for the pull request setup.
+It exits 3 until the problem is fixed.
