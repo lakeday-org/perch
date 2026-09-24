@@ -5,6 +5,8 @@ import { homedir } from 'node:os';
 import { dirname, join, basename } from 'node:path';
 import { git } from './git.js';
 import { createSystemOne } from './systemone.js';
+import { issuesFor, severityBand } from './questions.js';
+import { CORRECTNESS } from './ask.js';
 
 export const CLOUD_ORIGIN = 'https://dash.perchscan.com';
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -61,13 +63,38 @@ export async function hasCloudLogin(env) { return Boolean(env.PERCH_TOKEN || awa
 export async function logoutCloud({ env, stdout }) {
   await rm(credentialPath(env), { force: true }); stdout('Removed this device\'s saved Perch login. Revoke CI credentials in the dashboard.');
 }
+/**
+ * `token` is the credential, or a function returning one when it expires mid-run (a GitHub Actions OIDC token does). An OIDC
+ * token names its own repository, so a client built from one sends no organization or repository of its own.
+ */
 export function createCloudClient({ origin, token, organizationId, repositoryId, model = 'jev-latest', epoch = '1', fetchImpl = globalThis.fetch }) {
-  const baseUrl = `${origin}/v1/systemone`;
-  const client = createSystemOne({ apiKey:token, model, baseUrl, fetchImpl:async (url, options) => {
+  const baseUrl = `${origin}/v1/systemone`, current = typeof token === 'function' ? token : async () => token;
+  const client = createSystemOne({ apiKey: typeof token === 'function' ? 'oidc' : token, model, baseUrl, fetchImpl:async (url, options) => {
     const input = JSON.parse(options.body);
-    return fetchImpl(url, {...options, body:JSON.stringify({...input,organizationId,repositoryId})});
+    return fetchImpl(url, {...options, headers:{...options.headers, authorization:`Bearer ${await current()}`}, body:JSON.stringify({...input,organizationId,repositoryId})});
   } });
-  return {...client,cacheKey:hash(JSON.stringify([client.cacheKey,organizationId,repositoryId,token.startsWith('perch_ci_')?hash(token):'user',epoch]))};
+  const identity = typeof token === 'function' ? 'oidc' : token.startsWith('perch_ci_') ? hash(token) : 'user';
+  return {...client, cacheKey:hash(JSON.stringify([client.cacheKey,organizationId,repositoryId,identity,epoch])),
+    /** Send a finished scan's summary to the dashboard. Findings only: ids, places, kinds and numbers, never source. */
+    async report(report) {
+      return request(fetchImpl, `${origin}/v1/scans`, post(await current(), { organizationId, repositoryId, ...report }));
+    } };
+}
+
+/** A GitHub Actions job with `id-token: write` can sign in as its own repository, with no secret stored anywhere. */
+export const actionsCanSignIn = env => Boolean(env.GITHUB_ACTIONS && env.ACTIONS_ID_TOKEN_REQUEST_URL && env.ACTIONS_ID_TOKEN_REQUEST_TOKEN);
+export function actionsToken(env, audience, fetchImpl = globalThis.fetch) {
+  let cached = null;
+  return async () => {
+    // GitHub's tokens last minutes, and a large scan runs longer, so a fresh one is asked for before the last one lapses.
+    if (cached && cached.until > Date.now()) return cached.value;
+    const url = new URL(env.ACTIONS_ID_TOKEN_REQUEST_URL); url.searchParams.set('audience', audience);
+    const response = await fetchImpl(url, { headers: { authorization: `bearer ${env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` }, signal: AbortSignal.timeout(30000) });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.value) throw new Error('GitHub did not issue an OIDC token. Give the job `permissions: id-token: write`.');
+    cached = { value: data.value, until: Date.now() + 4 * 60_000 };
+    return cached.value;
+  };
 }
 
 const usableAccessToken = token => {
@@ -99,6 +126,11 @@ async function sessionToken(env, origin, fetchImpl) {
 }
 export async function configuredSystemOne({ env, root, log, fetchImpl = globalThis.fetch }) {
   const saved = env.PERCH_TOKEN || env.PERCH_BASE_URL ? null : await readCredentials(env), origin = cloudOrigin(env);
+  // In GitHub Actions with nothing else configured, the job's own OIDC token is the credential.
+  if (!env.PERCH_TOKEN && !env.PERCH_BASE_URL && !saved && !env.PERCH_API_KEY && !env.TYPESAFE_API_KEY && actionsCanSignIn(env)) {
+    const config = await request(fetchImpl, `${origin}/api/config`);
+    return createCloudClient({ origin, token: actionsToken(env, origin, fetchImpl), model: config.model, epoch: config.epoch, fetchImpl });
+  }
   // An explicit endpoint overrides a saved cloud login.
   if (!env.PERCH_TOKEN && (env.PERCH_BASE_URL || !saved)) {
     return createSystemOne({ apiKey: env.PERCH_API_KEY || env.TYPESAFE_API_KEY, baseUrl: env.PERCH_BASE_URL, model: env.PERCH_MODEL_ID, log, fetchImpl });
@@ -117,4 +149,30 @@ export async function configuredSystemOne({ env, root, log, fetchImpl = globalTh
     repositoryId = repository.id;
   }
   return createCloudClient({ origin, token, organizationId, repositoryId, model: config.model, epoch: config.epoch, fetchImpl });
+}
+
+/** Where this run happened, from the environment CI sets. A pull request's checkout is a merge commit, so its head is named instead. */
+export async function runContext(env, revision, localBranch = null) {
+  const source = env.CI || env.GITHUB_ACTIONS ? 'ci' : 'cli';
+  let head = null, pull = null;
+  if (env.GITHUB_EVENT_PATH && /^pull_request/.test(env.GITHUB_EVENT_NAME || '')) {
+    try { const event = JSON.parse(await readFile(env.GITHUB_EVENT_PATH, 'utf8')); head = event.pull_request?.head?.sha ?? null; pull = event.pull_request?.number ?? null; }
+    catch { /* no event file: fall back to the checkout */ }
+  }
+  const branch = env.GITHUB_HEAD_REF || env.GITHUB_REF_NAME || localBranch || null;
+  return { source, revision: head || revision || null, branch, pull_request: pull };
+}
+
+/** One row per issue a finding shows. Severity rides only on defects and vulnerabilities, as it does in the table. */
+export function reportFindings(findings, min) {
+  const rows = [], seen = new Set();
+  for (const finding of findings) for (const issue of issuesFor(finding, min)) {
+    const kind = String(issue.label), key = `${finding.id}\u0000${kind}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const band = severityBand(finding.severity);
+    rows.push({ id: finding.id, path: finding.path, method: finding.method ?? `${finding.path}::${finding.name}`, line: finding.line ?? null, type: issue.type, kind,
+      probability: Math.round(issue.probability * 1000) / 1000, severity: CORRECTNESS.has(issue.type) && /^P[0-3]$/.test(band) ? band : null });
+  }
+  return rows.slice(0, 2000);
 }

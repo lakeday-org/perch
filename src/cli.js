@@ -1,8 +1,8 @@
 /** perch command line: scan, issues, check, close, rules, doctor. */
 import { join } from 'node:path';
-import { repoRoot, revision as gitRevision } from './git.js';
+import { git, repoRoot, revision as gitRevision } from './git.js';
 import { resolveTarget } from './target.js';
-import { configuredSystemOne, loginCloud, logoutCloud, hasCloudLogin } from './cloud.js';
+import { configuredSystemOne, loginCloud, logoutCloud, hasCloudLogin, reportFindings, runContext } from './cloud.js';
 import { createSourceAnalyzer } from './analysis.js';
 import { openStore, resolveOut } from './store.js';
 import { analyzeTree } from './analyze.js';
@@ -401,6 +401,7 @@ const commands = {
       io.stdout(block + '\n');
     };
     let run;
+    const started = Date.now();
     try {
       run = await scanRepository({ root: resolved.root, revision: await gitRevision(resolved.root), label: resolved.label, github: resolved.github, out: resolved.out,
         systemOne, analyzer: createSourceAnalyzer(), paths, parallel, min, filters, onFile: io.flags.json ? () => {} : say,
@@ -428,7 +429,17 @@ const commands = {
     if (run.incomplete?.length) io.note(`${run.incomplete.length} ${run.incomplete.length === 1 ? 'check' : 'checks'} incomplete; perch doctor lists them`, ...run.incomplete);
     // The scan passes when nothing it gates on came back. Which questions those are is on the questions, so a defect and a
     // vulnerability count the same as a rule you wrote.
-    return gating(issues, min).length ? EXIT.found : EXIT.clean;
+    const exit = gating(issues, min).length ? EXIT.found : EXIT.clean;
+    if (systemOne.report) {
+      // The dashboard is a view of the run, not part of it: a failed upload is said and the exit code stands.
+      const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD'], resolved.root).then(out => out.trim(), () => null);
+      const where = await runContext(io.env, run.revision, branch === 'HEAD' ? null : branch);
+      const full = !io.flags.since && !io.flags.paths && !resolved.scope;
+      await systemOne.report({ scan: { ...where, scope: full ? 'full' : 'partial', perch_version: VERSION, started_at: started, finished_at: Date.now(),
+        methods: run.methods ?? 0, reused: run.carried ?? 0, files: new Set((run.visited ?? []).map(visit => visit.path)).size, exit_code: exit }, findings: reportFindings(everything, min) })
+        .then(saved => io.note(`Results: ${saved.url}`), error => io.note(`Could not send results to Perch Cloud: ${error.message}`));
+    }
+    return exit;
   },
   /** perch rules list, add, edit and remove: the rule file as something you can change without opening it. */
   rules(io) {
