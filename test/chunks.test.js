@@ -175,16 +175,14 @@ describe('a method whose neighbourhood does not fit', () => {
   });
 });
 
-describe('the gateway takes at most 128 questions in one request', () => {
+describe('question batches split on tokens only', () => {
   const ask = count => Object.fromEntries(Array.from({ length: count }, (_, i) => [`q${i}`, { type: 'noul', instructions: `question ${i}`, criteria: { true: 'yes', false: 'no' } }]));
-  it('keeps 128 in one batch and splits 129, losing none', () => {
-    expect(questionBatches({ source: 'x' }, ask(128))).toHaveLength(1);
-    const batches = questionBatches({ source: 'x' }, ask(129));
-    expect(batches.map(batch => Object.keys(batch).length)).toEqual([128, 1]);
-    expect(batches.flatMap(batch => Object.keys(batch))).toEqual(Object.keys(ask(129)));
-    expect(questionBatches({ source: 'x' }, ask(300)).map(batch => Object.keys(batch).length)).toEqual([128, 128, 44]);
+  it('keeps small questions in one batch however many there are', () => {
+    expect(questionBatches({ source: 'x' }, ask(300))).toHaveLength(1);
   });
-  it('honours a smaller count from the endpoint', () => {
-    expect(questionBatches({ source: 'x' }, ask(10), { ...TOKEN_LIMITS, questions: 4 }).map(batch => Object.keys(batch).length)).toEqual([4, 4, 2]);
+  it('splits at the request budget, losing none', () => {
+    const batches = questionBatches({ source: 'x' }, ask(300), { ...TOKEN_LIMITS, request: 2000 });
+    expect(batches.length).toBeGreaterThan(1);
+    expect(batches.flatMap(batch => Object.keys(batch))).toEqual(Object.keys(ask(300)));
   });
 });
