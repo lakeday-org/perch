@@ -26,11 +26,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - uses: actions/cache@v4
-        with:
-          path: .perch/scan.jsonl
-          key: perch-${{ github.head_ref }}-${{ github.run_id }}
-          restore-keys: perch-${{ github.head_ref }}-
       - run: npx --yes @lakeday/perch scan --since origin/${{ github.base_ref }}
         env:
           PERCH_API_KEY: ${{ secrets.PERCH_API_KEY }}
@@ -49,8 +44,7 @@ shop at commit a97a4f6: 4 methods, read 4
 4 requests  13k tokens in / 2k out  $0.0005
 ```
 
-`fetch-depth: 0` gives `--since` the base branch to compare against. The cache carries answers between pushes to the
-same pull request, so a method that has not changed is not read again.
+`fetch-depth: 0` gives `--since` the base branch to compare against.
 
 Pull requests from forks get no secrets. To skip them, add this to the job:
 
@@ -69,9 +63,6 @@ perch:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   variables:
     GIT_DEPTH: 0
-  cache:
-    key: perch-$CI_MERGE_REQUEST_IID
-    paths: [.perch/scan.jsonl]
   script:
     - git fetch origin $CI_MERGE_REQUEST_TARGET_BRANCH_NAME
     - npx --yes @lakeday/perch scan --since origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME
