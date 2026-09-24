@@ -299,11 +299,16 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
 
     // What is left is every rule that is not about a method, and every claim about the codebase rather than about one file. The
     // source they are asked about comes from the revision, not from disk, so a finding is still about a commit.
+    // Method questions carry their own source, so the tree is only read when a file rule or a search is in the set. All rules,
+    // not the filtered ones: a rule filtered out is still counted in coverage, and counting a file rule's units needs the tree.
     const files = new Map();
-    for (const file of scan.files) files.set(file.path, (await linesOf({ id: file.path, path: file.path })).join('\n'));
-    const tree = await listTree(root, revision);
-    const eligible = createFileSelector(tree);
-    for (const item of tree) if (eligible(item) && !files.has(item.path)) files.set(item.path, await readBlob(root, item.sha).catch(() => ''));
+    let tree = [];
+    if (rules.some(rule => SEARCHES(rule.kind) || rule.each !== 'method')) {
+      for (const file of scan.files) files.set(file.path, (await linesOf({ id: file.path, path: file.path })).join('\n'));
+      tree = await listTree(root, revision);
+      const eligible = createFileSelector(tree);
+      for (const item of tree) if (eligible(item) && !files.has(item.path)) files.set(item.path, await readBlob(root, item.sha).catch(() => ''));
+    }
     const over = { scan, graph, files, tree, revision, systemOne, inScope, min, debug, earlier: checks };
     const kept = new Set(questionsFor(rules, filters, kindLabel).map(rule => rule.name));
     const asking = rules.filter(rule => kept.has(rule.name));
