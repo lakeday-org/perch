@@ -13,11 +13,11 @@ whole repository against itself, worst first.
 
 ```console
 $ perch issues
-ID        Method             Location           Type      Kind                              Severity
-3a7c6bfe  build              …ts/build.mjs:183  refactor  too_big 99%, +3 more              P1 (1.4)
-1f235668  docPage            …pts/build.mjs:82  docs      docs 81%, too_big 77%, +1 more    P1 (1.3)
-eb9dfee4  versionAssets      …ts/build.mjs:161  security  resource_exhaustion 80%, +2 more  P1 (1.3)
-1-3 of 27 open issues. --page 2 for the next
+ID        Method        Location    Type      Kind                                Severity
+623cd4c5  readUpload    files.js:4  security  missing_authorization 90%, +1 more  P0 (0.3)
+450b87b4  removeItem    cart.js:18  defect    bad_state_change 79%                P1 (1.4)
+f5e6b16e  averagePrice  cart.js:13  defect    unhandled_null 61%                  P2 (1.7)
+3 open issues
 ```
 
 Ten rows by default. `--limit` changes that, `--page` moves through them, `--all`
@@ -51,33 +51,28 @@ model gives across all four levels. [Inside a scan](scan.md) works it through.
 ## One issue in full
 
 ```console
-$ perch issues 723a2685
-723a2685  buildGraph  src/graph.js:41-126
-01b4aff  read 2026-09-17  open
+$ perch issues 623cd4c5
+623cd4c5  readUpload  files.js:4-6
+19ff8ea  read 2026-09-24  open
 
-  Sure  Type      Severity  Problem
-   80%  refactor  -         too_big
-   75%  docs      -         docs
-   68%  security  P1 (1.1)  type_confusion
-   55%  lint      -         no-legacy-fallback
+  Confidence  Type      Severity  Problem
+         90%  security  P0 (0.3)  missing_authorization
+         71%  defect    P0 (0.3)  unhandled_null
 
-     84  const link = (map, from, to) => { if (!map.has(from)) map.set(from, new Set()); map.get(from).add(to); };
-         the line it points at, 24% sure
+      5  return readFileSync(join('/srv/uploads', name), 'utf8');
+         the line it points at, 98% sure
 
-  Kind           unhandled_null 44%  wrong_return_value 24%  bad_state_change 12%  +4 more
-  Severity       P1 83%  P2 12%  P0 4%  P3 1%
-  Exposed        44%
-  Vulnerability  type_confusion 68%  uninitialized_use 34%  resource_exhaustion 33%  +13 more
-  Claims         does what it claims 80%  documented 25%
-  Refactor       too_big 80%  tangled_conditions 16%  +2 more
-  Calls          buildGraph.resolve  buildGraph.link  buildGraph.callees  buildGraph.callers  resolveRust.has
-  Called by      lintRepository  scanRepository  methodContext
-  Code           risk 74  maintainability 34  complexity 21  nesting 3  59 lines
+  Kind           unhandled_null 66%  off_by_one 23%  wrong_return_value 7%  +4 more
+  Severity       P0 84%  P1 7%  P3 5%  P2 4%
+  Exposed        95%
+  Vulnerability  missing_authorization 90%  path_traversal 86%  injection 77%  +7 more
+  Claims         does what it claims 77%
+  Code           risk 15  maintainability 77  complexity 1  nesting 0  3 lines
 ```
 
-These are the columns the table prints, with every answer under them. That
-includes answers below the floor. A defect at 44% is left off the table, and
-`perch issues <id>` still shows it.
+These are the columns the table prints, with every answer under them. The table
+lists one vulnerability per method; `path_traversal` at 86% is not a row, and it
+is listed here.
 
 `Severity` is filled in on the two rows the rubric weighs, the defect and the
 vulnerability. The `Severity` line lower down carries the whole distribution, and
