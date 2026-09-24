@@ -22,7 +22,7 @@ jobs:
           node-version: 22
       - name: Scan what this pull request changed
         if: github.event_name == 'pull_request'
-        run: npx --yes @lakeday/perch scan --since origin/${{ github.base_ref }}
+        run: npm exec --yes --package=@lakeday/perch@latest -- perch scan --since origin/${{ github.base_ref }}
       - name: Scan the repository
         if: github.event_name == 'push'
-        run: npx --yes @lakeday/perch scan
+        run: npm exec --yes --package=@lakeday/perch@latest -- perch scan
