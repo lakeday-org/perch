@@ -1,0 +1,16 @@
+- name: a-failed-results-upload-leaves-the-exit-code-alone
+  where: src/cli.js
+  each: method
+  ensure: >-
+    Where perch scan sends its summary to Perch Cloud, an upload that fails is
+    reported as a note and the scan still returns the exit code its findings
+    decided. Letting the upload's error throw out of the scan, or choosing the
+    exit code from whether the upload succeeded, breaks this.
+- name: the-actions-token-is-the-last-credential-tried
+  where: src/cloud.js
+  each: method
+  ensure: >-
+    configuredSystemOne signs in with the GitHub Actions OIDC token only when
+    PERCH_TOKEN, PERCH_BASE_URL, PERCH_API_KEY, TYPESAFE_API_KEY and a saved
+    login are all absent. Using the OIDC token while any one of them is set
+    breaks this.
