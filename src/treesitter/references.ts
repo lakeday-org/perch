@@ -41,6 +41,7 @@ const IMPORT_BINDING_TYPES = new Set([
   "namespace_import",
   "import_spec",
   "use_as_clause",
+  "import_require_clause",
 ]);
 
 function text(node: Node | null | undefined, limit = 256): string {
@@ -92,12 +93,15 @@ function referenceBase(node: Node, language: string): Node | null {
   return child(node, "function", "callee", "name");
 }
 
+/** What every language here lets an identifier be: a letter in any script, then letters, marks, digits and joiners. */
+const IDENTIFIER = /^[\p{ID_Start}_$][\p{ID_Continue}$\u200C\u200D]*$/u;
+
 function validReference(value: string): string {
   const normalized = value.replaceAll("::", ".");
   if (
     value.length > 256 ||
     !normalized ||
-    !normalized.split(".").every((part) => /^[A-Za-z_$][\w$]*$/u.test(part))
+    !normalized.split(".").every((part) => IDENTIFIER.test(part))
   ) {
     return "<dynamic>";
   }
@@ -133,7 +137,9 @@ function makeReference(
 }
 
 function importModule(node: Node, language: string): string {
-  const source = child(node, "source", "path", "module", "module_name", "argument");
+  const source = child(node, "source", "path", "module", "module_name", "argument")
+    // TypeScript's `import Foo = require("./foo")` keeps the source on the clause, one level down.
+    ?? node.namedChildren.find((item) => item.type === "import_require_clause")?.childForFieldName("source") ?? null;
   if (source) return stripModule(text(source));
   if (language === "python" && node.type === "import_statement") {
     const imported = node.namedChildren[0] ?? null;
@@ -155,8 +161,9 @@ function importModule(node: Node, language: string): string {
 }
 
 function bindingName(node: Node): { name: string; alias: string | null } | null {
-  if (node.type === "namespace_import") {
-    const local = text(node.namedChildren.at(-1));
+  // `import * as Foo` and `import Foo = require(...)` both bind the module's whole export to one local name.
+  if (node.type === "namespace_import" || node.type === "import_require_clause") {
+    const local = text(node.namedChildren.find((item) => item.type === "identifier") ?? node.namedChildren.at(-1));
     return local ? { name: "*", alias: local } : null;
   }
   const imported = child(node, "name", "path");
@@ -312,6 +319,10 @@ export function collectReferences(root: Node, language: string): Reference[] {
       if (block?.type === 'block' && block.namedChildren[0]?.id === unit?.id && callableName(block)) continue;
       const name = validReference(text(node.namedChildren[0]));
       references.push(makeReference('call', node, { name, reference: name }));
+    } else if (CALL_TYPES.has(node.type) && referenceBase(node, language)?.type === "import") {
+      // `import("./foo")` names a module, as a dynamic import or in a type position; it calls nothing named import.
+      const module = stripModule(text(child(node, "arguments")?.namedChildren[0] ?? null));
+      references.push(makeReference("import", node, { name: module || "<unknown-module>", reference: module || "<unknown-module>", module: module || null }));
     } else if (CALL_TYPES.has(node.type)) {
       references.push(callReferenceRecord(node, language));
     } else if (IDENTIFIER_TYPES.has(node.type) && isPassedAsValue(node) && validReference(text(node, 128))) {

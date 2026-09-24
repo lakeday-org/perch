@@ -1,0 +1,11 @@
+- name: references-read-what-the-language-allows
+  where: src/treesitter/references.ts
+  ensure: >-
+    Three things hold of reference extraction. A call to a function whose name
+    uses letters outside ASCII, such as café, is recorded under that name and
+    not as dynamic, since every language here allows such identifiers. A
+    TypeScript import-equals declaration, import Foo = require("./foo"),
+    yields "./foo" as the module and Foo as the local binding. A call
+    expression whose callee is the import keyword, in a type position or as a
+    dynamic import, is recorded as an import of its argument and not as a call
+    to a function named import. Any of the three failing breaks this rule.
