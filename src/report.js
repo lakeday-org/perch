@@ -421,8 +421,9 @@ export function formatFinding(finding, { width = WIDTH(), color = COLOR() } = {}
     add('Severity', spread(Object.fromEntries(Object.entries(finding.severity?.probabilities ?? {}).map(([level, p]) => [SEVERITY_BANDS[Number(level)] ?? level, p])), 4));
     add('Exposed', finding.exposed === undefined ? '' : percent(finding.exposed));
     add('Vulnerability', spread(securities(finding)));
-    add('Claims', finding.does_what_it_claims === undefined ? ''
-      : `does what it claims ${percent(finding.does_what_it_claims)}  documented ${percent(finding.documented)}`);
+    // `documented` is only asked when docs are a scan type, which they are not by default.
+    add('Claims', [finding.does_what_it_claims === undefined ? '' : `does what it claims ${percent(finding.does_what_it_claims)}`,
+      finding.documented === undefined ? '' : `documented ${percent(finding.documented)}`].filter(Boolean).join('  '));
     add('Refactor', spread(finding.refactor?.probabilities, 2));
     add('Calls', [...(finding.callees ?? []).map(shortId),
       ...(finding.misuse ?? []).filter(item => item.probability > 0.5).map(item => `misuses ${shortId(item.callee)} ${percent(item.probability)}`)].join('  '));
