@@ -543,7 +543,7 @@ export async function main(argv, { stdout = text => process.stdout.write(text + 
   catch (error) { return wrong(error.message, commandName); }
   const verbose = Boolean(flags.verbose);
   // The one place that knows what a terminal is and what the environment asked for.
-  useColor(Boolean(process.stdout.isTTY) && !env.NO_COLOR && !flags.json);
+  useColor(Boolean(process.stdout.isTTY) && !flags.json);
   const log = message => { if (verbose || !flags.json) stderr(`[perch] ${message}`); };
   const debug = message => { if (verbose) stderr(`[perch] ${message}`); };
   try {
