@@ -62,13 +62,13 @@ const keepStart = (text, width) => (text.length <= width ? text : text.slice(0, 
 export const WIDTH = () => (process.stdout.columns >= 60 ? process.stdout.columns : 100);
 
 /**
- * Color, when there is a terminal to put it on. Piped output and NO_COLOR get none, so a redirect stays greppable and a log stays
+ * Color, when there is a terminal to put it on. Piped output gets none, so a redirect stays greppable and a log stays
  * readable. Padding happens before this is applied: escape codes have width nobody wants counted.
  */
 let colored = false;
 /**
- * Whether to paint. Told once by the command line rather than worked out here: what a terminal is and what NO_COLOR means are
- * the command line's business, and a formatter that reads the environment cannot be asked for plain text in a test.
+ * Whether to paint. The command line decides once, since a formatter that reads the environment cannot be asked for plain
+ * text in a test.
  */
 export const useColor = on => { colored = Boolean(on); };
 export const COLOR = () => colored;
@@ -421,8 +421,9 @@ export function formatFinding(finding, { width = WIDTH(), color = COLOR() } = {}
     add('Severity', spread(Object.fromEntries(Object.entries(finding.severity?.probabilities ?? {}).map(([level, p]) => [SEVERITY_BANDS[Number(level)] ?? level, p])), 4));
     add('Exposed', finding.exposed === undefined ? '' : percent(finding.exposed));
     add('Vulnerability', spread(securities(finding)));
-    add('Claims', finding.does_what_it_claims === undefined ? ''
-      : `does what it claims ${percent(finding.does_what_it_claims)}  documented ${percent(finding.documented)}`);
+    // `documented` is only asked when docs are a scan type, which they are not by default.
+    add('Claims', [finding.does_what_it_claims === undefined ? '' : `does what it claims ${percent(finding.does_what_it_claims)}`,
+      finding.documented === undefined ? '' : `documented ${percent(finding.documented)}`].filter(Boolean).join('  '));
     add('Refactor', spread(finding.refactor?.probabilities, 2));
     add('Calls', [...(finding.callees ?? []).map(shortId),
       ...(finding.misuse ?? []).filter(item => item.probability > 0.5).map(item => `misuses ${shortId(item.callee)} ${percent(item.probability)}`)].join('  '));

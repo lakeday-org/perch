@@ -87,6 +87,16 @@ describe('cli', () => {
     expect(opened).toContain('off_by_one');
   });
 
+  it('leaves out an answer the scan never asked for instead of printing NaN', () => {
+    // documented is a docs question, and docs are not a default scan type, so a default reading has does_what_it_claims alone.
+    const finding = { id: 'abc12345', path: 'src/x.js', name: 'f', line: 7, end_line: 9, method: 'src/x.js::f', has_bug: 0.2, does_what_it_claims: 0.72, metrics: {}, file: {} };
+    const opened = formatFinding(finding, { color: false });
+    expect(opened).toContain('does what it claims 72%');
+    expect(opened).not.toContain('NaN');
+    expect(opened).not.toContain('documented');
+    expect(formatFinding({ ...finding, documented: 0.4 }, { color: false })).toContain('documented 40%');
+  });
+
   it('does not call a run clean when a filter is what emptied it', () => {
     // A refactor finding, and a filter asking for defects. The repository has something to report; this filter passed over it.
     // Saying "nothing to report" after reading every method is the report describing the filter as the repository.
