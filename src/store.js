@@ -1,13 +1,10 @@
 /** Results directory layout: what a scan found, what it did, and what you set aside, under one --out directory. */
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { git, repoRoot } from './git.js';
 import { snapshotBlob, snapshotDirectory, snapshotFor } from './filesystem.js';
 import { BELIEVED, flagged, issuesOf, issueWeight } from './questions.js';
-
-/** Scans and runs kept under --out, counting the current one. */
-const KEEP = 10;
 
 export const sha256 = text => createHash('sha256').update(text).digest('hex');
 /** A stable 16-hex-character id derived from everything that determines a record's result. */
@@ -101,15 +98,12 @@ export function openStore(out) {
     scanDir: id => join(out, 'scans', id),
     runDir: id => join(out, 'runs', id),
     /**
-     * One folder per commit parsed and per run, and nothing reads past the newest, so they would otherwise grow with every scan.
-     * The newest few stay rather than only this one: a scan in another terminal is writing a run of its own, and it is recent.
+     * A run folder holds every answer the run got, and answers are the endpoint's to keep, so only the current run stays. A scan
+     * folder is the parse of one commit, and only the current one is ever reused.
      */
     async prune(kind, id) {
-      const dir = join(out, kind);
-      const folders = await Promise.all((await entries(dir)).filter(entry => entry.isDirectory() && entry.name !== id)
-        .map(async entry => ({ name: entry.name, modified: (await stat(join(dir, entry.name))).mtimeMs })));
-      for (const { name } of folders.sort((a, b) => b.modified - a.modified).slice(KEEP - 1))
-        await rm(join(dir, name), { recursive: true, force: true });
+      for (const entry of await entries(join(out, kind))) if (entry.isDirectory() && entry.name !== id)
+        await rm(join(out, kind, entry.name), { recursive: true, force: true });
     },
     /** Append each batch once; the completed or failed run still has a self-contained run.json. Calls must be awaited. */
     async startRun(run) {

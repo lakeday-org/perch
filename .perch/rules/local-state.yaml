@@ -19,10 +19,9 @@
     analyzeTree returns the saved scan.json when a complete one exists for
     the same scan id, before listing the tree or parsing any file. Parsing
     again when a complete analysis for that id is on disk breaks this rule.
-- name: pruning-keeps-recent-folders
+- name: no-answer-history
   where: src/store.js
   ensure: >-
-    Read the code that removes earlier scan and run folders. It keeps the
-    current folder and the most recent others, so a run another process is
-    still writing survives. Removing every folder except the current one
-    breaks this rule.
+    Read the code that removes earlier scan and run folders. Every folder but
+    the current one is removed. Keeping earlier runs, which hold every answer
+    they got, breaks this rule.
