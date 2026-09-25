@@ -58,7 +58,7 @@ async function cloudClient({ env, log, fetchImpl, credentials }) {
   const config = await cloudRequest(fetchImpl, `${origin}/api/config`);
   return createCloudClient({
     origin, ...credentials,
-    model: config.model, epoch: config.epoch, log, fetchImpl,
+    model: env.PERCH_MODEL_ID || config.model, epoch: config.epoch, log, fetchImpl,
   });
 }
 

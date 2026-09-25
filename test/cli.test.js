@@ -26,7 +26,7 @@ afterEach(async () => {
 
 function capture() {
   const out = [], err = [];
-  return { out, err, io: { stdout: text => out.push(text), stderr: text => err.push(text), env: {} } };
+  return { out, err, io: { stdout: text => out.push(text), stderr: text => err.push(text), env: { HOME: join(root, '.test-home') } } };
 }
 
 describe('cli', () => {

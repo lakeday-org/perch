@@ -3,7 +3,7 @@ title: Command reference
 nav: Command reference
 group: Reference
 order: 8
-summary: Every verb, every flag, and which ones need a key.
+summary: Every verb, every flag, and how commands authenticate.
 ---
 
 # Command reference
@@ -14,9 +14,11 @@ perch <command> [options]
 
 | Verb | What it does | Needs |
 | --- | --- | --- |
-| [`scan`](#perch-scan) | Reads the repository at `HEAD` and writes down what it found. | `PERCH_API_KEY` |
+| [`login`](#configuration) | Signs in to Perch Cloud on this device. | nothing |
+| [`logout`](#configuration) | Removes the saved Cloud login. | nothing |
+| [`scan`](#perch-scan) | Reads the repository at `HEAD` and writes down what it found. | Cloud login, GitHub OIDC, CI token, or `PERCH_API_KEY` |
 | [`issues`](#perch-issues) | The open issues, worst first. With an id, everything known about that one method. | nothing |
-| [`check`](#perch-check) | Asks about one file or method as it reads on disk. Records nothing. | `PERCH_API_KEY` |
+| [`check`](#perch-check) | Asks about one file or method as it reads on disk. Records nothing. | Cloud login, GitHub OIDC, CI token, or `PERCH_API_KEY` |
 | [`rules`](#perch-rules) | `list`, `add`, `edit`, `remove`: changes `perch.yaml` without opening it. | nothing |
 | [`close`](#perch-close) | Sets issues aside so they stop being listed. | nothing |
 | [`reopen`](#perch-reopen) | Undoes `close`. | nothing |
@@ -225,16 +227,37 @@ it includes the end of `.perch/scan.log`.
 
 | Variable | Read by |
 | --- | --- |
-| `PERCH_API_KEY` | `scan`, `check`: bearer token for the configured endpoint; required. |
+| `PERCH_CLOUD_URL` | Cloud origin; defaults to `https://dash.perchscan.com`. |
+| `PERCH_ORGANIZATION` | Organization ID for a Cloud scan. |
+| `PERCH_REPOSITORY` | Repository ID for a Cloud scan. |
+| `PERCH_TOKEN` | Cloud CI credential. GitHub Actions can use OIDC instead. |
+| `PERCH_API_KEY` | Bearer token for direct provider access. |
 | `PERCH_BASE_URL` | `scan`, `check`: exact request URL; defaults to `https://api.typesafe.ai/v1/systemone`. |
 | `PERCH_MODEL_ID` | `scan`, `check`: model ID; defaults to `jev-latest`. |
 
-Set these variables to use a proxy, gateway, or local stand-in. `PERCH_BASE_URL`
-is the complete URL to POST to, including its path and any query string.
+## Configuration
+
+`perch login` signs in to Perch Cloud and saves its session in `~/.perch/cloud.json`.
+For non-secret defaults, create `~/.perch/config.toml`:
+
+```toml
+cloud_url = "https://dash.perchscan.com"
+model = "jev-latest"
+# organization = "org_..."
+# repository = "repo_..."
+```
+
+`cloud_url`, `model`, `organization`, `repository`, and `base_url` correspond to
+the environment variables above. An environment variable takes precedence over
+the matching file setting. Keep credentials in the saved login or environment,
+not in `config.toml`. The Cloud supplies its default model unless `model` or
+`PERCH_MODEL_ID` overrides it.
+
+Use `base_url` or `PERCH_BASE_URL` for a direct provider, proxy, or local
+stand-in. The value is the complete URL to POST to, including its path and any query string.
 perch uses it unchanged, including a trailing slash when supplied.
 
-Set `PERCH_API_KEY` to the endpoint's bearer token and `PERCH_MODEL_ID` to the
-model to request.
+Set `PERCH_API_KEY` to that endpoint's bearer token.
 
 Changing the endpoint or model causes the next scan to ask again, including
 file and search rules whose source has not changed.

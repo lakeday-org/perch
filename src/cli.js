@@ -5,6 +5,7 @@ import { resolveTarget } from './target.js';
 import { loginCloud, logoutCloud, hasCloudLogin } from './cloud-auth.js';
 import { configuredSystemOne } from './cloud-client.js';
 import { reportFindings, runContext } from './cloud-results.js';
+import { configuredEnvironment } from './config.js';
 import { createSourceAnalyzer } from './analysis.js';
 import { openStore, resolveOut } from './store.js';
 import { analyzeTree } from './analyze.js';
@@ -69,7 +70,7 @@ const ALIASES = { findings: 'issues' };
 const commandHelp = {
   login: { args: '[organization-id]', summary: 'Sign in to Perch Cloud', detail: 'Shows a device code to confirm in your browser. Stores a private login outside the repository. Use PERCH_TOKEN for a repository-scoped CI credential.' },
   logout: { args: '', summary: 'Remove this device’s cloud login', detail: 'Removes the saved login from this device. CI credentials are revoked separately in the dashboard.' },
-  scan: { args: '[target]', summary: 'Find issues', detail: `Scores every method with tree-sitter, then reads them with System One, callers and callees in view. Custom rules in ${RULES_FILE} and ${RULES_DIR}/ are asked in the same reading, so they cost nothing extra on a method perch was reading anyway.\n\nA method is reused when its code, neighbours, questions, endpoint and model are unchanged since the last run. The answer would be the same one, and asking for it would move the numbers on an issue you have already looked at. Delete .perch/scan.jsonl to ask about everything again.\n\ntarget is the file or directory to read, and defaults to where you are. --paths and --since narrow it further, and --since origin/main is what CI wants. Exits 3 on anything it found. Every type it asks about fails the run; scan_types in perch.yaml decides which those are, and defaults to defect, security and lint. Needs PERCH_API_KEY. PERCH_BASE_URL sets the exact request URL; PERCH_MODEL_ID selects the model.` },
+  scan: { args: '[target]', summary: 'Find issues', detail: `Scores every method with tree-sitter, then reads them with System One, callers and callees in view. Custom rules in ${RULES_FILE} and ${RULES_DIR}/ are asked in the same reading, so they cost nothing extra on a method perch was reading anyway.\n\nA method is reused when its code, neighbours, questions, endpoint and model are unchanged since the last run. The answer would be the same one, and asking for it would move the numbers on an issue you have already looked at. Delete .perch/scan.jsonl to ask about everything again.\n\ntarget is the file or directory to read, and defaults to where you are. --paths and --since narrow it further, and --since origin/main is what CI wants. Exits 3 on anything it found. Every type it asks about fails the run; scan_types in perch.yaml decides which those are, and defaults to defect, security and lint. Sign in with perch login, use GitHub OIDC in Actions, or set PERCH_API_KEY for direct access. PERCH_BASE_URL selects a direct provider endpoint. URL and model defaults can be set in ~/.perch/config.toml.` },
   rules: { args: '[list | add <name> | edit <name> | remove <name>]', summary: `Change ${RULES_FILE} without opening it`, detail: `Custom rules are questions perch asks alongside its own, written in the same grammar as the ones it ships with in scan.yaml. perch scan asks them; this writes them, keeping comments and ordering.\n\nRules live in ${RULES_FILE} or in .yaml files under ${RULES_DIR}/. add writes to ${RULES_FILE} unless --file names a split file; edit and remove find the file a rule is in; list shows every file, or one file with --file.\n\nMost are a yes-or-no, so --ensure is usually the only flag needed. It covers what a parser can't: whether a comment says why, whether a test asserts what you claim.\n\n  perch rules add no-stale-docs --where "docs/**/*.md" --ensure_absent "docs for code that was deleted"\n\nAn answer that is not yes-or-no is written out: --ask with --type and the options or levels it offers, and --issue for what an answer means. --when names a question this one is only as likely as.\n\n  perch rules add handles_absence --type choice --each method --where "src/**/*.js" \\\n    --ask "How does this method handle a value that is missing?" \\\n    --options "checks=It checks for it; ignores=It carries on with the missing value" \\\n    --issue "type=defect,label=handles_absence,except=checks"` },
   issues: { args: '[issue-id]', summary: 'List what the scan found, or show one', detail: 'Worst first. --filter narrows the list, --types prints what it accepts, --closed includes closed ones, --all lists every row. Give it an id to see everything known about that method. perch findings does the same thing.' },
   check: { args: '<path | path::method | issue-id>', summary: 'Ask about one piece of code, uncommitted', detail: 'Reads that one file off disk and asks about the point you named: every rule that covers it, plus the scan\'s own questions for a method. --rules narrows it to specific rules, or to defect, security, refactor or docs. Nothing is committed or recorded, so run it on work in progress. Exits 3 while something is still wrong. Use perch login, PERCH_TOKEN for CI, or PERCH_API_KEY for direct access. PERCH_BASE_URL sets the exact request URL; PERCH_MODEL_ID selects the model.' },
@@ -98,6 +99,8 @@ ${column(Object.entries(commandHelp).map(([name, help]) => [`${name} ${help.args
 
 Options:
 ${column([...Object.values(options).filter(([, , verbs]) => verbs.length === Object.keys(commandHelp).length).map(([flag, text]) => [flag, text]), ['-h, --help', 'This help; perch <command> --help for one command'], ['-v, --version', 'The release this was built from, or DEVELOPMENT and the commit']])}
+
+Configuration: ~/.perch/config.toml (environment variables take precedence)
 
 Environment:
 ${column([['PERCH_TOKEN', 'repository-scoped CI credential'], ['PERCH_CLOUD_URL', 'cloud origin (default https://dash.perchscan.com)'], ['PERCH_ORGANIZATION', 'organization ID for cloud scans'], ['PERCH_REPOSITORY', 'repository ID for cloud scans'], ['PERCH_API_KEY', 'direct-provider scan, check'], ['PERCH_BASE_URL', 'scan, check: exact request URL (default https://api.typesafe.ai/v1/systemone)'], ['PERCH_MODEL_ID', 'scan, check: model ID (default jev-latest)']])}`;
@@ -550,7 +553,8 @@ export async function main(argv, { stdout = text => process.stdout.write(text + 
   const debug = message => { if (verbose) stderr(`[perch] ${message}`); };
   try {
     // A command that returns a number is saying what the exit code should be.
-    const code = await command({ argument, args: positional.slice(1), flags, env, stdout, stderr, log, debug, verbose, note: noteFrom({ flags }, stderr) });
+    const configured = await configuredEnvironment(env);
+    const code = await command({ argument, args: positional.slice(1), flags, env: configured, stdout, stderr, log, debug, verbose, note: noteFrom({ flags }, stderr) });
     return typeof code === 'number' ? code : EXIT.clean;
   } catch (error) {
     if (error instanceof UsageError) return wrong(error.message, commandName);

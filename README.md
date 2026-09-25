@@ -26,13 +26,13 @@ Semantic code linting with Jev.
 
 ## Getting started
 
-Create an API key at [console.typesafe.ai](https://console.typesafe.ai) and set
-it as `PERCH_API_KEY`.
-
 ```sh
 npm install -g @lakeday/perch
-export PERCH_API_KEY=<your TypeSafe API key>
+perch login
 ```
+
+To use a TypeSafe API key directly, set `PERCH_API_KEY` instead of signing in.
+CLI defaults such as the Cloud URL and model can go in `~/.perch/config.toml`.
 
 ```console
 $ perch scan
