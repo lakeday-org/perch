@@ -3,6 +3,10 @@ import { readFile } from 'node:fs/promises';
 import { CORRECTNESS } from './ask.js';
 import { issuesFor, severityBand } from './questions.js';
 
+/**
+ * Which commit and branch a scan was of, and whether CI ran it. A pull request job checks out a merge commit nobody pushed, so
+ * the pull request's head is reported instead: that is the commit the dashboard and the check run belong to.
+ */
 export async function runContext(env, revision, localBranch = null) {
   const source = env.CI || env.GITHUB_ACTIONS ? 'ci' : 'cli';
   let head = null;
@@ -25,6 +29,10 @@ export async function runContext(env, revision, localBranch = null) {
   };
 }
 
+/**
+ * One row per issue a finding shows at this threshold, the same issues perch issues would list. Severity goes only on defects
+ * and vulnerabilities, where it means something. The Cloud takes at most 2,000 rows, and the worst come first.
+ */
 export function reportFindings(findings, min) {
   const rows = [];
   const seen = new Set();
