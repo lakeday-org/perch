@@ -130,11 +130,3 @@ ID in `PERCH_REPOSITORY`. CI can set `PERCH_TOKEN` to a repository-scoped cloud
 credential. An explicit `PERCH_BASE_URL` selects direct endpoint mode when
 `PERCH_TOKEN` is absent. The CLI's token-cost estimate excludes cloud markup
 and cache fees; the dashboard shows those charges.
-
-In GitHub Actions, a repository connected through the Perch GitHub App needs no
-secret. Give the job `permissions: id-token: write` and leave `PERCH_API_KEY`
-and `PERCH_TOKEN` unset; perch signs in with the job's OIDC token.
-
-A cloud scan sends its summary to the dashboard when it finishes: the counts,
-the commit, and each finding's id, file, method, line, kind and probability. No
-source is sent. The scan's exit code does not depend on that upload.
