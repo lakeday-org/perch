@@ -33,7 +33,7 @@ Every answer is a probability. `72%` is how sure perch is, and it stays on the r
 
 ```sh
 npm install -g @lakeday/perch
-perch login
+export PERCH_API_KEY=...
 ```
 
 Needs Node 22 and git.

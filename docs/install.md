@@ -25,13 +25,7 @@ Or run it without installing:
 npx @lakeday/perch scan
 ```
 
-## Sign in
-
-Run `perch login` and confirm the device code in your browser. The CLI saves the
-session in `~/.perch/cloud.json`. Set non-secret defaults such as `cloud_url`
-and `model` in `~/.perch/config.toml`; see [Configuration](/cli/#configuration).
-
-## Direct API access
+## The key
 
 Create an API key at [console.typesafe.ai](https://console.typesafe.ai) and set
 it as `PERCH_API_KEY`:
