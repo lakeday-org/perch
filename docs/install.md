@@ -3,15 +3,18 @@ title: Quick start
 nav: Quick start
 group: Getting started
 order: 2
-summary: Install, set the key, scan, and read the first thing it found.
+summary: Install perch, set the key, and run the first scan.
 ---
 
 # Quick start
 
 ## Requirements
 
-Node 22 or newer, git, and an API key for your endpoint. perch reads the repository at
-`HEAD`. The directory you run it in has to be a git checkout.
+- Node 22 or newer
+- git
+- An API key for your endpoint
+
+perch reads the repository at `HEAD`, so run it inside a git checkout.
 
 ## Install
 
@@ -34,85 +37,26 @@ it as `PERCH_API_KEY`:
 export PERCH_API_KEY=<your TypeSafe API key>
 ```
 
-For a proxy or local stand-in, set `PERCH_BASE_URL` to the complete request URL
-and `PERCH_MODEL_ID` to its model ID. Both commands use that URL unchanged.
-The defaults are `https://api.typesafe.ai/v1/systemone` and `jev-latest`;
-see [Environment](/cli/#environment) for the request contract.
+To use another endpoint, see [Environment](/cli/#environment).
 
 ## The first scan
 
-```sh
-perch scan
-```
-
-It parses every tracked file and ranks the methods by risk. It reads them worst
-first, walking out through callers and callees. It prints what it found grouped
-by file, and a count at the end:
+Run it at the root of the repository:
 
 ```console
 $ perch scan
-src/store.js
-  ID        Line  Severity  Type      Confidence  Problem             Method
-  d8f67bd9    46  -         refactor         72%  tangled_conditions  closures
-  463c56ed    63  -         refactor         74%  too_big             openStore
-  67defb37   134  -         refactor         73%  tangled_conditions  openStore.decide
+files.js
+  ID        Line  Severity  Type      Confidence  Problem                Method
+  623cd4c5     4  P0 (0.3)  security         89%  missing_authorization  readUpload
+  623cd4c5     4  P0 (0.3)  defect           70%  unhandled_null         readUpload
 
-src/checks.js
-  ID        Line  Severity  Type      Confidence  Problem  Method
-  90e449ae    27  -         refactor         68%  too_big  runChecks
+cart.js
+  ID        Line  Severity  Type    Confidence  Problem           Method
+  450b87b4    18  P1 (1.5)  defect         80%  bad_state_change  removeItem
 
-! 5 problems in 2 files, none failing
-perch at commit d4f7adf: 38 methods, read 2, 38 unchanged
-110 requests  81k tokens in / 5k out  $0.0034
+✖ 3 problems in 2 files, all failing
+shop at commit 19ff8ea: 6 methods, read 6
+6 requests  19k tokens in / 3k out  $0.0008
 ```
 
-A method is read again when its code, neighbours, questions, endpoint or model
-have changed. That is what `38 unchanged` counts.
-
-A first run over a large repository reads every method in scope. Narrow it while
-you are getting a feel for it:
-
-```sh
-perch scan --paths src
-perch scan --since origin/main
-```
-
-## The issue list
-
-`perch scan` reports by file. `perch issues` ranks across the whole repository,
-worst first:
-
-```console
-$ perch issues
-ID        Method             Location           Type      Kind                              Severity
-3a7c6bfe  build              …ts/build.mjs:183  refactor  too_big 99%, +3 more              P1 (1.4)
-1f235668  docPage            …pts/build.mjs:82  docs      docs 81%, too_big 77%, +1 more    P1 (1.3)
-eb9dfee4  versionAssets      …ts/build.mjs:161  security  resource_exhaustion 80%, +2 more  P1 (1.3)
-1-3 of 27 open issues. --page 2 for the next
-```
-
-The first column is the id. Give it to `perch issues` to open one up:
-
-```sh
-perch issues 3a7c6bfe
-```
-
-That prints everything perch answered about the method. The severity distribution, and every vulnerability class with its probability. It
-shows the line the defect points at and how sure that pick was. It also lists the callers and callees that
-were in view.
-
-## Checking a change
-
-`perch check` puts the same questions to code as it reads on disk, uncommitted.
-Nothing is recorded, so it is the one to run while you are working:
-
-```sh
-perch check 3a7c6bfe                          # whatever raised that issue
-perch check scripts/build.mjs::build          # a method, by name
-perch check scripts/build.mjs                 # a whole file
-```
-
-It exits 3 while something is still wrong, which is what a loop needs.
-
-
-- [perch in CI](/ci/) for the pull request setup.
+A large repository is hundreds of requests. `perch scan src` scans one directory.
