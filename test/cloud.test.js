@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loginCloud, logoutCloud } from '../src/cloud-auth.js';
+import { actionsToken, loginCloud, logoutCloud } from '../src/cloud-auth.js';
 import { createCloudClient, configuredSystemOne, remoteRepositoryName } from '../src/cloud-client.js';
 import { main } from '../src/cli.js';
 import { reportFindings, runContext } from '../src/cloud-results.js';
@@ -206,6 +206,23 @@ describe('Perch Cloud', () => {
     };
     await expect(configuredSystemOne({ env, root: process.cwd(), fetchImpl: async () => { throw new Error('unexpected request'); } }))
       .rejects.toThrow('PERCH_API_KEY is not set');
+  });
+  it('bounds result upload time while waiting for an Actions token', async () => {
+    const env = {
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'https://actions.example/token', ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runtime',
+    };
+    const requests = [];
+    const fetchImpl = (url, options) => {
+      requests.push(String(url));
+      return new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true }));
+    };
+    const client = createCloudClient({
+      origin: 'https://dash.perchscan.com', identity: 'oidc', organizationId: 'org', repositoryId: null,
+      getToken: actionsToken(env, 'https://dash.perchscan.com', fetchImpl), fetchImpl, reportTimeoutMs: 20,
+    });
+
+    await expect(client.report({ scan: { scope: 'full' }, findings: [] })).rejects.toThrow();
+    expect(requests).toEqual(['https://actions.example/token?audience=https%3A%2F%2Fdash.perchscan.com']);
   });
   it('an explicit key still wins over the Actions token', async () => {
     const root = await mkdtemp(join(tmpdir(), 'perch-key-'));

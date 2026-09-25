@@ -24,7 +24,9 @@ export function cloudOrigin(env) {
 }
 
 export async function cloudRequest(fetchImpl, url, options = {}, timeoutMs = 150000) {
-  const response = await fetchImpl(url, { ...options, signal: AbortSignal.timeout(timeoutMs) });
+  const timeout = AbortSignal.timeout(timeoutMs);
+  const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
+  const response = await fetchImpl(url, { ...options, signal });
   const data = await response.json().catch(() => null);
   if (!response.ok) {
     const detail = data?.error_description || data?.error || `Cloud request failed (${response.status})`;
@@ -148,13 +150,13 @@ export const actionsCanSignIn = env => Boolean(
 /** GitHub's OIDC token expires during long scans, so ask again before each five-minute window ends. */
 export function actionsToken(env, audience, fetchImpl = globalThis.fetch) {
   let cached = null;
-  return async () => {
+  return async signal => {
     if (cached && cached.until > Date.now()) return cached.value;
     const url = new URL(env.ACTIONS_ID_TOKEN_REQUEST_URL);
     url.searchParams.set('audience', audience);
     const response = await fetchImpl(url, {
       headers: { authorization: `bearer ${env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` },
-      signal: AbortSignal.timeout(30000),
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.value) {
@@ -175,9 +177,10 @@ function accessTokenValid(token) {
   } catch { return false; }
 }
 
-async function acquireRefreshLock(lock) {
+async function acquireRefreshLock(lock, signal) {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
+    signal?.throwIfAborted();
     try { await mkdir(lock, { mode: 0o700 }); return; }
     catch (error) {
       if (error.code !== 'EEXIST') throw error;
@@ -189,23 +192,24 @@ async function acquireRefreshLock(lock) {
   throw new Error('Another CLI process is refreshing this login. Retry when it finishes.');
 }
 
-export async function sessionToken(env, origin, fetchImpl) {
+export async function sessionToken(env, origin, fetchImpl, signal) {
+  signal?.throwIfAborted();
   const current = await readCloudLogin(env);
   if (!current || current.origin !== origin) throw new Error('Cloud login changed. Run perch login again.');
   if (accessTokenValid(current?.accessToken)) return current.accessToken;
 
   const lock = `${loginPath(env)}.lock`;
-  await acquireRefreshLock(lock);
+  await acquireRefreshLock(lock, signal);
   try {
     const saved = await readCloudLogin(env);
     if (!saved || saved.origin !== origin) throw new Error('Cloud login changed. Run perch login again.');
     if (accessTokenValid(saved.accessToken)) return saved.accessToken;
 
-    const session = await cloudRequest(fetchImpl, WORKOS_AUTH, formBody({
+    const session = await cloudRequest(fetchImpl, WORKOS_AUTH, { ...formBody({
       client_id: saved.clientId,
       grant_type: 'refresh_token',
       refresh_token: saved.refreshToken,
-    }));
+    }), signal });
     if (typeof session.access_token !== 'string' || !session.access_token
       || typeof session.refresh_token !== 'string' || !session.refresh_token) {
       throw new Error('Cloud session expired. Run perch login.');

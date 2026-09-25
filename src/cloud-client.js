@@ -8,7 +8,7 @@ import {
 /** The token supplier refreshes OIDC or user credentials during a long scan. */
 export function createCloudClient({
   origin, getToken, identity, organizationId, repositoryId,
-  model = 'jev-latest', log, fetchImpl = globalThis.fetch,
+  model = 'jev-latest', log, fetchImpl = globalThis.fetch, reportTimeoutMs = 10000,
 }) {
   const gateway = createSystemOne({
     apiKey: 'cloud',
@@ -29,10 +29,11 @@ export function createCloudClient({
   return {
     ...gateway,
     ...(repositoryId || identity !== 'user' ? { async report(report) {
-      const token = await getToken();
-      return cloudRequest(fetchImpl, `${origin}/v1/scans`, jsonBody(token, {
+      const signal = AbortSignal.timeout(reportTimeoutMs);
+      const token = await getToken(signal);
+      return cloudRequest(fetchImpl, `${origin}/v1/scans`, { ...jsonBody(token, {
         organizationId, repositoryId, ...report,
-      }), 10000);
+      }), signal }, reportTimeoutMs);
     } } : {}),
   };
 }
@@ -95,7 +96,7 @@ async function savedCredentials({ env, root, fetchImpl, saved }) {
     throw new Error('Saved login belongs to a different cloud URL. Run perch login for this endpoint.');
   }
 
-  const getToken = () => sessionToken(env, origin, fetchImpl);
+  const getToken = signal => sessionToken(env, origin, fetchImpl, signal);
   const organizationId = env.PERCH_ORGANIZATION || saved.organizationId;
   const repositoryId = await repositoryForLogin({
     env, root, origin, token: await getToken(), organizationId, fetchImpl,
