@@ -3,49 +3,14 @@ title: perch in CI
 nav: perch in CI
 group: Using perch
 order: 6
-summary: What CI can gate on, what it cannot, and a GitHub Actions job for pull requests.
+summary: Scan every pull request with GitHub Actions or GitLab CI.
 ---
 
 # perch in CI
 
-`perch scan` exits 3 when it found something wrong, and 0 otherwise.
-
-| | |
-| --- | --- |
-| 0 | nothing to act on |
-| 1 | perch could not run: no key, no git, a request that kept failing |
-| 2 | the command was typed wrong |
-| 3 | perch ran and found something that fails |
-
-CI shows those as different results. A run that could not start never reads as
-a run that found a bug.
-
-Everything a scan asks about fails it. `scan_types` in `perch.yaml` decides what
-it asks about, and defaults to defects, vulnerabilities and rules. A type not
-worth stopping for is left out rather than reported and ignored.
-
-`perch rules list` prints the setting in a Fails column. `perch rules edit
-<name> --gate false` records a question's answer without acting on it.
-
-## Branch scope
-
-`--since` narrows the scan to what moved:
-
-```console
-$ perch scan --since origin/main
-checkout.py
-  ID        Line  Severity  Type    Confidence  Problem     Method
-  bdc67421    14  P1 (0.8)  defect         81%  wrong_order  place_order
-
-✖ 1 problem in 1 file, all failing
-perch at commit 5e9d910: 3 methods, read 3
-3 requests  10k tokens in / 2k out  $0.0004
-```
-
-A pull request reads the methods it touched and their neighbourhood. That is a
-handful of requests where a whole repository is hundreds.
-
 ## GitHub Actions
+
+Add your API key as the repository secret `PERCH_API_KEY`, then commit this as `.github/workflows/perch.yml`:
 
 ```yaml
 name: perch
@@ -57,59 +22,60 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0          # --since needs the base branch
-
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-
-      - run: npm install -g @lakeday/perch
-
-      - name: scan what this branch changed
+      - run: npx --yes @lakeday/perch scan --since origin/${{ github.base_ref }}
         env:
           PERCH_API_KEY: ${{ secrets.PERCH_API_KEY }}
-        run: perch scan --since origin/${{ github.base_ref }}
-
-      - name: the worst of what it found
-        if: always()
-        run: perch issues --all --min 80
 ```
 
-Without the base branch in the checkout, `--since` has nothing to compare
-against, so `fetch-depth: 0` is not optional.
-
-## Reports without gating
-
-To collect findings without failing anything, read the JSON and decide yourself:
-
-```sh
-perch scan --since origin/main --json > perch.json || true
-jq '[.[] | select(.issues[]? | .type == "security" and .probability > 0.9)]' perch.json
-```
-
-## Shared closures
-
-`perch close` writes to `.perch/closed.jsonl`. Commit it to share the team's
-dismissals. CI then leaves alone what somebody has already looked at.
-
-## Cost
-
-A scan of this repository, 416 methods and 20 rules:
+A pull request that adds a bug fails the job:
 
 ```console
-perch at commit 40839bc: 416 methods, read 416, 119 unchanged
-1225 requests  3.2M tokens in / 365k out  $0.13
+$ npx --yes @lakeday/perch scan --since origin/main
+cart.js
+  ID        Line  Severity  Type    Confidence  Problem           Method
+  450b87b4    18  P1 (1.4)  defect         76%  bad_state_change  removeItem
+
+✖ 1 problem in 1 file, all failing
+shop at commit a97a4f6: 4 methods, read 4
+4 requests  13k tokens in / 2k out  $0.0005
 ```
 
-416 of those requests are the methods. The other 809 are the rules. Four things
-add requests:
+`fetch-depth: 0` gives `--since` the base branch to compare against.
 
-| | |
+Pull requests from forks get no secrets. To skip them, add this to the job:
+
+```yaml
+    if: github.event.pull_request.head.repo.full_name == github.repository
+```
+
+## GitLab CI
+
+Add `PERCH_API_KEY` as a masked CI/CD variable, then add this job to `.gitlab-ci.yml`:
+
+```yaml
+perch:
+  image: node:22
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    GIT_DEPTH: 0
+  script:
+    - git fetch origin $CI_MERGE_REQUEST_TARGET_BRANCH_NAME
+    - npx --yes @lakeday/perch scan --since origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME
+```
+
+## Exit codes
+
+| Code | |
 | --- | --- |
-| A method | One request. All the questions go in it, so thirty cost the same as one. |
-| A method too long for one request | Up to eight, in overlapping passes. |
-| A file rule | One per file, plus one per failing file to locate the line. |
-| `ensure_present` or `ensure_absent` | One per unit, until one matches. See [the cost of a search](/rules/#the-cost-of-a-search). |
+| 0 | nothing to act on |
+| 1 | perch could not run |
+| 2 | the command was typed wrong |
+| 3 | perch found something that fails |
 
-`--since` sets how many methods are read. `--parallel` sets how fast they go.
-Neither changes the request count. Output tokens are not billed.
+`scan_types` in `perch.yaml` sets which issue types fail the job. `perch rules edit <name> --gate false` reports a rule
+without failing on it.
