@@ -1,0 +1,28 @@
+# What perch keeps in .perch between runs. Answers are not kept: the endpoint caches those, so every run asks. The parse of a
+# commit is kept, because it is local work that a model never sees and perch issues needs it on every call.
+- name: scan-asks-every-method
+  where: src/scan.js
+  ensure: >-
+    Read the ask function inside scanRepository. Every method it is handed
+    that is not skipped for being out of scope is sent to the model through
+    questionMethod. Returning an answer an earlier run saved, instead of
+    asking, breaks this rule.
+- name: rules-asked-every-run
+  where: src/units.js
+  ensure: >-
+    Read askOne inside askUnits and the plans inside searchUnits. Every unit
+    and rule in scope is sent to the model. Skipping a request because a check
+    an earlier run saved still matches breaks this rule.
+- name: parse-reused-per-commit
+  where: src/analyze.js
+  ensure: >-
+    analyzeTree returns the saved scan.json when a complete one exists for
+    the same scan id, before listing the tree or parsing any file. Parsing
+    again when a complete analysis for that id is on disk breaks this rule.
+- name: pruning-keeps-recent-folders
+  where: src/store.js
+  ensure: >-
+    Read the code that removes earlier scan and run folders. It keeps the
+    current folder and the most recent others, so a run another process is
+    still writing survives. Removing every folder except the current one
+    breaks this rule.

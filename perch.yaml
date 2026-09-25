@@ -58,9 +58,9 @@ rules:
     except: "src/cli.js"
     each: method
     ensure: >-
-      This method does not read configuration directly from process.env.
-      Reading a passed env parameter is permitted. Passing process.env through
-      to a child process without inspecting its configuration is permitted.
+      This method does not read configuration out of process.env. Reading the
+      environment is the command line's job, and everything below it is passed
+      the values. Handing the environment to a child process is not this.
 
   - name: issues-closable
     where: "test/**/*.js"
