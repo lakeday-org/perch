@@ -56,7 +56,7 @@ it('checks a file over 1 MiB in bounded requests and answers the rule from the p
   });
   const output = [], errors = [];
   const code = await main(['scan', root, '--filter', 'rule=prose'], {
-    env: { PERCH_API_KEY: 'fixture' }, stdout: text => output.push(text), stderr: text => errors.push(text),
+    env: { PERCH_API_KEY: 'fixture', PERCH_BASE_URL: 'https://api.typesafe.ai/v1/systemone' }, stdout: text => output.push(text), stderr: text => errors.push(text),
   });
   expect(code, JSON.stringify({output, errors})).toBe(0);
   expect(errors.join('\n')).not.toContain('incomplete');

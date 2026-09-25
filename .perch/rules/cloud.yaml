@@ -1,11 +1,11 @@
-# Perch Cloud is opt-in: a login, a CI token, or a Cloud URL set on purpose. A scan's result is its exit code, and the
-# dashboard is a view of it.
-- name: oidc-needs-a-cloud-url
+# Perch Cloud is where questions go unless PERCH_BASE_URL says otherwise. A scan's result is its exit code, and the dashboard
+# is a view of it.
+- name: cloud-unless-base-url
   where: src/cloud-client.js
   ensure: >-
-    Read credentialSource. GitHub Actions OIDC is chosen only when a Cloud
-    URL was set. Choosing Perch Cloud because the job can request an OIDC
-    token, with no Cloud URL set, breaks this rule.
+    Read credentialSource. Questions go to Perch Cloud unless PERCH_BASE_URL
+    is set. Choosing another endpoint because of anything else, such as an
+    API key being set or a Cloud URL setting, breaks this rule.
 - name: upload-keeps-the-exit-code
   where: src/cli.js
   ensure: >-

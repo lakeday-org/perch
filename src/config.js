@@ -4,7 +4,6 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 const settings = {
-  cloud_url: 'PERCH_CLOUD_URL',
   organization: 'PERCH_ORGANIZATION',
   repository: 'PERCH_REPOSITORY',
   base_url: 'PERCH_BASE_URL',
@@ -13,7 +12,7 @@ const settings = {
 
 export const configPath = env => join(env.HOME || homedir(), '.perch', 'config.toml');
 
-/** Five settings, each a quoted string, is all this file holds, and reading that takes less than a TOML parser as a dependency. */
+/** Four settings, each a quoted string, is all this file holds, and reading that takes less than a TOML parser as a dependency. */
 function parseConfig(content) {
   const config = Object.create(null);
   for (const [index, raw] of content.replace(/^\uFEFF/, '').split(/\r?\n/).entries()) {

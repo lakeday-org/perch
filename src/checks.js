@@ -21,10 +21,10 @@ const ok = (name, found) => ({ name, ok: true, found });
 const bad = (name, found, fix) => ({ name, ok: false, found, fix });
 
 /**
- * Every check, in the order they stop mattering. A key you do not have makes the rest moot, so it comes first; a rule file that
+ * Every check, in the order they stop mattering. A credential you do not have makes the rest moot, so it comes first; a rule file that
  * does not parse only matters once perch can run at all.
  */
-export async function runChecks({ root, out, env, versions, cloud = false }) {
+export async function runChecks({ root, out, env, versions, credential = 'none' }) {
   const checks = [];
 
   const major = Number(String(versions.node).replace(/^v/, '').split('.')[0]);
@@ -32,10 +32,17 @@ export async function runChecks({ root, out, env, versions, cloud = false }) {
     ? ok('node', versions.node)
     : bad('node', versions.node, `perch needs node ${NEEDS_NODE} or newer`));
 
+  // Which credential scans will use, as credentialSource decided it, and never its value.
   const keyName = env.PERCH_API_KEY ? 'PERCH_API_KEY' : 'TYPESAFE_API_KEY';
-  checks.push(cloud ? ok('key', 'Perch Cloud login or CI credential') : env[keyName]
-    ? ok('key', `${keyName}, ${env[keyName].length} characters`)
-    : bad('key', 'PERCH_API_KEY is not set', 'export it, or put it in a .env beside the repository'));
+  const signIn = 'run perch login, or set PERCH_API_KEY to a CI token from the dashboard';
+  checks.push({
+    token: ok('key', `PERCH_API_KEY, ${env.PERCH_API_KEY?.length} characters, for Perch Cloud`),
+    saved: ok('key', 'signed in to Perch Cloud'),
+    actions: ok('key', 'GitHub Actions OIDC, for Perch Cloud'),
+    direct: env[keyName] ? ok('key', `${keyName}, ${env[keyName]?.length} characters, for ${env.PERCH_BASE_URL}`)
+      : bad('key', `PERCH_BASE_URL is set and PERCH_API_KEY is not`, 'set PERCH_API_KEY to that endpoint\'s key'),
+    none: bad('key', 'not signed in to Perch Cloud', signIn),
+  }[credential]);
 
   const version = await git(['--version'], root).then(text => text.trim()).catch(error => error);
   checks.push(typeof version === 'string'

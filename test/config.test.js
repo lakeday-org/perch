@@ -21,14 +21,12 @@ async function configHome(content) {
 
 describe('CLI configuration', () => {
   it('uses ~/.perch/config.toml for endpoint, model, and Cloud scope', async () => {
-    const home = await configHome(`cloud_url = "https://cloud.example.com"
-model = "jev-test"
+    const home = await configHome(`model = "jev-test"
 organization = "org-test"
 repository = "repo-test"
 `);
-    const env = await configuredEnvironment({ HOME: home, PERCH_TOKEN: 'perch_ci_test' });
+    const env = await configuredEnvironment({ HOME: home, PERCH_API_KEY: 'perch_ci_test' });
     expect(env).toMatchObject({
-      PERCH_CLOUD_URL: 'https://cloud.example.com',
       PERCH_MODEL_ID: 'jev-test',
       PERCH_ORGANIZATION: 'org-test',
       PERCH_REPOSITORY: 'repo-test',
@@ -43,35 +41,32 @@ repository = "repo-test"
   });
 
   it('lets environment values override the config file', async () => {
-    const home = await configHome('cloud_url = "https://cloud.example.com"\nbase_url = "https://api.example.com/v1/systemone"\nmodel = "jev-config"\n');
-    const env = await configuredEnvironment({
-      HOME: home, PERCH_CLOUD_URL: 'https://override.example.com', PERCH_MODEL_ID: 'jev-env',
-    });
-    expect(env.PERCH_CLOUD_URL).toBe('https://override.example.com');
+    const home = await configHome('base_url = "https://api.example.com/v1/systemone"\nmodel = "jev-config"\n');
+    const env = await configuredEnvironment({ HOME: home, PERCH_MODEL_ID: 'jev-env' });
     expect(env.PERCH_MODEL_ID).toBe('jev-env');
     expect(env.PERCH_BASE_URL).toBe('https://api.example.com/v1/systemone');
   });
 
   it('accepts comments and literal strings without reading a hash inside a URL as a comment', async () => {
-    const home = await configHome('# Local defaults\ncloud_url = "https://cloud.example.com/#preview" # endpoint\norganization = \'team-one\'\n');
+    const home = await configHome('# Local defaults\nbase_url = "https://gateway.example.com/#preview" # endpoint\norganization = \'team-one\'\n');
     const env = await configuredEnvironment({ HOME: home });
-    expect(env.PERCH_CLOUD_URL).toBe('https://cloud.example.com/#preview');
+    expect(env.PERCH_BASE_URL).toBe('https://gateway.example.com/#preview');
     expect(env.PERCH_ORGANIZATION).toBe('team-one');
   });
 
   it('reports invalid and unknown settings instead of silently using another endpoint', async () => {
     const home = await configHome('model = 12\n');
     await expect(configuredEnvironment({ HOME: home })).rejects.toThrow('model');
-    await writeFile(join(home, '.perch', 'config.toml'), 'cluod_url = "https://example.com"\n');
-    await expect(configuredEnvironment({ HOME: home })).rejects.toThrow('Unknown setting cluod_url');
-    await writeFile(join(home, '.perch', 'config.toml'), 'cloud_url = [\n');
+    await writeFile(join(home, '.perch', 'config.toml'), 'modle = "https://example.com"\n');
+    await expect(configuredEnvironment({ HOME: home })).rejects.toThrow('Unknown setting modle');
+    await writeFile(join(home, '.perch', 'config.toml'), 'model = [\n');
     await expect(configuredEnvironment({ HOME: home })).rejects.toThrow('Invalid');
     await writeFile(join(home, '.perch', 'config.toml'), 'model = "jev"\nmodel = "other"\n');
     await expect(configuredEnvironment({ HOME: home })).rejects.toThrow('Duplicate setting model');
   });
 
   it('keeps local commands usable with a bad config and reports it in doctor', async () => {
-    const home = await configHome('cluod_url = "https://example.com"\n');
+    const home = await configHome('modle = "https://example.com"\n');
     const output = [], errors = [];
     const io = { env: { HOME: home }, stdout: text => output.push(text), stderr: text => errors.push(text) };
 
@@ -80,7 +75,7 @@ repository = "repo-test"
     expect(await main(['doctor', '--json', '--out', join(home, 'results')], io)).toBe(1);
     const doctor = JSON.parse(output.at(-1));
     expect(doctor.checks).toContainEqual(expect.objectContaining({ name: 'config', ok: false }));
-    expect(doctor.checks.find(check => check.name === 'config').found).toContain('Unknown setting cluod_url');
+    expect(doctor.checks.find(check => check.name === 'config').found).toContain('Unknown setting modle');
     expect(await main(['logout'], io)).toBe(0);
     expect(errors).not.toContainEqual(expect.stringContaining('perch:'));
   });

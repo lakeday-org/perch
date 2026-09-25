@@ -93,12 +93,12 @@ describe('Perch Cloud', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
-  it('CI credentials use the gateway without requesting a provider key', async () => {
+  it('a PERCH_API_KEY with no PERCH_BASE_URL is a Perch Cloud CI token', async () => {
     const root = await mkdtemp(join(tmpdir(), 'perch-cloud-'));
     try {
       const requests = [];
       const client = await configuredSystemOne({
-        env: { HOME: root, PERCH_TOKEN: 'perch_ci_test' }, root,
+        env: { HOME: root, PERCH_API_KEY: 'perch_ci_test' }, root,
         fetchImpl: async (url, options) => {
           requests.push({ url, options });
           return response(url.endsWith('/config') ? { model: 'jev-1', epoch: '2' } : { answers: { a: { noul: 1 } } });
@@ -190,7 +190,7 @@ describe('Perch Cloud', () => {
     };
     const env = {
       GITHUB_ACTIONS: 'true', ACTIONS_ID_TOKEN_REQUEST_URL: 'https://actions.example/token?x=1',
-      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runtime', PERCH_CLOUD_URL: 'https://dash.perchscan.com', HOME: '/nonexistent',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runtime', HOME: '/nonexistent',
     };
     const client = await configuredSystemOne({ env, root: process.cwd(), fetchImpl });
     await client.ask({ code: 'a' }, { a: { type: 'noul', criteria: { true: 'y', false: 'n' } } });
@@ -199,13 +199,9 @@ describe('Perch Cloud', () => {
     expect(seen[0].body.repositoryId).toBeUndefined();
     expect(seen[1].url).toBe('https://dash.perchscan.com/v1/scans');
   });
-  it('does not send code to Cloud merely because Actions offers an OIDC token', async () => {
-    const env = {
-      GITHUB_ACTIONS: 'true', ACTIONS_ID_TOKEN_REQUEST_URL: 'https://actions.example/token',
-      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runtime', HOME: '/nonexistent',
-    };
-    await expect(configuredSystemOne({ env, root: process.cwd(), fetchImpl: async () => { throw new Error('unexpected request'); } }))
-      .rejects.toThrow('PERCH_API_KEY is not set');
+  it('says to sign in when there is no login, key or Actions token, before sending anything', async () => {
+    await expect(configuredSystemOne({ env: { HOME: '/nonexistent' }, root: process.cwd(), fetchImpl: async () => { throw new Error('unexpected request'); } }))
+      .rejects.toThrow('Run perch login, or set PERCH_API_KEY');
   });
   it('bounds result upload time while waiting for an Actions token', async () => {
     const env = {
@@ -224,16 +220,22 @@ describe('Perch Cloud', () => {
     await expect(client.report({ scan: { scope: 'full' }, findings: [] })).rejects.toThrow();
     expect(requests).toEqual(['https://actions.example/token?audience=https%3A%2F%2Fdash.perchscan.com']);
   });
-  it('an explicit key still wins over the Actions token', async () => {
+  it('PERCH_BASE_URL is the one setting that sends questions somewhere other than Perch Cloud', async () => {
     const root = await mkdtemp(join(tmpdir(), 'perch-key-'));
     try {
       await mkdir(join(root, '.perch'));
-      await writeFile(join(root, '.perch', 'cloud.json'), JSON.stringify({ origin: 'https://cloud.example.com', accessToken: 'saved' }));
+      await writeFile(join(root, '.perch', 'cloud.json'), JSON.stringify({ origin: 'https://dash.perchscan.com', accessToken: 'saved' }));
       const env = {
-        GITHUB_ACTIONS: 'true', ACTIONS_ID_TOKEN_REQUEST_URL: 'https://actions.example/token',
-        ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runtime', PERCH_API_KEY: 'key', HOME: root,
+        GITHUB_ACTIONS: 'true', ACTIONS_ID_TOKEN_REQUEST_URL: 'https://actions.example/token', ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runtime',
+        PERCH_API_KEY: 'key', PERCH_BASE_URL: 'https://api.example.com/v1/systemone', HOME: root,
       };
-      const client = await configuredSystemOne({ env, root, fetchImpl: async () => { throw new Error('no request expected'); } });
+      const requests = [];
+      const client = await configuredSystemOne({ env, root, fetchImpl: async (url, options) => {
+        requests.push({ url: String(url), auth: options.headers.authorization });
+        return response({ model: 'jev-latest', answers: { a: { noul: 0.9 } }, usage: null });
+      } });
+      await client.ask({ code: 'a' }, { a: { type: 'noul', criteria: { true: 'yes', false: 'no' } } });
+      expect(requests).toEqual([{ url: 'https://api.example.com/v1/systemone', auth: 'Bearer key' }]);
       expect(client.report).toBeUndefined();
     } finally { await rm(root, { recursive: true, force: true }); }
   });

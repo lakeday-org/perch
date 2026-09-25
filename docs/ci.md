@@ -10,7 +10,7 @@ summary: Scan every pull request with GitHub Actions or GitLab CI.
 
 ## GitHub Actions
 
-Add your API key as the repository secret `PERCH_API_KEY`, then commit this as `.github/workflows/perch.yml`:
+Create a CI token in the [Perch dashboard](https://dash.perchscan.com) and add it as the repository secret `PERCH_API_KEY`, then commit this as `.github/workflows/perch.yml`:
 
 ```yaml
 name: perch
@@ -54,7 +54,7 @@ Pull requests from forks get no secrets. To skip them, add this to the job:
 
 ## GitLab CI
 
-Add `PERCH_API_KEY` as a masked CI/CD variable, then add this job to `.gitlab-ci.yml`:
+Add the CI token as a masked CI/CD variable named `PERCH_API_KEY`, then add this job to `.gitlab-ci.yml`:
 
 ```yaml
 perch:

@@ -17,9 +17,9 @@ rules:
   - name: client-honors-api-configuration
     where: src/cloud-client.js
     ensure: >-
-      Direct-provider scans use PERCH_API_KEY, falling back to TYPESAFE_API_KEY,
-      and pass PERCH_BASE_URL and PERCH_MODEL_ID to createSystemOne. An
-      explicit direct-provider setting takes precedence over saved Cloud login.
+      When PERCH_BASE_URL is set, scans use PERCH_API_KEY, falling back to
+      TYPESAFE_API_KEY, and pass PERCH_BASE_URL and PERCH_MODEL_ID to
+      createSystemOne. PERCH_BASE_URL takes precedence over a saved Cloud login.
   - name: configured-endpoint-is-exact
     where: src/systemone.js
     ensure: >-

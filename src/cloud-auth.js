@@ -4,7 +4,7 @@ import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-/** The Cloud when no URL is set: where perch login signs in, and the Cloud a saved login has to have been made against. */
+/** Perch Cloud. Every scan goes here unless PERCH_BASE_URL names another endpoint, and there is no setting to point it elsewhere. */
 export const CLOUD_ORIGIN = 'https://dash.perchscan.com';
 // The Cloud signs users in through WorkOS, so the device flow and token refresh talk to WorkOS directly, with the client id the
 // Cloud publishes at /api/config.
@@ -12,24 +12,6 @@ const WORKOS_AUTH = 'https://api.workos.com/user_management/authenticate';
 const DEVICE_AUTH = 'https://api.workos.com/user_management/authorize/device';
 /** A pause, passed in to login so tests do not wait out the polling interval. */
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-/**
- * The Cloud's origin, checked before anything is sent to it, since a login's tokens and a repository's code go there. HTTPS only,
- * except on localhost for running the Cloud locally. A path or query is refused because perch appends its own routes.
- */
-export function cloudOrigin(env) {
-  const value = env.PERCH_CLOUD_URL || CLOUD_ORIGIN;
-  let url;
-  try { url = new URL(value); }
-  catch { throw new Error('PERCH_CLOUD_URL must be a valid origin.'); }
-
-  const localhost = url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname);
-  if (url.protocol !== 'https:' && !localhost) throw new Error('PERCH_CLOUD_URL must use HTTPS.');
-  if (url.username || url.password || url.search || url.hash || url.pathname !== '/') {
-    throw new Error('PERCH_CLOUD_URL must be an origin without credentials or a path.');
-  }
-  return url.origin;
-}
 
 /**
  * One request to the Cloud or WorkOS, returning the parsed body. A failure carries the server's own error text and status, which
@@ -124,8 +106,7 @@ async function waitForDeviceToken({ clientId, device, fetchImpl, sleep }) {
  * The device code and the tokens are never printed, only the code the user types.
  */
 export async function loginCloud({ env, organization, stdout, fetchImpl = globalThis.fetch, sleep = wait }) {
-  const origin = cloudOrigin(env);
-  const { clientId } = await cloudRequest(fetchImpl, `${origin}/api/config`);
+  const { clientId } = await cloudRequest(fetchImpl, `${CLOUD_ORIGIN}/api/config`);
   if (typeof clientId !== 'string' || !clientId) throw new Error('Perch Cloud sign-in is not configured yet.');
 
   const device = await cloudRequest(fetchImpl, DEVICE_AUTH, formBody({ client_id: clientId }));
@@ -142,7 +123,7 @@ export async function loginCloud({ env, organization, stdout, fetchImpl = global
     throw new Error('Perch Cloud sign-in returned invalid credentials. Run perch login again.');
   }
 
-  const user = await cloudRequest(fetchImpl, `${origin}/api/me`, {
+  const user = await cloudRequest(fetchImpl, `${CLOUD_ORIGIN}/api/me`, {
     headers: { authorization: `Bearer ${session.access_token}` },
   });
   if (!Array.isArray(user.organizations) || !user.organizations.every(org => org && typeof org.id === 'string' && typeof org.name === 'string')) {
@@ -158,7 +139,7 @@ export async function loginCloud({ env, organization, stdout, fetchImpl = global
   }
 
   await saveCloudLogin(env, {
-    origin,
+    origin: CLOUD_ORIGIN,
     clientId,
     organizationId: selected.id,
     accessToken: session.access_token,
@@ -236,17 +217,17 @@ async function acquireRefreshLock(lock, signal) {
  * A current access token for the saved login, refreshed when it is about to expire. The login is read again inside the lock,
  * since another process may have refreshed it while this one waited.
  */
-export async function sessionToken(env, origin, fetchImpl, signal) {
+export async function sessionToken(env, fetchImpl, signal) {
   signal?.throwIfAborted();
   const current = await readCloudLogin(env);
-  if (!current || current.origin !== origin) throw new Error('Cloud login changed. Run perch login again.');
+  if (!current || current.origin !== CLOUD_ORIGIN) throw new Error('Cloud login changed. Run perch login again.');
   if (accessTokenValid(current?.accessToken)) return current.accessToken;
 
   const lock = `${loginPath(env)}.lock`;
   await acquireRefreshLock(lock, signal);
   try {
     const saved = await readCloudLogin(env);
-    if (!saved || saved.origin !== origin) throw new Error('Cloud login changed. Run perch login again.');
+    if (!saved || saved.origin !== CLOUD_ORIGIN) throw new Error('Cloud login changed. Run perch login again.');
     if (accessTokenValid(saved.accessToken)) return saved.accessToken;
 
     const session = await cloudRequest(fetchImpl, WORKOS_AUTH, { ...formBody({
