@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.6](https://github.com/lakeday-org/perch/compare/v0.3.5...v0.3.6) (2026-09-25)
+
+
+### Features
+
+* cloud scans report their results, and GitHub Actions signs in without a secret ([#157](https://github.com/lakeday-org/perch/issues/157)) ([ffd6d94](https://github.com/lakeday-org/perch/commit/ffd6d9406f724339a1df9aab71e6e19e0c7089cb))
+* sign into Perch Cloud from the CLI ([#142](https://github.com/lakeday-org/perch/issues/142)) ([acf0df1](https://github.com/lakeday-org/perch/commit/acf0df146ed814da31aa4d57ea2d36808178a03f))
+
+
+### Bug Fixes
+
+* perch issues &lt;id&gt; printed documented NaN% on a default scan ([#165](https://github.com/lakeday-org/perch/issues/165)) ([b50eb63](https://github.com/lakeday-org/perch/commit/b50eb6365fee3fc94ae2b761b558dce0f86d8f08))
+
+
+### Reverts
+
+* Perch Cloud login and results upload in the CLI ([#168](https://github.com/lakeday-org/perch/issues/168)) ([5cb8840](https://github.com/lakeday-org/perch/commit/5cb8840137e79b44cdb46ba811dd9bcaa136cae1))
+
 ## [0.3.5](https://github.com/lakeday-org/perch/compare/v0.3.4...v0.3.5) (2026-09-24)
 
 
