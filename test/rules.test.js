@@ -157,22 +157,22 @@ rules:
   it('turns off a question perch ships, and turns it back on', async () => {
     const { root, read, rules } = await withRules(STARTING);
     // A shipped question is not in your file to delete, so stopping it is a line saying so rather than a silence.
-    expect(await removeRule(root, 'weak_crypto')).toEqual({ name: 'weak_crypto', file: RULES_FILE, turnedOff: true });
-    expect(await read()).toContain('name: weak_crypto');
-    const off = (await rules()).find(rule => rule.name === 'weak_crypto');
+    expect(await removeRule(root, 'cwe_89')).toEqual({ name: 'cwe_89', file: RULES_FILE, turnedOff: true });
+    expect(await read()).toContain('name: cwe_89');
+    const off = (await rules()).find(rule => rule.name === 'cwe_89');
     expect(off).toMatchObject({ disabled: true });
     installQuestions(merge(BUILTIN, await rules()));
-    expect(questionSet().some(question => question.name === 'weak_crypto')).toBe(false);
+    expect(questionSet().some(question => question.name === 'cwe_89')).toBe(false);
     // Everything else perch ships is still asked.
-    expect(questionSet().some(question => question.name === 'injection')).toBe(true);
+    expect(questionSet().some(question => question.name === 'cwe_79')).toBe(true);
 
     // Editing it is asking for it back, and it comes back as perch wrote it with the change applied.
-    await editRule(root, 'weak_crypto', { where: 'src/**/*.js' });
+    await editRule(root, 'cwe_89', { where: 'src/**/*.js' });
     expect(await read()).not.toContain('disabled');
     installQuestions(merge(BUILTIN, await rules()));
-    const back = questionSet().find(question => question.name === 'weak_crypto');
+    const back = questionSet().find(question => question.name === 'cwe_89');
     expect(back).toMatchObject({ where: 'src/**/*.js', type: 'noul', each: 'method' });
-    expect(back.true).toContain('predictable randomness');
+    expect(back.true).toContain('SQL syntax');
   });
 
   it('changes a question perch ships by copying it into your file, not by editing the package', async () => {
@@ -287,8 +287,8 @@ describe('rules split across files', () => {
 
   it('turns a shipped question off in the file --file names, and renames only to a free name', async () => {
     const { root, read, split } = await withSplit();
-    expect(await removeRule(root, 'weak_crypto', { file: '.perch/rules/docs.yaml' })).toEqual({ name: 'weak_crypto', file: '.perch/rules/docs.yaml', turnedOff: true });
-    expect(await split()).toContain('name: weak_crypto');
+    expect(await removeRule(root, 'cwe_89', { file: '.perch/rules/docs.yaml' })).toEqual({ name: 'cwe_89', file: '.perch/rules/docs.yaml', turnedOff: true });
+    expect(await split()).toContain('name: cwe_89');
     expect(await read()).toBe(STARTING);
     await expect(editRule(root, 'prose', { name: 'docs-short' })).rejects.toThrow('docs-short is already a rule in .perch/rules/docs.yaml');
   });
