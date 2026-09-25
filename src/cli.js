@@ -2,7 +2,9 @@
 import { join } from 'node:path';
 import { git, repoRoot, revision as gitRevision } from './git.js';
 import { resolveTarget } from './target.js';
-import { configuredSystemOne, loginCloud, logoutCloud, hasCloudLogin, reportFindings, runContext } from './cloud.js';
+import { loginCloud, logoutCloud, hasCloudLogin } from './cloud-auth.js';
+import { configuredSystemOne } from './cloud-client.js';
+import { reportFindings, runContext } from './cloud-results.js';
 import { createSourceAnalyzer } from './analysis.js';
 import { openStore, resolveOut } from './store.js';
 import { analyzeTree } from './analyze.js';

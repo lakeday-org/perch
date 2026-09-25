@@ -2,25 +2,29 @@ import { describe, it, expect } from 'vitest';
 import { mkdtemp, readFile, stat, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createCloudClient, configuredSystemOne, loginCloud, logoutCloud, reportFindings, runContext } from '../src/cloud.js';
+import { loginCloud, logoutCloud } from '../src/cloud-auth.js';
+import { createCloudClient, configuredSystemOne } from '../src/cloud-client.js';
+import { reportFindings, runContext } from '../src/cloud-results.js';
 import { createMeter, metered } from '../src/meter.js';
 const response = data => new Response(JSON.stringify(data));
 describe('Perch Cloud', () => {
   it('uses the standard client protocol with cloud repository scope and provider metering', async () => {
-    const requests = [], client = createCloudClient({origin:'https://example.com',token:'perch_ci_test',organizationId:'org',repositoryId:'repo',fetchImpl:async(url,options)=>{
+    const requests = [], client = createCloudClient({origin:'https://example.com',getToken:async()=> 'perch_ci_test',identity:'ci',organizationId:'org',repositoryId:'repo',fetchImpl:async(url,options)=>{
       requests.push({url,body:JSON.parse(options.body)});return response({model:'jev-latest',answers:{a:{noul:.9}},usage:null});
     }});
     const meter=createMeter();await metered(client,meter).ask({code:'a'},{a:{type:'noul',criteria:{true:'yes',false:'no'}}});
     expect(requests).toHaveLength(1);expect(requests[0].url).toBe('https://example.com/v1/systemone');expect(requests[0].body.organizationId).toBe('org');expect(requests[0].body.repositoryId).toBe('repo');expect(meter.total()).toBe(0);
   });
   it('isolates local answer identity by tenant, repo, model epoch and gateway',()=>{
-    const base={origin:'https://example.com',token:'x',organizationId:'one',repositoryId:'repo',epoch:'1'};
+    const base={origin:'https://example.com',getToken:async()=> 'x',identity:'user',organizationId:'one',repositoryId:'repo',epoch:'1'};
     for(const change of [{organizationId:'two'},{repositoryId:'other'},{epoch:'2'},{origin:'https://elsewhere.com'}]) expect(createCloudClient({...base,...change}).cacheKey).not.toBe(createCloudClient(base).cacheKey);
   });
   it('keeps user cache identity through token refresh but separates CI credentials',()=>{
     const base={origin:'https://example.com',organizationId:'one',repositoryId:'repo'};
-    expect(createCloudClient({...base,token:'old-jwt'}).cacheKey).toBe(createCloudClient({...base,token:'new-jwt'}).cacheKey);
-    expect(createCloudClient({...base,token:'perch_ci_a'}).cacheKey).not.toBe(createCloudClient({...base,token:'perch_ci_b'}).cacheKey);
+    expect(createCloudClient({...base,getToken:async()=> 'old-jwt',identity:'user'}).cacheKey)
+      .toBe(createCloudClient({...base,getToken:async()=> 'new-jwt',identity:'user'}).cacheKey);
+    expect(createCloudClient({...base,identity:'ci-a'}).cacheKey)
+      .not.toBe(createCloudClient({...base,identity:'ci-b'}).cacheKey);
   });
   it('serializes concurrent refreshes of the same rotating credential',async()=>{
     const root=await mkdtemp(join(tmpdir(),'perch-refresh-'));
@@ -82,7 +86,7 @@ describe('Perch Cloud', () => {
     const root = await mkdtemp(join(tmpdir(), 'perch-key-'));
     try {
       await mkdir(join(root, 'perch'));
-      await writeFile(join(root, 'perch', 'cloud.json'), JSON.stringify({ origin: 'https://dash-staging.perchscan.com', accessToken: 'saved' }));
+      await writeFile(join(root, 'perch', 'cloud.json'), JSON.stringify({ origin: 'https://cloud.example.com', accessToken: 'saved' }));
       const env = { GITHUB_ACTIONS: 'true', ACTIONS_ID_TOKEN_REQUEST_URL: 'https://actions.example/token', ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runtime',
         PERCH_API_KEY: 'key', XDG_CONFIG_HOME: root };
       expect((await configuredSystemOne({ env, root, fetchImpl: async () => { throw new Error('no request expected'); } })).report).toBeUndefined();
