@@ -228,7 +228,6 @@ it includes the end of `.perch/scan.log`.
 | `PERCH_API_KEY` | `scan`, `check`: bearer token for the configured endpoint; required. |
 | `PERCH_BASE_URL` | `scan`, `check`: exact request URL; defaults to `https://api.typesafe.ai/v1/systemone`. |
 | `PERCH_MODEL_ID` | `scan`, `check`: model ID; defaults to `jev-latest`. |
-| `NO_COLOR` | Everything that prints. Piped output is uncolored anyway. |
 
 Set these variables to use a proxy, gateway, or local stand-in. `PERCH_BASE_URL`
 is the complete URL to POST to, including its path and any query string.

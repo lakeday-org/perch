@@ -62,13 +62,13 @@ const keepStart = (text, width) => (text.length <= width ? text : text.slice(0, 
 export const WIDTH = () => (process.stdout.columns >= 60 ? process.stdout.columns : 100);
 
 /**
- * Color, when there is a terminal to put it on. Piped output and NO_COLOR get none, so a redirect stays greppable and a log stays
+ * Color, when there is a terminal to put it on. Piped output gets none, so a redirect stays greppable and a log stays
  * readable. Padding happens before this is applied: escape codes have width nobody wants counted.
  */
 let colored = false;
 /**
- * Whether to paint. Told once by the command line rather than worked out here: what a terminal is and what NO_COLOR means are
- * the command line's business, and a formatter that reads the environment cannot be asked for plain text in a test.
+ * Whether to paint. The command line decides once, since a formatter that reads the environment cannot be asked for plain
+ * text in a test.
  */
 export const useColor = on => { colored = Boolean(on); };
 export const COLOR = () => colored;
