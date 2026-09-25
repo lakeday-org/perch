@@ -1,8 +1,9 @@
 /** Results directory layout: what a scan found, what it did, and what you set aside, under one --out directory. */
-import { createHash } from 'node:crypto';
-import { appendFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { appendFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { git, repoRoot } from './git.js';
+import { snapshotBlob, snapshotDirectory, snapshotFor } from './filesystem.js';
 import { BELIEVED, flagged, issuesOf, issueWeight } from './questions.js';
 
 export const sha256 = text => createHash('sha256').update(text).digest('hex');
@@ -13,9 +14,11 @@ export const findingId = method => identity('finding', method).slice(0, 8);
 
 export async function writeJson(path, value) {
   await mkdir(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.tmp`;
-  await writeFile(tmp, JSON.stringify(value, null, 2) + '\n');
-  await rename(tmp, path);
+  const tmp = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(tmp, JSON.stringify(value, null, 2) + '\n');
+    await rename(tmp, path);
+  } finally { await rm(tmp, { force: true }); }
 }
 
 export async function readJson(path, fallback) {
@@ -94,6 +97,14 @@ export function openStore(out) {
     out,
     scanDir: id => join(out, 'scans', id),
     runDir: id => join(out, 'runs', id),
+    /**
+     * A run folder holds every answer the run got, and answers are the endpoint's to keep, so only the current run stays. A scan
+     * folder is the parse of one commit, and only the current one is ever reused.
+     */
+    async prune(kind, id) {
+      for (const entry of await entries(join(out, kind))) if (entry.isDirectory() && entry.name !== id)
+        await rm(join(out, kind, entry.name), { recursive: true, force: true });
+    },
     /** Append each batch once; the completed or failed run still has a self-contained run.json. Calls must be awaited. */
     async startRun(run) {
       const path = join(store.runDir(run.id), 'run.json');
@@ -115,7 +126,7 @@ export function openStore(out) {
         await writeJson(path, { ...header, journal_bytes: bytes });
       };
     },
-    /** Ignore cached results while allowing closures and the default rule directory to be committed. */
+    /** Ignore generated results while allowing closures and the default rule directory to be committed. */
     async exclude(root) {
       if (!out.startsWith(root + '/')) return;
       const path = join(out, '.gitignore');
@@ -153,9 +164,11 @@ export function openStore(out) {
       // Written beside and moved into place, the way writeJson does. A crash partway through a direct write leaves the file every
       // command reads truncated at whatever line it reached, which reads as a scan that found less rather than as a broken file.
       await mkdir(out, { recursive: true });
-      const tmp = `${path}.${process.pid}.tmp`;
-      await writeFile(tmp, rows.map(row => JSON.stringify(row)).join('\n') + (rows.length ? '\n' : ''));
-      await rename(tmp, path);
+      const tmp = `${path}.${randomUUID()}.tmp`;
+      try {
+        await writeFile(tmp, rows.map(row => JSON.stringify(row)).join('\n') + (rows.length ? '\n' : ''));
+        await rename(tmp, path);
+      } finally { await rm(tmp, { force: true }); }
     },
     /** What the last scan read, every rule it checked, and what you have set aside. */
     async indexes() {
@@ -255,8 +268,15 @@ export function openStore(out) {
       const linesOf = async finding => {
         const key = `${finding.revision}:${finding.path}`;
         if (!blobs.has(key)) {
-          const lines = await git(['show', key], root).then(text => text.split('\n'))
-            .catch(error => { if (/does not exist|unknown revision|no such path/i.test(error.message)) return null; throw error; });
+          let lines;
+          if (finding.revision?.startsWith('workspace:')) {
+            if (!snapshotFor(root, finding.revision)) await snapshotDirectory(root, store.out);
+            const file = snapshotFor(root, finding.revision)?.tree.find(item => item.path === finding.path);
+            lines = file?.sha ? snapshotBlob(root, file.sha)?.split('\n') ?? null : null;
+          } else {
+            lines = await git(['show', key], root).then(text => text.split('\n'))
+              .catch(error => { if (/does not exist|unknown revision|no such path/i.test(error.message)) return null; throw error; });
+          }
           blobs.set(key, lines);
         }
         return blobs.get(key);

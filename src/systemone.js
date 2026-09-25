@@ -1,5 +1,4 @@
 /** TypeSafe System One client: typed questions over a state, answered with probabilities. */
-import { createHash } from 'node:crypto';
 import { questionBatches, estimateTokens, TOKEN_LIMITS, ContextLimitError } from './tokens.js';
 
 export const DEFAULT_SYSTEM_ONE_MODEL = 'jev-latest';
@@ -77,7 +76,6 @@ export function createSystemOne({
   return {
     id: model,
     limits,
-    cacheKey: createHash('sha256').update(JSON.stringify([baseUrl, model, { state: limits.state, single: limits.single, request: limits.request }, 'token-estimates-v1'])).digest('hex'),
     /** Batch independent questions within the request budget and return one answer per question id. */
     async ask(state, questions, { beforeRequest = () => {} } = {}) {
       const responses = [];
@@ -111,8 +109,12 @@ export function createSystemOne({
         error.usage = usage(); error.requests = requests; error.model = responses.at(-1)?.model ?? model;
         throw error;
       }
-      if (responses.length === 1) return { model: responses[0].model ?? model, answers: responses[0].answers, usage: responses[0].usage ?? null, ...(requests > 1 ? { requests } : {}) };
-      return { model: responses.at(-1).model ?? model, answers: Object.assign({}, ...responses.map(response => response.answers)), usage: usage(), requests };
+      const charged = responses.every(response => Number.isSafeInteger(response.charge?.totalNanos) && response.charge.totalNanos >= 0);
+      const charge = charged ? { totalNanos: responses.reduce((total, response) => total + response.charge.totalNanos, 0) } : null;
+      if (responses.length === 1) return { model: responses[0].model ?? model, answers: responses[0].answers, usage: responses[0].usage ?? null,
+        ...(charge ? { charge } : {}), ...(requests > 1 ? { requests } : {}) };
+      return { model: responses.at(-1).model ?? model, answers: Object.assign({}, ...responses.map(response => response.answers)), usage: usage(),
+        ...(charge ? { charge } : {}), requests };
     },
   };
 }

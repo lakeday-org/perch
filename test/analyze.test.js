@@ -71,9 +71,12 @@ describe('perch scan', () => {
     expect((await git(['status', '--porcelain'], repo.root)).trim()).toBe('');
     expect((await git(['worktree', 'list', '--porcelain'], repo.root)).match(/^worktree /gm)).toHaveLength(1);
 
-    const again = await analyzeTree(fixtureOptions(repo, { analyzer }));
+    let analyzed = 0;
+    const again = await analyzeTree(fixtureOptions(repo, { analyzer: { analyzeSource: (...args) => { analyzed++; return analyzer.analyzeSource(...args); } } }));
+    // The same commit parses the same way, so the second call is the first one's result, with nothing parsed again.
     expect(again.id).toBe(scan.id);
     expect(again.created_at).toBe(scan.created_at);
+    expect(analyzed).toBe(0);
   });
 
   it('records calls and imports per file and keeps test methods out of the ranking', async () => {

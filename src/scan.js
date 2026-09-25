@@ -10,7 +10,7 @@ import { analyzeTree } from './analyze.js';
 import { AuthenticationError } from './systemone.js';
 import { createFileSelector } from './exclusions.js';
 import { buildGraph } from './graph.js';
-import { askKey, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES } from './ask.js';
+import { CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES } from './ask.js';
 import { issuesOf, label as kindLabel, methodSteps, locateWhere, readAnswers } from './questions.js';
 import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL } from './units.js';
 import { findingId, identity, openStore } from './store.js';
@@ -75,11 +75,11 @@ const labelsRaisedBy = (question, label) => {
 
 /**
  * The answers are spread flat onto the row, so every question's name is a column of its own and a question added later widens
- * the record rather than nesting under it. `key` is what the next run compares against to decide it already has this answer.
+ * the record rather than nesting under it.
  */
-export const readEvent = ({ node, answers, response, key, runId = null, root, github = null, revision, calleeIds, callerIds }) => ({
+export const readEvent = ({ node, answers, response, runId = null, root, github = null, revision, calleeIds, callerIds }) => ({
   type: 'read', at: new Date().toISOString(), id: findingId(node.id), run_id: runId, root, github, revision, method: node.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line,
-  hash: node.hash, key, risk: node.metrics?.risk_score ?? null, model: response.model, ...answers, callees: calleeIds, callers: callerIds });
+  hash: node.hash, risk: node.metrics?.risk_score ?? null, model: response.model, ...answers, callees: calleeIds, callers: callerIds });
 
 /**
  * What a run narrowed by --paths or --since is about: a named file, or anything under a named directory. One definition, because
@@ -177,13 +177,13 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const dir = store.runDir(id);
   const total = candidateIds.length;
   const run = { id, status: 'running', target: label, github, root, revision, model: systemOne.id, paths, parallel, scan_id: scan.id, out: dir, created_at: created,
-    methods: total, to_read: total, rules: rules.length, filters, edges: graph.edgeCount(), calls: 0, carried: 0, skipped: 0, checked: 0, visited: [], broken: [], failed: [], usage: { input_tokens: 0, output_tokens: 0 } };
+    methods: total, to_read: total, rules: rules.length, filters, edges: graph.edgeCount(), calls: 0, skipped: 0, checked: 0, visited: [], broken: [], failed: [], usage: { input_tokens: 0, output_tokens: 0 } };
   const saveRun = await store.startRun(run);
 
   // A file is reported the moment every method in it has been accounted for, rather than the run being held back to the end. A
   // method that could not be read counts: a file must not wait forever on one that will never arrive.
-  // What the last run said, to carry forward anything it already answered. This is not a log: a row only survives when the state
-  // that produced it would be sent again word for word, so the file still describes this commit and nothing older.
+  // What the last run said, for the methods and questions this run does not cover. It is what the file keeps for those, not a
+  // reason to skip asking about anything this run does cover: the endpoint caches answers, perch does not.
   const { dismissals, latest, checks } = await store.indexes();
   const earlier = latest;
   const inFile = new Map();
@@ -227,33 +227,28 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const lines = await linesOf(node);
     const prepare = budget => methodSteps({ node, lines, imports: file.imports, methods: file.methods, callees, callers, edges, asked, budget });
     const steps = prepare(systemOne.limits?.state);
-    return { node, calleeIds, callerIds, rules: own, steps, prepare, key: askKey(steps, asked, systemOne.cacheKey ?? systemOne.id) };
+    return { node, calleeIds, callerIds, rules: own, steps, prepare };
   };
   const ask = async nodeId => {
-    const { node, calleeIds, callerIds, rules: own, steps, prepare, key, skip } = await stepFor(nodeId);
+    const { node, calleeIds, callerIds, rules: own, steps, prepare, skip } = await stepFor(nodeId);
     if (skip) return { node, calleeIds, callerIds, rules: own, skipped: true };
-    // The same state and the same questions have an answer already. Asking again would spend a request to be told what is on
-    // disk, and would move the percentages on an issue nobody has touched, which is worse: a row you looked at yesterday should
-    // read the same today unless the code did something.
-    const before = earlier.get(node.id);
-    if (before?.key === key) { debug(`${node.qualified_name} in ${node.path} is unchanged since it was read`); return { node, calleeIds, callerIds, rules: own, carried: before }; }
     const { response, answers } = await questionMethod({ systemOne, node, steps, prepare, lines: await linesOf(node), rules: own, debug });
-    return { node, calleeIds, callerIds, rules: own, response, answers, key };
+    return { node, calleeIds, callerIds, rules: own, response, answers };
   };
   /** Every reading this run made. The file is written whole at the end, so what this run did not cover is carried onto it. */
   const read = [], broken = [];
   const record = async results => {
-    for (const { node, calleeIds, callerIds, rules: own, response, answers, key, carried, skipped } of results) {
+    for (const { node, calleeIds, callerIds, rules: own, response, answers, skipped } of results) {
       // A filter narrows which questions are asked, not which code the run is about, so what it did not ask about is what the
       // last run said rather than nothing at all. Rewriting the file whole with only the answers this run happened to want threw
       // away every other answer on the same method.
       const before = filters.length ? earlier.get(node.id) : null;
       if (skipped) { run.skipped++; if (before) read.push(before); continue; }
-      if (carried) run.carried++; else run.calls++;
+      run.calls++;
       run.usage.input_tokens += response?.usage?.input_tokens ?? 0; run.usage.output_tokens += response?.usage?.output_tokens ?? 0;
-      const fresh = carried ?? readEvent({ node, answers, response, key, runId: id, root, github, revision, calleeIds, callerIds });
+      const fresh = readEvent({ node, answers, response, runId: id, root, github, revision, calleeIds, callerIds });
       const event = before ? { ...before, ...fresh } : fresh;
-      read.push(event); run.visited.push({ ...event, status: carried ? 'carried' : 'read' });
+      read.push(event); run.visited.push({ ...event, status: 'read' });
       finish(node.path, event);
       // A rule asked of this method answered under its own name, and a rule is broken when the answer is no. The answer is
       // already in the reading, so nothing more is written down: a second row for it would list the same problem twice. The run
@@ -309,12 +304,11 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
       const eligible = createFileSelector(tree);
       for (const item of tree) if (eligible(item) && !files.has(item.path)) files.set(item.path, await readBlob(root, item.sha).catch(() => ''));
     }
-    const over = { scan, graph, files, tree, revision, systemOne, inScope, min, debug, earlier: checks };
+    const over = { scan, graph, files, tree, revision, systemOne, inScope, min, debug };
     const kept = new Set(questionsFor(rules, filters, kindLabel).map(rule => rule.name));
     const asking = rules.filter(rule => kept.has(rule.name));
     const units = await askUnits({ ...over, rules: asking.filter(rule => !SEARCHES(rule.kind) && rule.each !== 'method'), parallel: unitParallel, progress: unitProgress });
     const searches = await searchUnits({ ...over, rules: asking.filter(rule => SEARCHES(rule.kind)), parallel: unitParallel, progress: searchProgress });
-    run.carried += units.carried + searches.carried;
     run.failed.push(...[...units.results, ...searches.results].filter(result => result.error));
     run.incomplete = [
       ...run.failed.filter(result => result.incomplete === true).map(result => `${result.path}::${result.name}: ${result.error}`),
@@ -354,12 +348,12 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const walked = new Set(read.map(event => event.method));
     const elsewhere = [...earlier.values()].filter(event => !walked.has(event.method) && graph.nodes.has(event.method));
     // Rule checks are carried the same way, and only while the rule that produced one is still that rule. A rule reworded,
-    // reshaped or deleted since leaves a check describing a question that no longer exists, and a rule asked of every method now
-    // would keep answering as the search it was.
+    // reshaped or deleted since leaves a check describing a question that no longer exists.
     const said = new Set(broken.map(check => check.id));
     const byName = new Map(rules.map(rule => [rule.name, rule]));
     const unasked = [...checks.values()].filter(check => !said.has(check.id) && byName.get(check.rule)?.hash === check.rule_hash);
     await store.recordScan([...read, ...elsewhere, ...broken, ...unasked]);
-    run.remaining = walk.remaining(); run.status = run.incomplete.length ? 'incomplete' : 'complete'; run.completed_at = new Date().toISOString(); await saveRun(true); return run;
-  } catch (error) { run.status = 'failed'; run.error = error.message; await saveRun(true).catch(() => {}); throw error; }
+    run.remaining = walk.remaining(); run.status = run.incomplete.length ? 'incomplete' : 'complete'; run.completed_at = new Date().toISOString();
+    await saveRun(true); await store.prune('runs', id).catch(error => log(`Could not remove earlier runs: ${error.message}`)); return run;
+  } catch (error) { run.status = 'failed'; run.error = error.message; await saveRun(true).catch(() => {}); await store.prune('runs', id).catch(prune => log(`Could not remove earlier runs: ${prune.message}`)); throw error; }
 }

@@ -15,18 +15,21 @@ export function createMeter() {
   const models = new Map();
   const meter = {
     /** Kept per model, since a run that spanned a version change has spent at two prices and only the record can say so. */
-    add(model, usage, { requests = 1 } = {}) {
-      if (!usage) return;
+    add(model, usage, { requests = 1, charge = null } = {}) {
+      if (!usage && !charge) return;
       const entry = models.get(model) ?? { requests: 0, input: 0, output: 0 };
       entry.requests += requests;
-      entry.input += usage.input_tokens ?? 0;
-      entry.output += usage.output_tokens ?? 0;
+      entry.input += usage?.input_tokens ?? 0;
+      entry.output += usage?.output_tokens ?? 0;
+      if (charge) entry.billedNanos = (entry.billedNanos ?? 0) + charge.totalNanos;
       models.set(model, entry);
     },
     /** Dollars for one model's entry, or null when the model's price is unknown. */
     cost(model) {
       const entry = models.get(model), price = priceOf(model);
-      if (!entry || !price) return null;
+      if (!entry) return null;
+      if (entry.billedNanos !== undefined) return entry.billedNanos / 1e9;
+      if (!price) return null;
       return (entry.input * price.input + entry.output * price.output) / 1e6;
     },
     total() { return [...models.keys()].reduce((sum, model) => sum + (meter.cost(model) ?? 0), 0); },
@@ -53,13 +56,14 @@ export function createMeter() {
 }
 
 /** "$0.0031", "$0.42", "$3.10"; "price unknown" when the model is not in the table. */
-export const money = dollars => (dollars === null ? 'price unknown' : dollars < 0.01 ? `$${dollars.toFixed(4)}` : `$${dollars.toFixed(2)}`);
+export const money = dollars => (dollars === null ? 'price unknown' : dollars > 0 && dollars < 0.0001
+  ? `$${dollars.toFixed(9).replace(/0+$/, '')}` : dollars < 0.01 ? `$${dollars.toFixed(4)}` : `$${dollars.toFixed(2)}`);
 
 /** A System One client whose every call is metered. */
 export const metered = (systemOne, meter) => ({ ...systemOne, async ask(state, questions, options) {
   try {
     const response = await systemOne.ask(state, questions, options);
-    meter.add(response.model ?? systemOne.id, response.usage, { requests: response.requests ?? 1 });
+    meter.add(response.model ?? systemOne.id, response.usage, { requests: response.requests ?? 1, charge: response.charge });
     return response;
   } catch (error) {
     if (error.requests) meter.add(error.model ?? systemOne.id, error.usage ?? {}, { requests: error.requests });
