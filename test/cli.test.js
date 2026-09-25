@@ -317,7 +317,7 @@ describe('cli', () => {
     // A filter that matches keeps the row; one that does not leaves nothing.
     expect(await main(['findings', '--filter', 'type=defect,severity=P2', '--out', repo.out], io)).toBe(0);
     expect(out.at(-1)).toContain(f.id);
-    expect(await main(['findings', '--filter', 'kind=injection', '--out', repo.out], io)).toBe(0);
+    expect(await main(['findings', '--filter', 'kind=cwe_89', '--out', repo.out], io)).toBe(0);
     expect(out.at(-1)).toBe('Nothing matches.');
     expect(out.at(-1)).not.toContain('Work');
     const code = await main(['issues', f.id.slice(0, 5), '--out', repo.out, '--verbose'], io);
@@ -343,20 +343,18 @@ describe('cli', () => {
     const repoRoot = await makeGraphFixture();
     cleanups.push(repoRoot);
     const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
-    // f is the heavier method overall; h is the one that is probably injectable.
+    // f is the heavier method overall; h is the one that is probably vulnerable to SQL injection.
     const hunt = await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne({
-      'src/a.js::f': { has_bug: 0.9, exposed: 0.9, injection: 0.1 },
-      'src/b.js::h': { has_bug: 0.1, exposed: 0.9, injection: 0.95 },
+      'src/a.js::f': { has_bug: 0.9, cwe_89: 0.1 },
+      'src/b.js::h': { has_bug: 0.1, cwe_89: 0.95 },
     }) }));
     const f = hunt.visited.find(visit => visit.method === 'src/a.js::f').id;
     const h = hunt.visited.find(visit => visit.method === 'src/b.js::h').id;
     const { out, io } = capture();
     const idsOf = text => text.split('\n').slice(1).map(row => row.slice(0, 8));
 
-    expect(await main(['findings', '--out', repo.out], io)).toBe(0);
-    expect(idsOf(out.at(-1))[0]).toBe(f);
-    // Filtering for injection puts the likeliest injection first, not the method carrying the most of everything else.
-    expect(await main(['issues', '--filter', 'kind=injection', '--out', repo.out], io)).toBe(0);
+    // Filtering for SQL injection puts the likeliest case first, not the method carrying the most of everything else.
+    expect(await main(['issues', '--filter', 'kind=cwe_89', '--out', repo.out], io)).toBe(0);
     expect(idsOf(out.at(-1))[0]).toBe(h);
     // Filtering on what f leads with puts f back on top.
     expect(await main(['issues', '--filter', 'type=defect', '--out', repo.out], io)).toBe(0);

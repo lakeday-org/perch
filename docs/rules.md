@@ -390,7 +390,7 @@ Every question carries a floor, in percent. Below it, an answer is not listed.
 | Floor | Question |
 | --- | --- |
 | 75% | `documented` |
-| 70% | `does_what_it_claims`, and every defect and vulnerability class |
+| 70% | `does_what_it_claims`, the specific bug checks, and every security check |
 | 60% | `has_bug`, `refactor` |
 
 A 51% answer is a coin flip that prints like a claim, so each question carries a
@@ -433,6 +433,7 @@ set, or a grade against a rubric.
 | `options` | The options and what each means, for `choice`. |
 | `levels` | The rubric, weakest first, for `score`. |
 | `when` | Another question this one is only as likely as. The two multiply. |
+| `language` | Optional parser language ID, or list of IDs, for the snippets this question applies to. |
 | `issue` | What an answer means: `type`, `label`, `on`, `pick`, `except`. |
 | `gate` | Whether an answer fails the run. Defaults to yes for a defect, a vulnerability or a rule. |
 
@@ -443,7 +444,8 @@ perch rules add handles_absence --type choice --each method --where "src/**/*.js
   --issue "type=defect,label=handles_absence,except=checks"
 ```
 
-`when` is how the scan's own security classes are gated on `exposed`. A class
-that only matters when something from outside reaches the method is written
-`when: exposed`. Its probability is multiplied by that one's. See
-[the questions](/scan/#the-questions).
+For example, `language: [c, cpp, rust]` asks a native-memory question only of
+methods parsed in those languages. Without `language`, the question applies
+to all snippets selected by `where`. `when` remains available when a question
+depends on another answer: `when: exposed` multiplies its probability by the
+answer to `exposed`. See [the questions](/scan/#the-questions).

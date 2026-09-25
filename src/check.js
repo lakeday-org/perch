@@ -14,7 +14,7 @@ import { methodContext } from './context.js';
 import { questionMethod } from './scan.js';
 import { bodyOf, matches, neighbourhood, readLint, readRules, RULES_FILE, unitSteps, askUnitSteps } from './units.js';
 import { BELIEVED, filterKeys, meaning, methodSteps, issuesOf } from './questions.js';
-import { floorFor } from './ask.js';
+import { appliesToLanguage, floorFor, questionSet } from './ask.js';
 import { openStore } from './store.js';
 import { requestScope } from './tokens.js';
 
@@ -66,6 +66,7 @@ export function rulesFor(rules, unit, only = []) {
     // A question written out longhand is asked of a method by a scan, not put to one file on its own.
     if (!rule.kind) return false;
     if (only.length && !only.includes(rule.name)) return false;
+    if (!appliesToLanguage(rule, languageOf(unit.path))) return false;
     // A file the rule spares is spared here too. Left out, check asked a rule about the one file its author had said it did not
     // cover, so check and a scan disagreed about which rules apply to a path.
     if (rule.except && [rule.except].flat().some(glob => matches(glob, unit.path))) return false;
@@ -127,7 +128,9 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
     if (context) {
       const node = { ...context.node, line: unit.line, end_line: unit.end_line, metrics: unit.metrics ?? context.node.metrics };
       const others = context.methods.filter(method => method.qualified_name !== unit.name);
-      const prepare = budget => methodSteps({ node, lines: unit.lines, imports: context.imports, methods: [...others, node], callees: context.callees, callers: context.callers, budget });
+      const methodQuestions = questionSet().filter(question => question.each === 'method' && !question.kind
+        && appliesToLanguage(question, languageOf(unit.path)));
+      const prepare = budget => methodSteps({ node, lines: unit.lines, imports: context.imports, methods: [...others, node], callees: context.callees, callers: context.callers, asked: methodQuestions, budget });
       const steps = prepare(systemOne.limits?.state);
       const { answers } = await questionMethod({ systemOne, node, steps, prepare, lines: unit.lines, debug });
       issues = issuesOf({ ...answers, metrics: node.metrics });

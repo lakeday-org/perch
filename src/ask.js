@@ -33,7 +33,7 @@ export const SEES = ['self', 'file', 'calls', 'callers', 'neighbors'];
 export const ENSURES = ['ensure', 'ensure_present', 'ensure_absent'];
 export const SEARCHES = kind => kind === 'ensure_present' || kind === 'ensure_absent';
 
-const KEYS = new Set(['name', 'disabled', 'min', 'gate', 'type', 'each', 'where', 'except', 'sees', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', ...ENSURES]);
+const KEYS = new Set(['name', 'disabled', 'min', 'gate', 'type', 'each', 'where', 'language', 'except', 'sees', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', ...ENSURES]);
 const ISSUE_KEYS = new Set(['type', 'label', 'on', 'pick', 'except']);
 /** A correctness issue is weighed by the severity rubric; everything else weighs as itself. */
 export const CORRECTNESS = new Set(['defect', 'security']);
@@ -89,6 +89,9 @@ export function check(question, at, noun = 'question') {
   if (!SHAPES.includes(type)) throw new Error(`${where}: type is ${SHAPES.join(', ')}, not ${type}`);
   if (!full.where) throw new Error(`${where}: needs where to say what it applies to`);
   if (full.each && !EACH.includes(full.each)) throw new Error(`${where}: each is ${EACH.join(', ')}, not ${full.each}`);
+  if (full.language !== undefined && !(typeof full.language === 'string' && full.language.trim()
+    || Array.isArray(full.language) && full.language.length && full.language.every(language => typeof language === 'string' && language.trim())))
+    throw new Error(`${where}: language is a language name or a nonempty list of language names`);
   // A rule covers whole files unless it says otherwise, since a rule about prose is a rule about a file. A question perch ships
   // is about a method, because that is what a scan reads.
   const each = full.each ?? (full.kind ? 'file' : 'method');
@@ -112,8 +115,12 @@ export function check(question, at, noun = 'question') {
     kind: full.kind ?? null, text: full.text ?? null, at,
     // As it was written, so a question perch ships can be copied into your own file and changed from there.
     declared: question,
-    hash: sha(JSON.stringify([full.ask, full.true, full.false, full.options, full.levels, full.where, full.except, full.each, full.sees])) };
+    hash: sha(JSON.stringify([full.ask, full.true, full.false, full.options, full.levels, full.where, full.language, full.except, full.each, full.sees])) };
 }
+
+/** A missing language selector applies to every parsed language. */
+export const appliesToLanguage = (question, language) => !question.language
+  || (Array.isArray(question.language) ? question.language : [question.language]).includes(language);
 
 const sha = text => createHash('sha256').update(text).digest('hex');
 

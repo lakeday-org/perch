@@ -84,6 +84,13 @@ request, beside perch's. Every question is scored against the state by itself,
 and the state is most of what the request carries. A method covered by five rules
 costs one reading.
 
+A question may set `language` to one parser language ID or a list of them. Perch
+only sends that question for methods parsed as one of those languages. Questions
+without `language` apply to every parsed language. For example, `cwe_416` is
+sent for C, C++, Rust, and Zig methods, while `cwe_89` is sent in every language.
+The IDs follow the [supported language list](#1-tree-sitter): `c`, `cpp`,
+`rust`, `javascript`, `typescript`, `tsx`, `c_sharp`, and so on.
+
 A request carries the method's source with each line tagged
 `L0042|`, the comment above it, and its metrics. It carries the file's imports
 and module scope. It also carries up to 8 callees with the names of their own
@@ -117,8 +124,9 @@ distribution over its levels.
 | `where` | choice over line ids | Which line, with confidence. A method longer than 255 lines gets a window chosen first, then a line within it. |
 | `kind` | choice over 8 | `boundary`, `missing_null_handling`, `wrong_return`, `swallowed_error`, `state_mutation`, `ordering`, `resource_leak`, `inverted_condition`. |
 | `severity` | score over 4 levels | The rubric below. |
-| `exposed` | noul | Does anything from outside the program reach this method, or does it act on the world outside? |
-| `security_*` | 16 nouls | One per class, listed under the table. |
+| `bug_*` | 15 nouls | Specific behavioral bug types, including boundaries, state, error handling, and concurrency. |
+| `security_any` | noul | Any concrete reachable security vulnerability. |
+| `cwe_*` | Up to 25 nouls | The 2025 MITRE Top 25 CWEs, filtered by language where needed. |
 | `misuse_N` | noul per callee | Does this call violate the callee's evident contract? |
 | `misused_by_N` | noul per caller | Does the caller violate this method's contract? |
 | `does_what_it_claims` | noul | Does the behavior match the name, parameters, and comment? |
@@ -126,17 +134,9 @@ distribution over its levels.
 | `refactor` | choice over 7 | `split`, `flatten`, `simplify_conditions`, `deduplicate`, `rename`, `remove_dead_code`, `none`. |
 | `follow` | choice over neighbors | Which related method to examine next. |
 
-The sixteen security classes:
-
-| | |
-| --- | --- |
-| Gated on `exposed` | `injection`, `path_traversal`, `unsafe_deserialization`, `secret_exposure`, `missing_authorization`, `unvalidated_destination`, `resource_exhaustion`, `unsafe_reflection` |
-| Asked on their own | `weak_crypto`, `disabled_safeguard`, `buffer_overflow`, `use_after_free`, `uninitialized_use`, `integer_overflow`, `race_condition`, `type_confusion` |
-
-The names in that table are the ids written in `scan.yaml`. What a row prints is
-the label they map to, so `boundary` reads as `off_by_one` and
-`missing_null_handling` reads as `unhandled_null`. `perch issues --types` lists
-the labels, which are what `--filter kind=` takes.
+The names in that table are the IDs written in `scan.yaml`. The specific
+security questions are named by CWE, such as `cwe_89` for SQL injection.
+`perch issues --types` lists the labels accepted by `--filter kind=`.
 
 System One does not bill output tokens, so asking thirty questions of a method
 costs what asking one costs. The whole set rides in one request, up to 128
@@ -163,18 +163,13 @@ injectable and leaking a secret.
 
 Each answer becomes at most one issue, carrying the probability that it is real.
 
-**A defect** is `has_bug`, labelled with the likeliest kind. The probability is
-`has_bug` alone; the kind does not discount it.
+**A defect** is the strongest of the broad `has_bug` question, the 15 specific
+bug checks, and the contract check. The broad result uses the `kind` choice
+for its label; the specific checks use their own names.
 
-**A vulnerability** is the likeliest security class. Eight of the sixteen need
-something from outside to reach the method, so those are a joint probability:
-
-```
-P(vulnerable) = P(class) × P(exposed)
-```
-
-The other eight cover memory safety, concurrency, type confusion and weak crypto.
-They are wrong whoever the caller is, so they are ungated.
+**A vulnerability** is the strongest answer among `security_any` and the
+applicable CWE checks. A memory-safety check does not apply to a language
+without native memory operations; the broad security check still does.
 
 **Design issues** are the refactor the `refactor` choice picked, `1 − P(does what
 it claims)`, and `docs`.

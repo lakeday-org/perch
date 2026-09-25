@@ -10,14 +10,14 @@ import { analyzeTree } from './analyze.js';
 import { AuthenticationError } from './systemone.js';
 import { createFileSelector } from './exclusions.js';
 import { buildGraph } from './graph.js';
-import { askKey, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES } from './ask.js';
+import { appliesToLanguage, askKey, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES } from './ask.js';
 import { issuesOf, label as kindLabel, methodSteps, locateWhere, readAnswers } from './questions.js';
 import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL } from './units.js';
 import { findingId, identity, openStore } from './store.js';
 import { TOKEN_LIMITS, IncompleteCheckError, withTokenRetries, requestScope } from './tokens.js';
 export { findingId };
 
-/** Methods in flight at once. Each request carries a whole neighborhood and thirty questions, so this is where the size is. */
+/** Methods in flight at once. Each request carries a whole neighborhood and the applicable question pack. */
 export const DEFAULT_PARALLEL = 8;
 
 /**
@@ -143,8 +143,8 @@ const createLineReader = (root, graph) => {
  * fail a run like anything else.
  */
 /** perch's own questions for a method, narrowed to the issue types this run asks about. A question raising none is feeder for one that does, so it stays. */
-const methodQuestions = kinds => questionSet().filter(question => question.each === 'method' && !question.kind
-  && (!question.issue || kinds.has(question.issue.type)));
+const methodQuestions = (kinds, language) => questionSet().filter(question => question.each === 'method' && !question.kind
+  && appliesToLanguage(question, language) && (!question.issue || kinds.has(question.issue.type)));
 
 export const typesAsked = (scanTypes, filters = []) => new Set([
   ...(scanTypes ?? DEFAULT_TYPES),
@@ -208,6 +208,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const missing = new Map();
 
   const linesOf = createLineReader(root, graph), walk = createWalk(graph, candidates, inScope);
+  const askedByMethod = new Map();
   const byRisk = ids => [...ids].sort((a, b) => (graph.nodes.get(b)?.metrics?.risk_score ?? 0) - (graph.nodes.get(a)?.metrics?.risk_score ?? 0));
   const stepFor = async nodeId => {
     const node = graph.nodes.get(nodeId);
@@ -221,7 +222,8 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // not six.
     // A filter narrows what is asked, not just what is printed. Asking thirty questions about a method to print two is paying
     // for twenty-eight answers nobody reads, and a method no kept question covers is not read at all.
-    const asked = questionsFor([...methodQuestions(kinds), ...rulesForMethod(rules, node)], filters, kindLabel);
+    const asked = questionsFor([...methodQuestions(kinds, node.language), ...rulesForMethod(rules, node)], filters, kindLabel);
+    askedByMethod.set(node.id, asked);
     const own = asked.filter(question => question.kind);
     if (!asked.length) return { node, calleeIds, callerIds, rules: own, skip: true };
     const lines = await linesOf(node);
@@ -333,7 +335,8 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     for (const event of read) for (const issue of issuesOf(event, min)) raised.set(issue.label, (raised.get(issue.label) ?? 0) + 1);
     run.coverage = [
       ...questionSet().filter(question => question.each === 'method' && !question.kind).map(question => ({
-        name: question.name, from: 'builtin', where: question.where, units: read.length,
+        name: question.name, from: 'builtin', where: question.where,
+        units: [...askedByMethod.values()].filter(asked => asked.some(item => item.name === question.name)).length,
         broken: question.issue ? [...raised].filter(([label]) => labelsRaisedBy(question, label)).reduce((total, [, count]) => total + count, 0) : null,
       })),
       ...rules.map(rule => ({
@@ -346,7 +349,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
         broken: run.broken.filter(finding => finding.rule === rule.name).length,
       })),
     ];
-    run.checked = run.calls * questionSet().filter(question => question.each === 'method').length + units.asked + searches.asked;
+    run.checked = [...askedByMethod.values()].reduce((total, asked) => total + asked.length, 0) + units.asked + searches.asked;
 
     // What this run did not cover. --paths and --since say which code a run is about, and --filter says which questions it asks;
     // neither says the rest of the repository stopped existing. Writing the file with only what this run touched threw away

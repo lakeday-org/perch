@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BUILTIN, check, compile, issues, merge, parseQuestions, setHash, vocabulary } from '../src/ask.js';
+import { appliesToLanguage, BUILTIN, check, compile, issues, merge, parseQuestions, setHash, vocabulary } from '../src/ask.js';
 
 const at = 'test.yaml question 1';
 const noul = (name, extra = {}) => check({ name, where: '**/*', ask: 'Is it?', true: 'Yes', false: 'No', ...extra }, at);
@@ -8,7 +8,9 @@ describe('the question grammar', () => {
   it('ships a set that declares what perch asks, and nothing asks it twice', () => {
     const names = BUILTIN.map(question => question.name);
     expect(new Set(names).size).toBe(names.length);
-    expect(names).toEqual(expect.arrayContaining(['has_bug', 'kind', 'severity', 'refactor', 'exposed', 'injection', 'use_after_free']));
+    expect(names).toEqual(expect.arrayContaining(['has_bug', 'kind', 'severity', 'refactor', 'security_any', 'bug_boundary', 'cwe_79', 'cwe_416']));
+    expect(names.filter(name => name.startsWith('bug_'))).toHaveLength(15);
+    expect(names.filter(name => name.startsWith('cwe_'))).toHaveLength(25);
     // Every shipped question is about a method, and the three shapes are all in use.
     expect(new Set(BUILTIN.map(question => question.each))).toEqual(new Set(['method']));
     expect(new Set(BUILTIN.map(question => question.type))).toEqual(new Set(['noul', 'choice', 'score']));
@@ -23,9 +25,21 @@ describe('the question grammar', () => {
     expect(() => check({ name: 'q', where: '**/*', sees: 'everything', ensure: 'x' }, at)).toThrow('sees is self, file, calls');
     // A misspelt key is a question that would quietly never be asked the way it reads.
     expect(() => check({ name: 'q', where: '**/*', ensures: 'x' }, at)).toThrow('ensures is not a key');
+    expect(() => check({ name: 'q', where: '**/*', language: [], ensure: 'x' }, at)).toThrow('language is a language name');
     expect(() => check({ name: 'q', where: '**/*', ensure: 'x', issue: { label: 'self' } }, at)).toThrow('an issue needs a type');
     // The noun follows the file: the same grammar reads as rules in perch.yaml and as questions in scan.yaml.
     expect(() => parseQuestions('- ensure: x\n', 'perch.yaml', 'rule')).toThrow('perch.yaml rule 1: every rule needs a name');
+  });
+
+  it('selects a question by parsed language and includes the selector in its hash', () => {
+    const js = noul('q', { language: 'javascript' });
+    const native = noul('q', { language: ['c', 'cpp', 'rust'] });
+    expect(appliesToLanguage(js, 'javascript')).toBe(true);
+    expect(appliesToLanguage(js, 'python')).toBe(false);
+    expect(appliesToLanguage(native, 'cpp')).toBe(true);
+    expect(appliesToLanguage(native, 'typescript')).toBe(false);
+    expect(appliesToLanguage(noul('q'), 'python')).toBe(true);
+    expect(js.hash).not.toBe(native.hash);
   });
 
   it('writes a rule out as the question it is', () => {
@@ -99,14 +113,14 @@ describe('the question grammar', () => {
     // which is what thirty-two refactor rows a run were doing. A type not worth stopping for is left out of scan_types.
     const named = name => BUILTIN.find(question => question.name === name);
     expect(named('has_bug').gate).toBe(true);
-    expect(named('injection').gate).toBe(true);
+    expect(named('cwe_89').gate).toBe(true);
     expect(check({ name: 'comment-says-why', where: 'src/**', ensure: 'A comment says why.' }, at).gate).toBe(true);
     expect(named('refactor').gate).toBe(true);
     expect(named('documented').gate).toBe(true);
     // A question that only feeds another raises no issue and fails nothing: `kind` names a defect, `exposed` gates the classes
     // that need it.
     expect(named('kind').gate).toBe(false);
-    expect(named('exposed').gate).toBe(false);
+    expect(named('kind').gate).toBe(false);
     // And a question says otherwise either way, which is how a judgement call gets read without stopping anything.
     expect(check({ name: 'r', where: '**/*.md', gate: false, ensure: 'x' }, at).gate).toBe(false);
     expect(check({ name: 'r', where: '**/*', type: 'choice', gate: true, ask: 'What?', options: { a: 'An a', b: 'A b' },

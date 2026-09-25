@@ -11,10 +11,11 @@ import { git, listTree } from './git.js';
 import { createFileSelector } from './exclusions.js';
 import { sourceChunks } from './chunks.js';
 import { TOKEN_LIMITS, estimateTokens, textTokens, questionBatches, IncompleteCheckError, ContextLimitError, withTokenRetries, requestScope } from './tokens.js';
-import { askKey, BUILTIN, compile, floorFor, installQuestions, merge, parseIgnored, parseQuestions, parseScanTypes, SEARCHES } from './ask.js';
+import { appliesToLanguage, askKey, BUILTIN, compile, floorFor, installQuestions, merge, parseIgnored, parseQuestions, parseScanTypes, SEARCHES } from './ask.js';
 import { leadingComment, lineId, lineWindows, locateWhere, tagged, whereQuestion, whereWindowQuestion } from './questions.js';
 import { findingId } from './store.js';
 import { AuthenticationError } from './systemone.js';
+import { languageOf } from './analysis.js';
 
 /** Where rules live: one file until there are enough to split, then a directory of them. Both are source, both are reviewed. */
 export const RULES_FILE = 'perch.yaml', RULES_DIR = '.perch/rules';
@@ -123,7 +124,8 @@ export function selectUnits(rule, { scan, graph, files, tree, inScope = () => tr
   // wording of its own question.
   const ours = path => path === RULES_FILE || path.startsWith(`${RULES_DIR}/`);
   // `except` is the rule's own exclusion; `inScope` is the run's, which --since narrows to what a branch changed.
-  const spared = unit => inScope(unit.path) && !ours(unit.path) && (!rule.except || ![rule.except].flat().some(glob => matches(glob, unit.path)));
+  const spared = unit => inScope(unit.path) && !ours(unit.path) && appliesToLanguage(rule, languageOf(unit.path))
+    && (!rule.except || ![rule.except].flat().some(glob => matches(glob, unit.path)));
   const callers = /^callers? of (.+)$/.exec(source ?? '');
   const mentions = /^(?:writers? of|mentions) (.+)$/.exec(source ?? '');
   if (callers) {
@@ -370,6 +372,7 @@ export function readLint(rule, answers) {
  * is one reading and not six.
  */
 export const rulesForMethod = (rules, node) => rules.filter(rule => rule.kind === 'ensure' && rule.each === 'method'
+  && appliesToLanguage(rule, node.language ?? languageOf(node.path))
   && matches(String(rule.where), node.path)
   && (!rule.except || ![rule.except].flat().some(glob => matches(glob, node.path))));
 
