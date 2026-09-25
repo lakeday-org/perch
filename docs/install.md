@@ -116,17 +116,3 @@ It exits 3 while something is still wrong, which is what a loop needs.
 
 
 - [perch in CI](/ci/) for the pull request setup.
-
-## Perch Cloud preview
-
-For staging, set `PERCH_CLOUD_URL=https://dash-staging.perchscan.com` before
-running `perch login`. Confirm the displayed device code in your browser. The
-login is saved outside the repository with owner-only file permissions;
-`perch logout` removes it. With multiple organizations, use
-`perch login <organization-id>` to choose one.
-
-Cloud scans register the repository using its Git origin, or use the repository
-ID in `PERCH_REPOSITORY`. CI can set `PERCH_TOKEN` to a repository-scoped cloud
-credential. An explicit `PERCH_BASE_URL` selects direct endpoint mode when
-`PERCH_TOKEN` is absent. The CLI's token-cost estimate excludes cloud markup
-and cache fees; the dashboard shows those charges.
