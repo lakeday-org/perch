@@ -29,15 +29,15 @@ describe('Perch Cloud', () => {
   it('serializes concurrent refreshes of the same rotating credential',async()=>{
     const root=await mkdtemp(join(tmpdir(),'perch-refresh-'));
     try {
-      await mkdir(join(root,'perch'));
-      await writeFile(join(root,'perch','cloud.json'),JSON.stringify({origin:'https://dash.perchscan.com',clientId:'client',organizationId:'org',accessToken:'expired',refreshToken:'refresh'}));
+      await mkdir(join(root,'.perch'));
+      await writeFile(join(root,'.perch','cloud.json'),JSON.stringify({origin:'https://dash.perchscan.com',clientId:'client',organizationId:'org',accessToken:'expired',refreshToken:'refresh'}));
       let refreshes=0;
       const accessToken=`header.${Buffer.from(JSON.stringify({exp:Math.floor(Date.now()/1000)+300})).toString('base64url')}.sig`;
       const fetchImpl=async url=>{
         if(url.endsWith('/authenticate')){refreshes++; await new Promise(resolve=>setTimeout(resolve,20)); return response({access_token:accessToken,refresh_token:'rotated'});}
         return response({model:'jev',epoch:'1'});
       };
-      const options={env:{XDG_CONFIG_HOME:root,PERCH_REPOSITORY:'repo'},root,fetchImpl};
+      const options={env:{HOME:root,PERCH_REPOSITORY:'repo'},root,fetchImpl};
       await Promise.all([configuredSystemOne(options),configuredSystemOne(options)]);
       expect(refreshes).toBe(1);
     } finally {await rm(root,{recursive:true,force:true});}
@@ -46,7 +46,7 @@ describe('Perch Cloud', () => {
     const root=await mkdtemp(join(tmpdir(),'perch-cloud-'));
     try {
       const requests=[];
-      const client=await configuredSystemOne({env:{XDG_CONFIG_HOME:root,PERCH_TOKEN:'perch_ci_test'},root,fetchImpl:async(url,options)=>{
+      const client=await configuredSystemOne({env:{HOME:root,PERCH_TOKEN:'perch_ci_test'},root,fetchImpl:async(url,options)=>{
         requests.push({url,options});return response(url.endsWith('/config')?{model:'jev-1',epoch:'2'}:{answers:{a:{noul:1}}});
       }});
       await client.ask({code:'a'},{a:{}}); expect(requests.at(-1).url).toBe('https://dash.perchscan.com/v1/systemone');
@@ -57,11 +57,11 @@ describe('Perch Cloud', () => {
     const root=await mkdtemp(join(tmpdir(),'perch-login-')), output=[];
     try {
       const fetchImpl=async(url)=>response(url.endsWith('/config')?{clientId:'client_test'}:url.endsWith('/device')?{device_code:'private-device',user_code:'ABCD-EFGH',verification_uri:'https://auth.test/device',expires_in:300,interval:5}:url.endsWith('/authenticate')?{access_token:'private-access',refresh_token:'private-refresh'}:{organizations:[{id:'org',name:'Team'}]});
-      await loginCloud({env:{XDG_CONFIG_HOME:root},stdout:line=>output.push(line),fetchImpl,sleep:async()=>{}});
-      const file=join(root,'perch','cloud.json'); expect((await stat(file)).mode&0o777).toBe(0o600);
+      await loginCloud({env:{HOME:root},stdout:line=>output.push(line),fetchImpl,sleep:async()=>{}});
+      const file=join(root,'.perch','cloud.json'); expect((await stat(file)).mode&0o777).toBe(0o600);
       expect(JSON.parse(await readFile(file,'utf8')).organizationId).toBe('org');
       expect(output.join('\n')).not.toContain('private-'); expect(output.join('\n')).toContain('ABCD-EFGH');
-      await logoutCloud({env:{XDG_CONFIG_HOME:root},stdout:()=>{}}); await expect(readFile(file)).rejects.toThrow();
+      await logoutCloud({env:{HOME:root},stdout:()=>{}}); await expect(readFile(file)).rejects.toThrow();
     } finally {await rm(root,{recursive:true,force:true});}
   });
   it('signs in a GitHub Actions job with its OIDC token, fresh on each request, and names no repository of its own', async () => {
@@ -74,7 +74,7 @@ describe('Perch Cloud', () => {
       seen.push({ url: href, auth: options.headers.authorization, body: JSON.parse(options.body) });
       return response(href.endsWith('/v1/scans') ? { id: 'scan', url: 'https://dash.perchscan.com/?scan=scan' } : { model: 'jev', answers: { a: { noul: 0.1 } }, usage: null });
     };
-    const env = { GITHUB_ACTIONS: 'true', ACTIONS_ID_TOKEN_REQUEST_URL: 'https://actions.example/token?x=1', ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runtime', XDG_CONFIG_HOME: '/nonexistent' };
+    const env = { GITHUB_ACTIONS: 'true', ACTIONS_ID_TOKEN_REQUEST_URL: 'https://actions.example/token?x=1', ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runtime', HOME: '/nonexistent' };
     const client = await configuredSystemOne({ env, root: process.cwd(), fetchImpl });
     await client.ask({ code: 'a' }, { a: { type: 'noul', criteria: { true: 'y', false: 'n' } } });
     expect((await client.report({ scan: { scope: 'full' }, findings: [] })).url).toContain('scan=scan');
@@ -85,10 +85,10 @@ describe('Perch Cloud', () => {
   it('an explicit key still wins over the Actions token', async () => {
     const root = await mkdtemp(join(tmpdir(), 'perch-key-'));
     try {
-      await mkdir(join(root, 'perch'));
-      await writeFile(join(root, 'perch', 'cloud.json'), JSON.stringify({ origin: 'https://cloud.example.com', accessToken: 'saved' }));
+      await mkdir(join(root, '.perch'));
+      await writeFile(join(root, '.perch', 'cloud.json'), JSON.stringify({ origin: 'https://cloud.example.com', accessToken: 'saved' }));
       const env = { GITHUB_ACTIONS: 'true', ACTIONS_ID_TOKEN_REQUEST_URL: 'https://actions.example/token', ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runtime',
-        PERCH_API_KEY: 'key', XDG_CONFIG_HOME: root };
+        PERCH_API_KEY: 'key', HOME: root };
       expect((await configuredSystemOne({ env, root, fetchImpl: async () => { throw new Error('no request expected'); } })).report).toBeUndefined();
     } finally { await rm(root, { recursive: true, force: true }); }
   });

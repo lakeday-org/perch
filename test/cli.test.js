@@ -115,7 +115,7 @@ describe('cli', () => {
     const repo = await makeFixture();
     cleanups.push(repo);
     const { out, err, io } = capture();
-    io.env.XDG_CONFIG_HOME = join(repo, '.config');
+    io.env.HOME = repo;
     expect(await main(['scan', repo], io)).toBe(1);
     expect(err.join('\n')).toContain('PERCH_API_KEY');
     expect(await main(['issues', '--out', join(repo, '.perch')], io)).toBe(0);

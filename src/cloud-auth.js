@@ -46,7 +46,7 @@ export const jsonBody = (token, input) => ({
   body: JSON.stringify(input),
 });
 
-const loginPath = env => join(env.XDG_CONFIG_HOME || join(env.HOME || homedir(), '.config'), 'perch', 'cloud.json');
+const loginPath = env => join(env.HOME || homedir(), '.perch', 'cloud.json');
 
 export async function readCloudLogin(env) {
   try { return JSON.parse(await readFile(loginPath(env), 'utf8')); }
