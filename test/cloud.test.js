@@ -15,7 +15,7 @@ describe('Perch Cloud', () => {
     const client = createCloudClient({
       origin: 'https://example.com',
       getToken: async () => 'perch_ci_test',
-      identity: 'ci', organizationId: 'org', repositoryId: 'repo',
+      organizationId: 'org', repositoryId: 'repo', reports: true,
       fetchImpl: async (url, options) => {
         requests.push({ url, body: JSON.parse(options.body) });
         return response({ model: 'jev-latest', answers: { a: { noul: 0.9 } }, usage: null });
@@ -31,7 +31,7 @@ describe('Perch Cloud', () => {
   });
   it('uses the Cloud charge for cost even when the provider used no tokens', async () => {
     const client = createCloudClient({
-      origin: 'https://example.com', getToken: async () => 'token', identity: 'user', organizationId: 'org', repositoryId: null,
+      origin: 'https://example.com', getToken: async () => 'token', organizationId: 'org', repositoryId: null,
       fetchImpl: async () => response({ model: 'jev-latest', answers: { a: { noul: 0.9 } }, usage: null, charge: { totalNanos: 100000 } }),
     });
     const meter = createMeter();
@@ -217,7 +217,7 @@ describe('Perch Cloud', () => {
       return new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true }));
     };
     const client = createCloudClient({
-      origin: 'https://dash.perchscan.com', identity: 'oidc', organizationId: 'org', repositoryId: null,
+      origin: 'https://dash.perchscan.com', organizationId: 'org', repositoryId: null, reports: true,
       getToken: actionsToken(env, 'https://dash.perchscan.com', fetchImpl), fetchImpl, reportTimeoutMs: 20,
     });
 

@@ -1,10 +1,10 @@
-/** `perch scan`: analyze source files at a Git revision or a filesystem snapshot and rank them by risk. */
+/** `perch scan`: analyze every source file at a revision, or in a directory without Git, and rank the files by risk. No model. */
 import { join } from 'node:path';
 import { listTree, readBlobs } from './git.js';
 import { analyzeFiles, sourceFile } from './analysis.js';
 import { createFileSelector, EXCLUSIONS_PROFILE } from './exclusions.js';
 import { ANALYSIS_PROFILE } from './treesitter/types.ts';
-import { identity, openStore, writeJson } from './store.js';
+import { identity, openStore, readJson, writeJson } from './store.js';
 
 export function scanIdentity({ revision, paths }) {
   return identity('scan', ANALYSIS_PROFILE, EXCLUSIONS_PROFILE, revision, [...paths].sort());
@@ -16,6 +16,13 @@ export async function analyzeTree({ root, revision, out, analyzer, label = root,
   const store = openStore(out);
   const id = scanIdentity({ revision, paths });
   const dir = store.scanDir(id), scanPath = join(dir, 'scan.json');
+  // A parse is local work the model never sees, and perch issues parses on every call to tell which findings still exist. The
+  // same commit and paths parse the same way, so a finished one is the answer.
+  const existing = await readJson(scanPath, null);
+  if (existing?.status === 'complete') {
+    debug(`scan ${id} already complete; reusing ${scanPath}`);
+    return existing;
+  }
   await store.exclude(root);
   const tree = await listTree(root, revision);
   const sources = tree.filter(createFileSelector(tree)).filter(sourceFile).filter(selected(paths));
@@ -34,6 +41,6 @@ export async function analyzeTree({ root, revision, out, analyzer, label = root,
   const scan = { id, status: 'complete', target: label, github, root, revision, paths, out: dir, created_at: new Date().toISOString(),
     coverage: { ...analysis.coverage, excluded: tree.filter(item => item.type === 'blob').length - sources.length }, functions: analysis.functions, files: analysis.files, candidates: analysis.candidates };
   await writeJson(scanPath, scan);
-  await store.pruneScans(id).catch(error => log(`Could not remove earlier scan artifacts: ${error.message}`));
+  await store.prune('scans', id).catch(error => log(`Could not remove earlier scans: ${error.message}`));
   return scan;
 }

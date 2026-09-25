@@ -375,8 +375,8 @@ export const rulesForMethod = (rules, node) => rules.filter(rule => rule.kind ==
 
 /**
  * The same verdict twice, flat and under `lint`, because a check has to read two ways: as a row in the issue list beside methods
- * the scan read, and as the record of a rule having been asked. A check that passed is written down too, so the latest local
- * issue list can distinguish a passing rule from one this run never checked.
+ * the scan read, and as the record of a rule having been asked. A check that passed is written down as well, so perch issues
+ * can tell a rule that passed from one that was never asked.
  */
 const checkOf = (rule, unit, { broken, line, text, revision }) => ({
   type: 'checked', at: new Date().toISOString(), id: findingId(`${rule.name}::${unit.id}`), rule: rule.name, rule_hash: rule.hash,
@@ -385,7 +385,7 @@ const checkOf = (rule, unit, { broken, line, text, revision }) => ({
   lint: { rule: rule.name, broken, text: rule.text, said: rule.text },
 });
 
-/** An unanswered rule remains visible in the report. */
+/** An unanswered rule stays in the report, as incomplete rather than as passed. */
 const failedCheck = (rule, unit, error, revision) => ({
   ...checkOf(rule, unit, { broken: null, line: unit.line, text: null, revision }),
   status: 'failed', error: error.message, incomplete: `${unit.path}: ${rule.name}: ${error.message}`,

@@ -13,7 +13,7 @@ const settings = {
 
 export const configPath = env => join(env.HOME || homedir(), '.perch', 'config.toml');
 
-/** The five supported string assignments, rather than a general TOML implementation. */
+/** Five settings, each a quoted string, is all this file holds, and reading that takes less than a TOML parser as a dependency. */
 function parseConfig(content) {
   const config = Object.create(null);
   for (const [index, raw] of content.replace(/^\uFEFF/, '').split(/\r?\n/).entries()) {
@@ -33,6 +33,7 @@ function parseConfig(content) {
   return config;
 }
 
+/** The environment with ~/.perch/config.toml filled in underneath it. Only the commands that reach an endpoint read it. */
 export async function configuredEnvironment(env) {
   const path = configPath(env);
   let content;
@@ -46,14 +47,11 @@ export async function configuredEnvironment(env) {
   try { config = parseConfig(content); }
   catch (error) { throw new Error(`Invalid ${path}: ${error.message}`, { cause: error }); }
 
+  // The file is a default for this machine and the environment is a choice for this shell, so the environment wins.
   const resolved = { ...env };
   for (const [name, value] of Object.entries(config)) {
-    const variable = settings[name];
-    if (!variable) throw new Error(`Unknown setting ${name} in ${path}.`);
-    if (typeof value !== 'string' || !value.trim()) {
-      throw new Error(`${name} in ${path} must be a nonempty string.`);
-    }
-    if (!resolved[variable]) resolved[variable] = value;
+    if (!value.trim()) throw new Error(`${name} in ${path} must not be empty.`);
+    resolved[settings[name]] ||= value;
   }
   return resolved;
 }

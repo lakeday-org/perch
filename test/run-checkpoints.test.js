@@ -1,4 +1,4 @@
-import { appendFile, mkdir, mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, readdir, rm, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -21,6 +21,19 @@ it('removes temporary result files when replacement fails', async () => {
   await expect(store.recordScan([{ id: 'finding' }])).rejects.toThrow();
   await expect(writeJson(join(store.out, 'state.json'), { ready: true })).rejects.toThrow();
   expect((await readdir(store.out)).sort()).toEqual(['scan.jsonl', 'state.json']);
+});
+
+it('keeps the newest runs, so a run another scan is still writing survives this one finishing', async () => {
+  const { store } = await fixture();
+  const names = Array.from({ length: 14 }, (_, index) => `run-${String(index).padStart(2, '0')}`);
+  for (const [index, name] of names.entries()) {
+    await mkdir(store.runDir(name), { recursive: true });
+    const when = new Date(Date.now() - (names.length - index) * 60_000);
+    await utimes(store.runDir(name), when, when);
+  }
+  // The finishing run is the oldest folder here: a scan that started first and ended last is still the one that must stay.
+  await store.prune('runs', 'run-00');
+  expect((await readdir(join(store.out, 'runs'))).sort()).toEqual(['run-00', ...names.slice(-9)]);
 });
 
 it('persists each answer once while progress and all results remain readable', async () => {

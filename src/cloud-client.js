@@ -5,9 +5,15 @@ import {
   actionsCanSignIn, actionsToken, cloudOrigin, cloudRequest, jsonBody, readCloudLogin, sessionToken,
 } from './cloud-auth.js';
 
-/** The token supplier refreshes OIDC or user credentials during a long scan. */
+/**
+ * System One through Perch Cloud, which caches answers per repository and bills the organization. getToken is asked before every
+ * request, since an OIDC token or a login's access token can expire partway through a long scan.
+ *
+ * A client can report a finished scan when the Cloud knows which repository it belongs to: a CI token and an OIDC token carry
+ * one, and a login names one found from the git remote. A login in a directory with no remote has nowhere to file it.
+ */
 export function createCloudClient({
-  origin, getToken, identity, organizationId, repositoryId,
+  origin, getToken, organizationId, repositoryId, reports,
   model = 'jev-latest', log, fetchImpl = globalThis.fetch, reportTimeoutMs = 10000,
 }) {
   const gateway = createSystemOne({
@@ -26,15 +32,15 @@ export function createCloudClient({
     },
   });
 
+  if (!reports) return gateway;
   return {
     ...gateway,
-    ...(repositoryId || identity !== 'user' ? { async report(report) {
+    /** The scan's result is its exit code, so a slow Cloud gets ten seconds, token included, rather than holding up CI. */
+    async report(report) {
       const signal = AbortSignal.timeout(reportTimeoutMs);
       const token = await getToken(signal);
-      return cloudRequest(fetchImpl, `${origin}/v1/scans`, { ...jsonBody(token, {
-        organizationId, repositoryId, ...report,
-      }), signal }, reportTimeoutMs);
-    } } : {}),
+      return cloudRequest(fetchImpl, `${origin}/v1/scans`, { ...jsonBody(token, { organizationId, repositoryId, ...report }), signal }, reportTimeoutMs);
+    },
   };
 }
 
@@ -53,6 +59,7 @@ export function remoteRepositoryName(remote) {
   return parts.join('/');
 }
 
+/** A login is not tied to a repository, so the git remote names it and the Cloud registers it on first use. */
 async function repositoryForLogin({ env, root, origin, token, organizationId, fetchImpl }) {
   if (env.PERCH_REPOSITORY) return env.PERCH_REPOSITORY;
   const remote = await git(['config', '--get', 'remote.origin.url'], root).catch(() => '');
@@ -64,6 +71,7 @@ async function repositoryForLogin({ env, root, origin, token, organizationId, fe
   return repository.id;
 }
 
+/** The Cloud says which model it serves; PERCH_MODEL_ID asks for another. */
 async function cloudClient({ env, log, fetchImpl, credentials }) {
   const origin = cloudOrigin(env);
   const config = await cloudRequest(fetchImpl, `${origin}/api/config`);
@@ -73,23 +81,12 @@ async function cloudClient({ env, log, fetchImpl, credentials }) {
   });
 }
 
-async function explicitCredentials({ env, root, fetchImpl }) {
-  const token = env.PERCH_TOKEN;
-  const organizationId = env.PERCH_ORGANIZATION;
-  const repositoryId = token.startsWith('perch_ci_')
-    ? env.PERCH_REPOSITORY
-    : await repositoryForLogin({
-      env, root, origin: cloudOrigin(env), token, organizationId, fetchImpl,
-    });
-
-  return {
-    getToken: async () => token,
-    identity: token.startsWith('perch_ci_') ? 'ci' : 'user',
-    organizationId,
-    repositoryId,
-  };
+/** A CI token from the dashboard. It is issued for one repository, so the Cloud knows which without being told. */
+function tokenCredentials(env) {
+  return { getToken: async () => env.PERCH_TOKEN, organizationId: env.PERCH_ORGANIZATION, repositoryId: env.PERCH_REPOSITORY, reports: true };
 }
 
+/** A login from perch login. It belongs to the Cloud it was made against, so one made on staging never signs in to production. */
 async function savedCredentials({ env, root, fetchImpl, saved }) {
   const origin = cloudOrigin(env);
   if (saved.origin !== origin) {
@@ -101,46 +98,37 @@ async function savedCredentials({ env, root, fetchImpl, saved }) {
   const repositoryId = await repositoryForLogin({
     env, root, origin, token: await getToken(), organizationId, fetchImpl,
   });
-  return { getToken, identity: 'user', organizationId, repositoryId };
+  return { getToken, organizationId, repositoryId, reports: Boolean(repositoryId) };
 }
 
+/** A GitHub Actions job's OIDC token. The Cloud maps its repository claim to a connected repository. */
 function actionsCredentials(env, fetchImpl) {
-  return {
-    getToken: actionsToken(env, cloudOrigin(env), fetchImpl),
-    identity: 'oidc',
-  };
+  return { getToken: actionsToken(env, cloudOrigin(env), fetchImpl), reports: true };
 }
 
-/** Select the source once for scans and diagnostics. OIDC needs an explicit Cloud URL. */
+/**
+ * Where scans send their questions, decided once so scan, check and doctor agree. A CI token is the most deliberate choice there
+ * is. A key or endpoint set for this shell comes before a login saved weeks ago, so a direct run is never quietly billed to the
+ * Cloud. OIDC comes last and only with a Cloud URL: a job can mint one for any audience, and permission to deploy somewhere is
+ * not a decision to send this repository's code to Perch Cloud.
+ */
 export async function credentialSource(env) {
   if (env.PERCH_TOKEN) return { kind: 'token' };
   if (env.PERCH_BASE_URL || env.PERCH_API_KEY || env.TYPESAFE_API_KEY) return { kind: 'direct' };
   const saved = await readCloudLogin(env);
   if (saved) return { kind: 'saved', saved };
   if (env.PERCH_CLOUD_URL && actionsCanSignIn(env)) return { kind: 'actions' };
+  // Nothing set at all is a direct run without a key, which fails asking for PERCH_API_KEY: the error a new user should see.
   return { kind: 'direct' };
 }
 
 export async function configuredSystemOne({ env, root, log, fetchImpl = globalThis.fetch }) {
   const source = await credentialSource(env);
-  if (source.kind === 'token') {
-    const credentials = await explicitCredentials({ env, root, fetchImpl });
-    return cloudClient({ env, log, fetchImpl, credentials });
-  }
   if (source.kind === 'direct') {
-    return createSystemOne({
-      apiKey: env.PERCH_API_KEY || env.TYPESAFE_API_KEY,
-      baseUrl: env.PERCH_BASE_URL,
-      model: env.PERCH_MODEL_ID,
-      log,
-      fetchImpl,
-    });
+    return createSystemOne({ apiKey: env.PERCH_API_KEY || env.TYPESAFE_API_KEY, baseUrl: env.PERCH_BASE_URL, model: env.PERCH_MODEL_ID, log, fetchImpl });
   }
-
-  if (source.kind === 'saved') {
-    const credentials = await savedCredentials({ env, root, fetchImpl, saved: source.saved });
-    return cloudClient({ env, log, fetchImpl, credentials });
-  }
-  if (source.kind === 'actions') return cloudClient({ env, log, fetchImpl, credentials: actionsCredentials(env, fetchImpl) });
-  throw new Error('No usable Perch credential source was selected.');
+  const credentials = source.kind === 'token' ? tokenCredentials(env)
+    : source.kind === 'saved' ? await savedCredentials({ env, root, fetchImpl, saved: source.saved })
+      : actionsCredentials(env, fetchImpl);
+  return cloudClient({ env, log, fetchImpl, credentials });
 }

@@ -162,8 +162,8 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const rules = asRules(await readRules(root, revision));
   // Which issue types this run asks about, and so which of perch's own questions ride in every request.
   const kinds = typesAsked(await readScanTypes(root, revision), filters);
-  // --since and --paths say what this run reads, not what perch knows. A method outside is neither read nor reported here;
-  // its last result remains available in the local issue list.
+  // --since and --paths say what this run reads, not what perch knows. A method outside is neither read nor reported here, and
+  // what the last run said about it is carried onto the file at the end rather than dropped.
   // What perch.yaml says not to read at all, on top of what this run was asked to cover. A fixture kept so the docs can show real
   // output is code with a bug in every method on purpose, and being told about them on every run is noise nobody acts on.
   const ignored = await readIgnored(root, revision);
@@ -182,7 +182,8 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
 
   // A file is reported the moment every method in it has been accounted for, rather than the run being held back to the end. A
   // method that could not be read counts: a file must not wait forever on one that will never arrive.
-  // Previous findings are retained only for paths and question types outside this run's scope. They never skip a request.
+  // What the last run said, for the methods and questions this run does not cover. It is what the file keeps for those, not a
+  // reason to skip asking about anything this run does cover: the endpoint caches answers, perch does not.
   const { dismissals, latest, checks } = await store.indexes();
   const earlier = latest;
   const inFile = new Map();
@@ -234,7 +235,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const { response, answers } = await questionMethod({ systemOne, node, steps, prepare, lines: await linesOf(node), rules: own, debug });
     return { node, calleeIds, callerIds, rules: own, response, answers };
   };
-  /** Every reading this run made. The last result for paths outside this run remains in the local issue list. */
+  /** Every reading this run made. The file is written whole at the end, so what this run did not cover is carried onto it. */
   const read = [], broken = [];
   const record = async results => {
     for (const { node, calleeIds, callerIds, rules: own, response, answers, skipped } of results) {
@@ -247,7 +248,6 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
       run.usage.input_tokens += response?.usage?.input_tokens ?? 0; run.usage.output_tokens += response?.usage?.output_tokens ?? 0;
       const fresh = readEvent({ node, answers, response, runId: id, root, github, revision, calleeIds, callerIds });
       const event = before ? { ...before, ...fresh } : fresh;
-      delete event.key;
       read.push(event); run.visited.push({ ...event, status: 'read' });
       finish(node.path, event);
       // A rule asked of this method answered under its own name, and a rule is broken when the answer is no. The answer is
@@ -347,13 +347,13 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // every reading outside it, so `perch scan --paths one/file.js` left a store that knew about one file.
     const walked = new Set(read.map(event => event.method));
     const elsewhere = [...earlier.values()].filter(event => !walked.has(event.method) && graph.nodes.has(event.method));
-    // Keep checks outside this run's scope only while their rule is still the same. They do not skip requests in this run.
+    // Rule checks are carried the same way, and only while the rule that produced one is still that rule. A rule reworded,
+    // reshaped or deleted since leaves a check describing a question that no longer exists.
     const said = new Set(broken.map(check => check.id));
     const byName = new Map(rules.map(rule => [rule.name, rule]));
     const unasked = [...checks.values()].filter(check => !said.has(check.id) && byName.get(check.rule)?.hash === check.rule_hash);
-    const withoutReuseKey = row => { const current = { ...row }; delete current.key; return current; };
-    await store.recordScan([...read, ...elsewhere, ...broken, ...unasked].map(withoutReuseKey));
+    await store.recordScan([...read, ...elsewhere, ...broken, ...unasked]);
     run.remaining = walk.remaining(); run.status = run.incomplete.length ? 'incomplete' : 'complete'; run.completed_at = new Date().toISOString();
-    await saveRun(true); await store.pruneRuns(id).catch(error => log(`Could not remove earlier run artifacts: ${error.message}`)); return run;
-  } catch (error) { run.status = 'failed'; run.error = error.message; await saveRun(true).catch(() => {}); await store.pruneRuns(id).catch(() => {}); throw error; }
+    await saveRun(true); await store.prune('runs', id).catch(error => log(`Could not remove earlier runs: ${error.message}`)); return run;
+  } catch (error) { run.status = 'failed'; run.error = error.message; await saveRun(true).catch(() => {}); await store.prune('runs', id).catch(prune => log(`Could not remove earlier runs: ${prune.message}`)); throw error; }
 }
