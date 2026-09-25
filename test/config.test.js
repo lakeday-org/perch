@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { configuredEnvironment } from '../src/config.js';
 import { configuredSystemOne } from '../src/cloud-client.js';
+import { main } from '../src/cli.js';
 
 const homes = [];
 afterEach(async () => {
@@ -67,5 +68,20 @@ repository = "repo-test"
     await expect(configuredEnvironment({ HOME: home })).rejects.toThrow('Invalid');
     await writeFile(join(home, '.perch', 'config.toml'), 'model = "jev"\nmodel = "other"\n');
     await expect(configuredEnvironment({ HOME: home })).rejects.toThrow('Duplicate setting model');
+  });
+
+  it('keeps local commands usable with a bad config and reports it in doctor', async () => {
+    const home = await configHome('cluod_url = "https://example.com"\n');
+    const output = [], errors = [];
+    const io = { env: { HOME: home }, stdout: text => output.push(text), stderr: text => errors.push(text) };
+
+    expect(await main(['issues', '--out', join(home, 'results')], io)).toBe(0);
+    expect(output.at(-1)).toBe('Nothing matches.');
+    expect(await main(['doctor', '--json', '--out', join(home, 'results')], io)).toBe(1);
+    const doctor = JSON.parse(output.at(-1));
+    expect(doctor.checks).toContainEqual(expect.objectContaining({ name: 'config', ok: false }));
+    expect(doctor.checks.find(check => check.name === 'config').found).toContain('Unknown setting cluod_url');
+    expect(await main(['logout'], io)).toBe(0);
+    expect(errors).not.toContainEqual(expect.stringContaining('perch:'));
   });
 });

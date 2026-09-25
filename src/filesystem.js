@@ -24,17 +24,19 @@ export async function snapshotDirectory(root, out) {
   };
   await walk(root);
   tree.sort((a, b) => a.path.localeCompare(b.path));
-  const selected = createFileSelector(tree), blobs = new Map();
+  const selected = createFileSelector(tree), blobs = new Map(), capturedTree = [];
   const content = [];
   for (const file of tree) {
-    if (!selected(file)) continue;
+    if (!selected(file)) { capturedTree.push(file); continue; }
     const bytes = await readFile(join(root, file.path));
-    file.sha = hash(bytes);
-    blobs.set(file.sha, bytes.toString('utf8'));
-    content.push([file.path, file.sha]);
+    const sha = hash(bytes);
+    capturedTree.push({ ...file, sha });
+    blobs.set(sha, bytes.toString('utf8'));
+    content.push([file.path, sha]);
   }
   const revision = `workspace:${hash(JSON.stringify(content))}`;
-  snapshots.set(root, { revision, tree, blobs });
+  // Publish only after every file has been read. A failed or partial snapshot must not replace the last complete one.
+  snapshots.set(root, { revision, tree: capturedTree, blobs });
   return revision;
 }
 

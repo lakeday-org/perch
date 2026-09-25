@@ -11,12 +11,15 @@ rules:
   - name: cli-honors-api-configuration
     where: src/cli.js
     ensure: >-
-      The scan and check commands pass PERCH_API_KEY, PERCH_BASE_URL and
-      PERCH_MODEL_ID from their environment to the client's apiKey, baseUrl
-      and model options. Omitting any of these overrides from either command
-      breaks this rule.
-      Both commands fall back to TYPESAFE_API_KEY when PERCH_API_KEY is absent
-      or empty; a nonempty PERCH_API_KEY takes precedence.
+      The scan and check commands pass their configured environment to
+      configuredSystemOne. Passing the unconfigured environment, or omitting
+      that client setup from either command, breaks this rule.
+  - name: client-honors-api-configuration
+    where: src/cloud-client.js
+    ensure: >-
+      Direct-provider scans use PERCH_API_KEY, falling back to TYPESAFE_API_KEY,
+      and pass PERCH_BASE_URL and PERCH_MODEL_ID to createSystemOne. An
+      explicit direct-provider setting takes precedence over saved Cloud login.
   - name: configured-endpoint-is-exact
     where: src/systemone.js
     ensure: >-
@@ -55,9 +58,9 @@ rules:
     except: "src/cli.js"
     each: method
     ensure: >-
-      This method does not read configuration out of process.env. Reading the
-      environment is the command line's job, and everything below it is passed
-      the values. Handing the environment to a child process is not this.
+      This method does not read configuration directly from process.env.
+      Reading a passed env parameter is permitted. Passing process.env through
+      to a child process without inspecting its configuration is permitted.
 
   - name: issues-closable
     where: "test/**/*.js"

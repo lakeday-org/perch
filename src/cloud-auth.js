@@ -23,8 +23,8 @@ export function cloudOrigin(env) {
   return url.origin;
 }
 
-export async function cloudRequest(fetchImpl, url, options = {}) {
-  const response = await fetchImpl(url, { ...options, signal: AbortSignal.timeout(150000) });
+export async function cloudRequest(fetchImpl, url, options = {}, timeoutMs = 150000) {
+  const response = await fetchImpl(url, { ...options, signal: AbortSignal.timeout(timeoutMs) });
   const data = await response.json().catch(() => null);
   if (!response.ok) {
     const detail = data?.error_description || data?.error || `Cloud request failed (${response.status})`;
@@ -82,7 +82,8 @@ async function waitForDeviceToken({ clientId, device, fetchImpl, sleep }) {
       }),
       signal: AbortSignal.timeout(30000),
     });
-    const data = await response.json();
+    const data = await response.json().catch(() => null);
+    if (!data || typeof data !== 'object') throw new Error('Perch Cloud sign-in returned an invalid response. Run perch login again.');
     if (response.ok) return data;
     if (data.error === 'authorization_pending') continue;
     if (data.error === 'slow_down') { interval += 5; continue; }
@@ -94,16 +95,28 @@ async function waitForDeviceToken({ clientId, device, fetchImpl, sleep }) {
 export async function loginCloud({ env, organization, stdout, fetchImpl = globalThis.fetch, sleep = wait }) {
   const origin = cloudOrigin(env);
   const { clientId } = await cloudRequest(fetchImpl, `${origin}/api/config`);
-  if (!clientId) throw new Error('Perch Cloud sign-in is not configured yet.');
+  if (typeof clientId !== 'string' || !clientId) throw new Error('Perch Cloud sign-in is not configured yet.');
 
   const device = await cloudRequest(fetchImpl, DEVICE_AUTH, formBody({ client_id: clientId }));
+  if (typeof device.device_code !== 'string' || !device.device_code || typeof device.user_code !== 'string' || !device.user_code
+    || typeof device.verification_uri !== 'string' || !device.verification_uri.startsWith('https://')
+    || !Number.isFinite(device.expires_in) || device.expires_in <= 0
+    || (device.interval !== undefined && (!Number.isFinite(device.interval) || device.interval <= 0))) {
+    throw new Error('Perch Cloud sign-in returned an invalid device code. Run perch login again.');
+  }
   stdout(`Open ${device.verification_uri}\nEnter code: ${device.user_code}`);
   const session = await waitForDeviceToken({ clientId, device, fetchImpl, sleep });
-  if (!session.access_token || !session.refresh_token) throw new Error('Sign-in timed out. Run perch login again.');
+  if (typeof session.access_token !== 'string' || !session.access_token
+    || typeof session.refresh_token !== 'string' || !session.refresh_token) {
+    throw new Error('Perch Cloud sign-in returned invalid credentials. Run perch login again.');
+  }
 
   const user = await cloudRequest(fetchImpl, `${origin}/api/me`, {
     headers: { authorization: `Bearer ${session.access_token}` },
   });
+  if (!Array.isArray(user.organizations) || !user.organizations.every(org => org && typeof org.id === 'string' && typeof org.name === 'string')) {
+    throw new Error('Perch Cloud sign-in returned an invalid organization list. Run perch login again.');
+  }
   const requested = organization || env.PERCH_ORGANIZATION;
   const selected = requested
     ? user.organizations.find(org => org.id === requested)
@@ -132,12 +145,6 @@ export const actionsCanSignIn = env => Boolean(
   env.GITHUB_ACTIONS && env.ACTIONS_ID_TOKEN_REQUEST_URL && env.ACTIONS_ID_TOKEN_REQUEST_TOKEN
 );
 
-export async function hasCloudLogin(env) {
-  if (env.PERCH_TOKEN) return true;
-  if (env.PERCH_BASE_URL || env.PERCH_API_KEY || env.TYPESAFE_API_KEY) return false;
-  return Boolean(await readCloudLogin(env)) || actionsCanSignIn(env);
-}
-
 /** GitHub's OIDC token expires during long scans, so ask again before each five-minute window ends. */
 export function actionsToken(env, audience, fetchImpl = globalThis.fetch) {
   let cached = null;
@@ -159,6 +166,7 @@ export function actionsToken(env, audience, fetchImpl = globalThis.fetch) {
 }
 
 function accessTokenValid(token) {
+  if (typeof token !== 'string') return false;
   try {
     const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
     return payload.exp * 1000 > Date.now() + 60_000;
@@ -196,7 +204,10 @@ export async function sessionToken(env, origin, fetchImpl) {
       grant_type: 'refresh_token',
       refresh_token: saved.refreshToken,
     }));
-    if (!session.access_token || !session.refresh_token) throw new Error('Cloud session expired. Run perch login.');
+    if (typeof session.access_token !== 'string' || !session.access_token
+      || typeof session.refresh_token !== 'string' || !session.refresh_token) {
+      throw new Error('Cloud session expired. Run perch login.');
+    }
     await saveCloudLogin(env, {
       ...saved,
       accessToken: session.access_token,

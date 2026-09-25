@@ -32,7 +32,7 @@ export function createCloudClient({
       const token = await getToken();
       return cloudRequest(fetchImpl, `${origin}/v1/scans`, jsonBody(token, {
         organizationId, repositoryId, ...report,
-      }));
+      }), 10000);
     } } : {}),
   };
 }
@@ -110,13 +110,23 @@ function actionsCredentials(env, fetchImpl) {
   };
 }
 
-/** Explicit credentials win; a saved login follows; GitHub OIDC is the last option. */
+/** Select the source once for scans and diagnostics. OIDC needs an explicit Cloud URL. */
+export async function credentialSource(env) {
+  if (env.PERCH_TOKEN) return { kind: 'token' };
+  if (env.PERCH_BASE_URL || env.PERCH_API_KEY || env.TYPESAFE_API_KEY) return { kind: 'direct' };
+  const saved = await readCloudLogin(env);
+  if (saved) return { kind: 'saved', saved };
+  if (env.PERCH_CLOUD_URL && actionsCanSignIn(env)) return { kind: 'actions' };
+  return { kind: 'direct' };
+}
+
 export async function configuredSystemOne({ env, root, log, fetchImpl = globalThis.fetch }) {
-  if (env.PERCH_TOKEN) {
+  const source = await credentialSource(env);
+  if (source.kind === 'token') {
     const credentials = await explicitCredentials({ env, root, fetchImpl });
     return cloudClient({ env, log, fetchImpl, credentials });
   }
-  if (env.PERCH_BASE_URL || env.PERCH_API_KEY || env.TYPESAFE_API_KEY) {
+  if (source.kind === 'direct') {
     return createSystemOne({
       apiKey: env.PERCH_API_KEY || env.TYPESAFE_API_KEY,
       baseUrl: env.PERCH_BASE_URL,
@@ -126,13 +136,9 @@ export async function configuredSystemOne({ env, root, log, fetchImpl = globalTh
     });
   }
 
-  const saved = await readCloudLogin(env);
-  if (saved) {
-    const credentials = await savedCredentials({ env, root, fetchImpl, saved });
+  if (source.kind === 'saved') {
+    const credentials = await savedCredentials({ env, root, fetchImpl, saved: source.saved });
     return cloudClient({ env, log, fetchImpl, credentials });
   }
-  if (actionsCanSignIn(env)) {
-    return cloudClient({ env, log, fetchImpl, credentials: actionsCredentials(env, fetchImpl) });
-  }
-  return createSystemOne({ log, fetchImpl });
+  return cloudClient({ env, log, fetchImpl, credentials: actionsCredentials(env, fetchImpl) });
 }

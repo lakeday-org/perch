@@ -3,8 +3,8 @@ import { join } from 'node:path';
 import { git, repoRoot, revision as gitRevision } from './git.js';
 import { snapshotDirectory } from './filesystem.js';
 import { resolveTarget } from './target.js';
-import { loginCloud, logoutCloud, hasCloudLogin } from './cloud-auth.js';
-import { configuredSystemOne } from './cloud-client.js';
+import { loginCloud, logoutCloud } from './cloud-auth.js';
+import { configuredSystemOne, credentialSource } from './cloud-client.js';
 import { reportFindings, runContext } from './cloud-results.js';
 import { configuredEnvironment } from './config.js';
 import { createSourceAnalyzer } from './analysis.js';
@@ -485,7 +485,14 @@ const commands = {
     // Whether perch can run here, worked out before anything that assumes it can. A machine where nothing works still gets an
     // answer, which is the whole reason this command has this name.
     const root = await repoRoot(process.cwd()).catch(() => process.cwd());
-    const checks = await runChecks({ root, out: store.out, env: io.env, versions, cloud: await hasCloudLogin(io.env) });
+    let env = io.env, configError = null, loginError = null, source = null;
+    try { env = await configuredEnvironment(io.env); }
+    catch (error) { configError = error; }
+    try { source = await credentialSource(env); }
+    catch (error) { loginError = error; }
+    const checks = await runChecks({ root, out: store.out, env, versions, cloud: ['token', 'saved', 'actions'].includes(source?.kind) });
+    if (configError) checks.unshift({ name: 'config', ok: false, found: configError.message, fix: 'fix ~/.perch/config.toml' });
+    if (loginError) checks.unshift({ name: 'login', ok: false, found: loginError.message, fix: 'run perch logout, then perch login' });
     const [scan, run] = [await store.latestScan().catch(() => null), await store.latestRun().catch(() => null)];
     // The end of the log, on a run that did not finish cleanly. On one that did, the path to it is enough.
     const log = run && run.status !== 'complete' ? await store.tail(20) : [];
@@ -557,7 +564,7 @@ export async function main(argv, { stdout = text => process.stdout.write(text + 
   const debug = message => { if (verbose) stderr(`[perch] ${message}`); };
   try {
     // A command that returns a number is saying what the exit code should be.
-    const configured = await configuredEnvironment(env);
+    const configured = ['login', 'scan', 'check'].includes(commandName) ? await configuredEnvironment(env) : env;
     const code = await command({ argument, args: positional.slice(1), flags, env: configured, stdout, stderr, log, debug, verbose, note: noteFrom({ flags }, stderr) });
     return typeof code === 'number' ? code : EXIT.clean;
   } catch (error) {
