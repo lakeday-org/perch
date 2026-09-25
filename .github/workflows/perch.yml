@@ -15,10 +15,10 @@ jobs:
     env:
       PERCH_CLOUD_URL: https://dash-staging.perchscan.com
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - run: npm exec --yes --package='github:lakeday-org/perch#codex/staging-prototype-cli' -- perch scan --since origin/${{ github.base_ref }}
