@@ -1,4 +1,4 @@
-# Added by Perch Cloud. perch signs in with this job's GitHub OIDC token, so no secret is needed.
+# Added by Perch Cloud. This staging workflow builds an unreleased Perch CLI ref.
 name: perch
 
 on:
@@ -12,17 +12,28 @@ permissions:
 
 jobs:
   perch:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    env:
+      PERCH_CLOUD_URL: https://dash-staging.perchscan.com
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          repository: lakeday-org/perch
+          ref: codex/staging-prototype-cli
+          path: .perch-cli
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Build the prototype CLI
+        run: npm ci --prefix .perch-cli && npm run build --prefix .perch-cli
       - name: Scan what this pull request changed
         if: github.event_name == 'pull_request'
-        run: npm exec --yes --package=@lakeday/perch@latest -- perch scan --since origin/${{ github.base_ref }}
+        run: node .perch-cli/bin/perch.mjs scan --since origin/${{ github.base_ref }}
       - name: Scan the repository
         if: github.event_name == 'push'
-        run: npm exec --yes --package=@lakeday/perch@latest -- perch scan
+        run: node .perch-cli/bin/perch.mjs scan
