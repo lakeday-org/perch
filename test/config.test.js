@@ -51,6 +51,13 @@ repository = "repo-test"
     expect(env.PERCH_BASE_URL).toBe('https://api.example.com/v1/systemone');
   });
 
+  it('accepts comments and literal strings without reading a hash inside a URL as a comment', async () => {
+    const home = await configHome('# Local defaults\ncloud_url = "https://cloud.example.com/#preview" # endpoint\norganization = \'team-one\'\n');
+    const env = await configuredEnvironment({ HOME: home });
+    expect(env.PERCH_CLOUD_URL).toBe('https://cloud.example.com/#preview');
+    expect(env.PERCH_ORGANIZATION).toBe('team-one');
+  });
+
   it('reports invalid and unknown settings instead of silently using another endpoint', async () => {
     const home = await configHome('model = 12\n');
     await expect(configuredEnvironment({ HOME: home })).rejects.toThrow('model');
@@ -58,5 +65,7 @@ repository = "repo-test"
     await expect(configuredEnvironment({ HOME: home })).rejects.toThrow('Unknown setting cluod_url');
     await writeFile(join(home, '.perch', 'config.toml'), 'cloud_url = [\n');
     await expect(configuredEnvironment({ HOME: home })).rejects.toThrow('Invalid');
+    await writeFile(join(home, '.perch', 'config.toml'), 'model = "jev"\nmodel = "other"\n');
+    await expect(configuredEnvironment({ HOME: home })).rejects.toThrow('Duplicate setting model');
   });
 });

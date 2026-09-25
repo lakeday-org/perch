@@ -2,7 +2,6 @@
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { parse } from 'smol-toml';
 
 const settings = {
   cloud_url: 'PERCH_CLOUD_URL',
@@ -14,6 +13,26 @@ const settings = {
 
 export const configPath = env => join(env.HOME || homedir(), '.perch', 'config.toml');
 
+/** The five supported string assignments, rather than a general TOML implementation. */
+function parseConfig(content) {
+  const config = Object.create(null);
+  for (const [index, raw] of content.replace(/^\uFEFF/, '').split(/\r?\n/).entries()) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const match = /^([a-z_]+)\s*=\s*("(?:\\.|[^"\\])*"|'[^']*')\s*(?:#.*)?$/.exec(line);
+    if (!match) {
+      const name = /^([a-z_]+)\s*=/.exec(line)?.[1];
+      throw new Error(name ? `${name} on line ${index + 1} must be a quoted string` : `line ${index + 1} must be a string assignment`);
+    }
+    const [, name, quoted] = match;
+    if (!settings[name]) throw new Error(`Unknown setting ${name}`);
+    if (Object.hasOwn(config, name)) throw new Error(`Duplicate setting ${name}`);
+    try { config[name] = quoted.startsWith('"') ? JSON.parse(quoted) : quoted.slice(1, -1); }
+    catch (error) { throw new Error(`${name} on line ${index + 1}: ${error.message}`, { cause: error }); }
+  }
+  return config;
+}
+
 export async function configuredEnvironment(env) {
   const path = configPath(env);
   let content;
@@ -24,7 +43,7 @@ export async function configuredEnvironment(env) {
   }
 
   let config;
-  try { config = parse(content); }
+  try { config = parseConfig(content); }
   catch (error) { throw new Error(`Invalid ${path}: ${error.message}`, { cause: error }); }
 
   const resolved = { ...env };
