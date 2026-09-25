@@ -1,6 +1,7 @@
 /** perch command line: scan, issues, check, close, rules, doctor. */
 import { join } from 'node:path';
 import { git, repoRoot, revision as gitRevision } from './git.js';
+import { snapshotDirectory } from './filesystem.js';
 import { resolveTarget } from './target.js';
 import { loginCloud, logoutCloud, hasCloudLogin } from './cloud-auth.js';
 import { configuredSystemOne } from './cloud-client.js';
@@ -70,14 +71,14 @@ const ALIASES = { findings: 'issues' };
 const commandHelp = {
   login: { args: '[organization-id]', summary: 'Sign in to Perch Cloud', detail: 'Shows a device code to confirm in your browser. Stores a private login outside the repository. Use PERCH_TOKEN for a repository-scoped CI credential.' },
   logout: { args: '', summary: 'Remove this device’s cloud login', detail: 'Removes the saved login from this device. CI credentials are revoked separately in the dashboard.' },
-  scan: { args: '[target]', summary: 'Find issues', detail: `Scores every method with tree-sitter, then reads them with System One, callers and callees in view. Custom rules in ${RULES_FILE} and ${RULES_DIR}/ are asked in the same reading, so they cost nothing extra on a method perch was reading anyway.\n\nA method is reused when its code, neighbours, questions, endpoint and model are unchanged since the last run. The answer would be the same one, and asking for it would move the numbers on an issue you have already looked at. Delete .perch/scan.jsonl to ask about everything again.\n\ntarget is the file or directory to read, and defaults to where you are. --paths and --since narrow it further, and --since origin/main is what CI wants. Exits 3 on anything it found. Every type it asks about fails the run; scan_types in perch.yaml decides which those are, and defaults to defect, security and lint. Sign in with perch login, use GitHub OIDC in Actions, or set PERCH_API_KEY for direct access. PERCH_BASE_URL selects a direct provider endpoint. URL and model defaults can be set in ~/.perch/config.toml.` },
+  scan: { args: '[target]', summary: 'Find issues', detail: `Scores every method with tree-sitter, then reads them with System One, callers and callees in view. Custom rules in ${RULES_FILE} and ${RULES_DIR}/ are asked in the same reading, so they cost nothing extra on a method perch was reading anyway.\n\nA method is reused when its code, neighbours, questions, endpoint and model are unchanged since the last run. The answer would be the same one, and asking for it would move the numbers on an issue you have already looked at. Delete .perch/scan.jsonl to ask about everything again.\n\ntarget is the file or directory to read, and defaults to where you are. A Git repository is scanned at HEAD; a directory without a commit is scanned from its working files. --paths narrows either scan, while --since needs Git. Exits 3 on anything it found. Every type it asks about fails the run; scan_types in perch.yaml decides which those are, and defaults to defect, security and lint. Sign in with perch login, use GitHub OIDC in Actions, or set PERCH_API_KEY for direct access. PERCH_BASE_URL selects a direct provider endpoint. URL and model defaults can be set in ~/.perch/config.toml.` },
   rules: { args: '[list | add <name> | edit <name> | remove <name>]', summary: `Change ${RULES_FILE} without opening it`, detail: `Custom rules are questions perch asks alongside its own, written in the same grammar as the ones it ships with in scan.yaml. perch scan asks them; this writes them, keeping comments and ordering.\n\nRules live in ${RULES_FILE} or in .yaml files under ${RULES_DIR}/. add writes to ${RULES_FILE} unless --file names a split file; edit and remove find the file a rule is in; list shows every file, or one file with --file.\n\nMost are a yes-or-no, so --ensure is usually the only flag needed. It covers what a parser can't: whether a comment says why, whether a test asserts what you claim.\n\n  perch rules add no-stale-docs --where "docs/**/*.md" --ensure_absent "docs for code that was deleted"\n\nAn answer that is not yes-or-no is written out: --ask with --type and the options or levels it offers, and --issue for what an answer means. --when names a question this one is only as likely as.\n\n  perch rules add handles_absence --type choice --each method --where "src/**/*.js" \\\n    --ask "How does this method handle a value that is missing?" \\\n    --options "checks=It checks for it; ignores=It carries on with the missing value" \\\n    --issue "type=defect,label=handles_absence,except=checks"` },
   issues: { args: '[issue-id]', summary: 'List what the scan found, or show one', detail: 'Worst first. --filter narrows the list, --types prints what it accepts, --closed includes closed ones, --all lists every row. Give it an id to see everything known about that method. perch findings does the same thing.' },
   check: { args: '<path | path::method | issue-id>', summary: 'Ask about one piece of code, uncommitted', detail: 'Reads that one file off disk and asks about the point you named: every rule that covers it, plus the scan\'s own questions for a method. --rules narrows it to specific rules, or to defect, security, refactor or docs. Nothing is committed or recorded, so run it on work in progress. Exits 3 while something is still wrong. Use perch login, PERCH_TOKEN for CI, or PERCH_API_KEY for direct access. PERCH_BASE_URL sets the exact request URL; PERCH_MODEL_ID selects the model.' },
   close: { args: '<issue-id>...', summary: 'Set issues aside', detail: 'Stops an issue being listed: a false positive, or code you have looked at and are not changing. --reason is kept and shown by perch issues <id>. It stays closed through later scans and later edits, and perch reopen is the only thing that brings it back.\n\nIt covers the kinds on that issue now, so a defect found in the method later is a new thing and is listed. --kind closes some of them and leaves the rest:\n\n  perch close 2638fb16 --kind docs' },
   reopen: { args: '<issue-id>...', summary: 'Put closed issues back', detail: 'Undoes perch close, all of it, or the kinds --kind names.' },
   setup: { args: `<${TARGET_NAMES.join(' | ')}>`, summary: 'Teach a coding assistant to use perch', detail: `Writes the perch skill into the assistant's configuration, so it knows to scan what a branch changed, to read the JSON rather than the table, that a finding is a probability rather than a located defect, to ask about one method after a fix, and to write a rule when the same mistake comes back.\n\n${Object.entries(TARGETS).map(([name, target]) => `  perch setup ${name}`.padEnd(28) + target.path).join('\n')}\n\nThe file can be edited once written: perch will not replace an edited one unless you pass --force.` },
-  doctor: { args: '', summary: 'Check perch can run, and what the last run did', detail: 'Whether perch can run here: node, the API key, git, the repository, somewhere to write, and whether perch.yaml parses. Anything that fails says what to do about it, and the command exits 1, since perch cannot run here.\n\nUnder that, the last run: every method it could not read with the error, every question it asked and what each raised, and the end of the log when a run did not finish. Names, paths, counts and error messages only, never source, so it can be pasted into a bug report as it stands.' },
+  doctor: { args: '', summary: 'Check perch can run, and what the last run did', detail: 'Whether perch can run here: node, credentials, an available source directory, somewhere to write, and whether perch.yaml parses. Git and a commit are needed for --since; otherwise perch scans working files. Anything that fails says what to do about it, and the command exits 1.\n\nUnder that, the last run: every method it could not read with the error, every question it asked and what each raised, and the end of the log when a run did not finish. Names, paths, counts and error messages only, never source, so it can be pasted into a bug report as it stands.' },
 };
 
 /** Help at 80 columns. A blank line stays a blank line, and an indented line is an example, left exactly as written. */
@@ -169,14 +170,14 @@ const storeFrom = async flags => openStore(await resolveOut(flags.out));
  * after, or a filter would refuse a value the same command prints.
  */
 const ownQuestions = async () => {
-  const root = await repoRoot(process.cwd()).catch(() => null);
-  if (root) await readRules(root, await gitRevision(root));
+  const root = await repoRoot(process.cwd()).catch(() => process.cwd());
+  await readRules(root, await gitRevision(root).catch(() => null));
   return root;
 };
 /** `--filter type=security,severity=P1` as tests a finding must pass; a bad clause is a usage error naming the real values. */
 const filtersFrom = (flags, rules = []) => { try { return parseFilters(flags.filter ?? '', rules); } catch (error) { throw new UsageError(error.message); } };
 /** The rules in force, so `--filter rule=` can name one and a typo is answered with the list. */
-const rulesInForce = async root => readRules(root, await gitRevision(root)).catch(() => []);
+const rulesInForce = async root => readRules(root, await gitRevision(root).catch(() => null)).catch(() => []);
 /** The findings a filter keeps, the surest match first: filtering for one kind of problem should rank by that problem, not by whatever else the method carries. With no filter the scan's own ranking stands. */
 const narrow = (findings, filters, min) => findings.filter(finding => matchesFilters(finding, filters, min))
   .sort((a, b) => filters.length ? filterStrength(b, filters) - filterStrength(a, filters) : 0);
@@ -237,7 +238,8 @@ async function openIssues(store, min, io) {
   const root = (await store.latestRun())?.root ?? (await store.latestScan())?.root ?? null;
   // Parsing the tree is what says which findings are about code that still exists. Swallowing a failure here listed everything
   // the last scan found as though it were all still there, which is a wrong list rather than a missing one.
-  const scan = root ? await analyzeTree({ root, revision: await gitRevision(root), out: store.out, analyzer: createSourceAnalyzer(), log: io.debug, debug: io.debug }) : null;
+  const scan = root ? await analyzeTree({ root, revision: await gitRevision(root).catch(() => snapshotDirectory(root, store.out)),
+    out: store.out, analyzer: createSourceAnalyzer(), log: io.debug, debug: io.debug }) : null;
   let findings = await store.issues(min / 100, { scan }), gone = 0;
   if (scan) { const { current, stale } = splitStale(findings, scan); findings = current; gone = stale.length; }
   // A method edited since the scan read it keeps none of its answers: they are about code that is not there any more. Counted
@@ -379,6 +381,7 @@ const commands = {
     const min = threshold(io.flags.min) / 100;
     // The target comes first: a filter can name a rule, and the rules are read from the repository the target resolves to.
     const resolved = await resolveTarget(io.argument ?? '.', { out: io.flags.out });
+    if (resolved.kind === 'filesystem' && io.flags.since) throw new UsageError('--since needs a Git repository; use --paths for a directory without Git');
     const filters = filtersFrom(io.flags, await rulesInForce(resolved.root));
     const paths = await scanPaths(io, resolved.root, resolved.scope);
     if (io.flags.since && !paths.length) { io.stdout(`Nothing changed since ${io.flags.since}.`); return EXIT.clean; }
@@ -408,7 +411,8 @@ const commands = {
     let run;
     const started = Date.now();
     try {
-      run = await scanRepository({ root: resolved.root, revision: await gitRevision(resolved.root), label: resolved.label, github: resolved.github, out: resolved.out,
+      run = await scanRepository({ root: resolved.root, revision: resolved.kind === 'filesystem'
+        ? await snapshotDirectory(resolved.root, resolved.out) : await gitRevision(resolved.root), label: resolved.label, github: resolved.github, out: resolved.out,
         systemOne, analyzer: createSourceAnalyzer(), paths, parallel, min, filters, onFile: io.flags.json ? () => {} : say,
         progress: methods.update, unitProgress: units.update, searchProgress: searches.update, scanProgress: files.update,
         log: note, debug: note });
@@ -435,7 +439,7 @@ const commands = {
     // The scan passes when nothing it gates on came back. Which questions those are is on the questions, so a defect and a
     // vulnerability count the same as a rule you wrote.
     const exit = gating(issues, min).length ? EXIT.found : EXIT.clean;
-    if (systemOne.report) {
+    if (systemOne.report && resolved.kind === 'local') {
       // The dashboard is a view of the run, not part of it: a failed upload is said and the exit code stands.
       const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD'], resolved.root).then(out => out.trim(), () => null);
       const where = await runContext(io.env, run.revision, branch === 'HEAD' ? null : branch);

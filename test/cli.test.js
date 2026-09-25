@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process';
-import { readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -120,6 +122,26 @@ describe('cli', () => {
     expect(err.join('\n')).toContain('PERCH_API_KEY');
     expect(await main(['issues', '--out', join(repo, '.perch')], io)).toBe(0);
     expect(out.at(-1)).toBe('Nothing matches.');
+  });
+
+  it('scans a directory without Git, keeps its results locally, and rejects --since', async () => {
+    const loose = await realpath(await mkdtemp(join(tmpdir(), 'perch loose project ')));
+    cleanups.push(loose);
+    await writeFile(join(loose, 'app.js'), 'export function add(a, b) { return a + b; }\n');
+    vi.spyOn(process, 'cwd').mockReturnValue(loose);
+    const service = scriptedSystemOne({});
+    vi.stubGlobal('fetch', async (_url, init) => {
+      const { state, questions } = JSON.parse(init.body);
+      return new Response(JSON.stringify(await service.ask(state, questions)));
+    });
+    const { out, err, io } = capture();
+    io.env = { PERCH_API_KEY: 'test-key', HOME: loose };
+    expect(await main(['scan', '--json'], io), err.join('\n')).toBe(0);
+    expect(JSON.parse(out.at(-1)).run.revision).toMatch(/^workspace:/);
+    expect(existsSync(join(loose, '.git'))).toBe(false);
+    expect(await main(['issues', '--json'], io), err.join('\n')).toBe(0);
+    expect(await main(['scan', '--since', 'main'], io)).toBe(2);
+    expect(err.join('\n')).toContain('--since needs a Git repository');
   });
 
   it.each(['scan', 'check'])('%s uses the configured key, exact endpoint and model', async command => {

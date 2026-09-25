@@ -3,7 +3,7 @@ import { mkdtemp, readFile, stat, rm, mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loginCloud, logoutCloud } from '../src/cloud-auth.js';
-import { createCloudClient, configuredSystemOne } from '../src/cloud-client.js';
+import { createCloudClient, configuredSystemOne, remoteRepositoryName } from '../src/cloud-client.js';
 import { reportFindings, runContext } from '../src/cloud-results.js';
 import { createMeter, metered } from '../src/meter.js';
 const response = data => new Response(JSON.stringify(data));
@@ -18,6 +18,30 @@ describe('Perch Cloud', () => {
   it('isolates local answer identity by tenant, repo, model epoch and gateway',()=>{
     const base={origin:'https://example.com',getToken:async()=> 'x',identity:'user',organizationId:'one',repositoryId:'repo',epoch:'1'};
     for(const change of [{organizationId:'two'},{repositoryId:'other'},{epoch:'2'},{origin:'https://elsewhere.com'}]) expect(createCloudClient({...base,...change}).cacheKey).not.toBe(createCloudClient(base).cacheKey);
+  });
+  it('keeps GitLab subgroups and does not invent a repository for an unrecognized remote', () => {
+    expect(remoteRepositoryName('git@gitlab.com:group/sub/repo.git')).toBe('group/sub/repo');
+    expect(remoteRepositoryName('https://gitlab.com/group/sub/repo.git')).toBe('group/sub/repo');
+    expect(remoteRepositoryName('git@github.com:lakeday-org/perch.git')).toBe('lakeday-org/perch');
+    expect(remoteRepositoryName('/some/local/project')).toBeNull();
+    expect(remoteRepositoryName('https://gitlab.com/group/bad name.git')).toBeNull();
+  });
+  it('uses a saved login without registering a made-up local repository', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'perch loose project '));
+    try {
+      await mkdir(join(root, '.perch'));
+      const accessToken = `header.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 300 })).toString('base64url')}.sig`;
+      await writeFile(join(root, '.perch', 'cloud.json'), JSON.stringify({ origin: 'https://dash.perchscan.com', organizationId: 'org', accessToken }));
+      const requests = [];
+      const client = await configuredSystemOne({ env: { HOME: root }, root, fetchImpl: async (url, options = {}) => {
+        requests.push({ url, body: options.body ? JSON.parse(options.body) : null });
+        return response(url.endsWith('/api/config') ? { model: 'jev-latest', epoch: '1' } : { model: 'jev-latest', answers: { a: { noul: 0.9 } }, usage: null });
+      } });
+      expect(client.report).toBeUndefined();
+      await client.ask({ code: 'a' }, { a: { type: 'noul', criteria: { true: 'yes', false: 'no' } } });
+      expect(requests.map(request => new URL(request.url).pathname)).toEqual(['/api/config', '/v1/systemone']);
+      expect(requests.at(-1).body.repositoryId).toBeNull();
+    } finally { await rm(root, { recursive: true, force: true }); }
   });
   it('keeps user cache identity through token refresh but separates CI credentials',()=>{
     const base={origin:'https://example.com',organizationId:'one',repositoryId:'repo'};

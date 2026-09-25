@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { appendFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { git, repoRoot } from './git.js';
+import { snapshotBlob, snapshotDirectory, snapshotFor } from './filesystem.js';
 import { BELIEVED, flagged, issuesOf, issueWeight } from './questions.js';
 
 export const sha256 = text => createHash('sha256').update(text).digest('hex');
@@ -255,8 +256,15 @@ export function openStore(out) {
       const linesOf = async finding => {
         const key = `${finding.revision}:${finding.path}`;
         if (!blobs.has(key)) {
-          const lines = await git(['show', key], root).then(text => text.split('\n'))
-            .catch(error => { if (/does not exist|unknown revision|no such path/i.test(error.message)) return null; throw error; });
+          let lines;
+          if (finding.revision?.startsWith('workspace:')) {
+            if (!snapshotFor(root, finding.revision)) await snapshotDirectory(root, store.out);
+            const file = snapshotFor(root, finding.revision)?.tree.find(item => item.path === finding.path);
+            lines = file?.sha ? snapshotBlob(root, file.sha)?.split('\n') ?? null : null;
+          } else {
+            lines = await git(['show', key], root).then(text => text.split('\n'))
+              .catch(error => { if (/does not exist|unknown revision|no such path/i.test(error.message)) return null; throw error; });
+          }
           blobs.set(key, lines);
         }
         return blobs.get(key);

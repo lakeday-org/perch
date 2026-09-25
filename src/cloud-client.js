@@ -1,6 +1,5 @@
 /** Use Perch Cloud as a System One endpoint and publish completed scan summaries. */
 import { createHash } from 'node:crypto';
-import { basename } from 'node:path';
 import { git } from './git.js';
 import { createSystemOne } from './systemone.js';
 import {
@@ -33,20 +32,35 @@ export function createCloudClient({
   return {
     ...gateway,
     cacheKey: hash(JSON.stringify([gateway.cacheKey, organizationId, repositoryId, identity, epoch])),
-    async report(report) {
+    ...(repositoryId || identity !== 'user' ? { async report(report) {
       const token = await getToken();
       return cloudRequest(fetchImpl, `${origin}/v1/scans`, jsonBody(token, {
         organizationId, repositoryId, ...report,
       }));
-    },
+    } } : {}),
   };
+}
+
+/** Keep every namespace segment; a GitLab subgroup is part of the repository's identity. */
+export function remoteRepositoryName(remote) {
+  let path;
+  const text = remote?.trim();
+  if (!text) return null;
+  if (/^(?:https?|ssh|git):\/\//.test(text)) {
+    try { path = new URL(text).pathname; } catch { return null; }
+  } else {
+    path = /^[^@/]+@[^:/]+:(.+)$/.exec(text)?.[1];
+  }
+  const parts = path?.replace(/^\/+|\/+$/g, '').replace(/\.git$/, '').split('/');
+  if (!parts || parts.length < 2 || !parts.every(part => /^[a-zA-Z0-9._-]+$/.test(part) && part !== '.' && part !== '..')) return null;
+  return parts.join('/');
 }
 
 async function repositoryForLogin({ env, root, origin, token, organizationId, fetchImpl }) {
   if (env.PERCH_REPOSITORY) return env.PERCH_REPOSITORY;
   const remote = await git(['config', '--get', 'remote.origin.url'], root).catch(() => '');
-  const name = remote.trim().replace(/\.git$/, '').match(/[:/]([^/:]+\/[^/]+)$/)?.[1]
-    || `local/${basename(root)}`;
+  const name = remoteRepositoryName(remote);
+  if (!name) return null;
   const repository = await cloudRequest(fetchImpl, `${origin}/api/repositories`, jsonBody(token, {
     organizationId, name,
   }));

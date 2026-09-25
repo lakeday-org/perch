@@ -1,4 +1,4 @@
-/** `perch scan`: analyze every tracked source file at a revision and rank the files by risk. No worktree, no commands, no model. */
+/** `perch scan`: analyze source files at a Git revision or a filesystem snapshot and rank them by risk. */
 import { join } from 'node:path';
 import { listTree, readBlobs } from './git.js';
 import { analyzeFiles, sourceFile } from './analysis.js';
@@ -24,7 +24,7 @@ export async function analyzeTree({ root, revision, out, analyzer, label = root,
   await store.exclude(root);
   const tree = await listTree(root, revision);
   const sources = tree.filter(createFileSelector(tree)).filter(sourceFile).filter(selected(paths));
-  if (!sources.length) throw new Error('No supported source files in this repository');
+  if (!sources.length) throw new Error('No supported source files in this project');
   debug(`analyzing ${sources.length} source files`);
   // Blobs stream from one git process while the analyzer works through them in order.
   const blobs = new Map(), waiting = new Map();
