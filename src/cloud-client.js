@@ -140,5 +140,6 @@ export async function configuredSystemOne({ env, root, log, fetchImpl = globalTh
     const credentials = await savedCredentials({ env, root, fetchImpl, saved: source.saved });
     return cloudClient({ env, log, fetchImpl, credentials });
   }
-  return cloudClient({ env, log, fetchImpl, credentials: actionsCredentials(env, fetchImpl) });
+  if (source.kind === 'actions') return cloudClient({ env, log, fetchImpl, credentials: actionsCredentials(env, fetchImpl) });
+  throw new Error('No usable Perch credential source was selected.');
 }

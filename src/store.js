@@ -1,5 +1,5 @@
 /** Results directory layout: what a scan found, what it did, and what you set aside, under one --out directory. */
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { appendFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { git, repoRoot } from './git.js';
@@ -14,9 +14,11 @@ export const findingId = method => identity('finding', method).slice(0, 8);
 
 export async function writeJson(path, value) {
   await mkdir(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.tmp`;
-  await writeFile(tmp, JSON.stringify(value, null, 2) + '\n');
-  await rename(tmp, path);
+  const tmp = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(tmp, JSON.stringify(value, null, 2) + '\n');
+    await rename(tmp, path);
+  } finally { await rm(tmp, { force: true }); }
 }
 
 export async function readJson(path, fallback) {
@@ -163,9 +165,11 @@ export function openStore(out) {
       // Written beside and moved into place, the way writeJson does. A crash partway through a direct write leaves the file every
       // command reads truncated at whatever line it reached, which reads as a scan that found less rather than as a broken file.
       await mkdir(out, { recursive: true });
-      const tmp = `${path}.${process.pid}.tmp`;
-      await writeFile(tmp, rows.map(row => JSON.stringify(row)).join('\n') + (rows.length ? '\n' : ''));
-      await rename(tmp, path);
+      const tmp = `${path}.${randomUUID()}.tmp`;
+      try {
+        await writeFile(tmp, rows.map(row => JSON.stringify(row)).join('\n') + (rows.length ? '\n' : ''));
+        await rename(tmp, path);
+      } finally { await rm(tmp, { force: true }); }
     },
     /** What the last scan read, every rule it checked, and what you have set aside. */
     async indexes() {

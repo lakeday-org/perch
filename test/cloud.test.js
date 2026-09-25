@@ -52,11 +52,14 @@ describe('Perch Cloud', () => {
     try {
       await mkdir(join(root, '.perch'));
       const accessToken = `header.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 300 })).toString('base64url')}.sig`;
-      await writeFile(join(root, '.perch', 'cloud.json'), JSON.stringify({ origin: 'https://dash.perchscan.com', organizationId: 'org', accessToken }));
+      await writeFile(join(root, '.perch', 'cloud.json'), JSON.stringify({
+        origin: 'https://dash.perchscan.com', organizationId: 'org', accessToken,
+      }));
       const requests = [];
       const client = await configuredSystemOne({ env: { HOME: root }, root, fetchImpl: async (url, options = {}) => {
         requests.push({ url, body: options.body ? JSON.parse(options.body) : null });
-        return response(url.endsWith('/api/config') ? { model: 'jev-latest', epoch: '1' } : { model: 'jev-latest', answers: { a: { noul: 0.9 } }, usage: null });
+        if (url.endsWith('/api/config')) return response({ model: 'jev-latest', epoch: '1' });
+        return response({ model: 'jev-latest', answers: { a: { noul: 0.9 } }, usage: null });
       } });
       expect(client.report).toBeUndefined();
       await client.ask({ code: 'a' }, { a: { type: 'noul', criteria: { true: 'yes', false: 'no' } } });
@@ -115,7 +118,8 @@ describe('Perch Cloud', () => {
       const fetchImpl = async url => {
         if (url.endsWith('/config')) return response({ clientId: 'client_test' });
         if (url.endsWith('/device')) return response({
-          device_code: 'private-device', user_code: 'ABCD-EFGH', verification_uri: 'https://auth.test/device', expires_in: 300, interval: 5,
+          device_code: 'private-device', user_code: 'ABCD-EFGH',
+          verification_uri: 'https://auth.test/device', expires_in: 300, interval: 5,
         });
         if (url.endsWith('/authenticate')) return response({ access_token: 'private-access', refresh_token: 'private-refresh' });
         return response({ organizations: [{ id: 'org', name: 'Team' }] });
@@ -152,7 +156,9 @@ describe('Perch Cloud', () => {
   });
   it('rejects malformed sign-in and organization responses without saving them', async () => {
     const root = await mkdtemp(join(tmpdir(), 'perch-bad-login-'));
-    const device = { device_code: 'device', user_code: 'ABCD-EFGH', verification_uri: 'https://auth.test/device', expires_in: 300, interval: 5 };
+    const device = {
+      device_code: 'device', user_code: 'ABCD-EFGH', verification_uri: 'https://auth.test/device', expires_in: 300, interval: 5,
+    };
     try {
       for (const [reply, message] of [[{ access_token: 42, refresh_token: 'refresh' }, 'invalid credentials'],
         [{ access_token: 'access', refresh_token: 'refresh' }, 'invalid organization list']]) {
@@ -179,7 +185,8 @@ describe('Perch Cloud', () => {
       }
       if (href.endsWith('/api/config')) return response({ model: 'jev-latest', epoch: '1' });
       seen.push({ url: href, auth: options.headers.authorization, body: JSON.parse(options.body) });
-      return response(href.endsWith('/v1/scans') ? { id: 'scan', url: 'https://dash.perchscan.com/?scan=scan' } : { model: 'jev', answers: { a: { noul: 0.1 } }, usage: null });
+      if (href.endsWith('/v1/scans')) return response({ id: 'scan', url: 'https://dash.perchscan.com/?scan=scan' });
+      return response({ model: 'jev', answers: { a: { noul: 0.1 } }, usage: null });
     };
     const env = {
       GITHUB_ACTIONS: 'true', ACTIONS_ID_TOKEN_REQUEST_URL: 'https://actions.example/token?x=1',
@@ -209,20 +216,23 @@ describe('Perch Cloud', () => {
         GITHUB_ACTIONS: 'true', ACTIONS_ID_TOKEN_REQUEST_URL: 'https://actions.example/token',
         ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runtime', PERCH_API_KEY: 'key', HOME: root,
       };
-      expect((await configuredSystemOne({ env, root, fetchImpl: async () => { throw new Error('no request expected'); } })).report).toBeUndefined();
+      const client = await configuredSystemOne({ env, root, fetchImpl: async () => { throw new Error('no request expected'); } });
+      expect(client.report).toBeUndefined();
     } finally { await rm(root, { recursive: true, force: true }); }
   });
   it('names a pull request by its head commit, not the merge commit the job checked out', async () => {
     const root = await mkdtemp(join(tmpdir(), 'perch-event-'));
     try {
       await writeFile(join(root, 'event.json'), JSON.stringify({ pull_request: { number: 12, head: { sha: 'feedface' } } }));
-      expect(await runContext({ CI: 'true', GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: join(root, 'event.json'), GITHUB_HEAD_REF: 'fix' }, 'mergecommit'))
+      const env = { CI: 'true', GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: join(root, 'event.json'), GITHUB_HEAD_REF: 'fix' };
+      expect(await runContext(env, 'mergecommit'))
         .toEqual({ source: 'ci', revision: 'feedface', branch: 'fix', pull_request: 12 });
       expect(await runContext({}, 'abc1234', 'main')).toEqual({ source: 'cli', revision: 'abc1234', branch: 'main', pull_request: null });
     } finally { await rm(root, { recursive: true, force: true }); }
   });
   it('reports each issue a finding shows, with severity only on defects and vulnerabilities', () => {
-    const finding = { id: 'f1', path: 'src/a.js', name: 'go', line: 3, has_bug: 0.9, kind: { choice: 'wrong_return', probability: 0.8, probabilities: { wrong_return: 0.8 } },
+    const finding = { id: 'f1', path: 'src/a.js', name: 'go', line: 3, has_bug: 0.9,
+      kind: { choice: 'wrong_return', probability: 0.8, probabilities: { wrong_return: 0.8 } },
       severity: { probabilities: { 0: 0, 1: 0, 2: 0.1, 3: 0.9 } }, does_what_it_claims: 0.9, exposed: 0.1 };
     const rows = reportFindings([finding], 0.5);
     expect(rows.length).toBeGreaterThan(0);

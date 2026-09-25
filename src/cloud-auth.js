@@ -168,8 +168,10 @@ export function actionsToken(env, audience, fetchImpl = globalThis.fetch) {
 function accessTokenValid(token) {
   if (typeof token !== 'string') return false;
   try {
-    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
-    return payload.exp * 1000 > Date.now() + 60_000;
+    const [, encoded] = token.split('.');
+    if (!encoded) return false;
+    const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString());
+    return Number.isFinite(payload?.exp) && payload.exp * 1000 > Date.now() + 60_000;
   } catch { return false; }
 }
 
