@@ -1,6 +1,6 @@
 /** Results directory layout: what a scan found, what it did, and what you set aside, under one --out directory. */
 import { createHash } from 'node:crypto';
-import { appendFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { git, repoRoot } from './git.js';
 import { snapshotBlob, snapshotDirectory, snapshotFor } from './filesystem.js';
@@ -95,6 +95,15 @@ export function openStore(out) {
     out,
     scanDir: id => join(out, 'scans', id),
     runDir: id => join(out, 'runs', id),
+    /** Keep only the current analysis and run; neither is an answer cache. */
+    async pruneScans(id) {
+      for (const entry of await entries(join(out, 'scans'))) if (entry.isDirectory() && entry.name !== id)
+        await rm(store.scanDir(entry.name), { recursive: true, force: true });
+    },
+    async pruneRuns(id) {
+      for (const entry of await entries(join(out, 'runs'))) if (entry.isDirectory() && entry.name !== id)
+        await rm(store.runDir(entry.name), { recursive: true, force: true });
+    },
     /** Append each batch once; the completed or failed run still has a self-contained run.json. Calls must be awaited. */
     async startRun(run) {
       const path = join(store.runDir(run.id), 'run.json');
@@ -116,7 +125,7 @@ export function openStore(out) {
         await writeJson(path, { ...header, journal_bytes: bytes });
       };
     },
-    /** Ignore cached results while allowing closures and the default rule directory to be committed. */
+    /** Ignore generated results while allowing closures and the default rule directory to be committed. */
     async exclude(root) {
       if (!out.startsWith(root + '/')) return;
       const path = join(out, '.gitignore');

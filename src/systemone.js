@@ -1,5 +1,4 @@
 /** TypeSafe System One client: typed questions over a state, answered with probabilities. */
-import { createHash } from 'node:crypto';
 import { questionBatches, estimateTokens, TOKEN_LIMITS, ContextLimitError } from './tokens.js';
 
 export const DEFAULT_SYSTEM_ONE_MODEL = 'jev-latest';
@@ -77,7 +76,6 @@ export function createSystemOne({
   return {
     id: model,
     limits,
-    cacheKey: createHash('sha256').update(JSON.stringify([baseUrl, model, { state: limits.state, single: limits.single, request: limits.request }, 'token-estimates-v1'])).digest('hex'),
     /** Batch independent questions within the request budget and return one answer per question id. */
     async ask(state, questions, { beforeRequest = () => {} } = {}) {
       const responses = [];

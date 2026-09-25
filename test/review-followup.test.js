@@ -66,13 +66,7 @@ it.each([401, 402, 403])('stops file and search scans after one HTTP %i authenti
   }
 });
 
-it('keeps scheduling limits out of answer cache identities', () => {
-  const client = limits => createSystemOne({apiKey:'fixture',limits});
-  expect(client({...TOKEN_LIMITS,unitRequests:1}).cacheKey).toBe(client({...TOKEN_LIMITS,unitRequests:64}).cacheKey);
-  expect(client({...TOKEN_LIMITS,state:8000}).cacheKey).not.toBe(client(TOKEN_LIMITS).cacheKey);
-});
-
-it('reuses completed file checks when only the internal request allowance changes', async () => {
+it('asks file rules again on a later run', async () => {
   const options = await docsFixture('- name: docs\n  where: docs/*.md\n  ensure: Verified documentation.\n',2);
   let requests=0;
   const fetchImpl=async (_url,init) => {
@@ -84,8 +78,7 @@ it('reuses completed file checks when only the internal request allowance change
     const systemOne=createSystemOne({apiKey:'fixture',fetchImpl,limits:{...TOKEN_LIMITS,unitRequests}});
     const run=await scanRepository({...options,systemOne});
     expect(run.status).toBe('complete');
-    expect(run.carried).toBe(unitRequests===1 ? 0 : 2);
-    expect(requests).toBe(2);
+    expect(requests).toBe(unitRequests===1 ? 2 : 4);
   }
 });
 
@@ -120,7 +113,7 @@ it.each(['ensure_present','ensure_absent'])('retains a %s witness and concurrent
     expect(run.status).toBe('incomplete');
     expect(run.incomplete.join('\n')).toContain('docs/0.md: server unavailable');
     expect(run.broken).toHaveLength(kind === 'ensure_absent' ? 1 : 0);
-    if (kind === 'ensure_absent') expect(run.broken[0]).toMatchObject({path:'docs/1.md',key:null});
+    if (kind === 'ensure_absent') expect(run.broken[0]).toMatchObject({path:'docs/1.md'});
   }
   expect(failures).toBe(2);
 });

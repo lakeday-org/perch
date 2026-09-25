@@ -11,7 +11,7 @@ import { git, listTree } from './git.js';
 import { createFileSelector } from './exclusions.js';
 import { sourceChunks } from './chunks.js';
 import { TOKEN_LIMITS, estimateTokens, textTokens, questionBatches, IncompleteCheckError, ContextLimitError, withTokenRetries, requestScope } from './tokens.js';
-import { askKey, BUILTIN, compile, floorFor, installQuestions, merge, parseIgnored, parseQuestions, parseScanTypes, SEARCHES } from './ask.js';
+import { BUILTIN, compile, floorFor, installQuestions, merge, parseIgnored, parseQuestions, parseScanTypes, SEARCHES } from './ask.js';
 import { leadingComment, lineId, lineWindows, locateWhere, tagged, whereQuestion, whereWindowQuestion } from './questions.js';
 import { findingId } from './store.js';
 import { AuthenticationError } from './systemone.js';
@@ -375,19 +375,19 @@ export const rulesForMethod = (rules, node) => rules.filter(rule => rule.kind ==
 
 /**
  * The same verdict twice, flat and under `lint`, because a check has to read two ways: as a row in the issue list beside methods
- * the scan read, and as the record of a rule having been asked. A check that passed is written down as well, with nothing to
- * report, since that is what lets the next run skip asking it.
+ * the scan read, and as the record of a rule having been asked. A check that passed is written down too, so the latest local
+ * issue list can distinguish a passing rule from one this run never checked.
  */
-const checkOf = (rule, unit, { broken, line, text, revision, key }) => ({
+const checkOf = (rule, unit, { broken, line, text, revision }) => ({
   type: 'checked', at: new Date().toISOString(), id: findingId(`${rule.name}::${unit.id}`), rule: rule.name, rule_hash: rule.hash,
   unit: unit.id, method: unit.method ? unit.id : null, path: unit.path, name: unit.name, line, end_line: unit.end_line ?? null,
-  text, hash: unit.hash, key, revision, said: rule.text, broken,
+  text, hash: unit.hash, revision, said: rule.text, broken,
   lint: { rule: rule.name, broken, text: rule.text, said: rule.text },
 });
 
-/** An unanswered rule remains in the report and cannot be reused as a successful cached check. */
+/** An unanswered rule remains visible in the report. */
 const failedCheck = (rule, unit, error, revision) => ({
-  ...checkOf(rule, unit, { broken: null, line: unit.line, text: null, revision, key: null }),
+  ...checkOf(rule, unit, { broken: null, line: unit.line, text: null, revision }),
   status: 'failed', error: error.message, incomplete: `${unit.path}: ${rule.name}: ${error.message}`,
 });
 
@@ -396,7 +396,7 @@ const failedCheck = (rule, unit, error, revision) => ({
  * at a time, and a second question to a file that failed about which line failed on it.
  */
 export async function askUnits({ rules, scan, graph, files, tree, revision, systemOne, inScope, min = BELIEVED,
-  earlier = new Map(), parallel = UNIT_PARALLEL, progress = () => {}, debug = () => {} }) {
+  parallel = UNIT_PARALLEL, progress = () => {}, debug = () => {} }) {
   // One request per context. Two rules about the same file that want to see the same thing are one reading, since every question
   // in a request is scored against the state by itself.
   const contexts = new Map();
@@ -415,11 +415,6 @@ export async function askUnits({ rules, scan, graph, files, tree, revision, syst
     const body = unit.part ? bodyOf(source, unit) : source;
     const prepare = budget => unitSteps({ rules: over, unit, source: body, seen: neighbourhood(sees, unit, { graph, files }), budget });
     const steps = prepare(systemOne.limits?.state);
-    const key = askKey(steps, over, systemOne.cacheKey ?? systemOne.id);
-    // Nothing about this unit or these rules has changed since it was last asked, so the answer cannot have either.
-    const before = over.map(rule => earlier.get(findingId(`${rule.name}::${unit.id}`))).filter(check => check?.key === key && !check.incomplete);
-    if (before.length === over.length) { debug(`${over.map(rule => rule.name).join(', ')}: ${unit.name} is unchanged`); return { results: before, carried: before.length }; }
-
     debug(`${over.map(rule => rule.name).join(', ')}: ${unit.name}`);
     const { answers, evidence } = await askUnitSteps({ systemOne: client, steps, prepare, rules: over });
     // A file that failed is asked which line failed; a method or a test block already has one. One question per broken rule,
@@ -430,30 +425,29 @@ export async function askUnits({ rules, scan, graph, files, tree, revision, syst
       const chunk = evidence[rule.name];
       const line = failing && !unit.part ? await locateBreak({ systemOne: client, rule, unit: { ...unit, line: unit.line + chunk.line - 1 }, body: chunk.source }) : unit.line;
       const onLine = failing && !unit.part ? (source.split('\n')[line - 1] ?? '').trim() : '';
-      return checkOf(rule, unit, { broken, line, text: onLine.length > 110 ? `${onLine.slice(0, 110)}…` : onLine || null, revision, key });
+      return checkOf(rule, unit, { broken, line, text: onLine.length > 110 ? `${onLine.slice(0, 110)}…` : onLine || null, revision });
     }));
-    return { results, carried: 0 };
+    return { results };
   };
 
   const results = [], total = work.reduce((count, item) => count + item.rules.length, 0);
-  let asked = 0, carried = 0;
+  let asked = 0;
   for (let at = 0; at < work.length; at += parallel) {
     const batch = work.slice(at, at + parallel);
     const answered = await Promise.all(batch.map(async item => {
       try { return await askOne(item); }
       catch (error) {
         if (error instanceof AuthenticationError) throw error;
-        return { results: item.rules.map(rule => failedCheck(rule, item.unit, error, revision)), carried: 0 };
+        return { results: item.rules.map(rule => failedCheck(rule, item.unit, error, revision)) };
       }
     }));
     for (const [index, item] of batch.entries()) {
       asked += item.rules.length;
-      carried += answered[index].carried;
       progress(asked, total);
       results.push(...answered[index].results);
     }
   }
-  return { results, asked, carried };
+  return { results, asked };
 }
 
 /**
@@ -462,23 +456,17 @@ export async function askUnits({ rules, scan, graph, files, tree, revision, syst
  * beats a request spent on ranking. One search need not wait on another.
  */
 export async function searchUnits({ rules, scan, graph, files, tree, revision, systemOne, inScope, min = BELIEVED,
-  earlier = new Map(), parallel = UNIT_PARALLEL, progress = () => {}, debug = () => {} }) {
+  parallel = UNIT_PARALLEL, progress = () => {}, debug = () => {} }) {
   // What each search would read, worked out before anything is sent, so the run can say how much there is to get through. A
   // search stops at its answer, so this is the most it will read and not what it will read.
   const plans = rules.map(rule => {
     const units = rank(rule, selectUnits(rule, { scan, graph, files, tree, inScope }).slice(0, MAX_UNITS));
-    // A search is about the codebase, so its answer depends on every unit it would read and not just the one it stops at. The
-    // key is all of them, in the order it would read them. A search that is shown more than its unit is not keyed on what it was
-    // shown, so it is asked again rather than reused on a guess.
     const id = findingId(`${rule.name}::search`);
-    const key = rule.sees === 'self' ? askKey([{ state: units.map(unit => [unit.id, unit.hash ?? null]) }], [rule], systemOne.cacheKey ?? systemOne.id) : null;
-    return { rule, units, id, key, before: earlier.get(id) };
+    return { rule, units, id };
   });
-  const carrying = plans.filter(plan => plan.key && plan.before?.key === plan.key && !plan.before.incomplete);
-  const running = plans.filter(plan => !carrying.includes(plan));
-  const most = running.reduce((total, plan) => total + plan.units.length, 0);
+  const most = plans.reduce((total, plan) => total + plan.units.length, 0);
 
-  const results = carrying.map(plan => { debug(`${plan.rule.name} has nothing new to search`); return plan.before; });
+  const results = [];
   let asked = 0;
   const askOne = async (rule, unit) => {
     const source = files.get(unit.path) ?? '';
@@ -490,7 +478,7 @@ export async function searchUnits({ rules, scan, graph, files, tree, revision, s
     return readLint(rule, answers).here > min;
   };
 
-  await Promise.all(running.map(async ({ rule, units, id, key }) => {
+  await Promise.all(plans.map(async ({ rule, units, id }) => {
     // A search with nothing to search has nothing to say. Under --since the universe is what the branch touched, so a rule over
     // test files on a branch that touched none would otherwise report that nobody has the thing, which is a claim it never
     // tested. perch doctor lists a rule that covered nothing, which is where an empty search belongs.
@@ -524,10 +512,10 @@ export async function searchUnits({ rules, scan, graph, files, tree, revision, s
       results.push({ ...failedCheck(rule, where, new IncompleteCheckError(unresolved.join('; ')), revision), id });
       return;
     }
-    results.push({ ...checkOf(rule, where, { broken, line: where.line ?? 1, text: null, revision, key: unresolved.length ? null : key }), id,
+    results.push({ ...checkOf(rule, where, { broken, line: where.line ?? 1, text: null, revision }), id,
       ...(unresolved.length ? { incomplete: unresolved.join('; ') } : {}) });
   }));
-  return { results, asked, carried: carrying.length };
+  return { results, asked };
 }
 
 /** The files a pull request touched, so CI asks about the diff rather than the repository. */

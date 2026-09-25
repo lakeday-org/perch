@@ -15,10 +15,6 @@ describe('Perch Cloud', () => {
     const meter=createMeter();await metered(client,meter).ask({code:'a'},{a:{type:'noul',criteria:{true:'yes',false:'no'}}});
     expect(requests).toHaveLength(1);expect(requests[0].url).toBe('https://example.com/v1/systemone');expect(requests[0].body.organizationId).toBe('org');expect(requests[0].body.repositoryId).toBe('repo');expect(meter.total()).toBe(0);
   });
-  it('isolates local answer identity by tenant, repo, model epoch and gateway',()=>{
-    const base={origin:'https://example.com',getToken:async()=> 'x',identity:'user',organizationId:'one',repositoryId:'repo',epoch:'1'};
-    for(const change of [{organizationId:'two'},{repositoryId:'other'},{epoch:'2'},{origin:'https://elsewhere.com'}]) expect(createCloudClient({...base,...change}).cacheKey).not.toBe(createCloudClient(base).cacheKey);
-  });
   it('keeps GitLab subgroups and does not invent a repository for an unrecognized remote', () => {
     expect(remoteRepositoryName('git@gitlab.com:group/sub/repo.git')).toBe('group/sub/repo');
     expect(remoteRepositoryName('https://gitlab.com/group/sub/repo.git')).toBe('group/sub/repo');
@@ -42,13 +38,6 @@ describe('Perch Cloud', () => {
       expect(requests.map(request => new URL(request.url).pathname)).toEqual(['/api/config', '/v1/systemone']);
       expect(requests.at(-1).body.repositoryId).toBeNull();
     } finally { await rm(root, { recursive: true, force: true }); }
-  });
-  it('keeps user cache identity through token refresh but separates CI credentials',()=>{
-    const base={origin:'https://example.com',organizationId:'one',repositoryId:'repo'};
-    expect(createCloudClient({...base,getToken:async()=> 'old-jwt',identity:'user'}).cacheKey)
-      .toBe(createCloudClient({...base,getToken:async()=> 'new-jwt',identity:'user'}).cacheKey);
-    expect(createCloudClient({...base,identity:'ci-a'}).cacheKey)
-      .not.toBe(createCloudClient({...base,identity:'ci-b'}).cacheKey);
   });
   it('serializes concurrent refreshes of the same rotating credential',async()=>{
     const root=await mkdtemp(join(tmpdir(),'perch-refresh-'));

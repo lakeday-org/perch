@@ -1,17 +1,14 @@
 /** Use Perch Cloud as a System One endpoint and publish completed scan summaries. */
-import { createHash } from 'node:crypto';
 import { git } from './git.js';
 import { createSystemOne } from './systemone.js';
 import {
   actionsCanSignIn, actionsToken, cloudOrigin, cloudRequest, jsonBody, readCloudLogin, sessionToken,
 } from './cloud-auth.js';
 
-const hash = value => createHash('sha256').update(value).digest('hex');
-
 /** The token supplier refreshes OIDC or user credentials during a long scan. */
 export function createCloudClient({
   origin, getToken, identity, organizationId, repositoryId,
-  model = 'jev-latest', epoch = '1', log, fetchImpl = globalThis.fetch,
+  model = 'jev-latest', log, fetchImpl = globalThis.fetch,
 }) {
   const gateway = createSystemOne({
     apiKey: 'cloud',
@@ -31,7 +28,6 @@ export function createCloudClient({
 
   return {
     ...gateway,
-    cacheKey: hash(JSON.stringify([gateway.cacheKey, organizationId, repositoryId, identity, epoch])),
     ...(repositoryId || identity !== 'user' ? { async report(report) {
       const token = await getToken();
       return cloudRequest(fetchImpl, `${origin}/v1/scans`, jsonBody(token, {
@@ -72,7 +68,7 @@ async function cloudClient({ env, log, fetchImpl, credentials }) {
   const config = await cloudRequest(fetchImpl, `${origin}/api/config`);
   return createCloudClient({
     origin, ...credentials,
-    model: env.PERCH_MODEL_ID || config.model, epoch: config.epoch, log, fetchImpl,
+    model: env.PERCH_MODEL_ID || config.model, log, fetchImpl,
   });
 }
 
@@ -87,7 +83,7 @@ async function explicitCredentials({ env, root, fetchImpl }) {
 
   return {
     getToken: async () => token,
-    identity: token.startsWith('perch_ci_') ? hash(token) : 'user',
+    identity: token.startsWith('perch_ci_') ? 'ci' : 'user',
     organizationId,
     repositoryId,
   };
