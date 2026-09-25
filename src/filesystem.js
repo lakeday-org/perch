@@ -17,7 +17,7 @@ export async function snapshotDirectory(root, out) {
       if (output && (path === output || path.startsWith(`${output}/`))) continue;
       if (entry.isDirectory()) {
         if (eligibleFile({ type: 'blob', path: `${path}/file` })) await walk(join(directory, entry.name), path);
-      } else if (entry.isFile() && !/^\.env(?:\.|$)/.test(entry.name)) {
+      } else if (entry.isFile() && !entry.name.toLowerCase().startsWith('.env')) {
         tree.push({ path, type: 'blob', mode: '100644', size: (await stat(join(directory, entry.name))).size, sha: null });
       }
     }
