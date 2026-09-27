@@ -39,7 +39,10 @@ export function securityOf(answers, questions = questionSet()) {
 /** Every vulnerability class and how likely it is, for a detail view that shows the whole distribution rather than the winner. */
 export const securities = (answers, questions = questionSet()) =>
   Object.fromEntries(questions.filter(question => question.issue?.type === 'security' && answers[question.name] !== undefined)
-    .map(question => [label(question.name), answers[question.name] * (question.when ? answers[question.when] ?? 1 : 1)]));
+    .map(question => [shownAs(question), answers[question.name] * (question.when ? answers[question.when] ?? 1 : 1)]));
+
+/** The name a question's issue prints under: its own label, such as `sql_injection` for `cwe_89`, or its name when it has none. */
+const shownAs = question => (question.issue.label && question.issue.label !== 'self' ? question.issue.label : label(question.name));
 
 /**
  * How a class is displayed, where that differs from the name it is declared under in the question set. A label is written the way

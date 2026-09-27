@@ -6,7 +6,7 @@ import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { mergeAnswers, scanRepository, typesAsked } from '../src/scan.js';
 import { parseScanTypes, questionSet } from '../src/ask.js';
-import { securityOf } from '../src/questions.js';
+import { securities, securityOf } from '../src/questions.js';
 import { methodStep, methodSteps, issueWeight, locateWhere, MAX_CHOICES, STATE_BUDGET } from '../src/questions.js';
 import { countTokens } from 'gpt-tokenizer/encoding/o200k_base';
 import { openStore } from '../src/store.js';
@@ -429,6 +429,9 @@ describe('perch hunt', () => {
     // A class a later pass rated lower keeps the higher reading: a slice that saw less is not evidence of less.
     expect(merged).toMatchObject({ cwe_89: 0.9, cwe_416: 0.4 });
     expect(securityOf(merged)).toEqual({ kind: 'sql_injection', probability: 0.9 });
+    // perch issues <id> lists every vulnerability under the label the table prints, not the ID of the question that asked it.
+    expect(securities(merged)).toMatchObject({ sql_injection: 0.9, use_after_free: 0.4 });
+    expect(Object.keys(securities(merged)).filter(name => name.startsWith('cwe_'))).toEqual([]);
   });
 
   it('reads everything in scope and never questions test methods', async () => {

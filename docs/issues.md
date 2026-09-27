@@ -13,11 +13,18 @@ whole repository against itself, worst first.
 
 ```console
 $ perch issues
-ID        Method        Location    Type      Kind                                Severity
-623cd4c5  readUpload    files.js:4  security  missing_authorization 90%, +1 more  P0 (0.3)
-450b87b4  removeItem    cart.js:18  defect    bad_state_change 79%                P1 (1.4)
-f5e6b16e  averagePrice  cart.js:13  defect    unhandled_null 61%                  P2 (1.7)
-3 open issues
+ID        Method           Location         Type      Kind                                Severity
+c3ff1609  token_for        auth.py:7        security  weak_crypto 94%                     P1 (0.7)
+ddc5c917  can_fulfil       checkout.py:25   defect    does_not_do_what_it_claims 94%      P1 (0.9)
+c25aa687  cancel_order     auth.py:12       security  missing_authorization 90%, +1 more  P0 (0.4)
+287bfb9d  subtotal         cart.py:10       defect    off_by_one 89%                      P1 (1.1)
+225c1645  release_expired  inventory.py:26  defect    bad_state_change 88%                P1 (0.9)
+80d6ebbb  cheapest         cart.py:30       defect    unhandled_null 88%                  P2 (1.5)
+0d0e3f8a  reserve          inventory.py:9   defect    wrong_return_value 87%              P1 (1.0)
+bdc67421  place_order      checkout.py:15   defect    wrong_order 82%                     P1 (0.8)
+5a623390  load_order       storage.py:15    defect    error_ignored 76%                   P1 (1.2)
+4f8bf5dc  refund           checkout.py:31   defect    bad_state_change 74%                P1 (0.8)
+1-10 of 12 open issues. --page 2 for the next
 ```
 
 Ten rows by default. `--limit` changes that, `--page` moves through them, `--all`
@@ -51,28 +58,27 @@ model gives across all four levels. [Inside a scan](scan.md) works it through.
 ## One issue in full
 
 ```console
-$ perch issues 623cd4c5
-623cd4c5  readUpload  files.js:4-6
-19ff8ea  read 2026-09-24  open
+$ perch issues c25aa687
+c25aa687  cancel_order  auth.py:12-16
+44c53d9  read 2026-09-27  open
 
   Confidence  Type      Severity  Problem
-         90%  security  P0 (0.3)  missing_authorization
-         71%  defect    P0 (0.3)  unhandled_null
+         90%  security  P0 (0.4)  missing_authorization
+         65%  defect    P0 (0.4)  unhandled_null
 
-      5  return readFileSync(join('/srv/uploads', name), 'utf8');
-         the line it points at, 98% sure
+     14  order = orders[order_id]
+         the line it points at, 67% sure
 
-  Kind           unhandled_null 66%  off_by_one 23%  wrong_return_value 7%  +4 more
-  Severity       P0 84%  P1 7%  P3 5%  P2 4%
-  Exposed        95%
-  Vulnerability  missing_authorization 90%  path_traversal 86%  injection 77%  +7 more
-  Claims         does what it claims 77%
-  Code           risk 15  maintainability 77  complexity 1  nesting 0  3 lines
+  Kind           unhandled_null 79%  bad_state_change 21%
+  Severity       P0 76%  P1 11%  P3 7%  P2 6%
+  Vulnerability  missing_authorization 90%  missing_authentication 90%  idor 85%  +18 more
+  Claims         does what it claims 54%
+  Code           risk 19  maintainability 71  complexity 1  nesting 0  5 lines
 ```
 
 These are the columns the table prints, with every answer under them. The table
-lists one vulnerability per method; `path_traversal` at 86% is not a row, and it
-is listed here.
+lists one vulnerability per method; `missing_authentication` at 90% is not a row,
+and it is listed here.
 
 `Severity` is filled in on the two rows the rubric weighs, the defect and the
 vulnerability. The `Severity` line lower down carries the whole distribution, and

@@ -45,18 +45,35 @@ Run it at the root of the repository:
 
 ```console
 $ perch scan
-files.js
-  ID        Line  Severity  Type      Confidence  Problem                Method
-  623cd4c5     4  P0 (0.3)  security         89%  missing_authorization  readUpload
-  623cd4c5     4  P0 (0.3)  defect           70%  unhandled_null         readUpload
+cart.py
+  ID        Line  Severity  Type    Confidence  Problem                     Method
+  287bfb9d    10  P1 (1.0)  defect         89%  off_by_one                  subtotal
+  48a02173    17  P1 (1.3)  defect         74%  off_by_one                  apply_discount
+  44c8d48a    23  P1 (1.1)  defect         71%  does_not_do_what_it_claims  is_eligible_for_free_sh…
+  80d6ebbb    30  P2 (1.5)  defect         88%  unhandled_null              cheapest
 
-cart.js
-  ID        Line  Severity  Type    Confidence  Problem           Method
-  450b87b4    18  P1 (1.5)  defect         80%  bad_state_change  removeItem
+inventory.py
+  ID        Line  Severity  Type    Confidence  Problem             Method
+  0d0e3f8a     9  P1 (1.0)  defect         87%  wrong_return_value  reserve
+  225c1645    26  P1 (1.0)  defect         88%  bad_state_change    release_expired
 
-✖ 3 problems in 2 files, all failing
-shop at commit 19ff8ea: 6 methods, read 6
-6 requests  19k tokens in / 3k out  $0.0008
+storage.py
+  ID        Line  Severity  Type    Confidence  Problem        Method
+  5a623390    15  P1 (1.3)  defect         76%  error_ignored  load_order
+
+checkout.py
+  ID        Line  Severity  Type    Confidence  Problem                     Method
+  bdc67421    15  P1 (0.8)  defect         82%  wrong_order                 place_order
+  ddc5c917    25  P1 (0.9)  defect         94%  does_not_do_what_it_claims  can_fulfil
+  4f8bf5dc    31  P1 (0.8)  defect         74%  bad_state_change            refund
+
+auth.py
+  ID        Line  Severity  Type    Confidence  Problem         Method
+  c25aa687    14  P1 (0.5)  defect         65%  unhandled_null  cancel_order
+
+✖ 11 problems in 5 files, all failing
+order-service at commit 44c53d9: 14 methods, read 14
+14 requests  17k tokens in / 3k out  $0.0007
 ```
 
 A large repository is hundreds of requests. `perch scan src` scans one directory.

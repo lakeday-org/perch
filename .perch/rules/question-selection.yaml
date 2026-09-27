@@ -1,5 +1,6 @@
 # Which of perch's own questions a method is asked. A scan and a check have to agree, and a filter has to ask what it names.
-# A misspelt language selector is covered by a test in test/ask.test.js: as a rule it read in the fifties either way.
+# A misspelt language selector and the labels in perch issues <id> are covered by tests instead: as rules they read in the
+# fifties on the broken code, which cannot tell it from the fixed code.
 - name: filter-asks-what-it-names
   where: src/scan.js
   ensure: >-
