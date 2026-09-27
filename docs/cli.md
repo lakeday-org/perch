@@ -210,7 +210,7 @@ perch DEVELOPMENT (9478295)  node v25.5.0  darwin arm64
 ✓ results     /private/tmp/perch-doctor-d3mhms7w/.perch
 ✓ rules       no perch.yaml, so perch asks only its own questions
 
-  key: export it, or put it in a .env beside the repository
+  key: export it, or OPENROUTER_API_KEY, or put it in a .env beside the repository
   repository: perch reads a commit, so it needs one; git init and commit something
 
 No run yet. perch scan is what reads the code.
@@ -225,7 +225,8 @@ it includes the end of `.perch/scan.log`.
 
 | Variable | Read by |
 | --- | --- |
-| `PERCH_API_KEY` | `scan`, `check`: bearer token for the configured endpoint; required. |
+| `PERCH_API_KEY` | `scan`, `check`: bearer token for the configured endpoint; required unless `OPENROUTER_API_KEY` is set. |
+| `OPENROUTER_API_KEY` | `scan`, `check`: asks an OpenRouter model instead, when `PERCH_API_KEY` is not set. |
 | `PERCH_BASE_URL` | `scan`, `check`: exact request URL; defaults to `https://api.typesafe.ai/v1/systemone`. |
 | `PERCH_MODEL_ID` | `scan`, `check`: model ID; defaults to `jev-latest`. |
 
@@ -240,8 +241,26 @@ Changing the endpoint or model causes the next scan to ask again, including
 file and search rules whose source has not changed.
 
 The endpoint must support the System One request and response format: typed
-questions over a state, answered with probabilities. An OpenAI-compatible chat
-endpoint alone does not provide that contract.
+questions over a state, answered with probabilities.
+
+### OpenRouter
+
+With `OPENROUTER_API_KEY` set and `PERCH_API_KEY` not set, perch asks a chat
+model through OpenRouter. `PERCH_MODEL_ID` names the model and defaults to
+`openai/gpt-6-luna`. `PERCH_BASE_URL` defaults to
+`https://openrouter.ai/api/v1/chat/completions`, and any endpoint that speaks
+that format and supports JSON schema responses works.
+
+```sh
+export OPENROUTER_API_KEY=<your OpenRouter key>
+export PERCH_MODEL_ID=openai/gpt-6-sol
+perch check src/cart.py::subtotal
+```
+
+Each batch of questions goes out as one request, with a JSON schema that allows
+only a probability per answer. These are the model's own estimates, not Jev's
+calibrated distribution, so a `min` tuned against Jev can need moving. The cost
+line reports what OpenRouter charged.
 
 ## Exit codes
 

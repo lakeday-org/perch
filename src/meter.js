@@ -21,11 +21,14 @@ export function createMeter() {
       entry.requests += requests;
       entry.input += usage.input_tokens ?? 0;
       entry.output += usage.output_tokens ?? 0;
+      // An endpoint that bills per request says what it charged, which beats any price table.
+      if (typeof usage.cost === 'number') entry.charged = (entry.charged ?? 0) + usage.cost;
       models.set(model, entry);
     },
     /** Dollars for one model's entry, or null when the model's price is unknown. */
     cost(model) {
       const entry = models.get(model), price = priceOf(model);
+      if (entry?.charged !== undefined) return entry.charged;
       if (!entry || !price) return null;
       return (entry.input * price.input + entry.output * price.output) / 1e6;
     },

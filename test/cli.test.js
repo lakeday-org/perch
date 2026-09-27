@@ -172,11 +172,37 @@ describe('cli', () => {
     }
   });
 
+  it.each(['scan', 'check'])('%s asks OpenRouter when only an OpenRouter key is set', async command => {
+    const repo = await realpath(await makeFixture());
+    cleanups.push(repo);
+    await writeFile(join(repo, 'perch.yaml'), 'rules:\n  - name: endpoint-rule\n    where: src/clamp.js\n    ensure: The function returns a number.\n');
+    await commitAll(repo, 'add file rule');
+    vi.spyOn(process, 'cwd').mockReturnValue(repo);
+    const requests = [];
+    vi.stubGlobal('fetch', async (url, init) => {
+      requests.push({ url, init });
+      const raw = Object.fromEntries(Object.keys(JSON.parse(init.body).response_format.json_schema.schema.properties).map(id => [id, { p: 0.99 }]));
+      return new Response(JSON.stringify({ model: 'openai/gpt-6-luna', choices: [{ message: { content: JSON.stringify(raw) } }], usage: { prompt_tokens: 10, completion_tokens: 2, cost: 0.001 } }));
+    });
+    const { out, err, io } = capture();
+    io.env = { PERCH_API_KEY: '', OPENROUTER_API_KEY: 'router-key' };
+    const args = command === 'scan' ? ['scan', repo, '--filter', 'rule=endpoint-rule'] : ['check', 'src/clamp.js', '--rules', 'endpoint-rule'];
+    expect(await main([...args, '--json', '--out', join(repo, '.perch')], io), err.join('\n')).toBe(0);
+    expect(out.length).toBeGreaterThan(0);
+    expect(requests.length).toBeGreaterThan(0);
+    for (const { url, init } of requests) {
+      expect(url).toBe('https://openrouter.ai/api/v1/chat/completions');
+      expect(init.headers.authorization).toBe('Bearer router-key');
+      expect(JSON.parse(init.body)).toMatchObject({ model: 'openai/gpt-6-luna', response_format: { type: 'json_schema' } });
+    }
+  });
+
   it.each([
     [{ PERCH_API_KEY: 'private-fixture-key' }, 'PERCH_API_KEY, 19 characters'],
     [{ TYPESAFE_API_KEY: 'legacy-fixture-key' }, 'TYPESAFE_API_KEY, 18 characters'],
     [{ PERCH_API_KEY: 'private-fixture-key', TYPESAFE_API_KEY: 'legacy-fixture-key' }, 'PERCH_API_KEY, 19 characters'],
     [{ PERCH_API_KEY: '', TYPESAFE_API_KEY: 'legacy-fixture-key' }, 'TYPESAFE_API_KEY, 18 characters'],
+    [{ OPENROUTER_API_KEY: 'router-fixture-key' }, 'OPENROUTER_API_KEY, 18 characters'],
   ])('doctor recognizes the configured API key without printing its value (%j)', async (env, found) => {
     const repo = await realpath(await makeFixture());
     cleanups.push(repo);
