@@ -55,9 +55,9 @@ export const label = kind => KIND_LABELS[kind] ?? kind;
 
 const percent = value => `${Math.round(value * 100)}%`;
 /**
- * The floor an issue has to clear to be worth printing. Half is not a number picked to make the list a nice length: a noul is the
- * probability that something is true, so above a half is the model saying yes and below it is the model saying no. Listing
- * everything means listing every method in the repository, because no answer ever comes back at exactly zero.
+ * The default floor for a run. Each question can set a stricter or looser floor in scan.yaml; the higher of its floor and the
+ * run's --min decides whether that answer is printed. --min 0 bypasses question floors and lists everything the scan
+ * answered; no answer ever comes back at exactly zero.
  *
  * It is a floor on what is *shown*, not on the arithmetic. Ranking still counts the whole distribution, so an issue at 49% still
  * weighs 0.49 in where its method sorts, and there is no cliff at the boundary — only a line below which perch stops claiming to

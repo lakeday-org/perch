@@ -1,0 +1,93 @@
+[
+  {
+    "name": "direct_cwe_79",
+    "base": "cwe_79",
+    "ask": "Can attacker-controlled text reach HTML or script output from `method` without escaping?",
+    "true": "Untrusted text reaches an HTML or script output sink without context-appropriate escaping.",
+    "false": "No untrusted text reaches that output, or the text is escaped for its output context."
+  },
+  {
+    "name": "direct_cwe_89",
+    "base": "cwe_89",
+    "ask": "Can attacker-controlled text change the structure of a SQL query built or run by `method`?",
+    "true": "Untrusted text is concatenated or interpolated into SQL syntax.",
+    "false": "The SQL structure is fixed and outside values are bound as parameters."
+  },
+  {
+    "name": "direct_cwe_352",
+    "base": "cwe_352",
+    "ask": "Can a browser trigger a state-changing action in `method` without a CSRF token or origin check?",
+    "true": "A browser request can change state without a forgery check in the method or visible callers.",
+    "false": "The action cannot change state from a browser request, or a forgery check protects it."
+  },
+  {
+    "name": "direct_cwe_22",
+    "base": "cwe_22",
+    "ask": "Can a caller-controlled path escape the directory that `method` is meant to confine it to?",
+    "true": "Untrusted path segments can select a file outside the intended directory.",
+    "false": "The path is fixed, or normalized and checked to stay inside the intended directory."
+  },
+  {
+    "name": "direct_cwe_78",
+    "base": "cwe_78",
+    "ask": "Can caller-controlled text alter the shell command that `method` executes?",
+    "true": "Untrusted text becomes shell syntax in a command executed by the method.",
+    "false": "The command is fixed, or untrusted values are passed as separate arguments without a shell."
+  },
+  {
+    "name": "direct_cwe_94",
+    "base": "cwe_94",
+    "ask": "Can caller-controlled text be compiled or evaluated as code by `method`?",
+    "true": "Untrusted text reaches a code compiler or evaluation operation.",
+    "false": "The method does not execute untrusted text as code."
+  },
+  {
+    "name": "direct_cwe_434",
+    "base": "cwe_434",
+    "ask": "Can a file uploaded through `method` be executed or served from an unsafe location?",
+    "true": "An attacker can upload a dangerous file type into a location where it runs or is served unsafely.",
+    "false": "The method rejects dangerous uploads or stores them where they cannot run or cause harm."
+  },
+  {
+    "name": "direct_cwe_502",
+    "base": "cwe_502",
+    "ask": "Can untrusted serialized data make `method` create unsafe objects or execute code?",
+    "true": "The deserializer accepts untrusted data and can instantiate arbitrary objects or run code.",
+    "false": "The data is trusted, or deserialization is limited to safe plain values."
+  },
+  {
+    "name": "direct_cwe_918",
+    "base": "cwe_918",
+    "ask": "Can caller-controlled input make `method` send a server-side request to an unintended destination?",
+    "true": "Untrusted input selects a destination outside the server's intended set of hosts or addresses.",
+    "false": "The destination is fixed or validated against an allow list."
+  },
+  {
+    "name": "direct_cwe_77",
+    "base": "cwe_77",
+    "ask": "Can caller-controlled text alter a command sent to an interpreter by `method`?",
+    "true": "Untrusted text changes the command syntax interpreted by a shell or command processor.",
+    "false": "The command is fixed, or untrusted text is passed only as data."
+  },
+  {
+    "name": "direct_cwe_601",
+    "base": "cwe_601",
+    "ask": "Can caller-controlled input make `method` redirect a user to an untrusted site?",
+    "true": "Untrusted input sets a redirect target outside the site's intended destinations.",
+    "false": "Redirect targets are fixed or checked against allowed destinations."
+  },
+  {
+    "name": "direct_cwe_770",
+    "base": "cwe_770",
+    "ask": "Can a caller-controlled size, count, or depth make `method` use unbounded CPU or memory?",
+    "true": "Untrusted input controls work or allocation without a limit enforced here or in visible callers.",
+    "false": "Work and allocation are bounded by a fixed or validated maximum."
+  },
+  {
+    "name": "direct_cwe_284",
+    "base": "cwe_284",
+    "ask": "Can someone without required permission use a protected action or resource through `method`?",
+    "true": "The method or visible callers let an unauthorized actor use a protected action or resource.",
+    "false": "Access is checked, or the action and resource need no restriction."
+  }
+]

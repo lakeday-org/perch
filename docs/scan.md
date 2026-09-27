@@ -176,9 +176,10 @@ it claims)`, and `docs`.
 ### The floor
 
 An issue is listed only when its score exceeds both the question's floor and
-the run's `--min`. The default `has_bug` floor is **60%**; security checks use
-70%. These scores rank answers but are not calibrated probabilities that a
-reported issue is real. Higher floors produce fewer alerts and miss more bugs.
+the run's `--min`. The default `has_bug` floor is **60%**. Most security checks
+use 70%; XSS and SQL injection use 50%, and out-of-bounds reads use 60%.
+These scores rank answers but are not calibrated probabilities that a reported
+issue is real. Higher floors produce fewer alerts and miss more issues.
 
 The floor applies to what is claimed. The arithmetic keeps everything:
 

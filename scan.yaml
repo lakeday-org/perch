@@ -103,7 +103,7 @@
     type: security
     label: xss
     pick: strongest
-  min: 70
+  min: 50
 - name: cwe_89
   each: method
   where: "**/*"
@@ -114,7 +114,7 @@
     type: security
     label: sql_injection
     pick: strongest
-  min: 70
+  min: 50
 - name: cwe_352
   each: method
   where: "**/*"
@@ -195,7 +195,7 @@
     type: security
     label: out_of_bounds_read
     pick: strongest
-  min: 70
+  min: 60
 - name: cwe_78
   each: method
   where: "**/*"

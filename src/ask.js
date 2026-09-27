@@ -270,11 +270,12 @@ export function issues(answers, min = 0, questions = questionSet(), rename = kin
     // than a name, and a model that picks a word outside the options it was offered would walk straight past a gate.
     const issue = { type: question.issue.type, label: rename(label), from: question.name, probability: raised,
       floor: floorFor(question, min), text: `${rename(label)} ${Math.round(raised * 100)}%` };
+    if (issue.probability <= issue.floor) continue;
     if (question.issue.pick !== 'strongest') { found.push(issue); continue; }
     const held = strongest.get(question.issue.type);
     if (!held || issue.probability > held.probability) strongest.set(question.issue.type, issue);
   }
-  return [...found, ...strongest.values()].filter(issue => issue.probability > issue.floor).sort((a, b) => b.probability - a.probability);
+  return [...found, ...strongest.values()].sort((a, b) => b.probability - a.probability);
 }
 
 /** The labels one question can raise: the options of the choice it names, or the one name it files under. */

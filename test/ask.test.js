@@ -103,6 +103,16 @@ describe('the question grammar', () => {
     expect(() => check({ name: 'q', where: 'src/**', min: 140, ensure: 'x' }, at)).toThrow('min is a percentage, 0 to 100');
   });
 
+  it('picks the strongest issue that clears its own floor', () => {
+    const set = [
+      noul('cwe_79', { min: 50, issue: { type: 'security', label: 'xss', pick: 'strongest' } }),
+      noul('cwe_770', { min: 70, issue: { type: 'security', label: 'resource_exhaustion', pick: 'strongest' } }),
+    ];
+    expect(issues({ cwe_79: 0.55, cwe_770: 0.65 }, 0.5, set)).toEqual([
+      expect.objectContaining({ from: 'cwe_79', label: 'xss', probability: 0.55 }),
+    ]);
+  });
+
   it('tells a filter what this set can raise, so a typo is answered with the real list', () => {
     const { types, labels } = vocabulary(BUILTIN);
     // A type with one question in it is a label, not a type: what a method does other than what it says is a defect.
