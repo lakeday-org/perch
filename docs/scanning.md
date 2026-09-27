@@ -113,7 +113,7 @@ order-service at commit 44c53d9: 14 methods, read 14
 
 ## Files to skip
 
-Paths under `ignore` in `perch.yaml` are never read:
+Paths under `ignore` in `perch.yaml` are skipped when you scan the repository:
 
 ```yaml
 ignore:
@@ -121,4 +121,5 @@ ignore:
   - "**/*.generated.ts"
 ```
 
+Naming an ignored path reads it anyway, so `perch scan vendor/` scans `vendor`.
 Dependencies and build output are skipped without being listed.

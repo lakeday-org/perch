@@ -162,7 +162,7 @@ export const typesAsked = (scanTypes, filters = [], questions = questionSet()) =
   ]);
 };
 
-export async function scanRepository({ root, revision, out, analyzer, systemOne, label = root, github = null, paths = [], parallel = DEFAULT_PARALLEL,
+export async function scanRepository({ root, revision, out, analyzer, systemOne, label = root, github = null, paths = [], named = [], parallel = DEFAULT_PARALLEL,
   unitParallel = UNIT_PARALLEL, min = 0.5, filters = [], onFile = () => {}, progress = () => {}, unitProgress = () => {}, searchProgress = () => {}, scanProgress = () => {}, log = () => {}, debug = () => {} }) {
   const store = openStore(out);
   // The whole tree is parsed however narrow the run is. Parsing is free next to a request, and a method's callers matter whether
@@ -177,10 +177,16 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   // what the last run said about it is carried onto the file at the end rather than dropped.
   // What perch.yaml says not to read at all, on top of what this run was asked to cover. A fixture kept so the docs can show real
   // output is code with a bug in every method on purpose, and being told about them on every run is noise nobody acts on.
-  const ignored = await readIgnored(root, revision);
+  // `ignore` is about a scan of the repository. A path you named yourself, as the target or under --paths, is read even when a
+  // glob covers it, the way `git add -f` adds an ignored file: `perch scan example/` reading nothing because example/** is
+  // ignored told you the code was clean. A glob covering only part of what you named still applies inside it.
+  const coversNamed = glob => named.some(path => matches(glob, path) || matches(glob, `${path.replace(/\/$/, '')}/file`));
+  const ignored = (await readIgnored(root, revision)).filter(glob => !coversNamed(glob));
   const covered = covers(paths);
   const inScope = path => covered(path) && !ignored.some(glob => matches(glob, path));
   const candidates = scan.candidates.filter(candidate => graph.nodes.has(candidate.id) && inScope(graph.nodes.get(candidate.id).path));
+  // How many methods the run was asked about that ignore took out, so a run left with none can say why rather than call it clean.
+  const excluded = scan.candidates.filter(candidate => graph.nodes.has(candidate.id) && covered(graph.nodes.get(candidate.id).path)).length - candidates.length;
   // No methods in scope is an ordinary run, not a failure: a branch that only touched markdown and a workflow has none, and the
   // rules about files still cover what it did touch. Erroring here failed the run and skipped those rules as well.
   const candidateIds = candidates.map(candidate => candidate.id);
@@ -188,7 +194,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const dir = store.runDir(id);
   const total = candidateIds.length;
   const run = { id, status: 'running', target: label, github, root, revision, model: systemOne.id, paths, parallel, scan_id: scan.id, out: dir, created_at: created,
-    methods: total, to_read: total, rules: rules.length, filters, edges: graph.edgeCount(), calls: 0, carried: 0, skipped: 0, checked: 0, visited: [], broken: [], failed: [], usage: { input_tokens: 0, output_tokens: 0 } };
+    methods: total, to_read: total, excluded, rules: rules.length, filters, edges: graph.edgeCount(), calls: 0, carried: 0, skipped: 0, checked: 0, visited: [], broken: [], failed: [], usage: { input_tokens: 0, output_tokens: 0 } };
   const saveRun = await store.startRun(run);
 
   // A file is reported the moment every method in it has been accounted for, rather than the run being held back to the end. A
@@ -329,6 +335,12 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const searches = await searchUnits({ ...over, rules: asking.filter(rule => SEARCHES(rule.kind)), parallel: unitParallel, progress: searchProgress });
     run.carried += units.carried + searches.carried;
     run.failed.push(...[...units.results, ...searches.results].filter(result => result.error));
+    // Every attempt failed and none answered. The in-a-row check above only fires after two full batches, so a pull request that
+    // touched three methods ran through an outage and came back clean. Nothing read is not nothing found, however small the run.
+    // A unit too big for its allowance is incomplete rather than failed: that is the code's size, not perch being unable to run.
+    const answered = run.calls + run.carried + [...units.results, ...searches.results].filter(result => !result.error).length;
+    const failures = run.failed.filter(result => result.incomplete !== true && !result.oversize);
+    if (failures.length && !answered) throw new Error(`nothing could be read: ${failures.length} failed; last error: ${failures.at(-1).error}`);
     run.incomplete = [
       ...run.failed.filter(result => result.incomplete === true).map(result => `${result.path}::${result.name}: ${result.error}`),
       ...[...units.results, ...searches.results].filter(result => result.incomplete).map(result => result.incomplete),

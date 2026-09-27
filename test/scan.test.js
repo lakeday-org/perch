@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { mergeAnswers, scanRepository, typesAsked } from '../src/scan.js';
-import { parseScanTypes, questionSet } from '../src/ask.js';
+import { parseQuestions, parseScanTypes, questionSet } from '../src/ask.js';
 import { securities, securityOf } from '../src/questions.js';
 import { methodStep, methodSteps, issueWeight, locateWhere, MAX_CHOICES, STATE_BUDGET } from '../src/questions.js';
 import { countTokens } from 'gpt-tokenizer/encoding/o200k_base';
@@ -32,6 +32,58 @@ async function fixture({ scanTypes } = {}) {
 
 /** Hunt options that re-read HEAD, since a test may commit between hunts. */
 const withRevision = async (repo, extra) => fixtureOptions(repo, { analyzer, revision: await revision(repo.root), ...extra });
+
+describe('what a scan reads when ignore covers it', () => {
+  const ignoring = async globs => {
+    const repo = await fixture();
+    await writeFile(join(repo.root, 'perch.yaml'), `ignore:\n${globs.map(glob => `  - ${glob}\n`).join('')}`);
+    await commitAll(repo.root, 'ignore');
+    return repo;
+  };
+  const readPaths = run => new Set(run.visited.map(visit => visit.path));
+
+  it('reads a path named as the target even when ignore covers it, and keeps ignoring it otherwise', async () => {
+    const repo = await ignoring(['src/b.js']);
+    const whole = await scanRepository(await withRevision(repo, { systemOne: scriptedSystemOne() }));
+    expect(readPaths(whole).has('src/b.js')).toBe(false);
+    // Named, it is read: ignore is about a scan of the repository, not about a path you asked for.
+    const named = await scanRepository(await withRevision(repo, { systemOne: scriptedSystemOne(), paths: ['src/b.js'], named: ['src/b.js'] }));
+    expect([...readPaths(named)]).toEqual(['src/b.js']);
+  });
+
+  it('reads a named directory whose glob is ignored, but still ignores a glob that covers only part of it', async () => {
+    const dir = await ignoring(['src/**']);
+    const named = await scanRepository(await withRevision(dir, { systemOne: scriptedSystemOne(), paths: ['src'], named: ['src'] }));
+    expect(readPaths(named).has('src/a.js')).toBe(true);
+    const part = await ignoring(['src/b.js']);
+    const wider = await scanRepository(await withRevision(part, { systemOne: scriptedSystemOne(), paths: ['src'], named: ['src'] }));
+    expect(readPaths(wider).has('src/b.js')).toBe(false);
+    expect(readPaths(wider).has('src/a.js')).toBe(true);
+  });
+
+  it('counts what ignore took out of the scope, so a run left with nothing can say why', async () => {
+    const repo = await ignoring(['src/**']);
+    const run = await scanRepository(await withRevision(repo, { systemOne: scriptedSystemOne() }));
+    expect(run.methods).toBe(0);
+    expect(run.excluded).toBeGreaterThan(0);
+  });
+
+  it('reads a perch.yaml that only says what to ignore', () => {
+    expect(parseQuestions('ignore:\n  - vendor/**\n', 'perch.yaml', 'rule')).toEqual([]);
+    expect(parseQuestions('scan_types: [defect]\n', 'perch.yaml', 'rule')).toEqual([]);
+    expect(() => parseQuestions('rulez: []\n', 'perch.yaml', 'rule')).toThrow('expected a list of rules');
+  });
+});
+
+describe('a scan that could read nothing', () => {
+  it('fails, however few methods it tried', async () => {
+    const repo = await fixture();
+    const down = { ...scriptedSystemOne(), async ask() { throw new Error('connect ECONNREFUSED'); } };
+    // Two methods is far under the in-a-row limit, which is what let a small pull request's scan pass through an outage.
+    await expect(scanRepository(await withRevision(repo, { systemOne: down, paths: ['src/b.js'] })))
+      .rejects.toThrow(/nothing could be read: \d+ failed; last error: connect ECONNREFUSED/);
+  });
+});
 
 describe('keeping results out of git status', () => {
   it('writes a .gitignore in the results directory, and leaves .git alone', async () => {

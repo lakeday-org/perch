@@ -321,7 +321,8 @@ rules:
     ensure: A headline and one line, not a paragraph explaining the product.
 ```
 
-A path matching `ignore` is never read and never reported.
+A scan of the repository does not read a path matching `ignore`. A path you name
+is read anyway: `perch scan fixtures/` and `--paths fixtures` both read it.
 
 The bare list form still works.
 

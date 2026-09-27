@@ -388,10 +388,14 @@ const checkOf = (rule, unit, { broken, line, text, revision, key }) => ({
   lint: { rule: rule.name, broken, text: rule.text, said: rule.text },
 });
 
-/** An unanswered rule remains in the report and cannot be reused as a successful cached check. */
+/**
+ * An unanswered rule remains in the report and cannot be reused as a successful cached check. `oversize` says it was the unit's
+ * size that stopped it rather than perch failing to run, which is the difference between a file too big to check and an outage.
+ */
 const failedCheck = (rule, unit, error, revision) => ({
   ...checkOf(rule, unit, { broken: null, line: unit.line, text: null, revision, key: null }),
   status: 'failed', error: error.message, incomplete: `${unit.path}: ${rule.name}: ${error.message}`,
+  oversize: error instanceof IncompleteCheckError,
 });
 
 /**
