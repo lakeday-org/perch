@@ -104,171 +104,30 @@
     label: vulnerability
     pick: strongest
   min: 70
-- name: bug_boundary
-  each: method
-  where: "**/*"
-  ask: "Does `method` get a boundary wrong, such as an off-by-one index or range?"
-  "true": "An index, range or comparison is off by one or misses an edge."
-  "false": "Its indexes, ranges and comparisons are right at the edges."
-  issue:
-    type: defect
-    label: off_by_one
-    pick: strongest
-  min: 70
 - name: bug_missing_value
   each: method
   where: "**/*"
-  ask: "Does `method` break when a value is null, undefined, empty or missing?"
-  "true": "A missing value makes it fail or return the wrong thing."
-  "false": "It handles missing values."
+  ask: Does a reachable null, absent, empty, or missing value break the method?
+  "true": A value a caller can supply or cause is missing and the method returns incorrectly or fails
+    unexpectedly.
+  "false": No concrete reachable case is supported by the method and supplied context. A
+    possible-looking pattern alone is not enough.
   issue:
     type: defect
     label: unhandled_null
     pick: strongest
-  min: 70
-- name: bug_wrong_condition
-  each: method
-  where: "**/*"
-  ask: "Does `method` have a wrong or inverted condition?"
-  "true": "A condition sends some input down the wrong branch."
-  "false": "Its conditions are right."
-  issue:
-    type: defect
-    label: inverted_condition
-    pick: strongest
-  min: 70
-- name: bug_wrong_result
-  each: method
-  where: "**/*"
-  ask: "Does `method` return the wrong value for some input?"
-  "true": "Some input gets a wrong result, or a result of the wrong shape."
-  "false": "It returns the right value for its inputs."
-  issue:
-    type: defect
-    label: wrong_return_value
-    pick: strongest
-  min: 70
-- name: bug_state_update
-  each: method
-  where: "**/*"
-  ask: "Does `method` change state wrongly?"
-  "true": "It changes state it should leave alone, or leaves stale state it should update."
-  "false": "Its state changes are right."
-  issue:
-    type: defect
-    label: bad_state_change
-    pick: strongest
-  min: 70
-- name: bug_ordering
-  each: method
-  where: "**/*"
-  ask: "Does `method` do things in the wrong order?"
-  "true": "Its steps, including asynchronous ones, run or finish in an order that gives a wrong result."
-  "false": "Its steps run in a correct order."
-  issue:
-    type: defect
-    label: wrong_order
-    pick: strongest
-  min: 70
-- name: bug_error_handling
-  each: method
-  where: "**/*"
-  ask: "Does `method` ignore or mishandle an error?"
-  "true": "An error is swallowed, misreported, or not passed on to its caller."
-  "false": "It handles its errors."
-  issue:
-    type: defect
-    label: error_ignored
-    pick: strongest
-  min: 70
-- name: bug_resource_lifecycle
-  each: method
-  where: "**/*"
-  ask: "Does `method` leak or misuse a resource?"
-  "true": "A file, lock, connection, stream or similar is leaked, released too early, or used after release."
-  "false": "It manages its resources."
-  issue:
-    type: defect
-    label: leak
-    pick: strongest
-  min: 70
-- name: bug_api_contract
-  each: method
-  where: "**/*"
-  ask: "Does `method` call something the wrong way?"
-  "true": "A call passes arguments or makes assumptions the callee does not accept."
-  "false": "Its calls match what the callees expect."
-  issue:
-    type: defect
-    label: api_misuse
-    pick: strongest
-  min: 70
+  min: 55
 - name: bug_numeric
   each: method
   where: "**/*"
-  ask: "Does `method` get arithmetic wrong?"
-  "true": "Overflow, truncation, rounding or a unit mistake gives a wrong number."
-  "false": "Its arithmetic is right."
+  ask: Can arithmetic or numeric conversion overflow, underflow, truncate, or lose required precision on a reachable input?
+  "true": True if reachable arithmetic or conversion changes a value enough to violate a stated invariant or caller-visible requirement.
+  "false": False if reachable values remain within supported limits or any precision loss is permitted.
   issue:
     type: defect
     label: numeric_error
     pick: strongest
-  min: 70
-- name: bug_type_shape
-  each: method
-  where: "**/*"
-  ask: "Does `method` assume a value has a type or shape it may not have?"
-  "true": "A value of another type or shape reaches it and breaks it."
-  "false": "Its values have the types and shapes it assumes."
-  issue:
-    type: defect
-    label: wrong_type
-    pick: strongest
-  min: 70
-- name: bug_concurrency
-  each: method
-  where: "**/*"
-  ask: "Can `method` race with itself or with other code?"
-  "true": "Concurrent or reentrant calls can leave wrong state or a wrong result."
-  "false": "It is safe when called concurrently or reentrantly, or never is."
-  issue:
-    type: defect
-    label: race_condition
-    pick: strongest
-  min: 70
-- name: bug_parsing
-  each: method
-  where: "**/*"
-  ask: "Does `method` parse, encode or serialize a value wrongly?"
-  "true": "Some value is misread or changed when parsed, encoded or serialized."
-  "false": "Its parsing and encoding are right."
-  issue:
-    type: defect
-    label: parse_error
-    pick: strongest
-  min: 70
-- name: bug_iteration
-  each: method
-  where: "**/*"
-  ask: "Does a loop or recursion in `method` go wrong?"
-  "true": "It skips items, repeats them, or never ends."
-  "false": "Its loops and recursion are right."
-  issue:
-    type: defect
-    label: broken_loop
-    pick: strongest
-  min: 70
-- name: bug_unexpected_exception
-  each: method
-  where: "**/*"
-  ask: "Can ordinary input make `method` throw or panic?"
-  "true": "Normal input causes an exception or panic its callers do not expect."
-  "false": "Ordinary input does not make it throw."
-  issue:
-    type: defect
-    label: unexpected_exception
-    pick: strongest
-  min: 70
+  min: 50
 - name: cwe_79
   each: method
   where: "**/*"

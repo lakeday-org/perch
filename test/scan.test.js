@@ -120,7 +120,8 @@ describe('perch hunt', () => {
     expect(js.questions).toHaveProperty('cwe_89');
     expect(js.questions).not.toHaveProperty('cwe_416');
     expect(native.questions).toHaveProperty('cwe_416');
-    expect(native.questions).toHaveProperty('bug_boundary');
+    expect(native.questions).toHaveProperty('bug_missing_value');
+    expect(native.questions).toHaveProperty('bug_numeric');
     expect(run.coverage.find(item => item.name === 'cwe_416').units).toBe(1);
 
     // Left to its defaults a scan asks no security question.
@@ -130,7 +131,8 @@ describe('perch hunt', () => {
     await scanRepository(await withRevision(repo, { systemOne: plain }));
     const asked = Object.keys(plain.calls.find(call => call.method === 'src/native.c::read_value').questions);
     expect(asked.filter(name => /^(cwe_|security_)/.test(name))).toEqual([]);
-    expect(asked).toContain('bug_boundary');
+    expect(asked).toContain('bug_missing_value');
+    expect(asked).toContain('bug_numeric');
   });
 
   it('refreshes method, file and search answers when the model or endpoint changes', async () => {
