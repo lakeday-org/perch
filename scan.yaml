@@ -1,7 +1,8 @@
 # Questions shipped with Perch. Repository rules in perch.yaml may override a name or add questions.
 # language is optional: a name or a list of parser language IDs. Omit it to ask in every language.
 # Each method is asked only the questions enabled for its parsed language.
-# The CWE checks are the 2025 MITRE Top 25, plus six classes it leaves out that one method can still show: weak crypto,
+# The CWE checks are the 2025 MITRE Top 25, less CWE-20, whose every case is a more specific CWE here and which otherwise
+# fires on any unchecked parameter. Six classes it leaves out are added, since one method can still show them: weak crypto,
 # disabled certificate checks, hard-coded credentials, integer overflow, uninitialized reads and open redirects.
 # Memory-safety checks are limited to languages with reachable native memory operations; the broad security check still
 # covers every language. Each specific check files under a readable label, such as sql_injection for cwe_89.
@@ -485,17 +486,6 @@
     label: incorrect_authorization
     pick: strongest
   min: 70
-- name: cwe_20
-  each: method
-  where: "**/*"
-  ask: "Does `method` trust outside input it should validate?"
-  "true": "Outside input is used for something security-sensitive without being checked."
-  "false": "It validates the outside input it relies on."
-  issue:
-    type: security
-    label: missing_input_validation
-    pick: strongest
-  min: 70
 - name: cwe_284
   each: method
   where: "**/*"
@@ -565,9 +555,9 @@
 - name: cwe_770
   each: method
   where: "**/*"
-  ask: "Can outside input make `method` use unbounded memory or work?"
-  "true": "An input size or count is not limited, so one request can exhaust memory, CPU or another resource."
-  "false": "Its work is bounded."
+  ask: "Can a request or other untrusted input make `method` use unbounded memory or work?"
+  "true": "A size, count or depth that comes from untrusted input sets how much it allocates or loops, with no limit."
+  "false": "Its work is fixed, limited, or set only by the program's own data."
   issue:
     type: security
     label: resource_exhaustion

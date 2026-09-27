@@ -126,7 +126,7 @@ distribution over its levels.
 | `severity` | score over 4 levels | The rubric below. |
 | `bug_*` | 15 nouls | Specific behavioral bug types, including boundaries, state, error handling, and concurrency. |
 | `security_any` | noul | Can an attacker exploit the method? |
-| `cwe_*` | Up to 31 nouls | The 2025 MITRE Top 25 CWEs and six more, filtered by language where needed. |
+| `cwe_*` | Up to 30 nouls | The 2025 MITRE Top 25 CWEs except CWE-20, and six more, filtered by language where needed. |
 | `misuse_N` | noul per callee | Does this call violate the callee's evident contract? |
 | `misused_by_N` | noul per caller | Does the caller violate this method's contract? |
 | `does_what_it_claims` | noul | Does the behavior match the name, parameters, and comment? |

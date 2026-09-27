@@ -10,7 +10,7 @@ describe('the question grammar', () => {
     expect(new Set(names).size).toBe(names.length);
     expect(names).toEqual(expect.arrayContaining(['has_bug', 'kind', 'severity', 'refactor', 'security_any', 'bug_boundary', 'cwe_79', 'cwe_416']));
     expect(names.filter(name => name.startsWith('bug_'))).toHaveLength(15);
-    expect(names.filter(name => name.startsWith('cwe_'))).toHaveLength(31);
+    expect(names.filter(name => name.startsWith('cwe_'))).toHaveLength(30);
     // An ID says which check it was; the label is what a row prints, so it is a name a reader knows without a lookup.
     const specific = BUILTIN.filter(question => /^(bug|cwe)_/.test(question.name));
     expect(specific.filter(question => /^(bug|cwe)_|^self$/.test(question.issue.label))).toEqual([]);
