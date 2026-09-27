@@ -98,7 +98,9 @@ as well.
 
 ## Floors
 
-An issue is listed when its probability is over 50 percent.
+An issue is listed when its score exceeds both its question's floor and the
+run's `--min`. The default `has_bug` floor is 60 percent; see
+[the question floors](/rules/#floors).
 
 ```sh
 perch issues --min 80     # only what it is very sure of

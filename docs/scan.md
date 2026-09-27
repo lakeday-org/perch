@@ -175,11 +175,10 @@ it claims)`, and `docs`.
 
 ### The floor
 
-An issue is listed when its probability is over **0.5**. A `noul` is the
-probability that something is true, so above a half is the model saying yes.
-Printing everything means printing every method in the repository, because no
-answer comes back at zero. On perch itself the floor takes 364 listed methods
-down to 240, and `--filter type=defect` from 354 to 25.
+An issue is listed only when its score exceeds both the question's floor and
+the run's `--min`. The default `has_bug` floor is **60%**; security checks use
+70%. These scores rank answers but are not calibrated probabilities that a
+reported issue is real. Higher floors produce fewer alerts and miss more bugs.
 
 The floor applies to what is claimed. The arithmetic keeps everything:
 
@@ -189,8 +188,8 @@ The floor applies to what is claimed. The arithmetic keeps everything:
 * **`perch check` reports the whole distribution too.** Halving a 40% defect is
   visible as that. Neither the before nor the after is listed.
 
-`--min P` moves the line, in percent. `--min 0` prints everything the scan
-answered.
+`--min P` raises the line for a whole run, in percent. `--min 0` prints
+everything the scan answered, bypassing question floors.
 
 ## 6. Ranking
 

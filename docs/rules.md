@@ -391,12 +391,12 @@ Every question carries a floor, in percent. Below it, an answer is not listed.
 | Floor | Question |
 | --- | --- |
 | 75% | `documented` |
-| 70% | `does_what_it_claims`, the specific bug checks, and every security check |
+| 70% | `does_what_it_claims` and every security check |
 | 60% | `has_bug`, `refactor` |
 
-A 51% answer is a coin flip that prints like a claim, so each question carries a
-floor under which perch does not list it. The floors above were set against this
-codebase; another may want different ones.
+A score near 50% is a weak signal, not a calibrated probability of a bug. The
+default 60% floor for `has_bug` limits the number of alerts. Raising it further
+also misses more bugs; use `--min` to choose a stricter floor for a run.
 
 `--min` sets a floor for a whole run. Both apply and the higher wins. Asking for
 `--min 90` gets you nothing at 73%, whatever a question set for itself.
