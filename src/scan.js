@@ -337,7 +337,8 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     run.failed.push(...[...units.results, ...searches.results].filter(result => result.error));
     // Every attempt failed and none answered. The in-a-row check above only fires after two full batches, so a pull request that
     // touched three methods ran through an outage and came back clean. Nothing read is not nothing found, however small the run.
-    // A unit too big for its allowance is incomplete rather than failed: that is the code's size, not perch being unable to run.
+    // Code that cannot fit a request at any token budget is incomplete rather than failed: that is the code, not perch being
+    // unable to run.
     const answered = run.calls + run.carried + [...units.results, ...searches.results].filter(result => !result.error).length;
     const failures = run.failed.filter(result => result.incomplete !== true && !result.oversize);
     if (failures.length && !answered) throw new Error(`nothing could be read: ${failures.length} failed; last error: ${failures.at(-1).error}`);

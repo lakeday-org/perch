@@ -389,8 +389,8 @@ const checkOf = (rule, unit, { broken, line, text, revision, key }) => ({
 });
 
 /**
- * An unanswered rule remains in the report and cannot be reused as a successful cached check. `oversize` says it was the unit's
- * size that stopped it rather than perch failing to run, which is the difference between a file too big to check and an outage.
+ * An unanswered rule remains in the report and cannot be reused as a successful cached check. `oversize` says the code could not
+ * fit a request rather than perch failing to run, which is the difference between a file perch cannot check and an outage.
  */
 const failedCheck = (rule, unit, error, revision) => ({
   ...checkOf(rule, unit, { broken: null, line: unit.line, text: null, revision, key: null }),
