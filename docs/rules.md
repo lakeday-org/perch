@@ -391,17 +391,15 @@ Every question carries a floor, in percent. Below it, an answer is not listed.
 | Floor | Question |
 | --- | --- |
 | 75% | `documented` |
-| 70% | `does_what_it_claims` and the other security checks |
-| 60% | `has_bug`, `refactor`, `cwe_125` (out-of-bounds read) |
-| 50% | `cwe_79` (XSS), `cwe_89` (SQL injection) |
+| 70% | `does_what_it_claims` and most security checks |
+| 60% | `has_bug`, `refactor`, `cwe_79` (XSS), `cwe_89` (SQL injection), `cwe_125` (out-of-bounds read) |
 
 A score near 50% is a weak signal, not a calibrated probability of a bug. The
 default 60% floor for `has_bug` limits the number of alerts. Raising it further
 also misses more bugs; use `--min` to choose a stricter floor for a run.
-Security checks have separate floors because their score ranges differ. The
-lower XSS, SQL injection, and out-of-bounds-read floors were selected on
-repository-separated security pairs; they do not make a 50% score a calibrated
-50% chance of a vulnerability.
+XSS, SQL injection, and out-of-bounds reads have 60% floors; the other security
+checks use 70%. These are alert cutoffs, not calibrated probabilities that a
+vulnerability exists.
 
 `--min` sets a floor for a whole run. Both apply and the higher wins. Asking for
 `--min 90` gets you nothing at 73%, whatever a question set for itself.
