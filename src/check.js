@@ -16,7 +16,6 @@ import { bodyOf, matches, neighbourhood, readLint, readRules, readScanTypes, RUL
 import { BELIEVED, filterKeys, meaning, methodSteps, issuesOf } from './questions.js';
 import { appliesToLanguage, floorFor } from './ask.js';
 import { openStore } from './store.js';
-import { requestScope } from './tokens.js';
 
 /** A check reads one file off disk, so there is no graph to draw a neighbourhood from: what `sees` can reach is that file. */
 const EMPTY_GRAPH = { nodes: new Map() };
@@ -91,7 +90,6 @@ const brokenHere = (rule, answers) => {
  * named the rules to ask. Asked together, since they do not depend on each other.
  */
 export async function checkTarget({ target, root, out, analyzer, systemOne, revision, only = [], debug = () => {} }) {
-  systemOne = requestScope(systemOne);
   const unit = await resolveTarget({ target, root, out, analyzer });
   const named = splitOnly(only);
   // Naming only classes the scan answers about means the rule file was not named, so none of it is asked.

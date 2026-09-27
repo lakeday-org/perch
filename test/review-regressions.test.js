@@ -111,7 +111,7 @@ it('refuses an add shadowed by an uncommitted nested split rule, and edits or re
   expect(await readFile(join(root, 'perch.yaml'), 'utf8')).toBe('# local rules\n[]\n');
 });
 
-it('counts file localization against the same internal allowance as the initial reading', async () => {
+it('reads a failing file and then asks which line, however many requests that takes', async () => {
   const options = await fixture('- name: prose\n  where: docs/*.md\n  ensure: The text explains the API.\n', { 'bad.md': 'Missing reference.\nMissing example.\n' });
   let requests = 0;
   const fetchImpl = async (_url, init) => {
@@ -119,57 +119,49 @@ it('counts file localization against the same internal allowance as the initial 
     const {questions} = JSON.parse(init.body);
     return reply(200, {answers: Object.fromEntries(Object.entries(questions).map(([name,q]) => [name, q.type === 'choice' ? {choice: Object.keys(q.criteria)[0]} : {noul:0.01}]))});
   };
-  const run = limit => scanRepository({ ...options, paths: ['docs'], systemOne: createSystemOne({apiKey:'fixture',fetchImpl,limits:{state:24000,single:30000,request:60000,unitRequests:limit}}) });
-  const exhausted = await run(1);
-  expect(exhausted.status).toBe('incomplete');
-  expect(requests).toBe(1);
-  expect(exhausted.incomplete.join('\n')).toContain('request allowance');
-  requests = 0;
-  const completed = await run(2);
-  expect(completed.broken).toHaveLength(1);
+  const run = await scanRepository({ ...options, paths: ['docs'], systemOne: createSystemOne({apiKey:'fixture',fetchImpl}) });
+  expect(run.broken).toHaveLength(1);
   expect(requests).toBe(2);
-  expect(completed.status).toBe('complete');
+  expect(run.status).toBe('complete');
 });
 
-it('refuses a method reading that needs more requests than the allowance before sending any', async () => {
-  const source = 'function huge() {\n' + '  work();\n'.repeat(300) + '}';
-  const node = { path: 'huge.js', qualified_name: 'huge', line: 1, end_line: 302 };
+it('reads a method that takes many requests to the end rather than refusing it', async () => {
+  const source = 'function huge() {\n' + '  work();\n'.repeat(6000) + '}';
+  const node = { path: 'huge.js', qualified_name: 'huge', line: 1, end_line: 6002 };
   let requests = 0;
   const scripted = scriptedSystemOne();
-  const systemOne = createSystemOne({ apiKey: 'fixture', limits: { state: 600, single: 30000, request: 60000, unitRequests: 4 }, fetchImpl: async (_url, init) => {
+  const systemOne = createSystemOne({ apiKey: 'fixture', limits: { state: 600, single: 30000, request: 60000 }, fetchImpl: async (_url, init) => {
     requests++;
     const {state,questions} = JSON.parse(init.body);
     return reply(200, await scripted.ask(state, questions));
   } });
   const prepare = budget => methodSteps({ node, lines: source.split('\n'), budget });
-  // The pass count is known from the steps. Finding out by sending meant the first four were accepted, paid for and discarded.
-  await expect(questionMethod({ systemOne, node, lines: source.split('\n'), steps: prepare(600), prepare })).rejects.toThrow(/needs \d+ requests and the allowance for one unit is 4, so none were sent/);
-  expect(requests).toBe(0);
+  // A reading used to stop at 64 requests, so the largest methods in a repository were the ones never read.
+  const { answers } = await questionMethod({ systemOne, node, lines: source.split('\n'), steps: prepare(600), prepare });
+  expect(answers.has_bug).toBeDefined();
+  expect(requests).toBeGreaterThan(64);
 });
 
-it('refuses a file reading that needs more requests than the allowance before sending any', async () => {
-  const options = await fixture('- name: prose\n  where: docs/*.md\n  ensure: The text explains the API.\n', { 'long.md': 'A sentence about the API.\n'.repeat(400) });
+it('reads a long file in as many requests as its chunks take', async () => {
+  const options = await fixture('- name: prose\n  where: docs/*.md\n  ensure: The text explains the API.\n', { 'long.md': 'A sentence about the API.\n'.repeat(8000) });
   let requests = 0;
   const fetchImpl = async (_url, init) => {
     requests++;
     const {questions} = JSON.parse(init.body);
     return reply(200, {answers: Object.fromEntries(Object.keys(questions).map(name => [name, {noul:0.95}]))});
   };
-  const run = await scanRepository({ ...options, paths: ['docs'], systemOne: createSystemOne({apiKey:'fixture',fetchImpl,limits:{state:600,single:30000,request:60000,unitRequests:2}}) });
-  expect(requests).toBe(0);
-  expect(run.status).toBe('incomplete');
-  expect(run.incomplete.join('\n')).toMatch(/needs \d+ requests and the allowance for one unit is 2, so none were sent/);
+  const run = await scanRepository({ ...options, paths: ['docs'], systemOne: createSystemOne({apiKey:'fixture',fetchImpl,limits:{state:600,single:30000,request:60000}}) });
+  expect(requests).toBeGreaterThan(64);
+  expect(run.status).toBe('complete');
+  expect(run.incomplete).toEqual([]);
 });
 
-it('counts rejected question batches and source retries against the same unit allowance', async () => {
+it('gives up on code the endpoint keeps rejecting as too large, after a bounded number of tries', async () => {
   let requests = 0;
   const rules = parseQuestions('- name: a\n  where: example.js\n  ensure: Code checks stock.\n- name: b\n  where: example.js\n  ensure: Code returns stock.\n', 'fixture', 'rule');
-  const systemOne = createSystemOne({ apiKey: 'fixture', limits: { state: 24000, single: 30000, request: 60000, unitRequests: 3 }, fetchImpl: async () => {
-    requests++; return reply(413, {error:'too large'});
-  } });
+  const systemOne = createSystemOne({ apiKey: 'fixture', fetchImpl: async () => { requests++; return reply(413, {error:'too large'}); } });
   const prepare = budget => unitSteps({rules, unit:{path:'example.js',line:1}, source:'function run() { return stock; }\n'.repeat(500), budget});
-  await expect(askUnitSteps({systemOne, rules, steps:prepare(), prepare})).rejects.toThrow(/request.*allowance|request.*budget/i);
-  // The rejected requests count. The retry that would need more than what is left of the allowance is refused unsent.
+  await expect(askUnitSteps({systemOne, rules, steps:prepare(), prepare})).rejects.toThrow(/cannot fit|budget/i);
   expect(requests).toBeGreaterThan(0);
-  expect(requests).toBeLessThan(3);
+  expect(requests).toBeLessThan(200);
 });

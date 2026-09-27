@@ -2,7 +2,7 @@
 import { countTokens } from 'gpt-tokenizer/encoding/o200k_base';
 
 // Leave room below Jev's 32k per question and 64k per request limits for server formatting.
-export const TOKEN_LIMITS = Object.freeze({ state: 24000, single: 30000, request: 60000, unitRequests: 64 });
+export const TOKEN_LIMITS = Object.freeze({ state: 24000, single: 30000, request: 60000 });
 const literal = { disallowedSpecial: new Set() };
 
 /** o200k plus 20% headroom is an estimate, not Jev's exact tokenization. */
@@ -25,37 +25,10 @@ export class IncompleteCheckError extends Error {
 export class ContextLimitError extends IncompleteCheckError {
   constructor(message, budget) { super(message); this.name = 'ContextLimitError'; this.budget = budget; }
 }
-/** How many requests a reading takes: one per question batch of each pass, and one more for a pass that then locates a line. */
-export function requestsFor(steps, limits = TOKEN_LIMITS) {
-  return steps.reduce((total, step) => total + questionBatches(step.state, step.questions, limits).length + (step.windows ? 1 : 0), 0);
-}
-
-const scoped = Symbol('unit request allowance');
 /**
- * Share a finite allowance across chunks, question batches, localization and retries for one reading.
- *
- * A reading that needs more than the allowance is refused before its first request. The count is known from the passes and
- * their batches, and finding out by sending meant a 1.5 MB function had 64 requests accepted and paid for, then thrown away.
+ * Rebuild a reading at half the token budget each time the endpoint says it is too large. A reading is otherwise sent in as many
+ * requests as it takes; this is the one loop that has to end, so it gives up after eight halvings or below 128 tokens.
  */
-export function requestScope(systemOne) {
-  if (systemOne[scoped]) return systemOne;
-  const maximum = systemOne.limits?.unitRequests ?? TOKEN_LIMITS.unitRequests;
-  if (!Number.isSafeInteger(maximum) || maximum < 1) throw new Error('unit request allowance must be a positive integer');
-  let requests = 0;
-  const reserve = () => {
-    if (requests >= maximum) throw new IncompleteCheckError(`unit request allowance exhausted (${maximum} attempts)`);
-    requests++;
-  };
-  const fits = steps => {
-    const needed = requestsFor(steps, { ...TOKEN_LIMITS, ...systemOne.limits });
-    if (requests + needed > maximum) throw new IncompleteCheckError(`the reading needs ${needed} requests and the allowance for one unit is ${maximum}, so none were sent`);
-  };
-  return { ...systemOne, [scoped]: true, allowance: maximum, fits, ask(state, questions) {
-    reserve();
-    let first = true;
-    return systemOne.ask(state, questions, { beforeRequest() { if (first) first = false; else reserve(); } });
-  } };
-}
 export async function withTokenRetries(read, initial = TOKEN_LIMITS.state) {
   let budget = initial;
   for (let attempt = 0; ; attempt++) {

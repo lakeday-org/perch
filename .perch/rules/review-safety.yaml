@@ -30,10 +30,3 @@
     those steps are used directly. Selecting prepare(budget) whenever prepare
     exists breaks this rule, because the first attempt rebuilds work its
     caller already prepared. Smaller-budget retries must still rebuild.
-- name: unit-request-work-is-bounded
-  where: src/tokens.js
-  ensure: >-
-    The client returned by requestScope shares a finite request counter
-    across its ask calls and the extra attempts made within each call. The
-    counter throws an incomplete-check error at its maximum. Returning success
-    at exhaustion or refreshing the allowance for every ask breaks this rule.

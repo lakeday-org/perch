@@ -68,25 +68,7 @@ it.each([401, 402, 403])('stops file and search scans after one HTTP %i authenti
 
 it('keeps scheduling limits out of answer cache identities', () => {
   const client = limits => createSystemOne({apiKey:'fixture',limits});
-  expect(client({...TOKEN_LIMITS,unitRequests:1}).cacheKey).toBe(client({...TOKEN_LIMITS,unitRequests:64}).cacheKey);
   expect(client({...TOKEN_LIMITS,state:8000}).cacheKey).not.toBe(client(TOKEN_LIMITS).cacheKey);
-});
-
-it('reuses completed file checks when only the internal request allowance changes', async () => {
-  const options = await docsFixture('- name: docs\n  where: docs/*.md\n  ensure: Verified documentation.\n',2);
-  let requests=0;
-  const fetchImpl=async (_url,init) => {
-    requests++;
-    const {questions}=JSON.parse(init.body);
-    return reply(200,{answers:Object.fromEntries(Object.keys(questions).map(key=>[key,{noul:0.99}]))});
-  };
-  for (const unitRequests of [1,64]) {
-    const systemOne=createSystemOne({apiKey:'fixture',fetchImpl,limits:{...TOKEN_LIMITS,unitRequests}});
-    const run=await scanRepository({...options,systemOne});
-    expect(run.status).toBe('complete');
-    expect(run.carried).toBe(unitRequests===1 ? 0 : 2);
-    expect(requests).toBe(2);
-  }
 });
 
 it('stops a method scan immediately on an authentication failure', async () => {

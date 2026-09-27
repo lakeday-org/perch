@@ -14,7 +14,7 @@ import { appliesToLanguage, askKey, CORRECTNESS, floorFor, DEFAULT_TYPES, questi
 import { issuesOf, label as kindLabel, methodSteps, locateWhere, readAnswers } from './questions.js';
 import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL } from './units.js';
 import { findingId, identity, openStore } from './store.js';
-import { TOKEN_LIMITS, IncompleteCheckError, withTokenRetries, requestScope } from './tokens.js';
+import { TOKEN_LIMITS, IncompleteCheckError, withTokenRetries } from './tokens.js';
 export { findingId };
 
 /** Methods in flight at once. Each request carries a whole neighborhood and the applicable question pack. */
@@ -43,11 +43,9 @@ export function mergeAnswers(readings, questions = questionSet().filter(question
 
 /** One System One reading of a method, in as many passes as its length takes, and the line they point at. */
 export async function questionMethod({ systemOne, node, step, steps = [step], lines, rules = [], debug = () => {}, prepare }) {
-  systemOne = requestScope(systemOne);
   return withTokenRetries(async budget => {
     if (budget < (systemOne.limits?.state ?? TOKEN_LIMITS.state) && !prepare) throw new IncompleteCheckError('source cannot be rebuilt for a smaller token budget');
     const active = steps?.[0] && budget === (systemOne.limits?.state ?? TOKEN_LIMITS.state) ? steps : prepare ? prepare(budget) : steps;
-    systemOne.fits(active);
     debug(`asking ${systemOne.id} about ${node.qualified_name} in ${node.path}:${node.line} (${Object.keys(active[0].questions).length} questions${active.length > 1 ? ` over ${active.length} passes` : ''}${active[0].windows ? `, then a line in the chosen window` : ''})`);
     const readings = [];
     let response;
