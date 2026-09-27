@@ -172,7 +172,7 @@ rules:
     installQuestions(merge(BUILTIN, await rules()));
     const back = questionSet().find(question => question.name === 'cwe_89');
     expect(back).toMatchObject({ where: 'src/**/*.js', type: 'noul', each: 'method' });
-    expect(back.true).toContain('SQL text');
+    expect(back.true).toContain('part of the SQL it runs');
   });
 
   it('changes a question perch ships by copying it into your file, not by editing the package', async () => {

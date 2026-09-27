@@ -97,7 +97,7 @@
   each: method
   where: "**/*"
   ask: "Can an attacker exploit `method`?"
-  "true": "An attacker can use it to do something they should not be able to."
+  "true": "An attacker can use outside input to make it do something they should not be able to. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
   "false": "An attacker cannot exploit it."
   issue:
     type: security
@@ -273,7 +273,7 @@
   each: method
   where: "**/*"
   ask: "Is `method` vulnerable to cross-site scripting?"
-  "true": "Attacker-controlled text reaches HTML or script output without escaping."
+  "true": "Outside text reaches HTML or script output without escaping. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
   "false": "Its output is escaped, or no attacker-controlled text reaches it."
   issue:
     type: security
@@ -284,7 +284,7 @@
   each: method
   where: "**/*"
   ask: "Is `method` vulnerable to SQL injection?"
-  "true": "Outside input becomes part of the SQL text it runs."
+  "true": "Outside text becomes part of the SQL it runs. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
   "false": "Its SQL is fixed, or outside values are bound as parameters."
   issue:
     type: security
@@ -306,7 +306,7 @@
   each: method
   where: "**/*"
   ask: "Does `method` skip an authorization check it needs?"
-  "true": "Anyone can perform its action or reach its data without a permission check."
+  "true": "Its name, documentation or callers show its action must be limited to certain users, and it performs it without checking who is calling."
   "false": "It checks permission, or its action needs none."
   issue:
     type: security
@@ -333,7 +333,7 @@
   each: method
   where: "**/*"
   ask: "Is `method` vulnerable to path traversal?"
-  "true": "An outside path can reach files beyond the directory it should be limited to."
+  "true": "A path built from outside input can reach files beyond the directory it should be limited to. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
   "false": "Its paths are fixed or confined to their directory."
   issue:
     type: security
@@ -376,7 +376,7 @@
   each: method
   where: "**/*"
   ask: "Is `method` vulnerable to OS command injection?"
-  "true": "Outside input becomes part of a shell command."
+  "true": "Outside text becomes part of a shell command. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
   "false": "Its commands are fixed, or pass arguments without a shell."
   issue:
     type: security
@@ -387,7 +387,7 @@
   each: method
   where: "**/*"
   ask: "Is `method` vulnerable to code injection?"
-  "true": "Outside input is evaluated or compiled as code."
+  "true": "Outside text is evaluated or compiled as code. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
   "false": "It never runs outside input as code."
   issue:
     type: security
@@ -414,7 +414,7 @@
   each: method
   where: "**/*"
   ask: "Does `method` accept a dangerous file upload?"
-  "true": "An uploaded file of any type can be stored where it can be run or served."
+  "true": "An uploaded file of any type can be stored where it can be run or served. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
   "false": "Uploads are checked, or stored where they cannot do harm."
   issue:
     type: security
@@ -424,6 +424,10 @@
 - name: cwe_476
   each: method
   where: "**/*"
+  language:
+    - c
+    - cpp
+    - zig
   ask: "Can `method` dereference a null pointer?"
   "true": "A null pointer or reference is used on some path."
   "false": "Nulls are checked before use."
@@ -452,7 +456,7 @@
   each: method
   where: "**/*"
   ask: "Does `method` deserialize untrusted data unsafely?"
-  "true": "Outside data is deserialized in a way that can create arbitrary objects or run code."
+  "true": "Outside data is deserialized in a way that can create arbitrary objects or run code. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
   "false": "It deserializes only trusted data, or only plain values."
   issue:
     type: security
@@ -479,7 +483,7 @@
   each: method
   where: "**/*"
   ask: "Does `method` check authorization wrongly?"
-  "true": "Its permission check lets through someone who should be refused."
+  "true": "Its name, documentation or callers show who may perform its action, and its check lets through someone who should be refused."
   "false": "Its permission check is right."
   issue:
     type: security
@@ -490,7 +494,7 @@
   each: method
   where: "**/*"
   ask: "Does `method` let someone use something they should not have access to?"
-  "true": "A gap in access control lets the wrong actor use a protected resource or action."
+  "true": "Its name, documentation or callers show a resource or action is protected, and it lets the wrong actor use it."
   "false": "Its access control is right."
   issue:
     type: security
@@ -512,7 +516,7 @@
   each: method
   where: "**/*"
   ask: "Does `method` skip authentication it needs?"
-  "true": "A sensitive action runs without confirming who is calling."
+  "true": "Its name, documentation or callers show a sensitive action that needs a known caller, and it runs without authenticating one."
   "false": "It authenticates the caller, or needs no authentication."
   issue:
     type: security
@@ -523,7 +527,7 @@
   each: method
   where: "**/*"
   ask: "Is `method` vulnerable to server-side request forgery?"
-  "true": "Outside input chooses where the server sends a request."
+  "true": "A destination taken from outside input decides where the server sends a request. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
   "false": "Its destinations are fixed or checked against an allow list."
   issue:
     type: security
@@ -534,7 +538,7 @@
   each: method
   where: "**/*"
   ask: "Is `method` vulnerable to command injection?"
-  "true": "Outside input changes a command passed to an interpreter."
+  "true": "Outside text changes a command passed to an interpreter. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
   "false": "Its commands are fixed, or outside input is passed as data."
   issue:
     type: security
@@ -545,7 +549,7 @@
   each: method
   where: "**/*"
   ask: "Can a user reach someone else's data by changing an ID that `method` receives?"
-  "true": "It looks up a record by a user-supplied ID without checking the record belongs to them."
+  "true": "It looks up a record by an ID taken from outside input without checking the record belongs to the caller. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
   "false": "It checks ownership, or its records are not per user."
   issue:
     type: security
@@ -556,7 +560,7 @@
   each: method
   where: "**/*"
   ask: "Can a request or other untrusted input make `method` use unbounded memory or work?"
-  "true": "A size, count or depth that comes from untrusted input sets how much it allocates or loops, with no limit."
+  "true": "A size, count or depth taken from outside input sets how much it allocates or loops, with no limit. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
   "false": "Its work is fixed, limited, or set only by the program's own data."
   issue:
     type: security
@@ -637,7 +641,7 @@
   each: method
   where: "**/*"
   ask: "Is `method` vulnerable to an open redirect?"
-  "true": "A redirect target from the request can send users to any site."
+  "true": "A redirect target taken from outside input can send users to any site. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
   "false": "Its redirect targets are fixed or checked."
   issue:
     type: security
