@@ -1,0 +1,21 @@
+# Which of perch's own questions a method is asked. A scan and a check have to agree, and a filter has to ask what it names.
+- name: filter-asks-what-it-names
+  where: src/scan.js
+  ensure: >-
+    Read typesAsked. A --filter clause naming a kind or a rule adds the issue
+    type of the question that raises it, so filtering for a kind that
+    scan_types leaves out still asks that question. Adding types only for
+    type= clauses breaks this rule.
+- name: check-asks-what-a-scan-asks
+  where: src/check.js
+  ensure: >-
+    Read where checkTarget chooses perch's own questions for a method. It asks
+    the issue types a scan would ask, from scan_types or the defaults, or the
+    types --rules names. Asking every question perch ships, security included,
+    when neither says so breaks this rule.
+- name: language-names-are-checked
+  where: src/ask.js
+  ensure: >-
+    Read the language check in check(). A language that is not one perch parses
+    is rejected with an error that names the languages perch does parse.
+    Accepting any nonempty string breaks this rule.
