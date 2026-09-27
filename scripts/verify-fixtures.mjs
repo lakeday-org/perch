@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 
 const workspace = fileURLToPath(new URL('../', import.meta.url));
 const cli = join(workspace, 'bin/perch.mjs');
-if (!process.env.PERCH_API_KEY && !process.env.TYPESAFE_API_KEY) throw new Error('Export PERCH_API_KEY before running the live fixture checks.');
+if (!process.env.PERCH_API_KEY && !process.env.TYPESAFE_API_KEY && !process.env.OPENROUTER_API_KEY) throw new Error('Export PERCH_API_KEY or OPENROUTER_API_KEY before running the live fixture checks.');
 const scratch = await realpath(await mkdtemp(join(tmpdir(), 'perch-fixtures-')));
 const artifacts = join(workspace, '.perch', 'fixture-verification');
 await mkdir(artifacts, { recursive: true });

@@ -258,9 +258,14 @@ perch check src/cart.py::subtotal
 ```
 
 Each batch of questions goes out as one request, with a JSON schema that allows
-only a probability per answer. These are the model's own estimates, not Jev's
-calibrated distribution, so a `min` tuned against Jev can need moving. The cost
-line reports what OpenRouter charged.
+a one-sentence reason and a probability per answer, nothing else. These are the
+model's own estimates, not Jev's calibrated distribution, so a `min` tuned
+against Jev can need moving. The cost line reports what OpenRouter charged.
+
+A chat model is less steady than Jev: the same method can read differently from
+one run to the next. A smaller model is cheaper and flips more often. Pick the
+model on your own code by running `perch check` on a method with a known defect
+a few times.
 
 ## Exit codes
 

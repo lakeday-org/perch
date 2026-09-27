@@ -181,7 +181,7 @@ describe('cli', () => {
     const requests = [];
     vi.stubGlobal('fetch', async (url, init) => {
       requests.push({ url, init });
-      const raw = Object.fromEntries(Object.keys(JSON.parse(init.body).response_format.json_schema.schema.properties).map(id => [id, { p: 0.99 }]));
+      const raw = Object.fromEntries(Object.keys(JSON.parse(init.body).response_format.json_schema.schema.properties).map(id => [id, { why: 'it does', a: 0.99, b: 0.01 }]));
       return new Response(JSON.stringify({ model: 'openai/gpt-6-luna', choices: [{ message: { content: JSON.stringify(raw) } }], usage: { prompt_tokens: 10, completion_tokens: 2, cost: 0.001 } }));
     });
     const { out, err, io } = capture();

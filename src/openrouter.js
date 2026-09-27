@@ -11,21 +11,38 @@ export const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 export const DEFAULT_OPENROUTER_MODEL = 'openai/gpt-6-luna';
 
 const INSTRUCTIONS = `You answer typed questions about the code in STATE. Answer each question on its own, from STATE alone. A name in
-backticks is a field of STATE or of the question's instructions.
+backticks is a field of STATE or of the question's instructions; a name found in neither, such as \`rule\`, is the statement in
+criteria.true.
 
-- noul: p is the probability that criteria.true holds rather than criteria.false.
+- noul: two statements, a and b, and one of them describes the code. A probability for each. They sum to 1. The instructions say
+  what the statements are about; judge the statements, not the wording of the instructions.
 - choice: a probability for every option in criteria. They sum to 1.
 - score: a probability for every level in criteria, keyed by its index, weakest first. They sum to 1.
 
+Each answer starts with why: one short sentence on what the code does about this question. The numbers follow from it.
+
 Be calibrated. 0.5 means the code does not tell you. Go near 0 or 1 only when the code shows it.`;
 
-/** A score's levels are a list; keyed by index they are asked for the same way a choice's options are. */
-const levels = question => (question.type === 'score' ? Object.fromEntries(question.criteria.map((level, index) => [String(index), level])) : question.criteria);
+/**
+ * What each answer is a probability of, keyed as the answer names it. A score's levels are a list and are keyed by index. A noul's
+ * two criteria become two statements to choose between, since a noul with none is still a yes or a no.
+ */
+function levels(question) {
+  if (question.type === 'score') return Object.fromEntries(question.criteria.map((level, index) => [String(index), level]));
+  if (question.type === 'noul') return { a: question.criteria?.true ?? 'Yes', b: question.criteria?.false ?? 'No' };
+  return question.criteria;
+}
 const options = question => Object.keys(levels(question) ?? {});
 
-const number = { type: 'number' };
-const closed = keys => ({ type: 'object', additionalProperties: false, required: keys, properties: Object.fromEntries(keys.map(key => [key, number])) });
-const schemaOf = question => (question.type === 'noul' ? closed(['p']) : closed(options(question)));
+/**
+ * Every answer starts with a sentence saying what the code does about the question, and a noul picks between its two statements.
+ * Asked how likely criteria.true was, or to answer `Is \`rule\` true of the code below?` yes or no, a model described an ensure
+ * rule's breach correctly every time and still called the rule true in half the scans: the rule's own text describes the breach,
+ * and that description is true of the code.
+ */
+const closed = keys => ({ type: 'object', additionalProperties: false, required: ['why', ...keys],
+  properties: { why: { type: 'string' }, ...Object.fromEntries(keys.map(key => [key, { type: 'number' }])) } });
+const schemaOf = question => closed(options(question));
 
 /** A model's numbers, held to what a distribution is: nothing below 0, and a total of 1. One that says nothing says nothing either way. */
 function distribution(keys, raw) {
@@ -35,7 +52,7 @@ function distribution(keys, raw) {
 }
 
 function answerOf(question, raw) {
-  if (question.type === 'noul') return { type: 'noul', noul: Math.min(1, Math.max(0, Number(raw.p) || 0)) };
+  if (question.type === 'noul') return { type: 'noul', noul: distribution(['a', 'b'], raw).a };
   const probabilities = distribution(options(question), raw);
   const [choice, confidence] = Object.entries(probabilities).sort((a, b) => b[1] - a[1])[0];
   return question.type === 'choice'
@@ -57,6 +74,8 @@ export const OPENROUTER_WIRE = {
     response_format: { type: 'json_schema', json_schema: { name: 'answers', strict: true,
       schema: { type: 'object', additionalProperties: false, required: Object.keys(questions),
         properties: Object.fromEntries(Object.entries(questions).map(([id, question]) => [id, schemaOf(question)])) } } },
+    // Unset, OpenRouter holds back credit for the model's whole output limit on every request, and refuses a key running low.
+    max_tokens: 16384,
     // A provider that would ignore the schema answers in prose, and prose has no probabilities in it.
     provider: { require_parameters: true },
     usage: { include: true },
