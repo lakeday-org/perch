@@ -117,14 +117,13 @@ describe('perch hunt', () => {
     const js = systemOne.calls.find(call => call.method === 'src/a.js::f');
     const native = systemOne.calls.find(call => call.method === 'src/native.c::read_value');
     expect(js.questions).toHaveProperty('security_any');
-    expect(js.questions).toHaveProperty('security_relevant');
     expect(js.questions).toHaveProperty('cwe_89');
     expect(js.questions).not.toHaveProperty('cwe_416');
     expect(native.questions).toHaveProperty('cwe_416');
     expect(native.questions).toHaveProperty('bug_boundary');
     expect(run.coverage.find(item => item.name === 'cwe_416').units).toBe(1);
 
-    // Left to its defaults a scan asks no security question, and so not the gate that only they need.
+    // Left to its defaults a scan asks no security question.
     await writeFile(join(repo.root, 'perch.yaml'), 'rules: []\n');
     await commitAll(repo.root, 'default scan types');
     const plain = scriptedSystemOne();
@@ -411,14 +410,13 @@ describe('perch hunt', () => {
     expect(steps[1].state.module_scope).toBeNull();
 
     // The worst defect anywhere in the method is the method's defect; the first pass still speaks for its shape.
-    const whole = { has_bug: 0.2, where: { line: 4 }, kind: { choice: 'boundary' }, security_relevant: 0.5, cwe_89: 0.1, cwe_416: 0.4, refactor: { choice: 'split' } };
-    const later = { has_bug: 0.8, where: { line: 2600 }, kind: { choice: 'resource_leak' }, security_relevant: 0.9, cwe_89: 0.9, cwe_416: 0.2, refactor: { choice: 'none' } };
+    const whole = { has_bug: 0.2, where: { line: 4 }, kind: { choice: 'boundary' }, cwe_89: 0.1, cwe_416: 0.4, refactor: { choice: 'split' } };
+    const later = { has_bug: 0.8, where: { line: 2600 }, kind: { choice: 'resource_leak' }, cwe_89: 0.9, cwe_416: 0.2, refactor: { choice: 'none' } };
     const merged = mergeAnswers([whole, later]);
     expect(merged).toMatchObject({ has_bug: 0.8, where: { line: 2600 }, kind: { choice: 'resource_leak' }, refactor: { choice: 'split' }, passes: 2 });
     // A class a later pass rated lower keeps the higher reading: a slice that saw less is not evidence of less.
     expect(merged).toMatchObject({ cwe_89: 0.9, cwe_416: 0.4 });
-    // Every security check is only as likely as the method being worth checking for security at all.
-    expect(securityOf(merged)).toEqual({ kind: 'sql_injection', probability: 0.9 * 0.9 });
+    expect(securityOf(merged)).toEqual({ kind: 'sql_injection', probability: 0.9 });
   });
 
   it('reads everything in scope and never questions test methods', async () => {

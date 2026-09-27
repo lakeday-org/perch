@@ -92,19 +92,12 @@
     label: docs
     on: false
   min: 75
-- name: security_relevant
-  each: method
-  where: "**/*"
-  ask: "Should `method` be checked for security vulnerabilities?"
-  "true": "Input from outside the program reaches it, it acts on data that belongs to a particular user, or it authenticates, authorizes, encrypts, handles secrets, or touches files, the network, a database, a shell or raw memory."
-  "false": "It only works on trusted values from inside the program."
 - name: security_any
   each: method
   where: "**/*"
   ask: "Can an attacker exploit `method`?"
   "true": "An attacker can use it to do something they should not be able to."
   "false": "An attacker cannot exploit it."
-  when: security_relevant
   issue:
     type: security
     label: vulnerability
@@ -281,7 +274,6 @@
   ask: "Is `method` vulnerable to cross-site scripting?"
   "true": "Attacker-controlled text reaches HTML or script output without escaping."
   "false": "Its output is escaped, or no attacker-controlled text reaches it."
-  when: security_relevant
   issue:
     type: security
     label: xss
@@ -293,7 +285,6 @@
   ask: "Is `method` vulnerable to SQL injection?"
   "true": "Outside input becomes part of the SQL text it runs."
   "false": "Its SQL is fixed, or outside values are bound as parameters."
-  when: security_relevant
   issue:
     type: security
     label: sql_injection
@@ -305,7 +296,6 @@
   ask: "Is `method` vulnerable to cross-site request forgery?"
   "true": "A browser request that changes state is accepted without a CSRF token or origin check."
   "false": "It checks for forgery, or changes nothing a browser request can trigger."
-  when: security_relevant
   issue:
     type: security
     label: csrf
@@ -317,7 +307,6 @@
   ask: "Does `method` skip an authorization check it needs?"
   "true": "Anyone can perform its action or reach its data without a permission check."
   "false": "It checks permission, or its action needs none."
-  when: security_relevant
   issue:
     type: security
     label: missing_authorization
@@ -334,7 +323,6 @@
   ask: "Can `method` write past the end of a buffer?"
   "true": "An index, pointer or length lets it write outside the memory it owns."
   "false": "Every write stays inside its buffer."
-  when: security_relevant
   issue:
     type: security
     label: out_of_bounds_write
@@ -346,7 +334,6 @@
   ask: "Is `method` vulnerable to path traversal?"
   "true": "An outside path can reach files beyond the directory it should be limited to."
   "false": "Its paths are fixed or confined to their directory."
-  when: security_relevant
   issue:
     type: security
     label: path_traversal
@@ -363,7 +350,6 @@
   ask: "Can `method` use memory after it is freed?"
   "true": "It reads or writes through a pointer or reference after the memory is released."
   "false": "It never uses memory after release."
-  when: security_relevant
   issue:
     type: security
     label: use_after_free
@@ -380,7 +366,6 @@
   ask: "Can `method` read past the end of a buffer?"
   "true": "An index, pointer or length lets it read outside the memory it owns."
   "false": "Every read stays inside its buffer."
-  when: security_relevant
   issue:
     type: security
     label: out_of_bounds_read
@@ -392,7 +377,6 @@
   ask: "Is `method` vulnerable to OS command injection?"
   "true": "Outside input becomes part of a shell command."
   "false": "Its commands are fixed, or pass arguments without a shell."
-  when: security_relevant
   issue:
     type: security
     label: os_command_injection
@@ -404,7 +388,6 @@
   ask: "Is `method` vulnerable to code injection?"
   "true": "Outside input is evaluated or compiled as code."
   "false": "It never runs outside input as code."
-  when: security_relevant
   issue:
     type: security
     label: code_injection
@@ -421,7 +404,6 @@
   ask: "Can `method` copy more into a buffer than it holds?"
   "true": "A copy's length is not checked against the size of its destination."
   "false": "Every copy is bounded by its destination."
-  when: security_relevant
   issue:
     type: security
     label: buffer_overflow
@@ -433,7 +415,6 @@
   ask: "Does `method` accept a dangerous file upload?"
   "true": "An uploaded file of any type can be stored where it can be run or served."
   "false": "Uploads are checked, or stored where they cannot do harm."
-  when: security_relevant
   issue:
     type: security
     label: unsafe_file_upload
@@ -445,7 +426,6 @@
   ask: "Can `method` dereference a null pointer?"
   "true": "A null pointer or reference is used on some path."
   "false": "Nulls are checked before use."
-  when: security_relevant
   issue:
     type: security
     label: null_dereference
@@ -462,7 +442,6 @@
   ask: "Can `method` overflow a buffer on the stack?"
   "true": "A write can go past the end of a stack buffer."
   "false": "Its stack buffers are never overrun."
-  when: security_relevant
   issue:
     type: security
     label: stack_buffer_overflow
@@ -474,7 +453,6 @@
   ask: "Does `method` deserialize untrusted data unsafely?"
   "true": "Outside data is deserialized in a way that can create arbitrary objects or run code."
   "false": "It deserializes only trusted data, or only plain values."
-  when: security_relevant
   issue:
     type: security
     label: unsafe_deserialization
@@ -491,7 +469,6 @@
   ask: "Can `method` overflow a buffer on the heap?"
   "true": "A write can go past the end of a heap buffer."
   "false": "Its heap buffers are never overrun."
-  when: security_relevant
   issue:
     type: security
     label: heap_buffer_overflow
@@ -503,7 +480,6 @@
   ask: "Does `method` check authorization wrongly?"
   "true": "Its permission check lets through someone who should be refused."
   "false": "Its permission check is right."
-  when: security_relevant
   issue:
     type: security
     label: incorrect_authorization
@@ -515,7 +491,6 @@
   ask: "Does `method` trust outside input it should validate?"
   "true": "Outside input is used for something security-sensitive without being checked."
   "false": "It validates the outside input it relies on."
-  when: security_relevant
   issue:
     type: security
     label: missing_input_validation
@@ -527,7 +502,6 @@
   ask: "Does `method` let someone use something they should not have access to?"
   "true": "A gap in access control lets the wrong actor use a protected resource or action."
   "false": "Its access control is right."
-  when: security_relevant
   issue:
     type: security
     label: broken_access_control
@@ -539,7 +513,6 @@
   ask: "Does `method` expose sensitive information?"
   "true": "It returns, logs or sends secrets, tokens or personal data to someone who should not see them."
   "false": "It exposes nothing sensitive."
-  when: security_relevant
   issue:
     type: security
     label: information_exposure
@@ -551,7 +524,6 @@
   ask: "Does `method` skip authentication it needs?"
   "true": "A sensitive action runs without confirming who is calling."
   "false": "It authenticates the caller, or needs no authentication."
-  when: security_relevant
   issue:
     type: security
     label: missing_authentication
@@ -563,7 +535,6 @@
   ask: "Is `method` vulnerable to server-side request forgery?"
   "true": "Outside input chooses where the server sends a request."
   "false": "Its destinations are fixed or checked against an allow list."
-  when: security_relevant
   issue:
     type: security
     label: ssrf
@@ -575,7 +546,6 @@
   ask: "Is `method` vulnerable to command injection?"
   "true": "Outside input changes a command passed to an interpreter."
   "false": "Its commands are fixed, or outside input is passed as data."
-  when: security_relevant
   issue:
     type: security
     label: command_injection
@@ -587,7 +557,6 @@
   ask: "Can a user reach someone else's data by changing an ID that `method` receives?"
   "true": "It looks up a record by a user-supplied ID without checking the record belongs to them."
   "false": "It checks ownership, or its records are not per user."
-  when: security_relevant
   issue:
     type: security
     label: idor
@@ -599,7 +568,6 @@
   ask: "Can outside input make `method` use unbounded memory or work?"
   "true": "An input size or count is not limited, so one request can exhaust memory, CPU or another resource."
   "false": "Its work is bounded."
-  when: security_relevant
   issue:
     type: security
     label: resource_exhaustion
@@ -611,7 +579,6 @@
   ask: "Does `method` use weak cryptography?"
   "true": "It protects a password, token or secret with a broken algorithm such as MD5 or SHA-1, or uses predictable randomness where a value must be unguessable."
   "false": "Its cryptography is sound, or it uses none."
-  when: security_relevant
   issue:
     type: security
     label: weak_crypto
@@ -623,7 +590,6 @@
   ask: "Does `method` turn off certificate checking?"
   "true": "TLS certificate or hostname verification is disabled or bypassed."
   "false": "It keeps certificate checking on, or makes no TLS connection."
-  when: security_relevant
   issue:
     type: security
     label: disabled_certificate_check
@@ -635,7 +601,6 @@
   ask: "Does `method` contain a hard-coded credential?"
   "true": "A password, API key or private key is written in the source."
   "false": "It contains no credential."
-  when: security_relevant
   issue:
     type: security
     label: hardcoded_secret
@@ -658,7 +623,6 @@
   ask: "Can arithmetic in `method` overflow in a way that matters?"
   "true": "A calculation wraps or overflows and the result is used as a size, index, amount or security check."
   "false": "Its arithmetic cannot overflow, or an overflow does no harm."
-  when: security_relevant
   issue:
     type: security
     label: integer_overflow
@@ -674,7 +638,6 @@
   ask: "Can `method` read memory before it is written?"
   "true": "A variable, field or buffer is read before it is set on some path."
   "false": "Everything it reads is set first."
-  when: security_relevant
   issue:
     type: security
     label: uninitialized_use
@@ -686,7 +649,6 @@
   ask: "Is `method` vulnerable to an open redirect?"
   "true": "A redirect target from the request can send users to any site."
   "false": "Its redirect targets are fixed or checked."
-  when: security_relevant
   issue:
     type: security
     label: open_redirect

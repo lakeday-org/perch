@@ -144,7 +144,7 @@ const createLineReader = (root, graph) => {
  */
 /**
  * perch's own questions for a method, narrowed to its language and to the issue types this run asks about. A question raising
- * no issue comes along only when a kept one needs it: `security_relevant` gates the security checks and is not asked without them.
+ * no issue comes along only when a kept one needs it, the way `kind` names a defect and `severity` ranks it.
  */
 const methodQuestions = (kinds, language) => questionsFor(
   questionSet().filter(question => question.each === 'method' && !question.kind && appliesToLanguage(question, language)),

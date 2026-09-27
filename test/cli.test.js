@@ -345,8 +345,8 @@ describe('cli', () => {
     const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
     // f is the heavier method overall; h is the one that is probably vulnerable to SQL injection.
     const hunt = await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne({
-      'src/a.js::f': { has_bug: 0.9, security_relevant: 0.9, cwe_89: 0.1 },
-      'src/b.js::h': { has_bug: 0.1, security_relevant: 0.9, cwe_89: 0.95 },
+      'src/a.js::f': { has_bug: 0.9, cwe_89: 0.1 },
+      'src/b.js::h': { has_bug: 0.1, cwe_89: 0.95 },
     }), filters: [{ key: 'type', value: 'defect' }, { key: 'type', value: 'security' }] }));
     const f = hunt.visited.find(visit => visit.method === 'src/a.js::f').id;
     const h = hunt.visited.find(visit => visit.method === 'src/b.js::h').id;
