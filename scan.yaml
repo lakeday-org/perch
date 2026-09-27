@@ -21,7 +21,7 @@
     type: defect
     label: kind
     pick: strongest
-  min: 52
+  min: 50
 - name: kind
   type: choice
   each: method
