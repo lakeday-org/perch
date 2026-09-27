@@ -4,8 +4,8 @@
 # The CWE checks are the 2025 MITRE Top 25, less CWE-20, whose every case is a more specific CWE here and which otherwise
 # fires on any unchecked parameter. Six classes it leaves out are added, since one method can still show them: weak crypto,
 # disabled certificate checks, hard-coded credentials, integer overflow, uninitialized reads and open redirects.
-# Memory-safety checks are limited to languages with reachable native memory operations; the broad security check still
-# covers every language. Each specific check files under a readable label, such as sql_injection for cwe_89.
+# Memory-safety checks are limited to languages with reachable native memory operations.
+# Each specific check files under a readable label, such as sql_injection for cwe_89.
 
 - name: has_bug
   each: method
@@ -21,7 +21,7 @@
     type: defect
     label: kind
     pick: strongest
-  min: 60
+  min: 52
 - name: kind
   type: choice
   each: method
@@ -93,41 +93,6 @@
     label: docs
     on: false
   min: 75
-- name: security_any
-  each: method
-  where: "**/*"
-  ask: "Can an attacker exploit `method`?"
-  "true": "An attacker can use outside input to make it do something they should not be able to. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
-  "false": "An attacker cannot exploit it."
-  issue:
-    type: security
-    label: vulnerability
-    pick: strongest
-  min: 70
-- name: bug_missing_value
-  each: method
-  where: "**/*"
-  ask: Does a reachable null, absent, empty, or missing value break the method?
-  "true": A value a caller can supply or cause is missing and the method returns incorrectly or fails
-    unexpectedly.
-  "false": No concrete reachable case is supported by the method and supplied context. A
-    possible-looking pattern alone is not enough.
-  issue:
-    type: defect
-    label: unhandled_null
-    pick: strongest
-  min: 55
-- name: bug_numeric
-  each: method
-  where: "**/*"
-  ask: Can arithmetic or numeric conversion overflow, underflow, truncate, or lose required precision on a reachable input?
-  "true": True if reachable arithmetic or conversion changes a value enough to violate a stated invariant or caller-visible requirement.
-  "false": False if reachable values remain within supported limits or any precision loss is permitted.
-  issue:
-    type: defect
-    label: numeric_error
-    pick: strongest
-  min: 50
 - name: cwe_79
   each: method
   where: "**/*"

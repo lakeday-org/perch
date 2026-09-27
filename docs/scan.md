@@ -124,8 +124,6 @@ distribution over its levels.
 | `where` | choice over line ids | Which line, with confidence. A method longer than 255 lines gets a window chosen first, then a line within it. |
 | `kind` | choice over 8 | `boundary`, `missing_null_handling`, `wrong_return`, `swallowed_error`, `state_mutation`, `ordering`, `resource_leak`, `inverted_condition`. |
 | `severity` | score over 4 levels | The rubric below. |
-| `bug_*` | 15 nouls | Specific behavioral bug types, including boundaries, state, error handling, and concurrency. |
-| `security_any` | noul | Can an attacker exploit the method? |
 | `cwe_*` | Up to 30 nouls | The 2025 MITRE Top 25 CWEs except CWE-20, and six more, filtered by language where needed. |
 | `misuse_N` | noul per callee | Does this call violate the callee's evident contract? |
 | `misused_by_N` | noul per caller | Does the caller violate this method's contract? |
@@ -136,13 +134,12 @@ distribution over its levels.
 
 The names in that table are the IDs written in `scan.yaml`. The security
 questions are named by CWE, and each specific question prints a label:
-`cwe_89` prints `sql_injection`, `cwe_862` prints `missing_authorization`,
-`bug_boundary` prints `off_by_one`. `perch issues --types` lists the labels
+`cwe_89` prints `sql_injection`, and `cwe_862` prints `missing_authorization`.
+`perch issues --types` lists the labels
 `--filter kind=` accepts.
 
-System One does not bill output tokens, so asking thirty questions of a method
-costs what asking one costs. The whole set rides in one request, up to 128
-questions; more than that take a second.
+The questions share one request up to the request limit, though each question
+adds input tokens. A larger set can take more than one request.
 
 ### noul, choice and score
 
@@ -165,13 +162,12 @@ injectable and leaking a secret.
 
 Each answer becomes at most one issue, carrying the probability that it is real.
 
-**A defect** is the strongest of the broad `has_bug` question, the 15 specific
-bug checks, and the contract check. The broad result uses the `kind` choice
-for its label; the specific checks use their own labels.
+**A defect** is the strongest of `has_bug` and the contract check. The broad
+result uses the `kind` choice for its label.
 
-**A vulnerability** is the strongest answer among `security_any` and the
-applicable CWE checks. A memory-safety check does not apply to a language without native memory
-operations; the broad security check still does. Vulnerabilities are asked
+**A vulnerability** is the strongest answer among the applicable CWE checks.
+A memory-safety check does not apply to a language without native memory
+operations. Vulnerabilities are asked
 only with `--filter type=security` or `security` in `scan_types`.
 
 **Design issues** are the refactor the `refactor` choice picked, `1 − P(does what

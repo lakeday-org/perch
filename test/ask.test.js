@@ -8,14 +8,14 @@ describe('the question grammar', () => {
   it('ships a set that declares what perch asks, and nothing asks it twice', () => {
     const names = BUILTIN.map(question => question.name);
     expect(new Set(names).size).toBe(names.length);
-    expect(names).toEqual(expect.arrayContaining(['has_bug', 'kind', 'severity', 'refactor', 'security_any', 'bug_missing_value', 'bug_numeric', 'cwe_79', 'cwe_416']));
-    expect(names.filter(name => name.startsWith('bug_'))).toHaveLength(2);
+    expect(names).toEqual(expect.arrayContaining(['has_bug', 'kind', 'severity', 'refactor', 'cwe_79', 'cwe_416']));
+    expect(names.filter(name => name.startsWith('bug_'))).toHaveLength(0);
     expect(names.filter(name => name.startsWith('cwe_'))).toHaveLength(30);
     // An ID says which check it was; the label is what a row prints, so it is a name a reader knows without a lookup.
     const specific = BUILTIN.filter(question => /^(bug|cwe)_/.test(question.name));
     expect(specific.filter(question => /^(bug|cwe)_|^self$/.test(question.issue.label))).toEqual([]);
-    expect(Object.fromEntries(specific.filter(question => ['cwe_89', 'cwe_862', 'cwe_327', 'bug_missing_value', 'bug_numeric'].includes(question.name))
-      .map(question => [question.name, question.issue.label]))).toEqual({ cwe_89: 'sql_injection', cwe_862: 'missing_authorization', cwe_327: 'weak_crypto', bug_missing_value: 'unhandled_null', bug_numeric: 'numeric_error' });
+    expect(Object.fromEntries(specific.filter(question => ['cwe_89', 'cwe_862', 'cwe_327'].includes(question.name))
+      .map(question => [question.name, question.issue.label]))).toEqual({ cwe_89: 'sql_injection', cwe_862: 'missing_authorization', cwe_327: 'weak_crypto' });
     // Every shipped question is about a method, and the three shapes are all in use.
     expect(new Set(BUILTIN.map(question => question.each))).toEqual(new Set(['method']));
     expect(new Set(BUILTIN.map(question => question.type))).toEqual(new Set(['noul', 'choice', 'score']));
