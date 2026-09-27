@@ -1,4 +1,5 @@
 # Which of perch's own questions a method is asked. A scan and a check have to agree, and a filter has to ask what it names.
+# A misspelt language selector is covered by a test in test/ask.test.js: as a rule it read in the fifties either way.
 - name: filter-asks-what-it-names
   where: src/scan.js
   ensure: >-
@@ -13,9 +14,3 @@
     the issue types a scan would ask, from scan_types or the defaults, or the
     types --rules names. Asking every question perch ships, security included,
     when neither says so breaks this rule.
-- name: language-names-are-checked
-  where: src/ask.js
-  ensure: >-
-    Read the language check in check(). A language that is not one perch parses
-    is rejected with an error that names the languages perch does parse.
-    Accepting any nonempty string breaks this rule.

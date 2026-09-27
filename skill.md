@@ -84,7 +84,7 @@ Expect the real problem to sit adjacent to what was reported. A `missing_null_ha
 at 70% is often an unchecked error a few lines off.
 
 Answers below a question's `min` stay out of the report and stay in the JSON. A 56%
-`secret_exposure` is worth a look while the report is silent about it.
+`has_bug` is worth a look while the report is silent about it.
 
 Read the code before you change it. Close a finding when the code is right. Never
 rewrite working code to satisfy a probability.

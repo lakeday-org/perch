@@ -31,6 +31,8 @@ describe('the question grammar', () => {
     // A misspelt key is a question that would quietly never be asked the way it reads.
     expect(() => check({ name: 'q', where: '**/*', ensures: 'x' }, at)).toThrow('ensures is not a key');
     expect(() => check({ name: 'q', where: '**/*', language: [], ensure: 'x' }, at)).toThrow('language is a language name');
+    // A misspelt language matches no method, so it is an error naming the real ones rather than a question never asked.
+    expect(() => check({ name: 'q', where: '**/*', language: ['csharp'], ensure: 'x' }, at)).toThrow('csharp is not a language perch parses; use bash, c, c_sharp');
     expect(() => check({ name: 'q', where: '**/*', ensure: 'x', issue: { label: 'self' } }, at)).toThrow('an issue needs a type');
     // The noun follows the file: the same grammar reads as rules in perch.yaml and as questions in scan.yaml.
     expect(() => parseQuestions('- ensure: x\n', 'perch.yaml', 'rule')).toThrow('perch.yaml rule 1: every rule needs a name');

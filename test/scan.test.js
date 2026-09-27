@@ -78,8 +78,13 @@ describe('which issue types a scan asks about', () => {
     // Narrowing a report to a type whose questions were never asked would report that the repository has none of them.
     expect([...typesAsked(null, [{ key: 'type', value: 'refactor' }])]).toContain('refactor');
     expect([...typesAsked(['defect'], [{ key: 'type', value: 'docs' }])].sort()).toEqual(['defect', 'docs']);
+    // A kind or a rule asks for the type of the question that raises it, so a filter for something the defaults leave out asks
+    // that question rather than reporting a clean run it never checked.
+    expect([...typesAsked(null, [{ key: 'kind', value: 'too big' }])].sort()).toEqual(['defect', 'lint', 'refactor']);
+    expect([...typesAsked(null, [{ key: 'kind', value: 'sql injection' }])].sort()).toEqual(['defect', 'lint', 'security']);
+    expect([...typesAsked(null, [{ key: 'rule', value: 'cwe 89' }])].sort()).toEqual(['defect', 'lint', 'security']);
     // A clause on another key says nothing about which questions to ask.
-    expect([...typesAsked(null, [{ key: 'kind', value: 'too big' }])].sort()).toEqual(['defect', 'lint']);
+    expect([...typesAsked(null, [{ key: 'severity', value: 'p1' }])].sort()).toEqual(['defect', 'lint']);
   });
 
   it('reads scan_types off the rule file, and says so when it is not a list', () => {
@@ -129,6 +134,15 @@ describe('perch hunt', () => {
     await scanRepository(await withRevision(repo, { systemOne: plain }));
     const asked = Object.keys(plain.calls.find(call => call.method === 'src/native.c::read_value').questions);
     expect(asked.filter(name => /^(cwe_|security_)/.test(name))).toEqual([]);
+  });
+
+  it('asks the question a kind filter names, even when scan_types leaves its type out', async () => {
+    const repo = await fixture();
+    const systemOne = scriptedSystemOne();
+    const run = await scanRepository(await withRevision(repo, { systemOne, filters: [{ key: 'kind', value: 'sql injection' }] }));
+    // Asking nothing here skipped every method and reported the run clean, for a vulnerability no one had looked for.
+    expect(run.calls).toBeGreaterThan(0);
+    expect(systemOne.calls.every(call => 'cwe_89' in call.questions)).toBe(true);
   });
 
   it('refreshes method, file and search answers when the model or endpoint changes', async () => {

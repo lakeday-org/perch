@@ -135,25 +135,32 @@ const createLineReader = (root, graph) => {
  * reads: a number that stops partway through leaves a report that looks complete and is not.
  */
 /**
- * The issue types a scan asks about. `scan_types` in `perch.yaml` decides; omitted, it is the three that can fail a run.
- *
- * Refactor and docs read the same on every method that has ever been long. A scan of this repository reported 32 of them
- * against 0 defects, so the list a person opened was mostly rows they came for nothing. A filter naming one asks for it anyway,
- * since narrowing a report to a type you did not ask the questions for would report that you have none of them. Asked, they
- * fail a run like anything else.
- */
-/**
  * perch's own questions for a method, narrowed to its language and to the issue types this run asks about. A question raising
- * no issue comes along only when a kept one needs it, the way `kind` names a defect and `severity` ranks it.
+ * no issue comes along only when a kept one needs it, the way `kind` names a defect and `severity` ranks it. `perch check` asks
+ * the same set, so a scan and a check of one method agree about what was asked.
  */
-const methodQuestions = (kinds, language) => questionsFor(
+export const methodQuestions = (kinds, language) => questionsFor(
   questionSet().filter(question => question.each === 'method' && !question.kind && appliesToLanguage(question, language)),
   [...kinds].map(value => ({ key: 'type', value })));
 
-export const typesAsked = (scanTypes, filters = []) => new Set([
-  ...(scanTypes ?? DEFAULT_TYPES),
-  ...filters.filter(clause => clause.key === 'type').map(clause => clause.value),
-]);
+/**
+ * The issue types a scan asks about. `scan_types` in `perch.yaml` decides; omitted, it is defects and rules.
+ *
+ * Refactor and docs read the same on every method that has ever been long. A scan of this repository reported 32 of them
+ * against 0 defects, so the list a person opened was mostly rows they came for nothing. A filter naming one asks for it anyway,
+ * since narrowing a report to a type you did not ask the questions for would report that you have none of them. That holds for
+ * a kind or a rule as much as a type: `kind=sql_injection` asks the security question that raises it, or it asks nothing at all
+ * and reports a clean run. Asked, they fail a run like anything else.
+ */
+export const typesAsked = (scanTypes, filters = [], questions = questionSet()) => {
+  const naming = filters.filter(clause => clause.key === 'kind' || clause.key === 'rule');
+  const named = naming.length ? questionsFor(questions, naming, kindLabel).filter(question => question.issue) : [];
+  return new Set([
+    ...(scanTypes ?? DEFAULT_TYPES),
+    ...filters.filter(clause => clause.key === 'type').map(clause => clause.value),
+    ...named.map(question => question.issue.type),
+  ]);
+};
 
 export async function scanRepository({ root, revision, out, analyzer, systemOne, label = root, github = null, paths = [], parallel = DEFAULT_PARALLEL,
   unitParallel = UNIT_PARALLEL, min = 0.5, filters = [], onFile = () => {}, progress = () => {}, unitProgress = () => {}, searchProgress = () => {}, scanProgress = () => {}, log = () => {}, debug = () => {} }) {

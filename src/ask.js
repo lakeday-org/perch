@@ -14,6 +14,7 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { parse } from 'yaml';
+import { LANGUAGES } from './languages.js';
 
 /** A noul is a probability, a choice a distribution over named options, a score a distribution over a rubric's levels. */
 export const SHAPES = ['noul', 'choice', 'score'];
@@ -89,9 +90,12 @@ export function check(question, at, noun = 'question') {
   if (!SHAPES.includes(type)) throw new Error(`${where}: type is ${SHAPES.join(', ')}, not ${type}`);
   if (!full.where) throw new Error(`${where}: needs where to say what it applies to`);
   if (full.each && !EACH.includes(full.each)) throw new Error(`${where}: each is ${EACH.join(', ')}, not ${full.each}`);
-  if (full.language !== undefined && !(typeof full.language === 'string' && full.language.trim()
-    || Array.isArray(full.language) && full.language.length && full.language.every(language => typeof language === 'string' && language.trim())))
-    throw new Error(`${where}: language is a language name or a nonempty list of language names`);
+  // Every language named has to be one perch parses. A misspelt one matches no method, so the question would never be asked and
+  // nothing would say so.
+  const languages = [full.language ?? []].flat();
+  if (full.language !== undefined && !languages.length) throw new Error(`${where}: language is a language name or a nonempty list of language names`);
+  const unknown = languages.filter(language => !LANGUAGES.includes(language));
+  if (unknown.length) throw new Error(`${where}: ${unknown.join(', ')} is not a language perch parses; use ${LANGUAGES.join(', ')}`);
   // A rule covers whole files unless it says otherwise, since a rule about prose is a rule about a file. A question perch ships
   // is about a method, because that is what a scan reads.
   const each = full.each ?? (full.kind ? 'file' : 'method');
@@ -154,10 +158,10 @@ export function parseIgnored(text, at) {
   return ignore;
 }
 
-/** What a scan asks about unless `perch.yaml` names its own set. */
 /**
- * Security is asked for rather than asked by default: a vulnerability class read against every method of a CLI or a library
- * mostly measures how far the code is from a network, and `--filter type=security` or `scan_types` asks it when it matters.
+ * What a scan asks about unless `perch.yaml` names its own set. Security is asked for rather than asked by default: a
+ * vulnerability class read against every method of a CLI or a library mostly measures how far the code is from a network, and
+ * `--filter type=security` or `scan_types` asks it when it matters.
  */
 export const DEFAULT_TYPES = ['defect', 'lint'];
 

@@ -11,10 +11,10 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { languageOf } from './analysis.js';
 import { methodContext } from './context.js';
-import { questionMethod } from './scan.js';
-import { bodyOf, matches, neighbourhood, readLint, readRules, RULES_FILE, unitSteps, askUnitSteps } from './units.js';
+import { methodQuestions, questionMethod, typesAsked } from './scan.js';
+import { bodyOf, matches, neighbourhood, readLint, readRules, readScanTypes, RULES_FILE, unitSteps, askUnitSteps } from './units.js';
 import { BELIEVED, filterKeys, meaning, methodSteps, issuesOf } from './questions.js';
-import { appliesToLanguage, floorFor, questionSet } from './ask.js';
+import { appliesToLanguage, floorFor } from './ask.js';
 import { openStore } from './store.js';
 import { requestScope } from './tokens.js';
 
@@ -128,9 +128,11 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
     if (context) {
       const node = { ...context.node, line: unit.line, end_line: unit.end_line, metrics: unit.metrics ?? context.node.metrics };
       const others = context.methods.filter(method => method.qualified_name !== unit.name);
-      const methodQuestions = questionSet().filter(question => question.each === 'method' && !question.kind
-        && appliesToLanguage(question, languageOf(unit.path)));
-      const prepare = budget => methodSteps({ node, lines: unit.lines, imports: context.imports, methods: [...others, node], callees: context.callees, callers: context.callers, asked: methodQuestions, budget });
+      // The types a scan of this method would ask, or the ones --rules named. Asking everything perch ships reported a
+      // vulnerability on a method whose scan never asks about security, so a check and a scan disagreed about the same code.
+      const kinds = named.types.length ? new Set(named.types) : typesAsked(await readScanTypes(root, revision));
+      const asked = methodQuestions(kinds, languageOf(unit.path));
+      const prepare = budget => methodSteps({ node, lines: unit.lines, imports: context.imports, methods: [...others, node], callees: context.callees, callers: context.callers, asked, budget });
       const steps = prepare(systemOne.limits?.state);
       const { answers } = await questionMethod({ systemOne, node, steps, prepare, lines: unit.lines, debug });
       issues = issuesOf({ ...answers, metrics: node.metrics });

@@ -131,6 +131,31 @@ describe('cli', () => {
     expect(out.at(-1)).toBe('Nothing matches.');
   });
 
+  it('check asks a method the questions a scan would, unless --rules names others', async () => {
+    const repo = await realpath(await makeFixture());
+    cleanups.push(repo);
+    vi.spyOn(process, 'cwd').mockReturnValue(repo);
+    const service = scriptedSystemOne({});
+    const asked = [];
+    vi.stubGlobal('fetch', async (url, init) => {
+      const { state, questions } = JSON.parse(init.body);
+      if (state.method) asked.push(Object.keys(questions));
+      return new Response(JSON.stringify(await service.ask(state, questions)));
+    });
+    const { err, io } = capture();
+    io.env = { PERCH_API_KEY: 'test-key' };
+    const out = join(repo, '.perch');
+    // The check reuses the neighbourhood the scan found, so the scan comes first.
+    expect([0, 3]).toContain(await main(['scan', repo, '--out', out], io));
+    asked.length = 0;
+    expect([0, 3], err.join('\n')).toContain(await main(['check', 'src/clamp.js::clamp', '--out', out], io));
+    expect(asked.flat()).toContain('has_bug');
+    expect(asked.flat().filter(name => name.startsWith('cwe_'))).toEqual([]);
+    asked.length = 0;
+    expect([0, 3], err.join('\n')).toContain(await main(['check', 'src/clamp.js::clamp', '--rules', 'security', '--out', out], io));
+    expect(asked.flat()).toContain('cwe_89');
+  });
+
   it.each(['scan', 'check'])('%s uses the configured key, exact endpoint and model', async command => {
     const repo = await realpath(await makeFixture());
     cleanups.push(repo);
