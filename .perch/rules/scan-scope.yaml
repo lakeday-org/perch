@@ -1,0 +1,22 @@
+# What a scan reads, and what it says when it read nothing. `ignore` is for a scan of the repository, not for a path you named.
+- name: named-target-overrides-ignore
+  where: src/scan.js
+  ensure: >-
+    Read where scanRepository builds inScope. An ignore glob that covers a path
+    the run was explicitly given, its target or a --paths entry, is not applied
+    to that run, while other ignore globs still are. Dropping a named target
+    because ignore covers it breaks this rule.
+- name: a-scan-that-read-nothing-fails
+  where: src/scan.js
+  ensure: >-
+    Read what scanRepository does once its methods and rules have been asked.
+    When it tried to read something and every attempt failed, it throws, however
+    few methods were tried. Returning a run that read nothing but met failures
+    breaks this rule.
+- name: empty-scope-is-said
+  where: src/cli.js
+  ensure: >-
+    Read the end of the scan command. When the run read no method and asked no
+    rule, it says that nothing was read and why, instead of saying there is
+    nothing to report. Printing "nothing to report" after reading nothing breaks
+    this rule.
