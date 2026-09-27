@@ -1,8 +1,8 @@
-- name: readings-over-the-allowance-are-refused-before-sending
-  where: src/scan.js
+# A reading takes as many requests as it needs; test/review-regressions.test.js checks that a large one is sent whole. What
+# still has to end is the retry loop for code the endpoint keeps rejecting as too large.
+- name: token-retries-are-bounded
+  where: src/tokens.js
   ensure: >-
-    Before questionMethod sends a method's first request, it compares how many
-    requests the reading will take, across its passes and question batches,
-    against the unit request allowance, and refuses the reading as incomplete
-    when the reading needs more. Sending requests that the allowance will cut
-    off partway through breaks this rule.
+    Read withTokenRetries. It stops with an incomplete-check error once the
+    token budget cannot shrink any further or after a fixed number of attempts.
+    Retrying a request the endpoint keeps rejecting forever breaks this rule.
