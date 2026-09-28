@@ -152,7 +152,7 @@ export const typesAsked = (scanTypes, filters = []) => new Set([
 ]);
 
 export async function scanRepository({ root, revision, out, analyzer, systemOne, label = root, github = null, paths = [], parallel = DEFAULT_PARALLEL,
-  unitParallel = UNIT_PARALLEL, min = 0.5, filters = [], onFile = () => {}, progress = () => {}, unitProgress = () => {}, searchProgress = () => {}, scanProgress = () => {}, log = () => {}, debug = () => {} }) {
+  unitParallel = UNIT_PARALLEL, min = 0.5, filters = [], onFile = () => {}, onFinding = () => {}, progress = () => {}, unitProgress = () => {}, searchProgress = () => {}, scanProgress = () => {}, log = () => {}, debug = () => {} }) {
   const store = openStore(out);
   // The whole tree is parsed however narrow the run is. Parsing is free next to a request, and a method's callers matter whether
   // or not they are in the diff: a graph cut down to what a branch touched cannot say who calls into it.
@@ -195,15 +195,16 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   // here as well as in the report, because a finding you had already looked at used to stay out of the list and fail the run
   // anyway, which is the worst of both.
   const setAside = (id, kind) => (dismissals.get(id)?.kinds ?? new Set()).has(kind);
+  const withClosure = finding => {
+    const held = dismissals.get(finding.id);
+    return held?.kinds.size ? { ...finding, closed: { kinds: [...held.kinds], at: held.at, reason: held.reason } } : finding;
+  };
   const done = new Map();
   const finish = (path, event) => {
     done.set(path, [...(done.get(path) ?? []), event].filter(Boolean));
     if ((done.get(path).length + (missing.get(path) ?? 0)) < inFile.get(path).length) return;
     // What you have closed is decided here too, so a file reads the same as it streams past and in the list afterwards.
-    onFile(path, done.get(path).map(finding => {
-      const held = dismissals.get(finding.id);
-      return held?.kinds.size ? { ...finding, closed: { kinds: [...held.kinds], at: held.at, reason: held.reason } } : finding;
-    }));
+    onFile(path, done.get(path).map(withClosure));
   };
   const missing = new Map();
 
@@ -249,6 +250,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
       const fresh = readEvent({ node, answers, response, runId: id, root, github, revision, calleeIds, callerIds });
       const event = before ? { ...before, ...fresh } : fresh;
       read.push(event); run.visited.push({ ...event, status: 'read' });
+      onFinding(withClosure(event));
       finish(node.path, event);
       // A rule asked of this method answered under its own name, and a rule is broken when the answer is no. The answer is
       // already in the reading, so nothing more is written down: a second row for it would list the same problem twice. The run

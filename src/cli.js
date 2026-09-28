@@ -416,10 +416,9 @@ const commands = {
     let run;
     try {
       run = await scanRepository({ root: resolved.root, revision, label: resolved.label, github: resolved.github, out: resolved.out,
-        systemOne, analyzer: createSourceAnalyzer(), paths, parallel, min, filters, onFile: (path, findings) => {
-          if (!io.flags.json) say(path, findings);
-          stream?.add(reportFindings(visibleFindings(findings), min));
-        },
+        systemOne, analyzer: createSourceAnalyzer(), paths, parallel, min, filters,
+        onFinding: finding => stream?.add(reportFindings(visibleFindings([finding]), min)),
+        onFile: io.flags.json ? () => {} : say,
         progress: methods.update, unitProgress: units.update, searchProgress: searches.update, scanProgress: files.update,
         log: note, debug: note });
     } finally { files.clear(); methods.clear(); units.clear(); searches.clear(); }

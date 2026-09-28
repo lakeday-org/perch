@@ -33,16 +33,16 @@ export function createCloudClient({
   });
 
   if (!reports) return gateway;
+  const sendScan = async (path, input) => {
+    const signal = AbortSignal.timeout(reportTimeoutMs);
+    const token = await getToken(signal);
+    return cloudRequest(fetchImpl, `${origin}/v1/scans/${path}`, { ...jsonBody(token, { organizationId, repositoryId, ...input }), signal }, reportTimeoutMs);
+  };
   return {
     ...gateway,
-    async sendScan(path, input) {
-      const signal = AbortSignal.timeout(reportTimeoutMs);
-      const token = await getToken(signal);
-      return cloudRequest(fetchImpl, `${origin}/v1/scans/${path}`, { ...jsonBody(token, { organizationId, repositoryId, ...input }), signal }, reportTimeoutMs);
-    },
-    startScan(scan) { return this.sendScan('start', { scan }); },
-    appendFindings(scanId, findings) { return this.sendScan('append', { scanId, findings }); },
-    finishScan(scanId, scan) { return this.sendScan('finish', { scanId, scan }); },
+    startScan: scan => sendScan('start', { scan }),
+    appendFindings: (scanId, findings) => sendScan('append', { scanId, findings }),
+    finishScan: (scanId, scan) => sendScan('finish', { scanId, scan }),
   };
 }
 

@@ -315,13 +315,16 @@ describe('perch hunt', () => {
   it('finishes the file it is in, then follows the neighbor the model points at', async () => {
     const repo = await fixture();
     const systemOne = scriptedSystemOne({ 'src/a.js::f': { follow: 'src/b.js::h' }, 'src/b.js::h': { follow: 'src/b.js::k' } });
-    const seen = [];
-    const run = await scanRepository(await withRevision(repo, { systemOne, parallel: 1, onFile: path => seen.push(path) }));
+    const seen = [], sent = [];
+    const run = await scanRepository(await withRevision(repo, { systemOne, parallel: 1,
+      onFinding: finding => sent.push(`method:${finding.method}`), onFile: path => { seen.push(path); sent.push(`file:${path}`); } }));
     // A run over a repository is read file by file, so the rest of src/a.js comes before the method the model pointed at in
     // src/b.js. What the model said still decides which file is opened next.
     expect(run.visited.map(visit => visit.method)).toEqual(['src/a.js::f', 'src/a.js::g', 'src/b.js::h', 'src/b.js::k']);
     // Which is what lets a file be reported while the run is still going, rather than everything arriving at the end.
     expect(seen).toEqual(['src/a.js', 'src/b.js']);
+    expect(sent).toEqual(['method:src/a.js::f', 'method:src/a.js::g', 'file:src/a.js',
+      'method:src/b.js::h', 'method:src/b.js::k', 'file:src/b.js']);
     expect(run.calls).toBe(4);
     expect(run.remaining).toBe(0);
   });
