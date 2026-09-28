@@ -6,7 +6,7 @@ import { actionsToken, loginCloud, logoutCloud } from '../src/cloud-auth.js';
 import { createCloudClient, configuredSystemOne, remoteRepositoryName } from '../src/cloud-client.js';
 import { git } from '../src/git.js';
 import { main } from '../src/cli.js';
-import { reportFindings, runContext } from '../src/cloud-results.js';
+import { createResultStream, reportFindings, runContext } from '../src/cloud-results.js';
 import { createMeter, metered } from '../src/meter.js';
 const response = data => new Response(JSON.stringify(data));
 
@@ -192,7 +192,7 @@ describe('Perch Cloud', () => {
       }
       if (href.endsWith('/api/config')) return response({ model: 'jev-latest', epoch: '1' });
       seen.push({ url: href, auth: options.headers.authorization, body: JSON.parse(options.body) });
-      if (href.endsWith('/v1/scans')) return response({ id: 'scan', url: 'https://dash.perchscan.com/?scan=scan' });
+      if (href.includes('/v1/scans/')) return response({ id: 'scan', url: 'https://dash.perchscan.com/?scan=scan' });
       return response({ model: 'jev', answers: { a: { noul: 0.1 } }, usage: null });
     };
     const env = {
@@ -201,16 +201,18 @@ describe('Perch Cloud', () => {
     };
     const client = await configuredSystemOne({ env, root: process.cwd(), fetchImpl });
     await client.ask({ code: 'a' }, { a: { type: 'noul', criteria: { true: 'y', false: 'n' } } });
-    expect((await client.report({ scan: { scope: 'full' }, findings: [] })).url).toContain('scan=scan');
-    expect(seen.map(r => r.auth)).toEqual(['Bearer oidc-1', 'Bearer oidc-1']);
+    const started = await client.startScan({ scope: 'full' });
+    await client.appendFindings(started.id, [{ id: 'one', kind: 'defect' }]);
+    expect((await client.finishScan(started.id, { exit_code: 3 })).url).toContain('scan=scan');
+    expect(seen.map(r => r.auth)).toEqual(Array(4).fill('Bearer oidc-1'));
     expect(seen[0].body.repositoryId).toBeUndefined();
-    expect(seen[1].url).toBe('https://dash.perchscan.com/v1/scans');
+    expect(seen.slice(1).map(r => r.url)).toEqual(['start', 'append', 'finish'].map(path => `https://dash.perchscan.com/v1/scans/${path}`));
   });
   it('says to sign in when there is no login, key or Actions token, before sending anything', async () => {
     await expect(configuredSystemOne({ env: { HOME: '/nonexistent' }, root: process.cwd(), fetchImpl: async () => { throw new Error('unexpected request'); } }))
       .rejects.toThrow('Run perch login, or set PERCH_API_KEY');
   });
-  it('bounds result upload time while waiting for an Actions token', async () => {
+  it('bounds each result request while waiting for an Actions token', async () => {
     const env = {
       ACTIONS_ID_TOKEN_REQUEST_URL: 'https://actions.example/token', ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runtime',
     };
@@ -224,7 +226,7 @@ describe('Perch Cloud', () => {
       getToken: actionsToken(env, 'https://dash.perchscan.com', fetchImpl), fetchImpl, reportTimeoutMs: 20,
     });
 
-    await expect(client.report({ scan: { scope: 'full' }, findings: [] })).rejects.toThrow();
+    await expect(client.startScan({ scope: 'full' })).rejects.toThrow();
     expect(requests).toEqual(['https://actions.example/token?audience=https%3A%2F%2Fdash.perchscan.com']);
   });
   it('PERCH_BASE_URL is the one setting that sends questions somewhere other than Perch Cloud', async () => {
@@ -267,5 +269,24 @@ describe('Perch Cloud', () => {
       expect(row.method).toBe('src/a.js::go');
       if (!['defect', 'security'].includes(row.type)) expect(row.severity).toBeNull();
     }
+  });
+  it('sends results before a scan ends without dropping those past 2,000', async () => {
+    const batches = [];
+    let finished = false;
+    const client = {
+      startScan: async () => ({ id: 'scan' }),
+      appendFindings: async (_id, rows) => { batches.push(rows); },
+      finishScan: async () => { finished = true; return { url: 'https://dash.perchscan.com/?scan=scan' }; },
+    };
+    const stream = createResultStream(client, { scope: 'full' });
+    const rows = Array.from({ length: 2001 }, (_, n) => ({ id: String(n), kind: 'defect', path: 'src/a.js' }));
+    stream.add(rows);
+    await new Promise(resolve => setTimeout(resolve, 150));
+    expect(batches.length).toBeGreaterThan(0);
+    expect(finished).toBe(false);
+    stream.add(rows.slice(0, 10));
+    await stream.finish({ exit_code: 3 });
+    expect(batches.flat()).toHaveLength(2001);
+    expect(finished).toBe(true);
   });
 });

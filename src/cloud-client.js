@@ -1,4 +1,4 @@
-/** Use Perch Cloud as a System One endpoint and publish completed scan summaries. */
+/** Use Perch Cloud as a System One endpoint and stream scan results while work continues. */
 import { git } from './git.js';
 import { createSystemOne } from './systemone.js';
 import {
@@ -35,12 +35,14 @@ export function createCloudClient({
   if (!reports) return gateway;
   return {
     ...gateway,
-    /** The scan's result is its exit code, so a slow Cloud gets ten seconds, token included, rather than holding up CI. */
-    async report(report) {
+    async sendScan(path, input) {
       const signal = AbortSignal.timeout(reportTimeoutMs);
       const token = await getToken(signal);
-      return cloudRequest(fetchImpl, `${origin}/v1/scans`, { ...jsonBody(token, { organizationId, repositoryId, ...report }), signal }, reportTimeoutMs);
+      return cloudRequest(fetchImpl, `${origin}/v1/scans/${path}`, { ...jsonBody(token, { organizationId, repositoryId, ...input }), signal }, reportTimeoutMs);
     },
+    startScan(scan) { return this.sendScan('start', { scan }); },
+    appendFindings(scanId, findings) { return this.sendScan('append', { scanId, findings }); },
+    finishScan(scanId, scan) { return this.sendScan('finish', { scanId, scan }); },
   };
 }
 

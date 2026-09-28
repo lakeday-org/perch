@@ -4,7 +4,7 @@ import { git, repoRoot, revision as gitRevision } from './git.js';
 import { resolveTarget } from './target.js';
 import { loginCloud, logoutCloud } from './cloud-auth.js';
 import { configuredSystemOne, credentialSource } from './cloud-client.js';
-import { reportFindings, runContext } from './cloud-results.js';
+import { createResultStream, reportFindings, runContext } from './cloud-results.js';
 import { configuredEnvironment } from './config.js';
 import { createSourceAnalyzer } from './analysis.js';
 import { openStore, resolveOut } from './store.js';
@@ -395,6 +395,13 @@ const commands = {
     // because the counter is gone by the time anyone asks what the run was doing.
     const retrying = message => { methods.say(message); note(message); };
     const systemOne = metered(await configuredSystemOne({ env: io.env, root: resolved.root, log: retrying }), meter);
+    const revision = await gitRevision(resolved.root);
+    const started = Date.now();
+    const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD'], resolved.root).then(out => out.trim(), () => null);
+    const where = await runContext(io.env, revision, branch === 'HEAD' ? null : branch);
+    const full = !io.flags.since && !io.flags.paths && !resolved.scope;
+    const stream = systemOne.startScan && resolved.kind === 'local'
+      ? createResultStream(systemOne, { ...where, scope: full ? 'full' : 'partial', perch_version: VERSION, started_at: started }) : null;
     // A file prints the moment it is finished rather than at the end, so a long run says what it is finding while it finds it.
     const said = new Set();
     const say = (path, findings) => {
@@ -407,10 +414,12 @@ const commands = {
       io.stdout(block + '\n');
     };
     let run;
-    const started = Date.now();
     try {
-      run = await scanRepository({ root: resolved.root, revision: await gitRevision(resolved.root), label: resolved.label, github: resolved.github, out: resolved.out,
-        systemOne, analyzer: createSourceAnalyzer(), paths, parallel, min, filters, onFile: io.flags.json ? () => {} : say,
+      run = await scanRepository({ root: resolved.root, revision, label: resolved.label, github: resolved.github, out: resolved.out,
+        systemOne, analyzer: createSourceAnalyzer(), paths, parallel, min, filters, onFile: (path, findings) => {
+          if (!io.flags.json) say(path, findings);
+          stream?.add(reportFindings(visibleFindings(findings), min));
+        },
         progress: methods.update, unitProgress: units.update, searchProgress: searches.update, scanProgress: files.update,
         log: note, debug: note });
     } finally { files.clear(); methods.clear(); units.clear(); searches.clear(); }
@@ -436,13 +445,11 @@ const commands = {
     // The scan passes when nothing it gates on came back. Which questions those are is on the questions, so a defect and a
     // vulnerability count the same as a rule you wrote.
     const exit = gating(issues, min).length ? EXIT.found : EXIT.clean;
-    if (systemOne.report && resolved.kind === 'local') {
-      // The dashboard is a view of the run, not part of it: a failed upload is said and the exit code stands.
-      const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD'], resolved.root).then(out => out.trim(), () => null);
-      const where = await runContext(io.env, run.revision, branch === 'HEAD' ? null : branch);
-      const full = !io.flags.since && !io.flags.paths && !resolved.scope;
-      await systemOne.report({ scan: { ...where, scope: full ? 'full' : 'partial', perch_version: VERSION, started_at: started, finished_at: Date.now(),
-        methods: run.methods ?? 0, reused: 0, files: new Set((run.visited ?? []).map(visit => visit.path)).size, exit_code: exit }, findings: reportFindings(everything, min) })
+    if (stream) {
+      // File rules finish after method readings; add any issues not already sent before publishing the scan.
+      stream.add(reportFindings(everything, min));
+      await stream.finish({ finished_at: Date.now(), methods: run.methods ?? 0, reused: 0,
+        files: new Set((run.visited ?? []).map(visit => visit.path)).size, exit_code: exit })
         .then(saved => io.note(`Results: ${saved.url}`), error => io.note(`Could not send results to Perch Cloud: ${error.message}`));
     }
     return exit;

@@ -31,7 +31,7 @@ export async function runContext(env, revision, localBranch = null) {
 
 /**
  * One row per issue a finding shows at this threshold, the same issues perch issues would list. Severity goes only on defects
- * and vulnerabilities, where it means something. The Cloud takes at most 2,000 rows, and the worst come first.
+ * and vulnerabilities, where it means something.
  */
 export function reportFindings(findings, min) {
   const rows = [];
@@ -55,8 +55,66 @@ export function reportFindings(findings, min) {
         probability: Math.round(issue.probability * 1000) / 1000,
         severity: CORRECTNESS.has(issue.type) && /^P[0-3]$/.test(severity) ? severity : null,
       });
-      if (rows.length === 2000) return rows;
     }
   }
   return rows;
+}
+
+/** Send findings during the scan. Batches bound each request, never the number of results a scan may report. */
+export function createResultStream(client, scan) {
+  const seen = new Set(), buffered = [], queued = [], waiting = [];
+  let remote = null, failure = null, active = 0, timer = null;
+  const settle = () => {
+    if (!failure && (active || queued.length)) return;
+    for (const resolve of waiting.splice(0)) resolve();
+  };
+  const pump = () => {
+    if (!remote || failure) return;
+    while (active < 4 && queued.length) {
+      const rows = queued.shift();
+      active++;
+      client.appendFindings(remote.id, rows).catch(error => { failure ??= error; }).finally(() => {
+        active--;
+        pump();
+        settle();
+      });
+    }
+    settle();
+  };
+  const begin = client.startScan(scan).then(saved => { remote = saved; pump(); }, error => { failure = error; settle(); });
+  const flush = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    while (buffered.length) {
+      const rows = [];
+      let bytes = 0;
+      while (buffered.length && rows.length < 80) {
+        const next = buffered[0], size = Buffer.byteLength(JSON.stringify(next)) + 1;
+        if (rows.length && bytes + size > 24 * 1024) break;
+        rows.push(buffered.shift());
+        bytes += size;
+      }
+      queued.push(rows);
+    }
+    pump();
+  };
+  return {
+    add(rows) {
+      for (const row of rows) {
+        const key = `${row.id}\u0000${row.kind}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        buffered.push(row);
+      }
+      if (buffered.length && !timer) timer = setTimeout(flush, 100);
+    },
+    async finish(finalScan) {
+      flush();
+      await begin;
+      if (failure) throw failure;
+      if (active || queued.length) await new Promise(resolve => waiting.push(resolve));
+      if (failure) throw failure;
+      return client.finishScan(remote.id, finalScan);
+    },
+  };
 }
