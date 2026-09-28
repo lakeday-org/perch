@@ -4,7 +4,6 @@ import { promisify } from 'node:util';
 import { existsSync } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { snapshotBlob, snapshotFor } from './filesystem.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -26,10 +25,8 @@ export const repoRoot = dir => git(['rev-parse', '--show-toplevel'], dir).then(t
 export const revision = (root, ref = 'HEAD') => git(['rev-parse', '--verify', `${ref}^{commit}`], root).then(text => text.trim());
 export const originUrl = root => git(['remote', 'get-url', 'origin'], root).then(text => text.trim()).catch(() => null);
 
-/** Source tree at a Git revision or a filesystem snapshot. */
+/** Tracked blobs at a revision with their sizes. */
 export async function listTree(root, rev) {
-  const snapshot = snapshotFor(root, rev);
-  if (snapshot) return snapshot.tree;
   const text = await git(['ls-tree', '-r', '-l', '-z', rev], root);
   return text.split('\0').filter(Boolean).map(entry => {
     const match = /^(\d+) (\w+) ([0-9a-f]+) +(\d+|-)\t(.*)$/s.exec(entry);
@@ -51,11 +48,8 @@ export async function removeWorktree(root, dir) {
   await git(['worktree', 'prune'], root).catch(() => {});
 }
 
-/** The content of one source blob, read without a checkout. */
-export const readBlob = (root, sha) => {
-  const text = snapshotBlob(root, sha);
-  return text === undefined ? git(['cat-file', 'blob', sha], root) : Promise.resolve(text);
-};
+/** The content of one tracked blob, read without a checkout. */
+export const readBlob = (root, sha) => git(['cat-file', 'blob', sha], root);
 
 /** Git writes a decimal blob length before its bytes; refuse lengths JavaScript cannot index exactly. */
 export function batchBlobSize(header, prefixBytes) {
@@ -69,9 +63,6 @@ export function batchBlobSize(header, prefixBytes) {
 
 /** Many blobs through one `git cat-file --batch` process, delivered in order to `onBlob(index, text)`. */
 export function readBlobs(root, shas, onBlob) {
-  if (snapshotBlob(root, shas[0]) !== undefined) return Promise.resolve().then(() => {
-    for (const [index, sha] of shas.entries()) onBlob(index, snapshotBlob(root, sha));
-  });
   return new Promise((resolve, reject) => {
     const child = spawn('git', ['-c', 'core.hooksPath=/dev/null', 'cat-file', '--batch'], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] });
     let pending = Buffer.alloc(0), index = 0, stderr = '';

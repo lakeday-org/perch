@@ -47,17 +47,17 @@ export async function runChecks({ root, out, env, versions, credential = 'none' 
   const version = await git(['--version'], root).then(text => text.trim()).catch(error => error);
   checks.push(typeof version === 'string'
     ? ok('git', version)
-    : ok('git', 'unavailable; directory scans work, but --since needs Git'));
+    : bad('git', version.message.split('\n')[0], 'perch reads code out of git, so git has to be on the path'));
 
   const inside = await git(['rev-parse', '--show-toplevel'], root).then(text => text.trim()).catch(() => null);
   checks.push(inside
     ? ok('repository', relativeTo(root, inside))
-    : ok('repository', `${root} is not in Git; perch scans its working files`));
+    : bad('repository', `${root} is not in a git repository`, 'perch reads a commit, so it needs one; git init and commit something'));
 
   const head = inside ? await git(['rev-parse', '--short', 'HEAD'], root).then(text => text.trim()).catch(error => error) : null;
   if (inside) checks.push(typeof head === 'string'
     ? ok('commit', head)
-    : ok('commit', 'no commit yet; perch scans the working files'));
+    : bad('commit', 'the repository has no commits', 'perch reads a commit, so commit something first'));
 
   const writable = await access(out, constants.W_OK).then(() => true).catch(() => null)
     ?? await access(join(out, '..'), constants.W_OK).then(() => true).catch(() => false);

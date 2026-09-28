@@ -220,8 +220,7 @@ export function scanCount(run) {
   if (run.remaining) parts.push(`${run.remaining} unread`);
   if (run.failed?.length) parts.push(`${run.failed.length} could not be read (perch doctor)`);
   if (run.error) parts.push(`error: ${run.error}`);
-  const source = run.revision?.startsWith('workspace:') ? 'working files' : `commit ${run.revision?.slice(0, 7) ?? '?'}`;
-  return `${relative(run.target)} at ${source}: ${parts.join(', ')}`;
+  return `${relative(run.target)} at commit ${run.revision?.slice(0, 7) ?? '?'}: ${parts.join(', ')}`;
 }
 
 /** Findings to print: closed ones stay off the list unless asked for. */

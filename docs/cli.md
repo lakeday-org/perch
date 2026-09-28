@@ -197,24 +197,7 @@ See [Using Perch with coding assistants](skill.md).
 perch doctor
 ```
 
-Checks the local environment and reports errors from the most recent scan. With
-`PERCH_BASE_URL` set but no key, it reports:
-
-```console
-$ perch doctor
-perch DEVELOPMENT (9cc3ae0)  node v25.5.0  darwin arm64
-
-✓ node        v25.5.0
-✗ key         PERCH_BASE_URL is set and PERCH_API_KEY is not
-✓ git         git version 2.50.1 (Apple Git-155)
-✓ repository  /private/tmp/perch-doctor-direct is not in Git; perch scans its working files
-✓ results     /private/tmp/perch-doctor-direct/.perch
-✓ rules       no perch.yaml, so perch asks only its own questions
-
-  key: set PERCH_API_KEY to that endpoint's key
-
-No run yet. perch scan is what reads the code.
-```
+Checks the local environment and reports errors from the most recent scan.
 
 Returns exit code `1` if an environment check fails.
 
