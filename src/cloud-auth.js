@@ -199,14 +199,14 @@ async function acquireRefreshLock(lock, signal) {
 export async function sessionToken(env, fetchImpl, signal) {
   signal?.throwIfAborted();
   const current = await readCloudLogin(env);
-  if (!current || current.origin !== CLOUD_ORIGIN || current.kind !== 'perch') throw new Error('Cloud login changed. Run perch login again.');
+  if (!current || current.origin !== CLOUD_ORIGIN || current.kind !== 'perch') throw new Error('This saved sign-in needs to be renewed. Run perch login again.');
   if (accessTokenValid(current)) return current.accessToken;
 
   const lock = `${loginPath(env)}.lock`;
   await acquireRefreshLock(lock, signal);
   try {
     const saved = await readCloudLogin(env);
-    if (!saved || saved.origin !== CLOUD_ORIGIN || saved.kind !== 'perch') throw new Error('Cloud login changed. Run perch login again.');
+    if (!saved || saved.origin !== CLOUD_ORIGIN || saved.kind !== 'perch') throw new Error('This saved sign-in needs to be renewed. Run perch login again.');
     if (accessTokenValid(saved)) return saved.accessToken;
 
     const session = await cloudRequest(fetchImpl, `${CLOUD_ORIGIN}/auth/device/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' },
