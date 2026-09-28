@@ -42,6 +42,7 @@ export function createCloudClient({
     ...gateway,
     startScan: scan => sendScan('start', { scan }),
     appendFindings: (scanId, findings) => sendScan('append', { scanId, findings }),
+    updateScan: (scanId, progress) => sendScan('progress', { scanId, progress }),
     finishScan: (scanId, scan) => sendScan('finish', { scanId, scan }),
   };
 }

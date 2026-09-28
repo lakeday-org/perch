@@ -152,7 +152,7 @@ export const typesAsked = (scanTypes, filters = []) => new Set([
 ]);
 
 export async function scanRepository({ root, revision, out, analyzer, systemOne, label = root, github = null, paths = [], parallel = DEFAULT_PARALLEL,
-  unitParallel = UNIT_PARALLEL, min = 0.5, filters = [], onFile = () => {}, onFinding = () => {}, progress = () => {}, unitProgress = () => {}, searchProgress = () => {}, scanProgress = () => {}, log = () => {}, debug = () => {} }) {
+  unitParallel = UNIT_PARALLEL, min = 0.5, filters = [], onFile = () => {}, onFinding = () => {}, onProgress = () => {}, progress = () => {}, unitProgress = () => {}, searchProgress = () => {}, scanProgress = () => {}, log = () => {}, debug = () => {} }) {
   const store = openStore(out);
   // The whole tree is parsed however narrow the run is. Parsing is free next to a request, and a method's callers matter whether
   // or not they are in the diff: a graph cut down to what a branch touched cannot say who calls into it.
@@ -176,6 +176,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const created = new Date().toISOString(), id = identity('scan', revision, created);
   const dir = store.runDir(id);
   const total = candidateIds.length;
+  onProgress({ phase: 'reading', completed: 0, total, failed: 0 });
   const run = { id, status: 'running', target: label, github, root, revision, model: systemOne.id, paths, parallel, scan_id: scan.id, out: dir, created_at: created,
     methods: total, to_read: total, rules: rules.length, filters, edges: graph.edgeCount(), calls: 0, skipped: 0, checked: 0, visited: [], broken: [], failed: [], usage: { input_tokens: 0, output_tokens: 0 } };
   const saveRun = await store.startRun(run);
@@ -292,6 +293,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
       inARow = results.length ? 0 : inARow + settled.length;
       if (inARow >= parallel * 2) throw new Error(`${inARow} methods in a row could not be read; last error: ${run.failed.at(-1)?.error ?? 'unknown'}`);
       await record(results); await saveRun();
+      onProgress({ phase: 'reading', completed: walk.visited.size, total, failed: run.failed.length });
     }
 
     // What is left is every rule that is not about a method, and every claim about the codebase rather than about one file. The
@@ -309,6 +311,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const over = { scan, graph, files, tree, revision, systemOne, inScope, min, debug };
     const kept = new Set(questionsFor(rules, filters, kindLabel).map(rule => rule.name));
     const asking = rules.filter(rule => kept.has(rule.name));
+    onProgress({ phase: 'checking', completed: walk.visited.size, total, failed: run.failed.length });
     const units = await askUnits({ ...over, rules: asking.filter(rule => !SEARCHES(rule.kind) && rule.each !== 'method'), parallel: unitParallel, progress: unitProgress });
     const searches = await searchUnits({ ...over, rules: asking.filter(rule => SEARCHES(rule.kind)), parallel: unitParallel, progress: searchProgress });
     run.failed.push(...[...units.results, ...searches.results].filter(result => result.error));

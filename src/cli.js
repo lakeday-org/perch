@@ -413,14 +413,19 @@ const commands = {
       methods.clear();
       io.stdout(block + '\n');
     };
-    let run;
+    let run, lastProgress = { completed: 0, total: 0 };
     try {
       run = await scanRepository({ root: resolved.root, revision, label: resolved.label, github: resolved.github, out: resolved.out,
         systemOne, analyzer: createSourceAnalyzer(), paths, parallel, min, filters,
         onFinding: finding => stream?.add(reportFindings(visibleFindings([finding]), min)),
+        onProgress: value => { lastProgress = value; stream?.progress(value); },
         onFile: io.flags.json ? () => {} : say,
         progress: methods.update, unitProgress: units.update, searchProgress: searches.update, scanProgress: files.update,
         log: note, debug: note });
+    } catch (error) {
+      if (stream) await stream.finish({ finished_at: Date.now(), methods: lastProgress.completed, reused: 0, files: 0, exit_code: 1,
+        error: String(error.message || 'Scan could not finish').slice(0, 500) }).catch(upload => io.note(`Could not send scan error to Perch Cloud: ${upload.message}`));
+      throw error;
     } finally { files.clear(); methods.clear(); units.clear(); searches.clear(); }
     const store = openStore(resolved.out);
     const scan = await store.latestScan();

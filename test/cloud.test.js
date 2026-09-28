@@ -203,10 +203,11 @@ describe('Perch Cloud', () => {
     await client.ask({ code: 'a' }, { a: { type: 'noul', criteria: { true: 'y', false: 'n' } } });
     const started = await client.startScan({ scope: 'full' });
     await client.appendFindings(started.id, [{ id: 'one', kind: 'defect' }]);
+    await client.updateScan(started.id, { phase: 'reading', completed: 1, total: 2, failed: 0 });
     expect((await client.finishScan(started.id, { exit_code: 3 })).url).toContain('scan=scan');
-    expect(seen.map(r => r.auth)).toEqual(Array(4).fill('Bearer oidc-1'));
+    expect(seen.map(r => r.auth)).toEqual(Array(5).fill('Bearer oidc-1'));
     expect(seen[0].body.repositoryId).toBeUndefined();
-    expect(seen.slice(1).map(r => r.url)).toEqual(['start', 'append', 'finish'].map(path => `https://dash.perchscan.com/v1/scans/${path}`));
+    expect(seen.slice(1).map(r => r.url)).toEqual(['start', 'append', 'progress', 'finish'].map(path => `https://dash.perchscan.com/v1/scans/${path}`));
   });
   it('says to sign in when there is no login, key or Actions token, before sending anything', async () => {
     await expect(configuredSystemOne({ env: { HOME: '/nonexistent' }, root: process.cwd(), fetchImpl: async () => { throw new Error('unexpected request'); } }))
@@ -272,13 +273,17 @@ describe('Perch Cloud', () => {
   });
   it('sends results before a scan ends without dropping those past 2,000', async () => {
     const batches = [];
+    const progress = [];
     let finished = false;
     const client = {
       startScan: async () => ({ id: 'scan' }),
       appendFindings: async (_id, rows) => { batches.push(rows); },
+      updateScan: async (_id, value) => { progress.push(value); },
       finishScan: async () => { finished = true; return { url: 'https://dash.perchscan.com/?scan=scan' }; },
     };
     const stream = createResultStream(client, { scope: 'full' });
+    stream.progress({ phase: 'reading', completed: 5, total: 20, failed: 0 });
+    stream.progress({ phase: 'reading', completed: 8, total: 20, failed: 0 });
     const rows = Array.from({ length: 2001 }, (_, n) => ({ id: String(n), kind: 'defect', path: 'src/a.js' }));
     stream.add(rows);
     await new Promise(resolve => setTimeout(resolve, 150));
@@ -287,6 +292,7 @@ describe('Perch Cloud', () => {
     stream.add(rows.slice(0, 10));
     await stream.finish({ exit_code: 3 });
     expect(batches.flat()).toHaveLength(2001);
+    expect(progress).toEqual([{ phase: 'reading', completed: 8, total: 20, failed: 0 }]);
     expect(finished).toBe(true);
   });
 });

@@ -63,7 +63,8 @@ export function reportFindings(findings, min) {
 /** Send findings during the scan. Batches bound each request, never the number of results a scan may report. */
 export function createResultStream(client, scan) {
   const seen = new Set(), buffered = [], queued = [], waiting = [];
-  let remote = null, failure = null, active = 0, timer = null;
+  let remote = null, failure = null, active = 0, timer = null, progressTimer = null, latestProgress = null, progressTask = Promise.resolve();
+  let lastProgress = { phase: 'preparing', completed: 0, total: 0, failed: 0 };
   const settle = () => {
     if (!failure && (active || queued.length)) return;
     for (const resolve of waiting.splice(0)) resolve();
@@ -98,6 +99,19 @@ export function createResultStream(client, scan) {
     }
     pump();
   };
+  const sendProgress = () => {
+    if (progressTimer) clearTimeout(progressTimer);
+    progressTimer = null;
+    const current = latestProgress;
+    latestProgress = null;
+    if (!current) return;
+    progressTask = progressTask.then(async () => {
+      await begin;
+      if (remote && client.updateScan) await client.updateScan(remote.id, current);
+    }).catch(() => { /* The result batches and final report still decide whether upload succeeded. */ });
+  };
+  const heartbeat = setInterval(() => { latestProgress = lastProgress; sendProgress(); }, 30_000);
+  heartbeat.unref?.();
   return {
     add(rows) {
       for (const row of rows) {
@@ -108,8 +122,15 @@ export function createResultStream(client, scan) {
       }
       if (buffered.length && !timer) timer = setTimeout(flush, 100);
     },
+    progress(value) {
+      latestProgress = lastProgress = value;
+      if (!progressTimer) progressTimer = setTimeout(sendProgress, 750);
+    },
     async finish(finalScan) {
+      clearInterval(heartbeat);
       flush();
+      sendProgress();
+      await progressTask;
       await begin;
       if (failure) throw failure;
       if (active || queued.length) await new Promise(resolve => waiting.push(resolve));
