@@ -25,20 +25,18 @@ Or run it without installing:
 npx @lakeday/perch scan
 ```
 
-## Sign in
+## The key
+
+Create an API key at [console.typesafe.ai](https://console.typesafe.ai) and set
+the full System One request URL and your key:
 
 ```sh
-perch login
+export PERCH_BASE_URL=https://api.typesafe.ai/v1/systemone
+export PERCH_API_KEY='paste-your-TypeSafe-key-here'
 ```
 
-It shows a code to confirm in your browser. perch then sends its questions to
-Perch Cloud, which caches answers for everyone scanning the same repository.
-
-In CI, create a token in the [dashboard](https://dash.perchscan.com) and set it
-as `PERCH_API_KEY`. See [perch in CI](/ci/).
-
-To use another System One endpoint, set `PERCH_BASE_URL`; see
-[Environment](/cli/#environment).
+For another System One endpoint, use its complete request URL and bearer token.
+See [Environment](/cli/#environment) for the request contract.
 
 ## The first scan
 

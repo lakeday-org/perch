@@ -10,7 +10,8 @@ summary: Scan every pull request with GitHub Actions or GitLab CI.
 
 ## GitHub Actions
 
-Create a CI token in the [Perch dashboard](https://dash.perchscan.com) and add it as the repository secret `PERCH_API_KEY`, then commit this as `.github/workflows/perch.yml`:
+Add your System One API key as the repository secret `PERCH_API_KEY`, then commit
+this as `.github/workflows/perch.yml`:
 
 ```yaml
 name: perch
@@ -28,6 +29,7 @@ jobs:
           node-version: 22
       - run: npx --yes @lakeday/perch scan --since origin/${{ github.base_ref }}
         env:
+          PERCH_BASE_URL: https://api.typesafe.ai/v1/systemone
           PERCH_API_KEY: ${{ secrets.PERCH_API_KEY }}
 ```
 
@@ -54,7 +56,8 @@ Pull requests from forks get no secrets. To skip them, add this to the job:
 
 ## GitLab CI
 
-Add the CI token as a masked CI/CD variable named `PERCH_API_KEY`, then add this job to `.gitlab-ci.yml`:
+Add your System One API key as a masked CI/CD variable named `PERCH_API_KEY`,
+then add this job to `.gitlab-ci.yml`:
 
 ```yaml
 perch:
@@ -63,6 +66,7 @@ perch:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   variables:
     GIT_DEPTH: 0
+    PERCH_BASE_URL: https://api.typesafe.ai/v1/systemone
   script:
     - git fetch origin $CI_MERGE_REQUEST_TARGET_BRANCH_NAME
     - npx --yes @lakeday/perch scan --since origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME

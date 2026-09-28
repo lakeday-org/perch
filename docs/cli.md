@@ -14,10 +14,9 @@ perch <command> [options]
 
 | Verb | What it does | Needs |
 | --- | --- | --- |
-| [`login`](#environment) | Signs in to Perch Cloud on this machine. `logout` removes it. | nothing |
-| [`scan`](#perch-scan) | Reads the repository at `HEAD` and writes down what it found. | `perch login` or `PERCH_API_KEY` |
+| [`scan`](#perch-scan) | Reads the repository at `HEAD` and writes down what it found. | `PERCH_BASE_URL` and `PERCH_API_KEY` |
 | [`issues`](#perch-issues) | The open issues, worst first. With an id, everything known about that one method. | nothing |
-| [`check`](#perch-check) | Asks about one file or method as it reads on disk. Records nothing. | `perch login` or `PERCH_API_KEY` |
+| [`check`](#perch-check) | Asks about one file or method as it reads on disk. Records nothing. | `PERCH_BASE_URL` and `PERCH_API_KEY` |
 | [`rules`](#perch-rules) | `list`, `add`, `edit`, `remove`: changes `perch.yaml` without opening it. | nothing |
 | [`close`](#perch-close) | Sets issues aside so they stop being listed. | nothing |
 | [`reopen`](#perch-reopen) | Undoes `close`. | nothing |
@@ -198,20 +197,21 @@ See [Using Perch with coding assistants](skill.md).
 perch doctor
 ```
 
-Checks the local environment and reports errors from the most recent scan.
+Checks the local environment and reports errors from the most recent scan. With
+`PERCH_BASE_URL` set but no key, it reports:
 
 ```console
 $ perch doctor
-perch DEVELOPMENT (b1d8f67)  node v25.5.0  darwin arm64
+perch DEVELOPMENT (9cc3ae0)  node v25.5.0  darwin arm64
 
 ✓ node        v25.5.0
-✗ key         not signed in to Perch Cloud
+✗ key         PERCH_BASE_URL is set and PERCH_API_KEY is not
 ✓ git         git version 2.50.1 (Apple Git-155)
-✓ repository  /private/tmp/perch-doctor-xGa8ExbN is not in Git; perch scans its working files
-✓ results     /private/tmp/perch-doctor-xGa8ExbN/.perch
+✓ repository  /private/tmp/perch-doctor-direct is not in Git; perch scans its working files
+✓ results     /private/tmp/perch-doctor-direct/.perch
 ✓ rules       no perch.yaml, so perch asks only its own questions
 
-  key: run perch login, or set PERCH_API_KEY to a CI token from the dashboard
+  key: set PERCH_API_KEY to that endpoint's key
 
 No run yet. perch scan is what reads the code.
 ```
@@ -225,21 +225,17 @@ it includes the end of `.perch/scan.log`.
 
 | Variable | Read by |
 | --- | --- |
-| `PERCH_API_KEY` | `scan`, `check`: a CI token from the Perch Cloud dashboard, or the key for `PERCH_BASE_URL`. |
-| `PERCH_BASE_URL` | `scan`, `check`: another endpoint to send questions to instead of Perch Cloud. |
-| `PERCH_MODEL_ID` | `scan`, `check`: model ID; defaults to the one Perch Cloud serves, or `jev-latest`. |
-
-Without `PERCH_BASE_URL`, questions go to Perch Cloud. perch uses, in order,
-a CI token in `PERCH_API_KEY`, the login `perch login` saved, and a GitHub
-Actions job's own OIDC token when the job has `id-token: write`.
+| `PERCH_API_KEY` | `scan`, `check`: bearer token for the System One endpoint. |
+| `PERCH_BASE_URL` | `scan`, `check`: complete System One request URL. |
+| `PERCH_MODEL_ID` | `scan`, `check`: model ID; defaults to `jev-latest`. |
 
 `PERCH_BASE_URL` is the complete URL to POST to, including its path and any
-query string. perch uses it unchanged, including a trailing slash. To use a
-TypeSafe key directly:
+query string. perch uses it unchanged, including a trailing slash. To use
+TypeSafe System One:
 
 ```sh
 export PERCH_BASE_URL=https://api.typesafe.ai/v1/systemone
-export PERCH_API_KEY=<your TypeSafe API key>
+export PERCH_API_KEY='paste-your-TypeSafe-key-here'
 ```
 
 The endpoint must support the System One request and response format: typed

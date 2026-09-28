@@ -33,7 +33,8 @@ Every answer is a probability. `72%` is how sure perch is, and it stays on the r
 
 ```sh
 npm install -g @lakeday/perch
-perch login
+export PERCH_BASE_URL=https://api.typesafe.ai/v1/systemone
+export PERCH_API_KEY='paste-your-TypeSafe-key-here'
 ```
 
 Needs Node 22 and git.
