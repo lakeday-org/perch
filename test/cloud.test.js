@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { actionsToken, loginCloud, logoutCloud } from '../src/cloud-auth.js';
 import { createCloudClient, configuredSystemOne, remoteRepositoryName } from '../src/cloud-client.js';
+import { git } from '../src/git.js';
 import { main } from '../src/cli.js';
 import { reportFindings, runContext } from '../src/cloud-results.js';
 import { createMeter, metered } from '../src/meter.js';
@@ -47,9 +48,15 @@ describe('Perch Cloud', () => {
     expect(remoteRepositoryName('/some/local/project')).toBeNull();
     expect(remoteRepositoryName('https://gitlab.com/group/bad name.git')).toBeNull();
   });
-  it('uses a saved login without registering a made-up local repository', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'perch loose project '));
+  it('uses a saved login in a Git repository without a remote', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'perch unlinked repo '));
     try {
+      await git(['init', '-q'], root);
+      await git(['config', 'user.name', 'Fixture'], root);
+      await git(['config', 'user.email', 'fixture@example.com'], root);
+      await writeFile(join(root, 'app.js'), 'export function app() { return 1; }\n');
+      await git(['add', 'app.js'], root);
+      await git(['commit', '-q', '-m', 'fixture'], root);
       await mkdir(join(root, '.perch'));
       await writeFile(join(root, '.perch', 'cloud.json'), JSON.stringify({
         kind: 'perch', origin: 'https://dash.perchscan.com', organizationId: 'org', accessToken: 'perch_cli_test', expiresAt: Date.now() + 300000,
