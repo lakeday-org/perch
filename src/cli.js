@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { repoRoot, revision as gitRevision } from './git.js';
 import { resolveTarget } from './target.js';
 import { createSystemOne } from './systemone.js';
+import { createOpenRouter } from './openrouter.js';
 import { createSourceAnalyzer } from './analysis.js';
 import { openStore, resolveOut } from './store.js';
 import { analyzeTree } from './analyze.js';
@@ -22,6 +23,13 @@ import { formatDoctor, formatFilterKeys, gating, useColor, formatFinding, format
  * Stamped into the bundle at build time, so it reports what is running rather than a number read off a package.json that may not
  * be the one this code came from. A build that is not sitting on its release tag says DEVELOPMENT and names the commit.
  */
+/** System One when its key is set, and OpenRouter when only an OpenRouter key is. */
+function modelClient(env, log) {
+  const options = { baseUrl: env.PERCH_BASE_URL, model: env.PERCH_MODEL_ID, log };
+  const key = env.PERCH_API_KEY || env.TYPESAFE_API_KEY;
+  return !key && env.OPENROUTER_API_KEY ? createOpenRouter({ ...options, apiKey: env.OPENROUTER_API_KEY }) : createSystemOne({ ...options, apiKey: key });
+}
+
 export const VERSION = typeof PERCH_VERSION === 'string' ? PERCH_VERSION : 'dev';
 
 const options = {
@@ -96,7 +104,7 @@ Options:
 ${column([...Object.values(options).filter(([, , verbs]) => verbs.length === Object.keys(commandHelp).length).map(([flag, text]) => [flag, text]), ['-h, --help', 'This help; perch <command> --help for one command'], ['-v, --version', 'The release this was built from, or DEVELOPMENT and the commit']])}
 
 Environment:
-${column([['PERCH_API_KEY', 'scan, check'], ['PERCH_BASE_URL', 'scan, check: exact request URL (default https://api.typesafe.ai/v1/systemone)'], ['PERCH_MODEL_ID', 'scan, check: model ID (default jev-latest)']])}`;
+${column([['PERCH_API_KEY', 'scan, check'], ['OPENROUTER_API_KEY', 'scan, check: ask an OpenRouter model instead, when PERCH_API_KEY is not set'], ['PERCH_BASE_URL', 'scan, check: exact request URL (default https://api.typesafe.ai/v1/systemone)'], ['PERCH_MODEL_ID', 'scan, check: model ID (default jev-latest)']])}`;
 
 function usageFor(name) {
   const help = commandHelp[name];
@@ -384,7 +392,7 @@ const commands = {
     // On the counter and in the log both. On the counter because a retry is the wait that looks like a hang, and in the log
     // because the counter is gone by the time anyone asks what the run was doing.
     const retrying = message => { methods.say(message); note(message); };
-    const systemOne = metered(createSystemOne({ apiKey: io.env.PERCH_API_KEY || io.env.TYPESAFE_API_KEY, baseUrl: io.env.PERCH_BASE_URL, model: io.env.PERCH_MODEL_ID, log: retrying }), meter);
+    const systemOne = metered(modelClient(io.env, retrying), meter);
     // A file prints the moment it is finished rather than at the end, so a long run says what it is finding while it finds it.
     const said = new Set();
     const say = (path, findings) => {
@@ -481,7 +489,7 @@ const commands = {
   async check(io) {
     if (!io.argument) throw new UsageError('perch check needs a path, a path::method, or an issue id');
     const meter = createMeter();
-    const systemOne = metered(createSystemOne({ apiKey: io.env.PERCH_API_KEY || io.env.TYPESAFE_API_KEY, baseUrl: io.env.PERCH_BASE_URL, model: io.env.PERCH_MODEL_ID, log: io.debug }), meter);
+    const systemOne = metered(modelClient(io.env, io.debug), meter);
     const root = await repoRoot(process.cwd());
     const only = io.flags.rules ? io.flags.rules.split(',').map(name => name.trim()).filter(Boolean) : [];
     const checked = await checkTarget({ target: io.argument, root, out: await resolveOut(io.flags.out), analyzer: createSourceAnalyzer(),

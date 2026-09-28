@@ -37,7 +37,9 @@ it as `PERCH_API_KEY`:
 export PERCH_API_KEY=<your TypeSafe API key>
 ```
 
-To use another endpoint, see [Environment](/cli/#environment).
+To ask a model through OpenRouter instead, set `OPENROUTER_API_KEY`. See
+[OpenRouter](/cli/#openrouter). To use another endpoint, see
+[Environment](/cli/#environment).
 
 ## The first scan
 

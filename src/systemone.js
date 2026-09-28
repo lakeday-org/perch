@@ -6,11 +6,17 @@ export const DEFAULT_SYSTEM_ONE_MODEL = 'jev-latest';
 
 /** Credentials apply to the whole run, so trying another file cannot repair their rejection. */
 export class AuthenticationError extends Error {
-  constructor(status, detail) {
-    super(`System One request failed with HTTP ${status}: ${detail.slice(0, 500)}`);
+  constructor(status, detail, name = 'System One') {
+    super(`${name} request failed with HTTP ${status}: ${detail.slice(0, 500)}`);
     this.name = 'AuthenticationError'; this.status = status; this.detail = detail;
   }
 }
+
+/**
+ * How a batch of questions is put on the wire and how the reply is read back. System One takes the questions as they are; another
+ * endpoint can be asked the same questions as long as its reply is read back into the same answers.
+ */
+export const SYSTEM_ONE_WIRE = { name: 'System One', body: (model, state, questions) => ({ model, state, questions }), read: response => response };
 
 export function createSystemOne({
   apiKey,
@@ -21,13 +27,14 @@ export function createSystemOne({
   sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
   log = () => {},
   limits = TOKEN_LIMITS,
+  wire = SYSTEM_ONE_WIRE,
 } = {}) {
-  if (!apiKey) throw new Error('PERCH_API_KEY is not set. Export an API key before running perch scan or perch check.');
+  if (!apiKey) throw new Error('PERCH_API_KEY is not set. Export an API key, or OPENROUTER_API_KEY, before running perch scan or perch check.');
   let authenticationFailure = null, firstRequest = null;
 
   async function request(body, attempted, beforeRequest) {
     for (let attempt = 0; ; attempt++) {
-      if (authenticationFailure) throw new AuthenticationError(authenticationFailure.status, authenticationFailure.detail);
+      if (authenticationFailure) throw new AuthenticationError(authenticationFailure.status, authenticationFailure.detail, wire.name);
       beforeRequest();
       let response;
       try {
@@ -35,14 +42,14 @@ export function createSystemOne({
         response = await fetchImpl(baseUrl, { method: 'POST', headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
       } catch (error) {
         if (attempt >= 3) throw error;
-        log(`System One request failed (${error.message}); retrying`);
+        log(`${wire.name} request failed (${error.message}); retrying`);
         await sleep(retryDelayMs * 2 ** attempt);
         continue;
       }
       if (response.status === 429 || response.status >= 500) {
-        if (attempt >= 3) throw new Error(`System One request failed with HTTP ${response.status} after four attempts`);
+        if (attempt >= 3) throw new Error(`${wire.name} request failed with HTTP ${response.status} after four attempts`);
         const retryAfter = Number(response.headers?.get?.('retry-after'));
-        log(`System One returned HTTP ${response.status}; retrying`);
+        log(`${wire.name} returned HTTP ${response.status}; retrying`);
         await sleep(retryAfter > 0 ? retryAfter * 1000 : retryDelayMs * 2 ** attempt);
         continue;
       }
@@ -51,7 +58,7 @@ export function createSystemOne({
         // 402 is the account out of credits. Every request will get the same answer, so it stops the run the way a bad key
         // does; read as one unit's failure it left a scan of nothing but file rules printing "nothing to report" and exiting 0.
         if ([401, 402, 403].includes(response.status)) {
-          authenticationFailure = new AuthenticationError(response.status, detail);
+          authenticationFailure = new AuthenticationError(response.status, detail, wire.name);
           throw authenticationFailure;
         }
         const accessError = /authenticat|authori[sz]|api[_ -]?key|token[^a-z]+(?:expired|invalid)|quota|rate[_ -]?limit|tokens? per (?:minute|second|day)/i.test(detail);
@@ -59,7 +66,7 @@ export function createSystemOne({
         const sizeError = response.status === 413 || ([400, 422].includes(response.status) && !accessError
           && (sizedSubject || /\b(?:context_length_exceeded|max_tokens_exceeded|context_window_exceeded)\b|\b(?:context (?:length|window)|(?:input|prompt|request) (?:size|length|tokens?|token count))\b[\s\S]{0,100}\b(?:exceed\w*|too (?:long|large)|limit|maximum)\b|\b(?:exceed\w*|maximum)\b[\s\S]{0,80}\b(?:context (?:length|window)|(?:input|prompt|request) (?:size|length|token count))\b/i.test(detail)));
         if (sizeError) throw new ContextLimitError('server rejected the request size; rebuild with fewer estimated tokens', Math.floor(estimateTokens(body.state) / 2));
-        throw new Error(`System One request failed with HTTP ${response.status}: ${detail.slice(0, 500)}`);
+        throw new Error(`${wire.name} request failed with HTTP ${response.status}: ${detail.slice(0, 500)}`);
       }
       return response.json();
     }
@@ -68,7 +75,7 @@ export function createSystemOne({
   /** The first real request checks credentials before concurrent units can spend requests on the same bad key. */
   async function sendRequest(body, attempted, beforeRequest) {
     if (firstRequest) await firstRequest;
-    if (authenticationFailure) throw new AuthenticationError(authenticationFailure.status, authenticationFailure.detail);
+    if (authenticationFailure) throw new AuthenticationError(authenticationFailure.status, authenticationFailure.detail, wire.name);
     const pending = request(body, attempted, beforeRequest);
     firstRequest ??= pending.then(() => {}, () => {});
     return pending;
@@ -90,11 +97,11 @@ export function createSystemOne({
       };
       const send = async batch => {
         let response;
-        try { response = await sendRequest({ model, state, questions: batch }, () => requests++, beforeRequest); }
+        try { response = wire.read(await sendRequest(wire.body(model, state, batch), () => requests++, beforeRequest), batch); }
         catch (error) {
           if (!(error instanceof ContextLimitError)) throw error;
           const entries = Object.entries(batch);
-          log(`System One rejected the token estimate; ${entries.length > 1 ? 'retrying with fewer questions' : 'reducing the source token budget'}`);
+          log(`${wire.name} rejected the token estimate; ${entries.length > 1 ? 'retrying with fewer questions' : 'reducing the source token budget'}`);
           if (entries.length === 1) throw error;
           if (!entries.length) throw error;
           const middle = Math.ceil(entries.length / 2);
@@ -103,7 +110,7 @@ export function createSystemOne({
           return;
         }
         const missing = Object.keys(batch).filter(id => !response.answers?.[id]);
-        if (missing.length) throw new Error(`System One response is missing answers for ${missing.join(', ')}`);
+        if (missing.length) throw new Error(`${wire.name} response is missing answers for ${missing.join(', ')}`);
         responses.push(response);
       };
       try { for (const batch of questionBatches(state, questions, limits)) await send(batch); }
