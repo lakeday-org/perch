@@ -6,15 +6,11 @@ import { dirname, join } from 'node:path';
 
 /** Perch Cloud. Every scan goes here unless PERCH_BASE_URL names another endpoint, and there is no setting to point it elsewhere. */
 export const CLOUD_ORIGIN = 'https://dash.perchscan.com';
-// The Cloud signs users in through WorkOS, so the device flow and token refresh talk to WorkOS directly, with the client id the
-// Cloud publishes at /api/config.
-const WORKOS_AUTH = 'https://api.workos.com/user_management/authenticate';
-const DEVICE_AUTH = 'https://api.workos.com/user_management/authorize/device';
 /** A pause, passed in to login so tests do not wait out the polling interval. */
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * One request to the Cloud or WorkOS, returning the parsed body. A failure carries the server's own error text and status, which
+ * One request to the Cloud, returning the parsed body. A failure carries the server's own error text and status, which
  * says more than a status code does. Every request has a deadline: a Cloud that never answers must not hang a scan or CI.
  */
 export async function cloudRequest(fetchImpl, url, options = {}, timeoutMs = 150000) {
@@ -29,13 +25,6 @@ export async function cloudRequest(fetchImpl, url, options = {}, timeoutMs = 150
   if (data === null) throw new Error('Perch Cloud returned an invalid response.');
   return data;
 }
-
-/** A POST of form fields, which is what WorkOS's OAuth endpoints take. */
-export const formBody = input => ({
-  method: 'POST',
-  headers: { 'content-type': 'application/x-www-form-urlencoded' },
-  body: new URLSearchParams(input),
-});
 
 /** A POST of JSON with the bearer token, which is what the Cloud's own endpoints take. */
 export const jsonBody = (token, input) => ({
@@ -73,28 +62,23 @@ async function saveCloudLogin(env, credentials) {
 }
 
 /**
- * Polls WorkOS until the code is confirmed in the browser, or the code expires. slow_down is WorkOS asking for a longer interval,
- * and each one adds five seconds, as the device flow specifies. The wait is capped at ten minutes whatever the code allows.
+ * Polls Perch until the code is confirmed in the browser, or the code expires.
  */
-async function waitForDeviceToken({ clientId, device, fetchImpl, sleep }) {
+async function waitForDeviceToken({ device, fetchImpl, sleep }) {
   const deadline = Date.now() + Math.min(device.expires_in, 600) * 1000;
-  let interval = Math.max(5, device.interval || 5);
+  const interval = Math.max(5, device.interval || 5);
 
   while (Date.now() < deadline) {
     await sleep(interval * 1000);
-    const response = await fetchImpl(WORKOS_AUTH, {
-      ...formBody({
-        client_id: clientId,
-        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-        device_code: device.device_code,
-      }),
+    const response = await fetchImpl(`${CLOUD_ORIGIN}/auth/device/token`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ device_code: device.device_code }),
       signal: AbortSignal.timeout(30000),
     });
     const data = await response.json().catch(() => null);
     if (!data || typeof data !== 'object') throw new Error('Perch Cloud sign-in returned an invalid response. Run perch login again.');
-    if (response.ok) return data;
-    if (data.error === 'authorization_pending') continue;
-    if (data.error === 'slow_down') { interval += 5; continue; }
+    if (response.status === 200) return data;
+    if (response.status === 202 && data.error === 'authorization_pending') continue;
     throw new Error('Sign-in was denied or expired. Run perch login again.');
   }
   throw new Error('Sign-in timed out. Run perch login again.');
@@ -106,20 +90,17 @@ async function waitForDeviceToken({ clientId, device, fetchImpl, sleep }) {
  * The device code and the tokens are never printed, only the code the user types.
  */
 export async function loginCloud({ env, organization, stdout, fetchImpl = globalThis.fetch, sleep = wait }) {
-  const { clientId } = await cloudRequest(fetchImpl, `${CLOUD_ORIGIN}/api/config`);
-  if (typeof clientId !== 'string' || !clientId) throw new Error('Perch Cloud sign-in is not configured yet.');
-
-  const device = await cloudRequest(fetchImpl, DEVICE_AUTH, formBody({ client_id: clientId }));
+  const device = await cloudRequest(fetchImpl, `${CLOUD_ORIGIN}/auth/device/start`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
   if (typeof device.device_code !== 'string' || !device.device_code || typeof device.user_code !== 'string' || !device.user_code
-    || typeof device.verification_uri !== 'string' || !device.verification_uri.startsWith('https://')
+    || device.verification_uri !== `${CLOUD_ORIGIN}/device`
     || !Number.isFinite(device.expires_in) || device.expires_in <= 0
     || (device.interval !== undefined && (!Number.isFinite(device.interval) || device.interval <= 0))) {
     throw new Error('Perch Cloud sign-in returned an invalid device code. Run perch login again.');
   }
-  stdout(`Open ${device.verification_uri}\nEnter code: ${device.user_code}`);
-  const session = await waitForDeviceToken({ clientId, device, fetchImpl, sleep });
+  stdout(`Open ${device.verification_uri}?code=${encodeURIComponent(device.user_code)}\nConfirm code: ${device.user_code}`);
+  const session = await waitForDeviceToken({ device, fetchImpl, sleep });
   if (typeof session.access_token !== 'string' || !session.access_token
-    || typeof session.refresh_token !== 'string' || !session.refresh_token) {
+    || typeof session.refresh_token !== 'string' || !session.refresh_token || !Number.isFinite(session.expires_at)) {
     throw new Error('Perch Cloud sign-in returned invalid credentials. Run perch login again.');
   }
 
@@ -139,17 +120,24 @@ export async function loginCloud({ env, organization, stdout, fetchImpl = global
   }
 
   await saveCloudLogin(env, {
+    kind: 'perch',
     origin: CLOUD_ORIGIN,
-    clientId,
     organizationId: selected.id,
     accessToken: session.access_token,
     refreshToken: session.refresh_token,
+    expiresAt: session.expires_at,
   });
   stdout(`Signed in to ${selected.name}. CLI scans will use Perch Cloud.`);
 }
 
 /** Removes this device's login. A CI token lives in the dashboard and is revoked there, which the message says. */
-export async function logoutCloud({ env, stdout }) {
+export async function logoutCloud({ env, stdout, fetchImpl = globalThis.fetch }) {
+  const saved = await readCloudLogin(env).catch(() => null);
+  if (saved?.kind === 'perch' && saved.refreshToken) {
+    await cloudRequest(fetchImpl, `${CLOUD_ORIGIN}/auth/device/revoke`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ refresh_token: saved.refreshToken }),
+    }, 3000);
+  }
   await rm(loginPath(env), { force: true });
   stdout('Removed this device\'s saved Perch login. Revoke CI credentials in the dashboard.');
 }
@@ -180,22 +168,13 @@ export function actionsToken(env, audience, fetchImpl = globalThis.fetch) {
 }
 
 /**
- * Whether a saved access token has more than a minute left, read from its own expiry. A token that does not decode counts as
- * expired, which costs a refresh rather than a failed request.
+ * Whether a saved access token has more than a minute left.
  */
-function accessTokenValid(token) {
-  if (typeof token !== 'string') return false;
-  try {
-    const [, encoded] = token.split('.');
-    if (!encoded) return false;
-    const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString());
-    return Number.isFinite(payload?.exp) && payload.exp * 1000 > Date.now() + 60_000;
-  } catch { return false; }
-}
+function accessTokenValid(saved) { return saved.kind === 'perch' && typeof saved.accessToken === 'string' && Number.isFinite(saved.expiresAt) && saved.expiresAt > Date.now() + 60_000; }
 
 /**
  * A directory as a lock, because mkdir either creates it or fails, even across processes. Two scans refreshing at once would
- * each spend the same refresh token, and WorkOS rotates it on use, so the second would sign the user out. A lock older than
+ * each spend the same refresh token, which rotates on use, so the second would sign the user out. A lock older than
  * five minutes is from a process that died holding it.
  */
 async function acquireRefreshLock(lock, signal) {
@@ -220,29 +199,27 @@ async function acquireRefreshLock(lock, signal) {
 export async function sessionToken(env, fetchImpl, signal) {
   signal?.throwIfAborted();
   const current = await readCloudLogin(env);
-  if (!current || current.origin !== CLOUD_ORIGIN) throw new Error('Cloud login changed. Run perch login again.');
-  if (accessTokenValid(current?.accessToken)) return current.accessToken;
+  if (!current || current.origin !== CLOUD_ORIGIN || current.kind !== 'perch') throw new Error('Cloud login changed. Run perch login again.');
+  if (accessTokenValid(current)) return current.accessToken;
 
   const lock = `${loginPath(env)}.lock`;
   await acquireRefreshLock(lock, signal);
   try {
     const saved = await readCloudLogin(env);
-    if (!saved || saved.origin !== CLOUD_ORIGIN) throw new Error('Cloud login changed. Run perch login again.');
-    if (accessTokenValid(saved.accessToken)) return saved.accessToken;
+    if (!saved || saved.origin !== CLOUD_ORIGIN || saved.kind !== 'perch') throw new Error('Cloud login changed. Run perch login again.');
+    if (accessTokenValid(saved)) return saved.accessToken;
 
-    const session = await cloudRequest(fetchImpl, WORKOS_AUTH, { ...formBody({
-      client_id: saved.clientId,
-      grant_type: 'refresh_token',
-      refresh_token: saved.refreshToken,
-    }), signal });
+    const session = await cloudRequest(fetchImpl, `${CLOUD_ORIGIN}/auth/device/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ refresh_token: saved.refreshToken }), signal });
     if (typeof session.access_token !== 'string' || !session.access_token
-      || typeof session.refresh_token !== 'string' || !session.refresh_token) {
+      || typeof session.refresh_token !== 'string' || !session.refresh_token || !Number.isFinite(session.expires_at)) {
       throw new Error('Cloud session expired. Run perch login.');
     }
     await saveCloudLogin(env, {
       ...saved,
       accessToken: session.access_token,
       refreshToken: session.refresh_token,
+      expiresAt: session.expires_at,
     });
     return session.access_token;
   } finally {

@@ -51,9 +51,8 @@ describe('Perch Cloud', () => {
     const root = await mkdtemp(join(tmpdir(), 'perch loose project '));
     try {
       await mkdir(join(root, '.perch'));
-      const accessToken = `header.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 300 })).toString('base64url')}.sig`;
       await writeFile(join(root, '.perch', 'cloud.json'), JSON.stringify({
-        origin: 'https://dash.perchscan.com', organizationId: 'org', accessToken,
+        kind: 'perch', origin: 'https://dash.perchscan.com', organizationId: 'org', accessToken: 'perch_cli_test', expiresAt: Date.now() + 300000,
       }));
       const requests = [];
       const client = await configuredSystemOne({ env: { HOME: root }, root, fetchImpl: async (url, options = {}) => {
@@ -74,15 +73,15 @@ describe('Perch Cloud', () => {
     try {
       await mkdir(join(root, '.perch'));
       await writeFile(join(root, '.perch', 'cloud.json'), JSON.stringify({
-        origin: 'https://dash.perchscan.com', clientId: 'client', organizationId: 'org', accessToken: 'expired', refreshToken: 'refresh',
+        kind: 'perch', origin: 'https://dash.perchscan.com', organizationId: 'org', accessToken: 'expired', refreshToken: 'refresh', expiresAt: 0,
       }));
       let refreshes = 0;
-      const accessToken = `header.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 300 })).toString('base64url')}.sig`;
+      const accessToken = 'perch_cli_rotated';
       const fetchImpl = async url => {
-        if (url.endsWith('/authenticate')) {
+        if (url.endsWith('/auth/device/refresh')) {
           refreshes++;
           await new Promise(resolve => setTimeout(resolve, 20));
-          return response({ access_token: accessToken, refresh_token: 'rotated' });
+          return response({ access_token: accessToken, refresh_token: 'rotated', expires_at: Date.now() + 900000 });
         }
         return response({ model: 'jev', epoch: '1' });
       };
@@ -114,14 +113,15 @@ describe('Perch Cloud', () => {
   it('device login stores private credentials and never prints the device or refresh secret', async () => {
     const root = await mkdtemp(join(tmpdir(), 'perch-login-'));
     const output = [];
+    const requests = [];
     try {
       const fetchImpl = async url => {
-        if (url.endsWith('/config')) return response({ clientId: 'client_test' });
-        if (url.endsWith('/device')) return response({
+        requests.push(url);
+        if (url.endsWith('/auth/device/start')) return response({
           device_code: 'private-device', user_code: 'ABCD-EFGH',
-          verification_uri: 'https://auth.test/device', expires_in: 300, interval: 5,
+          verification_uri: 'https://dash.perchscan.com/device', expires_in: 300, interval: 5,
         });
-        if (url.endsWith('/authenticate')) return response({ access_token: 'private-access', refresh_token: 'private-refresh' });
+        if (url.endsWith('/auth/device/token')) return response({ access_token: 'private-access', refresh_token: 'private-refresh', expires_at: Date.now() + 900000 });
         return response({ organizations: [{ id: 'org', name: 'Team' }] });
       };
       await loginCloud({ env: { HOME: root }, stdout: line => output.push(line), fetchImpl, sleep: async () => {} });
@@ -130,7 +130,8 @@ describe('Perch Cloud', () => {
       expect(JSON.parse(await readFile(file, 'utf8')).organizationId).toBe('org');
       expect(output.join('\n')).not.toContain('private-');
       expect(output.join('\n')).toContain('ABCD-EFGH');
-      await logoutCloud({ env: { HOME: root }, stdout: () => {} });
+      await logoutCloud({ env: { HOME: root }, stdout: () => {}, fetchImpl });
+      expect(requests.every(url => url.startsWith('https://dash.perchscan.com/'))).toBe(true);
       await expect(readFile(file)).rejects.toThrow();
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -150,22 +151,21 @@ describe('Perch Cloud', () => {
   });
   it('rejects incomplete device authorization responses before showing a code', async () => {
     const output = [];
-    const fetchImpl = async url => response(url.endsWith('/config') ? { clientId: 'client' } : { user_code: 'ABCD-EFGH' });
+    const fetchImpl = async () => response({ user_code: 'ABCD-EFGH' });
     await expect(loginCloud({ env: {}, stdout: text => output.push(text), fetchImpl })).rejects.toThrow('invalid device code');
     expect(output).toEqual([]);
   });
   it('rejects malformed sign-in and organization responses without saving them', async () => {
     const root = await mkdtemp(join(tmpdir(), 'perch-bad-login-'));
     const device = {
-      device_code: 'device', user_code: 'ABCD-EFGH', verification_uri: 'https://auth.test/device', expires_in: 300, interval: 5,
+      device_code: 'device', user_code: 'ABCD-EFGH', verification_uri: 'https://dash.perchscan.com/device', expires_in: 300, interval: 5,
     };
     try {
       for (const [reply, message] of [[{ access_token: 42, refresh_token: 'refresh' }, 'invalid credentials'],
         [{ access_token: 'access', refresh_token: 'refresh' }, 'invalid organization list']]) {
         const fetchImpl = async url => {
-          if (url.endsWith('/config')) return response({ clientId: 'client' });
-          if (url.endsWith('/device')) return response(device);
-          if (url.endsWith('/authenticate')) return response(reply);
+          if (url.endsWith('/auth/device/start')) return response(device);
+          if (url.endsWith('/auth/device/token')) return response({ ...reply, expires_at: Date.now() + 900000 });
           return response({ organizations: null });
         };
         await expect(loginCloud({ env: { HOME: root }, stdout: () => {}, fetchImpl, sleep: async () => {} })).rejects.toThrow(message);
