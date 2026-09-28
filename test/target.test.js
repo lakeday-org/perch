@@ -67,11 +67,21 @@ describe('resolveTarget', () => {
     await expect(resolveTarget(join(root, 'nope'), {})).rejects.toThrow(/is not a file or directory/);
   });
 
-  it('refuses a path in no repository, naming perch rather than git', async () => {
-    // tmpdir is outside any checkout, so git has nothing to walk up to.
+  it('scans a path in no Git repository without creating one', async () => {
     const loose = await mkdtemp(join(tmpdir(), 'perch-loose-'));
     cleanups.push(loose);
-    await expect(resolveTarget(loose, {})).rejects.toThrow(/not in a git repository/);
+    await writeFile(join(loose, 'app.js'), 'export function app() { return 1; }\n');
+    const root = await realpath(loose);
+    expect(await resolveTarget(loose, {})).toMatchObject({ root, scope: null, kind: 'filesystem', github: null });
+    expect(await resolveTarget(join(loose, 'app.js'), {})).toMatchObject({ root, scope: 'app.js', kind: 'filesystem' });
+  });
+
+  it('scans working files before a new Git repository has its first commit', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'perch-new-repo-'));
+    cleanups.push(root);
+    await runGit(['init', '-q', root], root);
+    await writeFile(join(root, 'app.js'), 'export function app() { return 1; }\n');
+    expect(await resolveTarget(root, {})).toMatchObject({ root: await realpath(root), kind: 'filesystem' });
   });
 });
 

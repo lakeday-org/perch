@@ -221,7 +221,8 @@ export function scanCount(run) {
   if (run.remaining) parts.push(`${run.remaining} unread`);
   if (run.failed?.length) parts.push(`${run.failed.length} could not be read (perch doctor)`);
   if (run.error) parts.push(`error: ${run.error}`);
-  return `${relative(run.target)} at commit ${run.revision?.slice(0, 7) ?? '?'}: ${parts.join(', ')}`;
+  const source = run.revision?.startsWith('workspace:') ? 'working files' : `commit ${run.revision?.slice(0, 7) ?? '?'}`;
+  return `${relative(run.target)} at ${source}: ${parts.join(', ')}`;
 }
 
 /** Findings to print: closed ones stay off the list unless asked for. */
@@ -462,4 +463,3 @@ export function issueOutcome(before = [], after = []) {
   const seen = new Set(before.map(issue => issue.label));
   return { gone, left, added: after.filter(issue => !seen.has(issue.label)) };
 }
-

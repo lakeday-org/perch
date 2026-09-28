@@ -167,7 +167,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   // or not they are in the diff: a graph cut down to what a branch touched cannot say who calls into it.
   const scan = await analyzeTree({ root, revision, out, analyzer, label, github, progress: scanProgress, log, debug });
   const graph = buildGraph(scan.files);
-  if (!scan.candidates.length) throw new Error('No methods to read in this repository');
+  if (!scan.candidates.length) throw new Error('No methods to read in this project');
   const rules = asRules(await readRules(root, revision));
   // Which issue types this run asks about, and so which of perch's own questions ride in every request.
   const kinds = typesAsked(await readScanTypes(root, revision), filters);
