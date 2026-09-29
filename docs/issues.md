@@ -13,11 +13,18 @@ whole repository against itself, worst first.
 
 ```console
 $ perch issues
-ID        Method             Location           Type      Kind                              Severity
-3a7c6bfe  build              …ts/build.mjs:183  refactor  too_big 99%, +3 more              P1 (1.4)
-1f235668  docPage            …pts/build.mjs:82  docs      docs 81%, too_big 77%, +1 more    P1 (1.3)
-eb9dfee4  versionAssets      …ts/build.mjs:161  security  resource_exhaustion 80%, +2 more  P1 (1.3)
-1-3 of 27 open issues. --page 2 for the next
+ID        Method           Location         Type      Kind                                Severity
+c3ff1609  token_for        auth.py:7        security  weak_crypto 94%                     P1 (0.7)
+ddc5c917  can_fulfil       checkout.py:25   defect    does_not_do_what_it_claims 94%      P1 (0.9)
+c25aa687  cancel_order     auth.py:12       security  missing_authorization 90%, +1 more  P0 (0.4)
+287bfb9d  subtotal         cart.py:10       defect    off_by_one 89%                      P1 (1.1)
+225c1645  release_expired  inventory.py:26  defect    bad_state_change 88%                P1 (0.9)
+80d6ebbb  cheapest         cart.py:30       defect    unhandled_null 88%                  P2 (1.5)
+0d0e3f8a  reserve          inventory.py:9   defect    wrong_return_value 87%              P1 (1.0)
+bdc67421  place_order      checkout.py:15   defect    wrong_order 82%                     P1 (0.8)
+5a623390  load_order       storage.py:15    defect    error_ignored 76%                   P1 (1.2)
+4f8bf5dc  refund           checkout.py:31   defect    bad_state_change 74%                P1 (0.8)
+1-10 of 12 open issues. --page 2 for the next
 ```
 
 Ten rows by default. `--limit` changes that, `--page` moves through them, `--all`
@@ -51,33 +58,27 @@ model gives across all four levels. [Inside a scan](scan.md) works it through.
 ## One issue in full
 
 ```console
-$ perch issues 723a2685
-723a2685  buildGraph  src/graph.js:41-126
-01b4aff  read 2026-09-17  open
+$ perch issues c25aa687
+c25aa687  cancel_order  auth.py:12-16
+44c53d9  read 2026-09-27  open
 
-  Sure  Type      Severity  Problem
-   80%  refactor  -         too_big
-   75%  docs      -         docs
-   68%  security  P1 (1.1)  type_confusion
-   55%  lint      -         no-legacy-fallback
+  Confidence  Type      Severity  Problem
+         90%  security  P0 (0.4)  missing_authorization
+         65%  defect    P0 (0.4)  unhandled_null
 
-     84  const link = (map, from, to) => { if (!map.has(from)) map.set(from, new Set()); map.get(from).add(to); };
-         the line it points at, 24% sure
+     14  order = orders[order_id]
+         the line it points at, 67% sure
 
-  Kind           unhandled_null 44%  wrong_return_value 24%  bad_state_change 12%  +4 more
-  Severity       P1 83%  P2 12%  P0 4%  P3 1%
-  Exposed        44%
-  Vulnerability  type_confusion 68%  uninitialized_use 34%  resource_exhaustion 33%  +13 more
-  Claims         does what it claims 80%  documented 25%
-  Refactor       too_big 80%  tangled_conditions 16%  +2 more
-  Calls          buildGraph.resolve  buildGraph.link  buildGraph.callees  buildGraph.callers  resolveRust.has
-  Called by      lintRepository  scanRepository  methodContext
-  Code           risk 74  maintainability 34  complexity 21  nesting 3  59 lines
+  Kind           unhandled_null 79%  bad_state_change 21%
+  Severity       P0 76%  P1 11%  P3 7%  P2 6%
+  Vulnerability  missing_authorization 90%  missing_authentication 90%  idor 85%  +18 more
+  Claims         does what it claims 54%
+  Code           risk 19  maintainability 71  complexity 1  nesting 0  5 lines
 ```
 
-These are the columns the table prints, with every answer under them. That
-includes answers below the floor. A defect at 44% is left off the table, and
-`perch issues <id>` still shows it.
+These are the columns the table prints, with every answer under them. The table
+lists one vulnerability per method; `missing_authentication` at 90% is not a row,
+and it is listed here.
 
 `Severity` is filled in on the two rows the rubric weighs, the defect and the
 vulnerability. The `Severity` line lower down carries the whole distribution, and
@@ -103,7 +104,9 @@ as well.
 
 ## Floors
 
-An issue is listed when its probability is over 50 percent.
+An issue is listed when its score exceeds both its question's floor and the
+run's `--min`. The default `has_bug` floor is 60 percent; see
+[the question floors](/rules/#floors).
 
 ```sh
 perch issues --min 80     # only what it is very sure of

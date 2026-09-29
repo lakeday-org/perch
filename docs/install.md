@@ -3,15 +3,18 @@ title: Quick start
 nav: Quick start
 group: Getting started
 order: 2
-summary: Install, set the key, scan, and read the first thing it found.
+summary: Install perch, set the key, and run the first scan.
 ---
 
 # Quick start
 
 ## Requirements
 
-Node 22 or newer, git, and an API key for your endpoint. perch reads the repository at
-`HEAD`. The directory you run it in has to be a git checkout.
+- Node 22 or newer
+- git
+- An API key for your endpoint
+
+perch reads the repository at `HEAD`, so run it inside a git checkout.
 
 ## Install
 
@@ -35,83 +38,43 @@ export PERCH_BASE_URL=https://api.typesafe.ai/v1/systemone
 export PERCH_API_KEY='paste-your-TypeSafe-key-here'
 ```
 
-For another System One endpoint, use its complete request URL and bearer token.
-See [Environment](/cli/#environment) for the request contract.
+To use another endpoint, see [Environment](/cli/#environment).
 
 ## The first scan
 
-```sh
-perch scan
-```
-
-It parses every tracked file and ranks the methods by risk. It reads them worst
-first, walking out through callers and callees. It prints what it found grouped
-by file, and a count at the end:
+Run it at the root of the repository:
 
 ```console
 $ perch scan
-src/store.js
-  ID        Line  Severity  Type      Confidence  Problem             Method
-  d8f67bd9    46  -         refactor         72%  tangled_conditions  closures
-  463c56ed    63  -         refactor         74%  too_big             openStore
-  67defb37   134  -         refactor         73%  tangled_conditions  openStore.decide
+cart.py
+  ID        Line  Severity  Type    Confidence  Problem                     Method
+  287bfb9d    10  P1 (1.0)  defect         89%  off_by_one                  subtotal
+  48a02173    17  P1 (1.3)  defect         74%  off_by_one                  apply_discount
+  44c8d48a    23  P1 (1.1)  defect         71%  does_not_do_what_it_claims  is_eligible_for_free_sh…
+  80d6ebbb    30  P2 (1.5)  defect         88%  unhandled_null              cheapest
 
-src/checks.js
-  ID        Line  Severity  Type      Confidence  Problem  Method
-  90e449ae    27  -         refactor         68%  too_big  runChecks
+inventory.py
+  ID        Line  Severity  Type    Confidence  Problem             Method
+  0d0e3f8a     9  P1 (1.0)  defect         87%  wrong_return_value  reserve
+  225c1645    26  P1 (1.0)  defect         88%  bad_state_change    release_expired
 
-! 5 problems in 2 files, none failing
-perch at commit d4f7adf: 38 methods, read 2, 38 unchanged
-110 requests  81k tokens in / 5k out  $0.0034
+storage.py
+  ID        Line  Severity  Type    Confidence  Problem        Method
+  5a623390    15  P1 (1.3)  defect         76%  error_ignored  load_order
+
+checkout.py
+  ID        Line  Severity  Type    Confidence  Problem                     Method
+  bdc67421    15  P1 (0.8)  defect         82%  wrong_order                 place_order
+  ddc5c917    25  P1 (0.9)  defect         94%  does_not_do_what_it_claims  can_fulfil
+  4f8bf5dc    31  P1 (0.8)  defect         74%  bad_state_change            refund
+
+auth.py
+  ID        Line  Severity  Type    Confidence  Problem         Method
+  c25aa687    14  P1 (0.5)  defect         65%  unhandled_null  cancel_order
+
+✖ 11 problems in 5 files, all failing
+order-service at commit 44c53d9: 14 methods, read 14
+14 requests  17k tokens in / 3k out  $0.0007
 ```
 
-A method is read again when its code, neighbours, questions, endpoint or model
-have changed. That is what `38 unchanged` counts.
-
-A first run over a large repository reads every method in scope. Narrow it while
-you are getting a feel for it:
-
-```sh
-perch scan --paths src
-perch scan --since origin/main
-```
-
-## The issue list
-
-`perch scan` reports by file. `perch issues` ranks across the whole repository,
-worst first:
-
-```console
-$ perch issues
-ID        Method             Location           Type      Kind                              Severity
-3a7c6bfe  build              …ts/build.mjs:183  refactor  too_big 99%, +3 more              P1 (1.4)
-1f235668  docPage            …pts/build.mjs:82  docs      docs 81%, too_big 77%, +1 more    P1 (1.3)
-eb9dfee4  versionAssets      …ts/build.mjs:161  security  resource_exhaustion 80%, +2 more  P1 (1.3)
-1-3 of 27 open issues. --page 2 for the next
-```
-
-The first column is the id. Give it to `perch issues` to open one up:
-
-```sh
-perch issues 3a7c6bfe
-```
-
-That prints everything perch answered about the method. The severity distribution, and every vulnerability class with its probability. It
-shows the line the defect points at and how sure that pick was. It also lists the callers and callees that
-were in view.
-
-## Checking a change
-
-`perch check` puts the same questions to code as it reads on disk, uncommitted.
-Nothing is recorded, so it is the one to run while you are working:
-
-```sh
-perch check 3a7c6bfe                          # whatever raised that issue
-perch check scripts/build.mjs::build          # a method, by name
-perch check scripts/build.mjs                 # a whole file
-```
-
-It exits 3 while something is still wrong, which is what a loop needs.
-
-
-- [perch in CI](/ci/) for the pull request setup.
+A large repository is hundreds of requests. `perch scan src` scans one directory.

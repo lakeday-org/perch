@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BUILTIN, check, compile, issues, merge, parseQuestions, setHash, vocabulary } from '../src/ask.js';
+import { appliesToLanguage, BUILTIN, check, compile, issues, merge, parseQuestions, setHash, vocabulary } from '../src/ask.js';
 
 const at = 'test.yaml question 1';
 const noul = (name, extra = {}) => check({ name, where: '**/*', ask: 'Is it?', true: 'Yes', false: 'No', ...extra }, at);
@@ -8,7 +8,14 @@ describe('the question grammar', () => {
   it('ships a set that declares what perch asks, and nothing asks it twice', () => {
     const names = BUILTIN.map(question => question.name);
     expect(new Set(names).size).toBe(names.length);
-    expect(names).toEqual(expect.arrayContaining(['has_bug', 'kind', 'severity', 'refactor', 'exposed', 'injection', 'use_after_free']));
+    expect(names).toEqual(expect.arrayContaining(['has_bug', 'kind', 'severity', 'refactor', 'cwe_79', 'cwe_416']));
+    expect(names.filter(name => name.startsWith('bug_'))).toHaveLength(0);
+    expect(names.filter(name => name.startsWith('cwe_'))).toHaveLength(30);
+    // An ID says which check it was; the label is what a row prints, so it is a name a reader knows without a lookup.
+    const specific = BUILTIN.filter(question => /^(bug|cwe)_/.test(question.name));
+    expect(specific.filter(question => /^(bug|cwe)_|^self$/.test(question.issue.label))).toEqual([]);
+    expect(Object.fromEntries(specific.filter(question => ['cwe_89', 'cwe_862', 'cwe_327'].includes(question.name))
+      .map(question => [question.name, question.issue.label]))).toEqual({ cwe_89: 'sql_injection', cwe_862: 'missing_authorization', cwe_327: 'weak_crypto' });
     // Every shipped question is about a method, and the three shapes are all in use.
     expect(new Set(BUILTIN.map(question => question.each))).toEqual(new Set(['method']));
     expect(new Set(BUILTIN.map(question => question.type))).toEqual(new Set(['noul', 'choice', 'score']));
@@ -23,9 +30,23 @@ describe('the question grammar', () => {
     expect(() => check({ name: 'q', where: '**/*', sees: 'everything', ensure: 'x' }, at)).toThrow('sees is self, file, calls');
     // A misspelt key is a question that would quietly never be asked the way it reads.
     expect(() => check({ name: 'q', where: '**/*', ensures: 'x' }, at)).toThrow('ensures is not a key');
+    expect(() => check({ name: 'q', where: '**/*', language: [], ensure: 'x' }, at)).toThrow('language is a language name');
+    // A misspelt language matches no method, so it is an error naming the real ones rather than a question never asked.
+    expect(() => check({ name: 'q', where: '**/*', language: ['csharp'], ensure: 'x' }, at)).toThrow('csharp is not a language perch parses; use bash, c, c_sharp');
     expect(() => check({ name: 'q', where: '**/*', ensure: 'x', issue: { label: 'self' } }, at)).toThrow('an issue needs a type');
     // The noun follows the file: the same grammar reads as rules in perch.yaml and as questions in scan.yaml.
     expect(() => parseQuestions('- ensure: x\n', 'perch.yaml', 'rule')).toThrow('perch.yaml rule 1: every rule needs a name');
+  });
+
+  it('selects a question by parsed language and includes the selector in its hash', () => {
+    const js = noul('q', { language: 'javascript' });
+    const native = noul('q', { language: ['c', 'cpp', 'rust'] });
+    expect(appliesToLanguage(js, 'javascript')).toBe(true);
+    expect(appliesToLanguage(js, 'python')).toBe(false);
+    expect(appliesToLanguage(native, 'cpp')).toBe(true);
+    expect(appliesToLanguage(native, 'typescript')).toBe(false);
+    expect(appliesToLanguage(noul('q'), 'python')).toBe(true);
+    expect(js.hash).not.toBe(native.hash);
   });
 
   it('writes a rule out as the question it is', () => {
@@ -82,6 +103,16 @@ describe('the question grammar', () => {
     expect(() => check({ name: 'q', where: 'src/**', min: 140, ensure: 'x' }, at)).toThrow('min is a percentage, 0 to 100');
   });
 
+  it('picks the strongest issue that clears its own floor', () => {
+    const set = [
+      noul('cwe_79', { min: 60, issue: { type: 'security', label: 'xss', pick: 'strongest' } }),
+      noul('cwe_770', { min: 70, issue: { type: 'security', label: 'resource_exhaustion', pick: 'strongest' } }),
+    ];
+    expect(issues({ cwe_79: 0.65, cwe_770: 0.69 }, 0.5, set)).toEqual([
+      expect.objectContaining({ from: 'cwe_79', label: 'xss', probability: 0.65 }),
+    ]);
+  });
+
   it('tells a filter what this set can raise, so a typo is answered with the real list', () => {
     const { types, labels } = vocabulary(BUILTIN);
     // A type with one question in it is a label, not a type: what a method does other than what it says is a defect.
@@ -99,14 +130,12 @@ describe('the question grammar', () => {
     // which is what thirty-two refactor rows a run were doing. A type not worth stopping for is left out of scan_types.
     const named = name => BUILTIN.find(question => question.name === name);
     expect(named('has_bug').gate).toBe(true);
-    expect(named('injection').gate).toBe(true);
+    expect(named('cwe_89').gate).toBe(true);
     expect(check({ name: 'comment-says-why', where: 'src/**', ensure: 'A comment says why.' }, at).gate).toBe(true);
     expect(named('refactor').gate).toBe(true);
     expect(named('documented').gate).toBe(true);
-    // A question that only feeds another raises no issue and fails nothing: `kind` names a defect, `exposed` gates the classes
-    // that need it.
+    // A question that only feeds another raises no issue and fails nothing: `kind` names a defect.
     expect(named('kind').gate).toBe(false);
-    expect(named('exposed').gate).toBe(false);
     // And a question says otherwise either way, which is how a judgement call gets read without stopping anything.
     expect(check({ name: 'r', where: '**/*.md', gate: false, ensure: 'x' }, at).gate).toBe(false);
     expect(check({ name: 'r', where: '**/*', type: 'choice', gate: true, ask: 'What?', options: { a: 'An a', b: 'A b' },

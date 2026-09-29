@@ -10,11 +10,12 @@ import { join, sep } from 'node:path';
 import { git, listTree } from './git.js';
 import { createFileSelector } from './exclusions.js';
 import { sourceChunks } from './chunks.js';
-import { TOKEN_LIMITS, estimateTokens, textTokens, questionBatches, IncompleteCheckError, ContextLimitError, withTokenRetries, requestScope } from './tokens.js';
-import { BUILTIN, compile, floorFor, installQuestions, merge, parseIgnored, parseQuestions, parseScanTypes, SEARCHES } from './ask.js';
+import { TOKEN_LIMITS, estimateTokens, textTokens, questionBatches, IncompleteCheckError, ContextLimitError, withTokenRetries } from './tokens.js';
+import { appliesToLanguage, BUILTIN, compile, floorFor, installQuestions, merge, parseIgnored, parseQuestions, parseScanTypes, SEARCHES } from './ask.js';
 import { leadingComment, lineId, lineWindows, locateWhere, tagged, whereQuestion, whereWindowQuestion } from './questions.js';
 import { findingId } from './store.js';
 import { AuthenticationError } from './systemone.js';
+import { languageOf } from './analysis.js';
 
 /** Where rules live: one file until there are enough to split, then a directory of them. Both are source, both are reviewed. */
 export const RULES_FILE = 'perch.yaml', RULES_DIR = '.perch/rules';
@@ -123,7 +124,8 @@ export function selectUnits(rule, { scan, graph, files, tree, inScope = () => tr
   // wording of its own question.
   const ours = path => path === RULES_FILE || path.startsWith(`${RULES_DIR}/`);
   // `except` is the rule's own exclusion; `inScope` is the run's, which --since narrows to what a branch changed.
-  const spared = unit => inScope(unit.path) && !ours(unit.path) && (!rule.except || ![rule.except].flat().some(glob => matches(glob, unit.path)));
+  const spared = unit => inScope(unit.path) && !ours(unit.path) && appliesToLanguage(rule, languageOf(unit.path))
+    && (!rule.except || ![rule.except].flat().some(glob => matches(glob, unit.path)));
   const callers = /^callers? of (.+)$/.exec(source ?? '');
   const mentions = /^(?:writers? of|mentions) (.+)$/.exec(source ?? '');
   if (callers) {
@@ -298,11 +300,9 @@ export function unitSteps({ rules, unit, source, seen = {}, budget = TOKEN_LIMIT
 }
 
 export async function askUnitSteps({ systemOne, steps, rules, prepare }) {
-  systemOne = requestScope(systemOne);
   return withTokenRetries(async budget => {
     if (budget < (systemOne.limits?.state ?? TOKEN_LIMITS.state) && !prepare) throw new IncompleteCheckError('source cannot be rebuilt for a smaller token budget');
     const active = steps?.[0] && budget === (systemOne.limits?.state ?? TOKEN_LIMITS.state) ? steps : prepare ? prepare(budget) : steps;
-    systemOne.fits(active);
     const answers = {}, evidence = {};
     for (const step of active) {
       const response = await systemOne.ask(step.state, step.questions);
@@ -324,7 +324,6 @@ export async function askUnitSteps({ systemOne, steps, rules, prepare }) {
  * question: which line. Only failing files are asked, so a clean run still costs one request each.
  */
 export async function locateBreak({ systemOne, rule, unit, body }) {
-  systemOne = requestScope(systemOne);
   return withTokenRetries(async budget => {
     let maxTokens = Math.floor(budget / 2);
     let chunks;
@@ -370,6 +369,7 @@ export function readLint(rule, answers) {
  * is one reading and not six.
  */
 export const rulesForMethod = (rules, node) => rules.filter(rule => rule.kind === 'ensure' && rule.each === 'method'
+  && appliesToLanguage(rule, node.language ?? languageOf(node.path))
   && matches(String(rule.where), node.path)
   && (!rule.except || ![rule.except].flat().some(glob => matches(glob, node.path))));
 
@@ -385,10 +385,14 @@ const checkOf = (rule, unit, { broken, line, text, revision }) => ({
   lint: { rule: rule.name, broken, text: rule.text, said: rule.text },
 });
 
-/** An unanswered rule stays in the report, as incomplete rather than as passed. */
+/**
+ * An unanswered rule remains in the report and cannot be reused as a successful cached check. `oversize` says the code could not
+ * fit a request rather than perch failing to run, which is the difference between a file perch cannot check and an outage.
+ */
 const failedCheck = (rule, unit, error, revision) => ({
   ...checkOf(rule, unit, { broken: null, line: unit.line, text: null, revision }),
   status: 'failed', error: error.message, incomplete: `${unit.path}: ${rule.name}: ${error.message}`,
+  oversize: error instanceof IncompleteCheckError,
 });
 
 /**
@@ -410,20 +414,19 @@ export async function askUnits({ rules, scan, graph, files, tree, revision, syst
   // File order, so a run reads top to bottom and two runs over the same tree ask in the same order.
   const work = [...contexts.values()].sort((a, b) => a.unit.path.localeCompare(b.unit.path) || a.unit.line - b.unit.line);
   const askOne = async ({ unit, sees, rules: over }) => {
-    const client = requestScope(systemOne);
     const source = files.get(unit.path) ?? '';
     const body = unit.part ? bodyOf(source, unit) : source;
     const prepare = budget => unitSteps({ rules: over, unit, source: body, seen: neighbourhood(sees, unit, { graph, files }), budget });
     const steps = prepare(systemOne.limits?.state);
     debug(`${over.map(rule => rule.name).join(', ')}: ${unit.name}`);
-    const { answers, evidence } = await askUnitSteps({ systemOne: client, steps, prepare, rules: over });
+    const { answers, evidence } = await askUnitSteps({ systemOne, steps, prepare, rules: over });
     // A file that failed is asked which line failed; a method or a test block already has one. One question per broken rule,
     // since two rules broken in one file are rarely broken on the same line.
     const results = await Promise.all(over.map(async rule => {
       const broken = readLint(rule, answers).broken;
       const failing = broken > floorFor(rule, min);
       const chunk = evidence[rule.name];
-      const line = failing && !unit.part ? await locateBreak({ systemOne: client, rule, unit: { ...unit, line: unit.line + chunk.line - 1 }, body: chunk.source }) : unit.line;
+      const line = failing && !unit.part ? await locateBreak({ systemOne, rule, unit: { ...unit, line: unit.line + chunk.line - 1 }, body: chunk.source }) : unit.line;
       const onLine = failing && !unit.part ? (source.split('\n')[line - 1] ?? '').trim() : '';
       return checkOf(rule, unit, { broken, line, text: onLine.length > 110 ? `${onLine.slice(0, 110)}…` : onLine || null, revision });
     }));

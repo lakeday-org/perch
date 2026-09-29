@@ -13,9 +13,3 @@
     cannot qualify for cache reuse, even when settled names a witness.
     Retaining errors only in the branch where no witness was found breaks
     this rule. The witness still determines whether the condition was found.
-- name: request-ceiling-is-internal
-  where: src/cli.js
-  ensure: >-
-    The scan and check commands do not expose a max-unit-requests option or
-    configure the model client from such a CLI flag. The finite attempt
-    allowance is an internal safety bound, not a user-facing tuning parameter.

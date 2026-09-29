@@ -17,7 +17,8 @@
 
 <p align="center">
   <a href="https://perchscan.com">perchscan.com</a> &nbsp;&middot;&nbsp;
-  <a href="https://docs.perchscan.com">docs</a>
+  <a href="https://docs.perchscan.com">docs</a> &nbsp;&middot;&nbsp;
+  <a href="https://discord.gg/znTcuKRK">Discord</a>
 </p>
 
 Semantic code linting with Jev.

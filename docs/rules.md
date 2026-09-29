@@ -321,13 +321,15 @@ rules:
     ensure: A headline and one line, not a paragraph explaining the product.
 ```
 
-A path matching `ignore` is never read and never reported.
+A scan of the repository does not read a path matching `ignore`. A path you name
+is read anyway: `perch scan fixtures/` and `--paths fixtures` both read it.
 
 The bare list form still works.
 
 ## Issue types
 
-A scan asks about defects, vulnerabilities and rules.
+A scan asks about defects and rules. Vulnerabilities are asked for with
+`--filter type=security`, or by adding `security` to `scan_types`.
 
 `refactor` and `docs` read the same on every method that has ever been long. A
 scan of this repository reported 32 of them against 0 defects, so they are asked
@@ -390,12 +392,15 @@ Every question carries a floor, in percent. Below it, an answer is not listed.
 | Floor | Question |
 | --- | --- |
 | 75% | `documented` |
-| 70% | `does_what_it_claims`, and every defect and vulnerability class |
-| 60% | `has_bug`, `refactor` |
+| 70% | `does_what_it_claims` and most security checks |
+| 60% | `has_bug`, `refactor`, `cwe_79` (XSS), `cwe_89` (SQL injection), `cwe_125` (out-of-bounds read) |
 
-A 51% answer is a coin flip that prints like a claim, so each question carries a
-floor under which perch does not list it. The floors above were set against this
-codebase; another may want different ones.
+A score near 50% is a weak signal, not a calibrated probability of a bug. The
+default 60% floor for `has_bug` limits the number of alerts. Raising it further
+also misses more bugs; use `--min` to choose a stricter floor for a run.
+XSS, SQL injection, and out-of-bounds reads have 60% floors; the other security
+checks use 70%. These are alert cutoffs, not calibrated probabilities that a
+vulnerability exists.
 
 `--min` sets a floor for a whole run. Both apply and the higher wins. Asking for
 `--min 90` gets you nothing at 73%, whatever a question set for itself.
@@ -433,6 +438,7 @@ set, or a grade against a rubric.
 | `options` | The options and what each means, for `choice`. |
 | `levels` | The rubric, weakest first, for `score`. |
 | `when` | Another question this one is only as likely as. The two multiply. |
+| `language` | Optional parser language ID, or list of IDs, for the snippets this question applies to. |
 | `issue` | What an answer means: `type`, `label`, `on`, `pick`, `except`. |
 | `gate` | Whether an answer fails the run. Defaults to yes for a defect, a vulnerability or a rule. |
 
@@ -443,7 +449,8 @@ perch rules add handles_absence --type choice --each method --where "src/**/*.js
   --issue "type=defect,label=handles_absence,except=checks"
 ```
 
-`when` is how the scan's own security classes are gated on `exposed`. A class
-that only matters when something from outside reaches the method is written
-`when: exposed`. Its probability is multiplied by that one's. See
+For example, `language: [c, cpp, rust]` asks a native-memory question only of
+methods parsed in those languages. Without `language`, the question applies
+to all snippets selected by `where`. `when` names another question this one
+depends on, and multiplies its probability by that answer. See
 [the questions](/scan/#the-questions).

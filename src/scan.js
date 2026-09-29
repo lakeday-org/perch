@@ -10,14 +10,14 @@ import { analyzeTree } from './analyze.js';
 import { AuthenticationError } from './systemone.js';
 import { createFileSelector } from './exclusions.js';
 import { buildGraph } from './graph.js';
-import { CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES } from './ask.js';
+import { appliesToLanguage, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES } from './ask.js';
 import { issuesOf, label as kindLabel, methodSteps, locateWhere, readAnswers } from './questions.js';
 import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL } from './units.js';
 import { findingId, identity, openStore } from './store.js';
-import { TOKEN_LIMITS, IncompleteCheckError, withTokenRetries, requestScope } from './tokens.js';
+import { TOKEN_LIMITS, IncompleteCheckError, withTokenRetries } from './tokens.js';
 export { findingId };
 
-/** Methods in flight at once. Each request carries a whole neighborhood and thirty questions, so this is where the size is. */
+/** Methods in flight at once. Each request carries a whole neighborhood and the applicable question pack. */
 export const DEFAULT_PARALLEL = 8;
 
 /**
@@ -43,11 +43,9 @@ export function mergeAnswers(readings, questions = questionSet().filter(question
 
 /** One System One reading of a method, in as many passes as its length takes, and the line they point at. */
 export async function questionMethod({ systemOne, node, step, steps = [step], lines, rules = [], debug = () => {}, prepare }) {
-  systemOne = requestScope(systemOne);
   return withTokenRetries(async budget => {
     if (budget < (systemOne.limits?.state ?? TOKEN_LIMITS.state) && !prepare) throw new IncompleteCheckError('source cannot be rebuilt for a smaller token budget');
     const active = steps?.[0] && budget === (systemOne.limits?.state ?? TOKEN_LIMITS.state) ? steps : prepare ? prepare(budget) : steps;
-    systemOne.fits(active);
     debug(`asking ${systemOne.id} about ${node.qualified_name} in ${node.path}:${node.line} (${Object.keys(active[0].questions).length} questions${active.length > 1 ? ` over ${active.length} passes` : ''}${active[0].windows ? `, then a line in the chosen window` : ''})`);
     const readings = [];
     let response;
@@ -135,23 +133,34 @@ const createLineReader = (root, graph) => {
  * reads: a number that stops partway through leaves a report that looks complete and is not.
  */
 /**
- * The issue types a scan asks about. `scan_types` in `perch.yaml` decides; omitted, it is the three that can fail a run.
+ * perch's own questions for a method, narrowed to its language and to the issue types this run asks about. A question raising
+ * no issue comes along only when a kept one needs it, the way `kind` names a defect and `severity` ranks it. `perch check` asks
+ * the same set, so a scan and a check of one method agree about what was asked.
+ */
+export const methodQuestions = (kinds, language) => questionsFor(
+  questionSet().filter(question => question.each === 'method' && !question.kind && appliesToLanguage(question, language)),
+  [...kinds].map(value => ({ key: 'type', value })));
+
+/**
+ * The issue types a scan asks about. `scan_types` in `perch.yaml` decides; omitted, it is defects and rules.
  *
  * Refactor and docs read the same on every method that has ever been long. A scan of this repository reported 32 of them
  * against 0 defects, so the list a person opened was mostly rows they came for nothing. A filter naming one asks for it anyway,
- * since narrowing a report to a type you did not ask the questions for would report that you have none of them. Asked, they
- * fail a run like anything else.
+ * since narrowing a report to a type you did not ask the questions for would report that you have none of them. That holds for
+ * a kind or a rule as much as a type: `kind=sql_injection` asks the security question that raises it, or it asks nothing at all
+ * and reports a clean run. Asked, they fail a run like anything else.
  */
-/** perch's own questions for a method, narrowed to the issue types this run asks about. A question raising none is feeder for one that does, so it stays. */
-const methodQuestions = kinds => questionSet().filter(question => question.each === 'method' && !question.kind
-  && (!question.issue || kinds.has(question.issue.type)));
+export const typesAsked = (scanTypes, filters = [], questions = questionSet()) => {
+  const naming = filters.filter(clause => clause.key === 'kind' || clause.key === 'rule');
+  const named = naming.length ? questionsFor(questions, naming, kindLabel).filter(question => question.issue) : [];
+  return new Set([
+    ...(scanTypes ?? DEFAULT_TYPES),
+    ...filters.filter(clause => clause.key === 'type').map(clause => clause.value),
+    ...named.map(question => question.issue.type),
+  ]);
+};
 
-export const typesAsked = (scanTypes, filters = []) => new Set([
-  ...(scanTypes ?? DEFAULT_TYPES),
-  ...filters.filter(clause => clause.key === 'type').map(clause => clause.value),
-]);
-
-export async function scanRepository({ root, revision, out, analyzer, systemOne, label = root, github = null, paths = [], parallel = DEFAULT_PARALLEL,
+export async function scanRepository({ root, revision, out, analyzer, systemOne, label = root, github = null, paths = [], named = [], parallel = DEFAULT_PARALLEL,
   unitParallel = UNIT_PARALLEL, min = 0.5, filters = [], onFile = () => {}, onFinding = () => {}, onProgress = () => {}, progress = () => {}, unitProgress = () => {}, searchProgress = () => {}, scanProgress = () => {}, log = () => {}, debug = () => {} }) {
   const store = openStore(out);
   // The whole tree is parsed however narrow the run is. Parsing is free next to a request, and a method's callers matter whether
@@ -166,10 +175,16 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   // what the last run said about it is carried onto the file at the end rather than dropped.
   // What perch.yaml says not to read at all, on top of what this run was asked to cover. A fixture kept so the docs can show real
   // output is code with a bug in every method on purpose, and being told about them on every run is noise nobody acts on.
-  const ignored = await readIgnored(root, revision);
+  // `ignore` is about a scan of the repository. A path you named yourself, as the target or under --paths, is read even when a
+  // glob covers it, the way `git add -f` adds an ignored file: `perch scan example/` reading nothing because example/** is
+  // ignored told you the code was clean. A glob covering only part of what you named still applies inside it.
+  const coversNamed = glob => named.some(path => matches(glob, path) || matches(glob, `${path.replace(/\/$/, '')}/file`));
+  const ignored = (await readIgnored(root, revision)).filter(glob => !coversNamed(glob));
   const covered = covers(paths);
   const inScope = path => covered(path) && !ignored.some(glob => matches(glob, path));
   const candidates = scan.candidates.filter(candidate => graph.nodes.has(candidate.id) && inScope(graph.nodes.get(candidate.id).path));
+  // How many methods the run was asked about that ignore took out, so a run left with none can say why rather than call it clean.
+  const excluded = scan.candidates.filter(candidate => graph.nodes.has(candidate.id) && covered(graph.nodes.get(candidate.id).path)).length - candidates.length;
   // No methods in scope is an ordinary run, not a failure: a branch that only touched markdown and a workflow has none, and the
   // rules about files still cover what it did touch. Erroring here failed the run and skipped those rules as well.
   const candidateIds = candidates.map(candidate => candidate.id);
@@ -178,7 +193,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const total = candidateIds.length;
   onProgress({ phase: 'reading', completed: 0, total, failed: 0 });
   const run = { id, status: 'running', target: label, github, root, revision, model: systemOne.id, paths, parallel, scan_id: scan.id, out: dir, created_at: created,
-    methods: total, to_read: total, rules: rules.length, filters, edges: graph.edgeCount(), calls: 0, skipped: 0, checked: 0, visited: [], broken: [], failed: [], usage: { input_tokens: 0, output_tokens: 0 } };
+    methods: total, to_read: total, excluded, rules: rules.length, filters, edges: graph.edgeCount(), calls: 0, skipped: 0, checked: 0, visited: [], broken: [], failed: [], usage: { input_tokens: 0, output_tokens: 0 } };
   const saveRun = await store.startRun(run);
 
   // A file is reported the moment every method in it has been accounted for, rather than the run being held back to the end. A
@@ -210,6 +225,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const missing = new Map();
 
   const linesOf = createLineReader(root, graph), walk = createWalk(graph, candidates, inScope);
+  const askedByMethod = new Map();
   const byRisk = ids => [...ids].sort((a, b) => (graph.nodes.get(b)?.metrics?.risk_score ?? 0) - (graph.nodes.get(a)?.metrics?.risk_score ?? 0));
   const stepFor = async nodeId => {
     const node = graph.nodes.get(nodeId);
@@ -223,7 +239,8 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // not six.
     // A filter narrows what is asked, not just what is printed. Asking thirty questions about a method to print two is paying
     // for twenty-eight answers nobody reads, and a method no kept question covers is not read at all.
-    const asked = questionsFor([...methodQuestions(kinds), ...rulesForMethod(rules, node)], filters, kindLabel);
+    const asked = questionsFor([...methodQuestions(kinds, node.language), ...rulesForMethod(rules, node)], filters, kindLabel);
+    askedByMethod.set(node.id, asked);
     const own = asked.filter(question => question.kind);
     if (!asked.length) return { node, calleeIds, callerIds, rules: own, skip: true };
     const lines = await linesOf(node);
@@ -315,6 +332,13 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const units = await askUnits({ ...over, rules: asking.filter(rule => !SEARCHES(rule.kind) && rule.each !== 'method'), parallel: unitParallel, progress: unitProgress });
     const searches = await searchUnits({ ...over, rules: asking.filter(rule => SEARCHES(rule.kind)), parallel: unitParallel, progress: searchProgress });
     run.failed.push(...[...units.results, ...searches.results].filter(result => result.error));
+    // Every attempt failed and none answered. The in-a-row check above only fires after two full batches, so a pull request that
+    // touched three methods ran through an outage and came back clean. Nothing read is not nothing found, however small the run.
+    // Code that cannot fit a request at any token budget is incomplete rather than failed: that is the code, not perch being
+    // unable to run.
+    const answered = run.calls + [...units.results, ...searches.results].filter(result => !result.error).length;
+    const failures = run.failed.filter(result => result.incomplete !== true && !result.oversize);
+    if (failures.length && !answered) throw new Error(`nothing could be read: ${failures.length} failed; last error: ${failures.at(-1).error}`);
     run.incomplete = [
       ...run.failed.filter(result => result.incomplete === true).map(result => `${result.path}::${result.name}: ${result.error}`),
       ...[...units.results, ...searches.results].filter(result => result.incomplete).map(result => result.incomplete),
@@ -332,7 +356,8 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     for (const event of read) for (const issue of issuesOf(event, min)) raised.set(issue.label, (raised.get(issue.label) ?? 0) + 1);
     run.coverage = [
       ...questionSet().filter(question => question.each === 'method' && !question.kind).map(question => ({
-        name: question.name, from: 'builtin', where: question.where, units: read.length,
+        name: question.name, from: 'builtin', where: question.where,
+        units: [...askedByMethod.values()].filter(asked => asked.some(item => item.name === question.name)).length,
         broken: question.issue ? [...raised].filter(([label]) => labelsRaisedBy(question, label)).reduce((total, [, count]) => total + count, 0) : null,
       })),
       ...rules.map(rule => ({
@@ -345,7 +370,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
         broken: run.broken.filter(finding => finding.rule === rule.name).length,
       })),
     ];
-    run.checked = run.calls * questionSet().filter(question => question.each === 'method').length + units.asked + searches.asked;
+    run.checked = [...askedByMethod.values()].reduce((total, asked) => total + asked.length, 0) + units.asked + searches.asked;
 
     // What this run did not cover. --paths and --since say which code a run is about, and --filter says which questions it asks;
     // neither says the rest of the repository stopped existing. Writing the file with only what this run touched threw away

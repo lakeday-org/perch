@@ -1,27 +1,27 @@
-# The questions perch asks of every method it reads. Shipped with the package; perch.yaml overrides or adds by name.
-#
-# Each entry is one typed question. A noul comes back as a probability, a choice as a distribution over options, a score as a
-# distribution over the rubric's levels. `issue:` says what an answer means: which bucket it files under, what it is labelled,
-# and whether the issue is the true answer or the false one. A question with no `issue:` is asked for another question's sake.
-#
-# Two names are reserved. `severity` is the rubric correctness issues are weighted by, and `kind` is what `label: kind` reads.
-#
-# What is not here is not a question: which line a defect is on, which method to read next, and how much of a neighbourhood fits
-# in one request are how perch works rather than what it asks, and they live in src/questions.js.
+# Questions shipped with Perch. Repository rules in perch.yaml may override a name or add questions.
+# language is optional: a name or a list of parser language IDs. Omit it to ask in every language.
+# Each method is asked only the questions enabled for its parsed language.
+# The CWE checks are the 2025 MITRE Top 25, less CWE-20, whose every case is a more specific CWE here and which otherwise
+# fires on any unchecked parameter. Six classes it leaves out are added, since one method can still show them: weak crypto,
+# disabled certificate checks, hard-coded credentials, integer overflow, uninitialized reads and open redirects.
+# Memory-safety checks are limited to languages with reachable native memory operations.
+# Each specific check files under a readable label, such as sql_injection for cwe_89.
 
 - name: has_bug
   each: method
   where: "**/*"
   ask: Does `method` contain a concrete behavioral defect that a caller can reach?
-  true: >
-    For some input a caller can pass, the method returns a wrong result, leaves
-    wrong state, throws when it should not, or fails to throw when it should
-  false: >
-    The method behaves correctly for every input its callers can pass; style,
-    performance, and hypothetical misuse do not count
-  issue: { type: defect, label: kind }
+  "true": >
+    For some input a caller can pass, the method returns a wrong result, leaves wrong state, throws
+    when it should not, or fails to throw when it should
+  "false": >
+    The method behaves correctly for every input its callers can pass; style, performance, and
+    hypothetical misuse do not count
+  issue:
+    type: defect
+    label: kind
+    pick: strongest
   min: 60
-
 - name: kind
   type: choice
   each: method
@@ -32,34 +32,28 @@
     missing_null_handling: A null, undefined, empty, or absent value is not handled
     wrong_return: The wrong value, or a value of the wrong shape, is returned for some input
     swallowed_error: An error is caught, ignored, or turned into a misleading result
-    state_mutation: Shared or input state is mutated when it should not be, or left
-      stale when it should change
-    ordering: Operations run in the wrong order, or rely on an order that is not
-      guaranteed
+    state_mutation: Shared or input state is mutated when it should not be, or left stale when it should change
+    ordering: Operations run in the wrong order, or rely on an order that is not guaranteed
     resource_leak: A handle, lock, timer, process, or connection is not released on some path
     inverted_condition: A condition, sign, or boolean is the wrong way round
-
 - name: severity
   type: score
   each: method
   where: "**/*"
   ask: If something is wrong with `method`, how much would a caller feel it?
-  # Weakest first. The bands run the other way, so the top level is P0.
   levels:
     - No caller would notice
     - A wrong result in a rare case, or one the caller can see and recover from
     - A wrong result or wrong state in ordinary use
-    - Data lost, corrupted, or exposed, or a check that should stop someone
-      bypassed
-
+    - Data lost, corrupted, or exposed, or a check that should stop someone bypassed
 - name: refactor
   type: choice
   each: method
   where: "**/*"
   ask: >
-    Judging from `method`, its `metrics` (risk_score and maintainability_index
-    run 0-100, cyclomatic_complexity and max_nesting are counts), and how its
-    callers use it, what does it most need?
+    Judging from `method`, its `metrics` (risk_score and maintainability_index run 0-100,
+    cyclomatic_complexity and max_nesting are counts), and how its callers use it, what does it most
+    need?
   options:
     split: Does too many things; split it into smaller methods with one job each
     flatten: Nested too deeply; flatten with early returns or extracted helpers
@@ -68,303 +62,413 @@
     rename: The name or parameters misdescribe what it does; rename them
     remove_dead_code: Contains unreachable or unused code; remove it
     none: No refactor needed
-  issue: { type: refactor, label: refactor, except: none }
+  issue:
+    type: refactor
+    label: refactor
+    except: none
   min: 60
-
 - name: does_what_it_claims
   each: method
   where: "**/*"
-  ask: >-
-    Does `method` do what its name, its parameters and its `leading_comment` say
-    it does?
-  true: It behaves the way its name and its comment say it does
-  false: >-
-    It does something different from, less than, or more than its name and
-    comment say, so one of the two is wrong
+  ask: Does `method` do what its name, its parameters and its `leading_comment` say it does?
+  "true": It behaves the way its name and its comment say it does
+  "false": It does something different from, less than, or more than its name and comment say, so one
+    of the two is wrong
   issue:
     type: defect
     label: does_not_do_what_it_claims
     on: false
+    pick: strongest
   min: 70
-
 - name: documented
   each: method
   where: "**/*"
-  ask: >-
-    Could a caller learn what `method` promises from its `leading_comment`, or
-    from the code itself where it is small enough to read?
-  true: >-
-    Its contract, its edge cases and its side effects are all there to be read
-  false: >-
-    A caller could not learn what it promises without reading it through. A
-    comment that says something untrue is misaligned rather than this: this is
-    what is missing.
+  ask: Could a caller learn what `method` promises from its `leading_comment`, or from the code itself
+    where it is small enough to read?
+  "true": Its contract, its edge cases and its side effects are all there to be read
+  "false": "A caller could not learn what it promises without reading it through. A comment that says
+    something untrue is misaligned rather than this: this is what is missing."
   issue:
     type: docs
     label: docs
     on: false
   min: 75
-
-# A gate. It raises nothing itself; `when: exposed` multiplies a class by it.
-- name: exposed
+- name: cwe_79
   each: method
   where: "**/*"
-  ask: >-
-    Does a value chosen by someone outside this program reach `method`, or does
-    `method` act outside the program on such a value?
-  true: >-
-    Something a person or another system chose reaches it, such as a request, an
-    argument, a message, a row, or a file whose name or contents they control;
-    or it runs, queries, writes or sends using such a value.
-  false: >-
-    Everything it works on was decided by this program, and anything it touches
-    outside is named by this program.
-
-# The vulnerability classes. One noul each, all filed under security, the likeliest one listed. `when: exposed` marks the ones
-# that only matter when something from outside reaches the method; the rest are wrong on their own terms. Gating those once hid a
-# use-after-free rated at 95% behind a method perch was only 46% sure took outside input.
-
-- name: injection
-  each: method
-  where: "**/*"
-  when: exposed
-  ask: >
-    If `method` handles anything from outside the program: is this true of it? A
-    value from outside is put into a shell command, a query, a path of
-    execution, or anything that gets evaluated, without being escaped or
-    parameterised.
-  true: >
-    Yes: a value from outside is put into a shell command, a query, a path of
-    execution, or anything that gets evaluated, without being escaped or
-    parameterised
-  false: No, or nothing from outside reaches this method
-  issue: { type: security, label: self, pick: strongest }
-  min: 70
-
-- name: path_traversal
-  each: method
-  where: "**/*"
-  when: exposed
-  ask: >
-    If `method` handles anything from outside the program: is this true of it? A
-    name from outside is used to build a filesystem path, URL, or key without
-    being confined to the place it is meant to reach.
-  true: >
-    Yes: a name from outside is used to build a filesystem path, URL, or key
-    without being confined to the place it is meant to reach
-  false: No, or nothing from outside reaches this method
-  issue: { type: security, label: self, pick: strongest }
-  min: 70
-
-- name: unsafe_deserialization
-  each: method
-  where: "**/*"
-  when: exposed
-  ask: >-
-    If `method` handles anything from outside the program: is this true of it?
-    Data from outside is turned into code, or into an object whose type it
-    chose. eval, new Function or a vm run over it; a deserializer that can
-    instantiate arbitrary classes; a YAML or XML parser with tags or entities
-    enabled; a merge that lets it set __proto__ or constructor. Parsing outside
-    data into plain values is not this, however untrusted it is.
-  true: >-
-    Yes: data from outside is turned into code, or into an object whose type it
-    chose. eval, new Function or a vm run over it; a deserializer that can
-    instantiate arbitrary classes; a YAML or XML parser with tags or entities
-    enabled; a merge that lets it set __proto__ or constructor. Parsing outside
-    data into plain values is not this, however untrusted it is.
-  false: No, or nothing from outside reaches this method
-  issue: { type: security, label: self, pick: strongest }
-  min: 70
-
-- name: secret_exposure
-  each: method
-  where: "**/*"
-  when: exposed
-  ask: >
-    If `method` handles anything from outside the program: is this true of it? A
-    password, token, key, or other credential is written into the source,
-    logged, returned to a caller, or sent somewhere it need not go.
-  true: >
-    Yes: a password, token, key, or other credential is written into the source,
-    logged, returned to a caller, or sent somewhere it need not go
-  false: No, or nothing from outside reaches this method
-  issue: { type: security, label: self, pick: strongest }
-  min: 70
-
-- name: missing_authorization
-  each: method
-  where: "**/*"
-  when: exposed
-  ask: >
-    If `method` handles anything from outside the program: is this true of it?
-    An action that should check who is asking, or what they may touch, does not
-    check, or checks after it has already acted.
-  true: >
-    Yes: an action that should check who is asking, or what they may touch, does
-    not check, or checks after it has already acted
-  false: No, or nothing from outside reaches this method
-  issue: { type: security, label: self, pick: strongest }
-  min: 70
-
-- name: weak_crypto
-  each: method
-  where: "**/*"
-  ask: Is this true of `method`?
-  true: >-
-    Security rests on predictable randomness, a home-made scheme, a broken
-    algorithm, or a comparison that leaks timing
-  false: Nothing in `method` does this.
-  issue: { type: security, label: self, pick: strongest }
-  min: 70
-
-- name: unvalidated_destination
-  each: method
-  where: "**/*"
-  when: exposed
-  ask: >
-    If `method` handles anything from outside the program: is this true of it?
-    An address, host, or redirect target from outside decides where a request or
-    a user is sent.
-  true: >
-    Yes: an address, host, or redirect target from outside decides where a
-    request or a user is sent
-  false: No, or nothing from outside reaches this method
-  issue: { type: security, label: self, pick: strongest }
-  min: 70
-
-- name: resource_exhaustion
-  each: method
-  where: "**/*"
-  when: exposed
-  ask: >-
-    If `method` handles anything from outside the program: is this true of it?
-    Input from outside decides how much memory, recursion, time or work happens,
-    and nothing bounds it. Work whose size is what the operator asked for is not
-    this: a tool doing as much work as the input it was pointed at is doing its
-    job.
-  true: >-
-    Yes: input from outside decides how much memory, recursion, time or work
-    happens, and nothing bounds it. Work whose size is what the operator asked
-    for is not this: a tool doing as much work as the input it was pointed at is
-    doing its job.
-  false: No, or nothing from outside reaches this method
-  issue: { type: security, label: self, pick: strongest }
-  min: 70
-
-- name: unsafe_reflection
-  each: method
-  where: "**/*"
-  when: exposed
-  ask: >-
-    If `method` handles anything from outside the program: is this true of it? A
-    name from outside chooses which function, class, field or module is reached,
-    so it picks code the program never named. An import or require built from
-    it, a property taken off an object and called, a class or handler resolved
-    by name. A lookup in a table the program itself wrote, where a name that is
-    not in it is handled, is not this.
-  true: >-
-    Yes: a name from outside chooses which function, class, field or module is
-    reached, so it picks code the program never named. An import or require
-    built from it, a property taken off an object and called, a class or handler
-    resolved by name. A lookup in a table the program itself wrote, where a name
-    that is not in it is handled, is not this.
-  false: No, or nothing from outside reaches this method
-  issue: { type: security, label: self, pick: strongest }
-  min: 70
-
-- name: disabled_safeguard
-  each: method
-  where: "**/*"
-  ask: Is this true of `method`?
-  true: >-
-    A check that exists is turned off or weakened: certificate verification
-    skipped, a permission widened, a warning suppressed, a sandbox opened
-  false: Nothing in `method` does this.
-  issue: { type: security, label: self, pick: strongest }
-  min: 70
-
-- name: buffer_overflow
-  each: method
-  where: "**/*"
-  ask: Is this true of `method`?
-  true: >-
-    An index, length or offset reaches past the end of a string, array, buffer
-    or typed array. Where the language does not fault on that, the read returns
-    undefined or the write lands somewhere nothing reads, which is harder to
-    notice rather than safer.
-  false: Nothing in `method` does this.
+  ask: "Is `method` vulnerable to cross-site scripting?"
+  "true": "Outside text reaches HTML or script output without escaping. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
+  "false": "Its output is escaped, or no attacker-controlled text reaches it."
   issue:
-    type: defect
-    label: self
-  min: 70
-
-- name: use_after_free
+    type: security
+    label: xss
+    pick: strongest
+  min: 60
+- name: cwe_89
   each: method
   where: "**/*"
-  ask: Is this true of `method`?
-  true: >-
-    Something already closed, aborted, destroyed or released is used again, or
-    released twice. A stream written after it ended, a handle read after close,
-    a controller used after abort, a connection used after it went back to the
-    pool.
-  false: Nothing in `method` does this.
+  ask: "Is `method` vulnerable to SQL injection?"
+  "true": "Outside text becomes part of the SQL it runs. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
+  "false": "Its SQL is fixed, or outside values are bound as parameters."
   issue:
-    type: defect
-    label: self
-  min: 70
-
-- name: uninitialized_use
+    type: security
+    label: sql_injection
+    pick: strongest
+  min: 60
+- name: cwe_352
   each: method
   where: "**/*"
-  ask: Is this true of `method`?
-  true: >-
-    A value is read before anything has written it, so what comes back is
-    undefined where a value was meant to be. A field never set, a binding read
-    before its declaration runs, or a result used before the work that produces
-    it has finished.
-  false: Nothing in `method` does this.
+  ask: "Is `method` vulnerable to cross-site request forgery?"
+  "true": "A browser request that changes state is accepted without a CSRF token or origin check."
+  "false": "It checks for forgery, or changes nothing a browser request can trigger."
   issue:
-    type: defect
-    label: self
+    type: security
+    label: csrf
+    pick: strongest
   min: 70
-
-- name: integer_overflow
+- name: cwe_862
   each: method
   where: "**/*"
-  ask: Is this true of `method`?
-  true: >-
-    Arithmetic can wrap, truncate, or change sign, and the result is then used
-    as a size, an index, a length, or a permission
-  false: Nothing in `method` does this.
+  ask: "Does `method` skip an authorization check it needs?"
+  "true": "Its name, documentation or callers show its action must be limited to certain users, and it performs it without checking who is calling."
+  "false": "It checks permission, or its action needs none."
   issue:
-    type: defect
-    label: self
+    type: security
+    label: missing_authorization
+    pick: strongest
   min: 70
-
-- name: race_condition
+- name: cwe_787
   each: method
   where: "**/*"
-  ask: Is this true of `method`?
-  true: >-
-    Two paths can reach the same state at once without holding anything, or a
-    check and the act it guards are separated in a way another path can exploit
-  false: Nothing in `method` does this.
+  language:
+    - c
+    - cpp
+    - rust
+    - zig
+  ask: "Can `method` write past the end of a buffer?"
+  "true": "An index, pointer or length lets it write outside the memory it owns."
+  "false": "Every write stays inside its buffer."
   issue:
-    type: defect
-    label: self
+    type: security
+    label: out_of_bounds_write
+    pick: strongest
   min: 70
-
-- name: type_confusion
+- name: cwe_22
   each: method
   where: "**/*"
-  ask: Is this true of `method`?
-  true: >-
-    A value is treated as a type, shape, or variant it may not be: an unchecked
-    cast, a union read through the wrong member, a parsed object trusted to have
-    a shape
-  false: Nothing in `method` does this.
+  ask: "Is `method` vulnerable to path traversal?"
+  "true": "A path built from outside input can reach files beyond the directory it should be limited to. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
+  "false": "Its paths are fixed or confined to their directory."
   issue:
-    type: defect
-    label: self
+    type: security
+    label: path_traversal
+    pick: strongest
+  min: 70
+- name: cwe_416
+  each: method
+  where: "**/*"
+  language:
+    - c
+    - cpp
+    - rust
+    - zig
+  ask: "Can `method` use memory after it is freed?"
+  "true": "It reads or writes through a pointer or reference after the memory is released."
+  "false": "It never uses memory after release."
+  issue:
+    type: security
+    label: use_after_free
+    pick: strongest
+  min: 70
+- name: cwe_125
+  each: method
+  where: "**/*"
+  language:
+    - c
+    - cpp
+    - rust
+    - zig
+  ask: "Can `method` read past the end of a buffer?"
+  "true": "An index, pointer or length lets it read outside the memory it owns."
+  "false": "Every read stays inside its buffer."
+  issue:
+    type: security
+    label: out_of_bounds_read
+    pick: strongest
+  min: 60
+- name: cwe_78
+  each: method
+  where: "**/*"
+  ask: "Is `method` vulnerable to OS command injection?"
+  "true": "Outside text becomes part of a shell command. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
+  "false": "Its commands are fixed, or pass arguments without a shell."
+  issue:
+    type: security
+    label: os_command_injection
+    pick: strongest
+  min: 70
+- name: cwe_94
+  each: method
+  where: "**/*"
+  ask: "Is `method` vulnerable to code injection?"
+  "true": "Outside text is evaluated or compiled as code. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
+  "false": "It never runs outside input as code."
+  issue:
+    type: security
+    label: code_injection
+    pick: strongest
+  min: 70
+- name: cwe_120
+  each: method
+  where: "**/*"
+  language:
+    - c
+    - cpp
+    - rust
+    - zig
+  ask: "Can `method` copy more into a buffer than it holds?"
+  "true": "A copy's length is not checked against the size of its destination."
+  "false": "Every copy is bounded by its destination."
+  issue:
+    type: security
+    label: buffer_overflow
+    pick: strongest
+  min: 70
+- name: cwe_434
+  each: method
+  where: "**/*"
+  ask: "Does `method` accept a dangerous file upload?"
+  "true": "An uploaded file of any type can be stored where it can be run or served. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
+  "false": "Uploads are checked, or stored where they cannot do harm."
+  issue:
+    type: security
+    label: unsafe_file_upload
+    pick: strongest
+  min: 70
+- name: cwe_476
+  each: method
+  where: "**/*"
+  language:
+    - c
+    - cpp
+    - zig
+  ask: "Can `method` dereference a null pointer?"
+  "true": "A null pointer or reference is used on some path."
+  "false": "Nulls are checked before use."
+  issue:
+    type: security
+    label: null_dereference
+    pick: strongest
+  min: 70
+- name: cwe_121
+  each: method
+  where: "**/*"
+  language:
+    - c
+    - cpp
+    - rust
+    - zig
+  ask: "Can `method` overflow a buffer on the stack?"
+  "true": "A write can go past the end of a stack buffer."
+  "false": "Its stack buffers are never overrun."
+  issue:
+    type: security
+    label: stack_buffer_overflow
+    pick: strongest
+  min: 70
+- name: cwe_502
+  each: method
+  where: "**/*"
+  ask: "Does `method` deserialize untrusted data unsafely?"
+  "true": "Outside data is deserialized in a way that can create arbitrary objects or run code. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
+  "false": "It deserializes only trusted data, or only plain values."
+  issue:
+    type: security
+    label: unsafe_deserialization
+    pick: strongest
+  min: 70
+- name: cwe_122
+  each: method
+  where: "**/*"
+  language:
+    - c
+    - cpp
+    - rust
+    - zig
+  ask: "Can `method` overflow a buffer on the heap?"
+  "true": "A write can go past the end of a heap buffer."
+  "false": "Its heap buffers are never overrun."
+  issue:
+    type: security
+    label: heap_buffer_overflow
+    pick: strongest
+  min: 70
+- name: cwe_863
+  each: method
+  where: "**/*"
+  ask: "Does `method` check authorization wrongly?"
+  "true": "Its name, documentation or callers show who may perform its action, and its check lets through someone who should be refused."
+  "false": "Its permission check is right."
+  issue:
+    type: security
+    label: incorrect_authorization
+    pick: strongest
+  min: 70
+- name: cwe_284
+  each: method
+  where: "**/*"
+  ask: "Does `method` let someone use something they should not have access to?"
+  "true": "Its name, documentation or callers show a resource or action is protected, and it lets the wrong actor use it."
+  "false": "Its access control is right."
+  issue:
+    type: security
+    label: broken_access_control
+    pick: strongest
+  min: 70
+- name: cwe_200
+  each: method
+  where: "**/*"
+  ask: "Does `method` expose sensitive information?"
+  "true": "It returns, logs or sends secrets, tokens or personal data to someone who should not see them."
+  "false": "It exposes nothing sensitive."
+  issue:
+    type: security
+    label: information_exposure
+    pick: strongest
+  min: 70
+- name: cwe_306
+  each: method
+  where: "**/*"
+  ask: "Does `method` skip authentication it needs?"
+  "true": "Its name, documentation or callers show a sensitive action that needs a known caller, and it runs without authenticating one."
+  "false": "It authenticates the caller, or needs no authentication."
+  issue:
+    type: security
+    label: missing_authentication
+    pick: strongest
+  min: 70
+- name: cwe_918
+  each: method
+  where: "**/*"
+  ask: "Is `method` vulnerable to server-side request forgery?"
+  "true": "A destination taken from outside input decides where the server sends a request. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
+  "false": "Its destinations are fixed or checked against an allow list."
+  issue:
+    type: security
+    label: ssrf
+    pick: strongest
+  min: 70
+- name: cwe_77
+  each: method
+  where: "**/*"
+  ask: "Is `method` vulnerable to command injection?"
+  "true": "Outside text changes a command passed to an interpreter. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
+  "false": "Its commands are fixed, or outside input is passed as data."
+  issue:
+    type: security
+    label: command_injection
+    pick: strongest
+  min: 70
+- name: cwe_639
+  each: method
+  where: "**/*"
+  ask: "Can a user reach someone else's data by changing an ID that `method` receives?"
+  "true": "It looks up a record by an ID taken from outside input without checking the record belongs to the caller. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
+  "false": "It checks ownership, or its records are not per user."
+  issue:
+    type: security
+    label: idor
+    pick: strongest
+  min: 70
+- name: cwe_770
+  each: method
+  where: "**/*"
+  ask: "Can a request or other untrusted input make `method` use unbounded memory or work?"
+  "true": "A size, count or depth taken from outside input sets how much it allocates or loops, with no limit. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
+  "false": "Its work is fixed, limited, or set only by the program's own data."
+  issue:
+    type: security
+    label: resource_exhaustion
+    pick: strongest
+  min: 70
+- name: cwe_327
+  each: method
+  where: "**/*"
+  ask: "Does `method` use weak cryptography?"
+  "true": "It protects a password, token or secret with a broken algorithm such as MD5 or SHA-1, or uses predictable randomness where a value must be unguessable."
+  "false": "Its cryptography is sound, or it uses none."
+  issue:
+    type: security
+    label: weak_crypto
+    pick: strongest
+  min: 70
+- name: cwe_295
+  each: method
+  where: "**/*"
+  ask: "Does `method` turn off certificate checking?"
+  "true": "TLS certificate or hostname verification is disabled or bypassed."
+  "false": "It keeps certificate checking on, or makes no TLS connection."
+  issue:
+    type: security
+    label: disabled_certificate_check
+    pick: strongest
+  min: 70
+- name: cwe_798
+  each: method
+  where: "**/*"
+  ask: "Does `method` contain a hard-coded credential?"
+  "true": "A password, API key or private key is written in the source."
+  "false": "It contains no credential."
+  issue:
+    type: security
+    label: hardcoded_secret
+    pick: strongest
+  min: 70
+- name: cwe_190
+  each: method
+  where: "**/*"
+  language:
+    - c
+    - cpp
+    - zig
+    - rust
+    - go
+    - java
+    - kotlin
+    - c_sharp
+    - swift
+    - solidity
+  ask: "Can arithmetic in `method` overflow in a way that matters?"
+  "true": "A calculation wraps or overflows and the result is used as a size, index, amount or security check."
+  "false": "Its arithmetic cannot overflow, or an overflow does no harm."
+  issue:
+    type: security
+    label: integer_overflow
+    pick: strongest
+  min: 70
+- name: cwe_908
+  each: method
+  where: "**/*"
+  language:
+    - c
+    - cpp
+    - zig
+  ask: "Can `method` read memory before it is written?"
+  "true": "A variable, field or buffer is read before it is set on some path."
+  "false": "Everything it reads is set first."
+  issue:
+    type: security
+    label: uninitialized_use
+    pick: strongest
+  min: 70
+- name: cwe_601
+  each: method
+  where: "**/*"
+  ask: "Is `method` vulnerable to an open redirect?"
+  "true": "A redirect target taken from outside input can send users to any site. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
+  "false": "Its redirect targets are fixed or checked."
+  issue:
+    type: security
+    label: open_redirect
+    pick: strongest
   min: 70

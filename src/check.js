@@ -11,12 +11,11 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { languageOf } from './analysis.js';
 import { methodContext } from './context.js';
-import { questionMethod } from './scan.js';
-import { bodyOf, matches, neighbourhood, readLint, readRules, RULES_FILE, unitSteps, askUnitSteps } from './units.js';
+import { methodQuestions, questionMethod, typesAsked } from './scan.js';
+import { bodyOf, matches, neighbourhood, readLint, readRules, readScanTypes, RULES_FILE, unitSteps, askUnitSteps } from './units.js';
 import { BELIEVED, filterKeys, meaning, methodSteps, issuesOf } from './questions.js';
-import { floorFor } from './ask.js';
+import { appliesToLanguage, floorFor } from './ask.js';
 import { openStore } from './store.js';
-import { requestScope } from './tokens.js';
 
 /** A check reads one file off disk, so there is no graph to draw a neighbourhood from: what `sees` can reach is that file. */
 const EMPTY_GRAPH = { nodes: new Map() };
@@ -66,6 +65,7 @@ export function rulesFor(rules, unit, only = []) {
     // A question written out longhand is asked of a method by a scan, not put to one file on its own.
     if (!rule.kind) return false;
     if (only.length && !only.includes(rule.name)) return false;
+    if (!appliesToLanguage(rule, languageOf(unit.path))) return false;
     // A file the rule spares is spared here too. Left out, check asked a rule about the one file its author had said it did not
     // cover, so check and a scan disagreed about which rules apply to a path.
     if (rule.except && [rule.except].flat().some(glob => matches(glob, unit.path))) return false;
@@ -90,7 +90,6 @@ const brokenHere = (rule, answers) => {
  * named the rules to ask. Asked together, since they do not depend on each other.
  */
 export async function checkTarget({ target, root, out, analyzer, systemOne, revision, only = [], debug = () => {} }) {
-  systemOne = requestScope(systemOne);
   const unit = await resolveTarget({ target, root, out, analyzer });
   const named = splitOnly(only);
   // Naming only classes the scan answers about means the rule file was not named, so none of it is asked.
@@ -127,7 +126,11 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
     if (context) {
       const node = { ...context.node, line: unit.line, end_line: unit.end_line, metrics: unit.metrics ?? context.node.metrics };
       const others = context.methods.filter(method => method.qualified_name !== unit.name);
-      const prepare = budget => methodSteps({ node, lines: unit.lines, imports: context.imports, methods: [...others, node], callees: context.callees, callers: context.callers, budget });
+      // The types a scan of this method would ask, or the ones --rules named. Asking everything perch ships reported a
+      // vulnerability on a method whose scan never asks about security, so a check and a scan disagreed about the same code.
+      const kinds = named.types.length ? new Set(named.types) : typesAsked(await readScanTypes(root, revision));
+      const asked = methodQuestions(kinds, languageOf(unit.path));
+      const prepare = budget => methodSteps({ node, lines: unit.lines, imports: context.imports, methods: [...others, node], callees: context.callees, callers: context.callers, asked, budget });
       const steps = prepare(systemOne.limits?.state);
       const { answers } = await questionMethod({ systemOne, node, steps, prepare, lines: unit.lines, debug });
       issues = issuesOf({ ...answers, metrics: node.metrics });

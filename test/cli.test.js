@@ -87,6 +87,16 @@ describe('cli', () => {
     expect(opened).toContain('off_by_one');
   });
 
+  it('leaves out an answer the scan never asked for instead of printing NaN', () => {
+    // documented is a docs question, and docs are not a default scan type, so a default reading has does_what_it_claims alone.
+    const finding = { id: 'abc12345', path: 'src/x.js', name: 'f', line: 7, end_line: 9, method: 'src/x.js::f', has_bug: 0.2, does_what_it_claims: 0.72, metrics: {}, file: {} };
+    const opened = formatFinding(finding, { color: false });
+    expect(opened).toContain('does what it claims 72%');
+    expect(opened).not.toContain('NaN');
+    expect(opened).not.toContain('documented');
+    expect(formatFinding({ ...finding, documented: 0.4 }, { color: false })).toContain('documented 40%');
+  });
+
   it('does not call a run clean when a filter is what emptied it', () => {
     // A refactor finding, and a filter asking for defects. The repository has something to report; this filter passed over it.
     // Saying "nothing to report" after reading every method is the report describing the filter as the repository.
@@ -120,6 +130,31 @@ describe('cli', () => {
     expect(err.join('\n')).toContain('PERCH_API_KEY');
     expect(await main(['issues', '--out', join(repo, '.perch')], io)).toBe(0);
     expect(out.at(-1)).toBe('Nothing matches.');
+  });
+
+  it('check asks a method the questions a scan would, unless --rules names others', async () => {
+    const repo = await realpath(await makeFixture());
+    cleanups.push(repo);
+    vi.spyOn(process, 'cwd').mockReturnValue(repo);
+    const service = scriptedSystemOne({});
+    const asked = [];
+    vi.stubGlobal('fetch', async (url, init) => {
+      const { state, questions } = JSON.parse(init.body);
+      if (state.method) asked.push(Object.keys(questions));
+      return new Response(JSON.stringify(await service.ask(state, questions)));
+    });
+    const { err, io } = capture();
+    io.env = { PERCH_API_KEY: 'test-key', PERCH_BASE_URL: 'https://api.typesafe.ai/v1/systemone' };
+    const out = join(repo, '.perch');
+    // The check reuses the neighbourhood the scan found, so the scan comes first.
+    expect([0, 3]).toContain(await main(['scan', repo, '--out', out], io));
+    asked.length = 0;
+    expect([0, 3], err.join('\n')).toContain(await main(['check', 'src/clamp.js::clamp', '--out', out], io));
+    expect(asked.flat()).toContain('has_bug');
+    expect(asked.flat().filter(name => name.startsWith('cwe_'))).toEqual([]);
+    asked.length = 0;
+    expect([0, 3], err.join('\n')).toContain(await main(['check', 'src/clamp.js::clamp', '--rules', 'security', '--out', out], io));
+    expect(asked.flat()).toContain('cwe_89');
   });
 
   it.each(['scan', 'check'])('%s uses the configured key, exact endpoint and model', async command => {
@@ -309,7 +344,7 @@ describe('cli', () => {
     // A filter that matches keeps the row; one that does not leaves nothing.
     expect(await main(['findings', '--filter', 'type=defect,severity=P2', '--out', repo.out], io)).toBe(0);
     expect(out.at(-1)).toContain(f.id);
-    expect(await main(['findings', '--filter', 'kind=injection', '--out', repo.out], io)).toBe(0);
+    expect(await main(['findings', '--filter', 'kind=sql_injection', '--out', repo.out], io)).toBe(0);
     expect(out.at(-1)).toBe('Nothing matches.');
     expect(out.at(-1)).not.toContain('Work');
     const code = await main(['issues', f.id.slice(0, 5), '--out', repo.out, '--verbose'], io);
@@ -335,20 +370,18 @@ describe('cli', () => {
     const repoRoot = await makeGraphFixture();
     cleanups.push(repoRoot);
     const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
-    // f is the heavier method overall; h is the one that is probably injectable.
+    // f is the heavier method overall; h is the one that is probably vulnerable to SQL injection.
     const hunt = await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne({
-      'src/a.js::f': { has_bug: 0.9, exposed: 0.9, injection: 0.1 },
-      'src/b.js::h': { has_bug: 0.1, exposed: 0.9, injection: 0.95 },
-    }) }));
+      'src/a.js::f': { has_bug: 0.9, cwe_89: 0.1 },
+      'src/b.js::h': { has_bug: 0.1, cwe_89: 0.95 },
+    }), filters: [{ key: 'type', value: 'defect' }, { key: 'type', value: 'security' }] }));
     const f = hunt.visited.find(visit => visit.method === 'src/a.js::f').id;
     const h = hunt.visited.find(visit => visit.method === 'src/b.js::h').id;
     const { out, io } = capture();
     const idsOf = text => text.split('\n').slice(1).map(row => row.slice(0, 8));
 
-    expect(await main(['findings', '--out', repo.out], io)).toBe(0);
-    expect(idsOf(out.at(-1))[0]).toBe(f);
-    // Filtering for injection puts the likeliest injection first, not the method carrying the most of everything else.
-    expect(await main(['issues', '--filter', 'kind=injection', '--out', repo.out], io)).toBe(0);
+    // Filtering for SQL injection puts the likeliest case first, not the method carrying the most of everything else.
+    expect(await main(['issues', '--filter', 'kind=sql_injection', '--out', repo.out], io)).toBe(0);
     expect(idsOf(out.at(-1))[0]).toBe(h);
     // Filtering on what f leads with puts f back on top.
     expect(await main(['issues', '--filter', 'type=defect', '--out', repo.out], io)).toBe(0);

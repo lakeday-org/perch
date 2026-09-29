@@ -14,6 +14,7 @@
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { parse } from 'yaml';
+import { LANGUAGES } from './languages.js';
 
 /** A noul is a probability, a choice a distribution over named options, a score a distribution over a rubric's levels. */
 export const SHAPES = ['noul', 'choice', 'score'];
@@ -33,7 +34,7 @@ export const SEES = ['self', 'file', 'calls', 'callers', 'neighbors'];
 export const ENSURES = ['ensure', 'ensure_present', 'ensure_absent'];
 export const SEARCHES = kind => kind === 'ensure_present' || kind === 'ensure_absent';
 
-const KEYS = new Set(['name', 'disabled', 'min', 'gate', 'type', 'each', 'where', 'except', 'sees', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', ...ENSURES]);
+const KEYS = new Set(['name', 'disabled', 'min', 'gate', 'type', 'each', 'where', 'language', 'except', 'sees', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', ...ENSURES]);
 const ISSUE_KEYS = new Set(['type', 'label', 'on', 'pick', 'except']);
 /** A correctness issue is weighed by the severity rubric; everything else weighs as itself. */
 export const CORRECTNESS = new Set(['defect', 'security']);
@@ -89,6 +90,12 @@ export function check(question, at, noun = 'question') {
   if (!SHAPES.includes(type)) throw new Error(`${where}: type is ${SHAPES.join(', ')}, not ${type}`);
   if (!full.where) throw new Error(`${where}: needs where to say what it applies to`);
   if (full.each && !EACH.includes(full.each)) throw new Error(`${where}: each is ${EACH.join(', ')}, not ${full.each}`);
+  // Every language named has to be one perch parses. A misspelt one matches no method, so the question would never be asked and
+  // nothing would say so.
+  const languages = [full.language ?? []].flat();
+  if (full.language !== undefined && !languages.length) throw new Error(`${where}: language is a language name or a nonempty list of language names`);
+  const unknown = languages.filter(language => !LANGUAGES.includes(language));
+  if (unknown.length) throw new Error(`${where}: ${unknown.join(', ')} is not a language perch parses; use ${LANGUAGES.join(', ')}`);
   // A rule covers whole files unless it says otherwise, since a rule about prose is a rule about a file. A question perch ships
   // is about a method, because that is what a scan reads.
   const each = full.each ?? (full.kind ? 'file' : 'method');
@@ -112,8 +119,12 @@ export function check(question, at, noun = 'question') {
     kind: full.kind ?? null, text: full.text ?? null, at,
     // As it was written, so a question perch ships can be copied into your own file and changed from there.
     declared: question,
-    hash: sha(JSON.stringify([full.ask, full.true, full.false, full.options, full.levels, full.where, full.except, full.each, full.sees])) };
+    hash: sha(JSON.stringify([full.ask, full.true, full.false, full.options, full.levels, full.where, full.language, full.except, full.each, full.sees])) };
 }
+
+/** A missing language selector applies to every parsed language. */
+export const appliesToLanguage = (question, language) => !question.language
+  || (Array.isArray(question.language) ? question.language : [question.language]).includes(language);
 
 const sha = text => createHash('sha256').update(text).digest('hex');
 
@@ -128,7 +139,8 @@ export function parseQuestions(text, at, noun = 'question') {
   // An empty file has no questions in it. A file with something in it that reads as nothing is a file someone wrote wrong, and
   // answering that with an empty list asks none of their rules and never says so.
   const doc = text.trim() ? parse(text) : [];
-  const list = Array.isArray(doc) ? doc : doc?.rules;
+  // A map that only says what to ignore or which types to ask has no rules yet, which is not the same as being written wrong.
+  const list = Array.isArray(doc) ? doc : doc?.rules ?? (doc && typeof doc === 'object' && ('ignore' in doc || 'scan_types' in doc) ? [] : undefined);
   if (!Array.isArray(list)) throw new Error(`${at}: expected a list of ${noun}s, or a map with rules: under it`);
   return list.map((question, index) => check(question, `${at} ${noun} ${index + 1}`, noun));
 }
@@ -147,8 +159,12 @@ export function parseIgnored(text, at) {
   return ignore;
 }
 
-/** What a scan asks about unless `perch.yaml` names its own set. */
-export const DEFAULT_TYPES = ['defect', 'security', 'lint'];
+/**
+ * What a scan asks about unless `perch.yaml` names its own set. Security is asked for rather than asked by default: a
+ * vulnerability class read against every method of a CLI or a library mostly measures how far the code is from a network, and
+ * `--filter type=security` or `scan_types` asks it when it matters.
+ */
+export const DEFAULT_TYPES = ['defect', 'lint'];
 
 /**
  * The issue types a scan asks about, from `scan_types` in `perch.yaml`.
@@ -249,11 +265,12 @@ export function issues(answers, min = 0, questions = questionSet(), rename = kin
     // than a name, and a model that picks a word outside the options it was offered would walk straight past a gate.
     const issue = { type: question.issue.type, label: rename(label), from: question.name, probability: raised,
       floor: floorFor(question, min), text: `${rename(label)} ${Math.round(raised * 100)}%` };
+    if (issue.probability <= issue.floor) continue;
     if (question.issue.pick !== 'strongest') { found.push(issue); continue; }
     const held = strongest.get(question.issue.type);
     if (!held || issue.probability > held.probability) strongest.set(question.issue.type, issue);
   }
-  return [...found, ...strongest.values()].filter(issue => issue.probability > issue.floor).sort((a, b) => b.probability - a.probability);
+  return [...found, ...strongest.values()].sort((a, b) => b.probability - a.probability);
 }
 
 /** The labels one question can raise: the options of the choice it names, or the one name it files under. */

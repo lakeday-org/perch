@@ -224,11 +224,11 @@ rules:
       The values --filter accepts include the names of the rules in perch.yaml,
       alongside type, kind and severity.
   - name: scan-types-default
-    where: src/scan.js
+    where: src/ask.js
     ensure: >-
-      scan_types in perch.yaml decides which issue types a scan asks about.
-      Omitted, it is defect, security and lint, so no refactor or docs question
-      is asked.
+      DEFAULT_TYPES, the issue types a scan asks about when perch.yaml sets no
+      scan_types, is defect and lint, so no security, refactor or docs question
+      is asked by default. A default that includes security breaks this rule.
   - name: scan-types-filter-overrides
     where: src/scan.js
     ensure: >-
