@@ -275,6 +275,16 @@ export function leadingComment(lines, line) {
 }
 
 /**
+ * The text a question about a method or a test is shown of it: the comment above it, then its lines. An answer is about this
+ * text, so its hash is what says whether an answer still stands, and a hash of the body alone kept an answer about a comment
+ * after the comment was gone.
+ */
+export function shownSource(lines, line, endLine) {
+  const comment = leadingComment(lines, line);
+  return (comment ? `${comment}\n` : '') + lines.slice(line - 1, endLine).join('\n');
+}
+
+/**
  * Without this, an identifier that is neither a callee nor an import is a name the model has to guess at. Cut at `budget` estimated tokens,
  * because a file's constants are worth less to the reading than its callers are.
  */

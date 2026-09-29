@@ -12,8 +12,8 @@ import { createFileSelector } from './exclusions.js';
 import { sourceChunks } from './chunks.js';
 import { TOKEN_LIMITS, estimateTokens, textTokens, questionBatches, IncompleteCheckError, ContextLimitError, withTokenRetries } from './tokens.js';
 import { appliesToLanguage, BUILTIN, compile, floorFor, installQuestions, merge, parseIgnored, parseQuestions, parseScanTypes, SEARCHES } from './ask.js';
-import { leadingComment, lineId, lineWindows, locateWhere, tagged, whereQuestion, whereWindowQuestion } from './questions.js';
-import { findingId } from './store.js';
+import { lineId, shownSource, lineWindows, locateWhere, tagged, whereQuestion, whereWindowQuestion } from './questions.js';
+import { findingId, sha256 } from './store.js';
 import { AuthenticationError } from './systemone.js';
 import { languageOf } from './analysis.js';
 
@@ -139,7 +139,10 @@ export function selectUnits(rule, { scan, graph, files, tree, inScope = () => tr
   }
   if (rule.each === 'test') {
     return tree.filter(createFileSelector(tree)).filter(item => matches(source, item.path))
-      .flatMap(item => testBlocks(files.get(item.path) ?? '', item.path).map(unit => ({ ...unit, hash: item.sha }))).filter(spared);
+      .flatMap(item => {
+        const text = files.get(item.path) ?? '';
+        return testBlocks(text, item.path).map(unit => ({ ...unit, hash: sha256(bodyOf(text, unit)) }));
+      }).filter(spared);
   }
   // A method comes from the scan, which only holds what tree-sitter could parse. A file comes from the git tree, because a rule
   // about prose is a rule about markdown, and markdown is not a language the scan reads.
@@ -151,10 +154,19 @@ export function selectUnits(rule, { scan, graph, files, tree, inScope = () => tr
     .map(item => ({ id: item.path, path: item.path, name: item.path, line: 1, hash: item.sha })).filter(spared);
 }
 
-export function bodyOf(text, unit) {
-  const lines = text.split('\n');
-  const comment = leadingComment(lines, unit.line);
-  return (comment ? `${comment}\n` : '') + lines.slice(unit.line - 1, unit.end_line).join('\n');
+export const bodyOf = (text, unit) => shownSource(text.split('\n'), unit.line, unit.end_line);
+
+/**
+ * The hash of a unit as it stands in this tree, or null when it is not there. A check is kept from one run to the next only while
+ * this matches the hash it was answered about: a test deleted or moved to another file, or a method whose comment changed, is no
+ * longer what the answer describes.
+ */
+export function unitHash(check, { graph, files, blobs }) {
+  if (graph.nodes.has(check.unit)) return graph.nodes.get(check.unit).hash;
+  if (check.unit === check.path) return blobs.get(check.path) ?? null;
+  const text = files.get(check.path);
+  const block = text === undefined ? null : testBlocks(text, check.path).find(unit => unit.id === check.unit);
+  return block ? sha256(bodyOf(text, block)) : null;
 }
 
 const methodUnit = node => ({ id: node.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, hash: node.hash, method: true, part: true });

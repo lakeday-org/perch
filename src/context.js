@@ -28,12 +28,14 @@ export async function methodContext({ finding, root, out, analyzer, revision = f
 
 /**
  * Findings whose method still exists at HEAD, and the rest. A changed method is re-questioned when its turn comes; one that is gone
- * (removed, renamed, or moved to another file) has nothing left to fix under that name.
+ * (removed, renamed, or moved to another file) has nothing left to fix under that name. A rule's answer about a method is stale
+ * once the method's hash moves, since it is about text that is not there any more.
  */
 export function splitStale(findings, scan) {
-  const live = new Set((scan.files ?? []).flatMap(file => file.methods.map(method => method.id)));
+  const live = new Map((scan.files ?? []).flatMap(file => file.methods.map(method => [method.id, method.hash])));
   const current = [], stale = [];
   // A finding with no method is not about one: a broken rule can be about a whole file, and a file is not a method that vanished.
-  for (const finding of findings) (!finding.method || live.has(finding.method) ? current : stale).push(finding);
+  const stands = finding => !finding.method || (live.has(finding.method) && (!finding.rule || live.get(finding.method) === finding.hash));
+  for (const finding of findings) (stands(finding) ? current : stale).push(finding);
   return { current, stale };
 }

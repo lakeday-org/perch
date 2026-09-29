@@ -3,6 +3,7 @@ import { createAnalyzer } from './treesitter/index.ts';
 import { sha256 } from './store.js';
 import { eligibleFile } from './exclusions.js';
 import { languageOf } from './languages.js';
+import { shownSource } from './questions.js';
 
 export { languageOf };
 
@@ -18,7 +19,10 @@ export const testFile = path => /(^|\/)(tests?|__tests__)(\/|\.)|\.test\.|\.spec
  * shows under the code. Keeping the rest would carry a metrics object nothing looks at onto every row of every scan. */
 const trim = metrics => metrics ? { risk_score: metrics.risk_score, maintainability_index: metrics.maintainability_index, cyclomatic_complexity: metrics.cyclomatic_complexity, max_nesting: metrics.max_nesting, sloc: metrics.sloc } : null;
 
-/** Named methods of one file, each with a stable id and a hash of its own source. */
+/** What a method's hash covers. Part of a parse's identity, so a parse cached under another definition is not reused. */
+export const METHOD_HASH = 'comment-and-body';
+
+/** Named methods of one file, each with a stable id and a hash of what a question about it is shown: its comment and body. */
 function methodsOf(path, declarations, lines) {
   const seen = new Map(), methods = [];
   for (const declaration of declarations) {
@@ -27,7 +31,7 @@ function methodsOf(path, declarations, lines) {
     const count = (seen.get(base) ?? 0) + 1;
     seen.set(base, count);
     methods.push({ id: count > 1 ? `${base}#${count}` : base, node: declaration.id, name: declaration.name, qualified_name: declaration.qualified_name, line: declaration.line, end_line: declaration.end_line,
-      hash: sha256(lines.slice(declaration.line - 1, declaration.end_line).join('\n')), metrics: trim(declaration.metrics) });
+      hash: sha256(shownSource(lines, declaration.line, declaration.end_line)), metrics: trim(declaration.metrics) });
   }
   return methods;
 }

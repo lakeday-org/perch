@@ -12,7 +12,7 @@ import { createFileSelector } from './exclusions.js';
 import { buildGraph } from './graph.js';
 import { appliesToLanguage, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES } from './ask.js';
 import { issuesOf, label as kindLabel, methodSteps, locateWhere, readAnswers } from './questions.js';
-import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL } from './units.js';
+import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL, unitHash } from './units.js';
 import { findingId, identity, openStore } from './store.js';
 import { TOKEN_LIMITS, IncompleteCheckError, withTokenRetries } from './tokens.js';
 export { findingId };
@@ -378,10 +378,14 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const walked = new Set(read.map(event => event.method));
     const elsewhere = [...earlier.values()].filter(event => !walked.has(event.method) && graph.nodes.has(event.method));
     // Rule checks are carried the same way, and only while the rule that produced one is still that rule. A rule reworded,
-    // reshaped or deleted since leaves a check describing a question that no longer exists.
+    // reshaped or deleted since leaves a check describing a question that no longer exists. The unit has to be the same too: a
+    // test deleted or moved, a file removed, or a comment rewritten leaves a check about text this tree does not hold. A search
+    // that found nothing is about the rule and not a unit, so it stands on the rule alone.
     const said = new Set(broken.map(check => check.id));
     const byName = new Map(rules.map(rule => [rule.name, rule]));
-    const unasked = [...checks.values()].filter(check => !said.has(check.id) && byName.get(check.rule)?.hash === check.rule_hash);
+    const blobs = new Map(tree.map(item => [item.path, item.sha]));
+    const unasked = [...checks.values()].filter(check => !said.has(check.id) && byName.get(check.rule)?.hash === check.rule_hash
+      && (String(check.unit).startsWith('search:') || unitHash(check, { graph, files, blobs }) === check.hash));
     await store.recordScan([...read, ...elsewhere, ...broken, ...unasked]);
     run.remaining = walk.remaining(); run.status = run.incomplete.length ? 'incomplete' : 'complete'; run.completed_at = new Date().toISOString();
     await saveRun(true); await store.prune('runs', id).catch(error => log(`Could not remove earlier runs: ${error.message}`)); return run;
