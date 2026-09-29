@@ -27,6 +27,23 @@ describe('large source reads', () => {
     }
   }, 30000);
 
+  it('splits a large file of many lines in time proportional to its size', () => {
+    // The native chunker's time grows with the square of what it is handed. Given this 4 MB file whole, it took fifteen seconds
+    // here, and an 8 MB one a minute.
+    const source = Array.from({ length: 64 * 1024 }, (_, index) => `const v${index} = ${index}; // ${'x'.repeat(40)} é`).join('\n');
+    const started = performance.now();
+    const chunks = sourceChunks(source, { path: 'large.js', maxTokens: 2000 });
+    expect(performance.now() - started).toBeLessThan(12_000);
+    const original = Buffer.from(source);
+    let end = 0;
+    for (const chunk of chunks) {
+      expect(chunk.startByte).toBeLessThanOrEqual(end);
+      expect(chunk.source).toBe(original.subarray(chunk.startByte, chunk.endByte).toString());
+      end = chunk.endByte;
+    }
+    expect(end).toBe(original.length);
+  }, 60000);
+
   it('terminates when a split lands inside an emoji or a CJK character', () => {
     // overlapStart skipped forward past continuation bytes, which could land exactly on `high`; then neither branch moved the
     // range and the search spun for good. A README with emoji big enough to chunk hung the scan on CPU with no output.

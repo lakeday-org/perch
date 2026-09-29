@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, it, vi } from 'vitest';
+import { expect, it } from 'vitest';
 import { batchBlobSize, git, listTree, readBlobs } from '../src/git.js';
 import { initRepo } from './helpers.js';
 
@@ -13,21 +13,21 @@ it('rejects Git batch headers whose blob size cannot be indexed safely', () => {
   expect(() => batchBlobSize(`${header}-1`, 50)).toThrow('invalid blob header');
 });
 
-it('reads a large blob whole, joining its chunks once rather than once per chunk', async () => {
+it('reads a large blob whole, in time proportional to its size', async () => {
   const root = await mkdtemp(join(tmpdir(), 'perch-blobs-'));
   try {
-    const big = 'x'.repeat(16 * 1024 * 1024);
+    const big = 'x'.repeat(64 * 1024 * 1024);
     await writeFile(join(root, 'big.js'), big);
     await writeFile(join(root, 'small.js'), 'small\n');
     await initRepo(root);
     const tree = await listTree(root, (await git(['rev-parse', 'HEAD'], root)).trim());
-    const shas = ['big.js', 'small.js', 'big.js'].map(path => tree.find(item => item.path === path).sha);
-    const concat = vi.spyOn(Buffer, 'concat');
+    const shas = ['big.js', 'small.js'].map(path => tree.find(item => item.path === path).sha);
     const read = [];
-    await readBlobs(root, shas, (index, text) => { read[index] = text.length; });
-    // Sixteen megabytes arrive as a few hundred chunks. Joined as each one came, that was a few hundred copies of the blob so far.
-    expect(concat.mock.calls.length).toBeLessThan(20);
-    concat.mockRestore();
-    expect(read).toEqual([big.length, 6, big.length]);
+    const started = performance.now();
+    await readBlobs(root, shas, (index, text) => { read[index] = text; });
+    // Joining every chunk onto what came before copied the blob once per chunk: three seconds here for 64 MB.
+    expect(performance.now() - started).toBeLessThan(1500);
+    expect(read.map(text => text.length)).toEqual([big.length, 6]);
+    expect(read[0] === big && read[1] === 'small\n').toBe(true);
   } finally { await rm(root, { recursive: true, force: true }); }
-});
+}, 60000);

@@ -19,6 +19,31 @@ function overlapStart(bytes, end, tokens) {
   return start;
 }
 
+/** Bytes handed to the native chunker at once. */
+export const WINDOW_BYTES = 256 * 1024;
+
+/**
+ * The native chunker's syntax-bounded pieces of a source, given it a window at a time. Its time grows with the square of what
+ * it is handed: a 4 MB file took five seconds to split and an 8 MB one a minute, where parsing either takes a fraction of one.
+ * Windows end on a line break, so a piece is only ever cut at a place a line could end anyway.
+ */
+function nativeChunks(bytes, options) {
+  const pieces = [];
+  for (let from = 0; from < bytes.length;) {
+    let to = Math.min(bytes.length, from + WINDOW_BYTES);
+    if (to < bytes.length) {
+      const newline = bytes.lastIndexOf(10, to - 1);
+      if (newline >= from) to = newline + 1;
+      else while (to > from + 1 && (bytes[to] & 0xc0) === 0x80) to--;
+    }
+    const chunks = pack.process(bytes.subarray(from, to).toString('utf8'), options).chunks;
+    if (!chunks?.length) return [];
+    for (const chunk of chunks) pieces.push({ startByte: chunk.startByte + from, endByte: chunk.endByte + from, content: chunk.content });
+    from = to;
+  }
+  return pieces;
+}
+
 export function sourceChunks(source, { path, maxTokens = TOKEN_LIMITS.state / 2, overlap = 256 } = {}) {
   if (!Number.isInteger(maxTokens) || maxTokens < 32) throw new IncompleteCheckError('no token budget remains for source');
   const bytes = Buffer.from(source), tokens = textTokens(source);
@@ -36,7 +61,7 @@ export function sourceChunks(source, { path, maxTokens = TOKEN_LIMITS.state / 2,
     return low;
   };
   for (;;) {
-    const chunks = pack.process(source, { language, chunkMaxSize: target, structure: false, imports: false, exports: false }).chunks;
+    const chunks = nativeChunks(bytes, { language, chunkMaxSize: target, structure: false, imports: false, exports: false });
     if (!chunks?.length) throw new IncompleteCheckError(`${path}: parser produced no chunks`);
     let through = 0, largest = 0;
     const result = [];
