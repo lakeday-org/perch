@@ -177,7 +177,7 @@ const ANONYMOUS_FUNCTION_TYPES = new Set([
   "func_literal",
 ]);
 
-/** What a function's name can come from when it has none of its own: the thing it is assigned to. */
+/** Parent node types that give an unnamed function the name it is assigned to. */
 const BINDING_TYPES = new Set([
   "variable_declarator",
   "assignment",
@@ -188,7 +188,7 @@ const BINDING_TYPES = new Set([
   "lexical_declaration",
 ]);
 
-/** The argument lists and calls between a callback and the binding a wrapper's result is assigned to. */
+/** Node types functionName walks up through to get from a callback argument to the assignment of the call's result. */
 const ARGUMENT_TYPES = new Set(["arguments", "argument_list", "value_argument", "value_arguments", "call_suffix", "annotated_lambda"]);
 const CALL_TYPES = new Set(["call_expression", "call", "method_invocation", "await_expression"]);
 
@@ -445,8 +445,8 @@ function readFunctionName(node: Node): string {
   }
   if (!name) {
     let parent = node.parent;
-    // A callback handed to a wrapper is the code behind whatever the wrapper's result is bound to, so in `const wrapped =
-    // withAuth(async req => ...)` it is wrapped. Only outside a function: inside one, the callback is read with the function.
+    // In `const wrapped = withAuth(async req => ...)` the callback is named wrapped. Only done outside a function, since a
+    // callback inside one is read as part of it.
     if (parent && ARGUMENT_TYPES.has(parent.type) && !enclosingFunction(node)) {
       while (parent && (ARGUMENT_TYPES.has(parent.type) || CALL_TYPES.has(parent.type))) parent = parent.parent;
     }
@@ -506,7 +506,7 @@ function enclosingFunction(node: Node): Node | null {
   return parent;
 }
 
-/** Whether a declaration's own name was found. An anonymous function is read as part of the code around it. */
+/** Whether the last part of a qualified name is a real name rather than <anonymous>. */
 export const isNamed = (qualifiedName: string): boolean => qualifiedName.split(".").at(-1) !== "<anonymous>";
 
 export function parentFunctionName(node: Node): string | null {

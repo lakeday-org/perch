@@ -217,7 +217,7 @@ export function unitHash(check, { graph, files, blobs }) {
   return block ? sha256(bodyOf(text, block)) : null;
 }
 
-/** A file's lines with those a top-level unit surrounds, the methods read on their own, left blank so the rest keep their numbers. */
+/** Returns a file's lines with the method lines inside a top-level unit blanked, so line numbers stay correct. */
 const spanLines = (node, lines) => {
   const span = spanOf(node, lines).map(text => text ?? '');
   return [...lines.slice(0, node.line - 1), ...span, ...lines.slice(node.end_line)];

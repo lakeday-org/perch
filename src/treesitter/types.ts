@@ -1,6 +1,6 @@
 import type { LanguageId } from "./languages";
 
-/** Part of a saved parse's id. Change it whenever a parse would come out differently, so parses saved before are redone. */
+/** Part of a saved parse's id. Bump it when a change alters parse output, so saved parses are redone. */
 export const PARSE_VERSION = "language-pack-1.20-v4" as const;
 
 export interface SourcePoint {
@@ -135,7 +135,7 @@ export interface SourceAnalysis {
   parser_message: string | null;
   metrics: QualityMetrics | null;
   declarations: Declaration[];
-  /** Lines no named declaration holds, in order. */
+  /** Line numbers outside every named function, ascending. */
   top_level: number[];
   references: Reference[];
   diagnostics: AnalysisDiagnostic[];

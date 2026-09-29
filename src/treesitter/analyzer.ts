@@ -37,8 +37,8 @@ function declarationsOf(items: StructureItem[], nodes: Map<string, Node>, langua
 }
 
 /**
- * Lines no named function holds: a callback handed to a call, an exported value, a macro invocation, a script's entry point.
- * The first and last lines of whatever encloses a named function (a class, an impl block, an export) are its frame, not code.
+ * Returns the line numbers outside every named function. The first and last lines of a node that contains a named function,
+ * such as a class declaration, are left out too, since they only open and close it.
  */
 function topLevelLines(root: Node, declarations: Declaration[], nodes: Map<string, Node>, lines: number): number[] {
   const held = new Set<number>();

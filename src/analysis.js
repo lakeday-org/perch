@@ -27,13 +27,13 @@ const comment = text => /^\s*(\/\/|\/\*|\*|#(?!\s*define)|"""|''')/.test(text);
 /** A line that is code: not blank, not a comment, not an import. */
 export const isCode = text => Boolean(text.trim()) && !comment(text) && !/^\s*(import|from|use|package)\b|^\s*#\s*include\b/.test(text);
 
-/** The unit holding a file's code outside every named function, and the name it is read under. */
+/** The name of the unit that holds a file's code outside named functions. */
 export const TOP_LEVEL = '<top-level>';
 
 /**
- * The methods of one file, each with a stable id and a hash of its own source. A function the parser could not name is read as
- * part of whatever holds it: the method around it, or the file's top-level code, which is one more method whose `lines` are the
- * ones no named function holds.
+ * Returns the methods of one file, each with an id and a hash of its source. An unnamed function is not a method; it is read as
+ * part of the method that contains it, or as part of the file's top-level unit. The top-level unit is added last, and its
+ * `lines` lists the line numbers it covers.
  */
 export function methodsOf(path, analysis, lines) {
   const seen = new Map(), methods = [];
@@ -44,14 +44,13 @@ export function methodsOf(path, analysis, lines) {
     methods.push({ id: count > 1 ? `${base}#${count}` : base, ...method, hash: sha256(shown) });
   };
   for (const declaration of analysis.declarations) {
-    // Not a method of its own. Its lines are read with the named method around it, or else they are among analysis.top_level
-    // and read with the top-level unit below.
+    // Unnamed: its lines are covered by the method that contains it, or by analysis.top_level.
     if (!isNamed(declaration.qualified_name)) continue;
     const name = declaration.name === '<anonymous>' ? declaration.qualified_name.split('.').at(-1) : declaration.name;
     add({ node: declaration.id, name, qualified_name: declaration.qualified_name, line: declaration.line, end_line: declaration.end_line, metrics: trim(declaration.metrics) },
       shownSource(lines, declaration.line, declaration.end_line));
   }
-  // The comment above a function is about that function, so it goes where the function is read.
+  // A comment directly above a function belongs to that function, not to the top-level unit.
   const described = new Set();
   for (const method of methods) for (let line = method.line - 1; line >= 1 && comment(lines[line - 1]); line--) described.add(line);
   const outside = (analysis.top_level ?? []).filter(line => !described.has(line));
@@ -63,7 +62,7 @@ export function methodsOf(path, analysis, lines) {
   return methods;
 }
 
-/** The method whose own lines hold a line, innermost first; anonymous functions attribute to what holds them. */
+/** Returns the id of the smallest method containing a line. A top-level unit only contains the lines in its `lines`. */
 function ownerAt(methods, line) {
   let owner = null;
   for (const method of methods) {

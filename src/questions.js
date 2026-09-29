@@ -256,7 +256,7 @@ export async function locateWhere({ systemOne, state, questions, windows }) {
   const second = await locateWhere({ systemOne, state, questions: next ? { where_window: whereWindowQuestion(next) } : { where: whereQuestion(ids) }, windows: next });
   return { ...first, answers: { ...first.answers, ...second.answers }, usage: addUsage(first.usage, second.usage) };
 }
-/** Lines tagged with their ids. A null line is one read elsewhere, and a run of them is shown as the gap it is. */
+/** Prefixes each line with its id. Consecutive null lines are replaced by one line saying which line numbers were left out. */
 export const tagged = (lines, start) => {
   const out = [];
   for (let index = 0; index < lines.length; index++) {
@@ -268,7 +268,7 @@ export const tagged = (lines, start) => {
   }
   return out.join('\n');
 };
-/** A unit's lines from its first to its last. The top-level unit runs across the methods it surrounds, and those lines are null. */
+/** Returns a unit's lines from first to last. For a top-level unit, lines that belong to methods are null. */
 export const spanOf = (node, lines) => {
   const own = node.lines && new Set(node.lines);
   return lines.slice(node.line - 1, node.end_line).map((text, index) => (!own || own.has(node.line + index) ? text : null));
@@ -382,10 +382,10 @@ export function methodStep({ node, lines, imports = [], methods = [node], module
 
 /** Native syntax chunks overlap in source bytes, including when one line spans multiple requests. */
 export function methodSteps({ node, lines, imports = [], methods = [node], callees = [], callers = [], edges = [], ...options }) {
-  // Lines read elsewhere are blanked rather than cut, so a chunk's line numbers still count from the unit's first line.
+  // Blank the lines that belong to other methods instead of removing them, so line numbers stay correct.
   const source = spanOf(node, lines).map(text => text ?? '').join('\n');
   const budget = options.budget ?? STATE_BUDGET;
-  // The top-level unit is the module scope, so it is not shown a second copy of itself.
+  // A top-level unit's source already is the module scope.
   const moduleScopeText = node.lines ? null : moduleScope(lines, methods);
   let maxTokens = budget;
   for (;;) {
