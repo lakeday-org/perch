@@ -460,7 +460,8 @@ const commands = {
       stream.add(reportFindings(everything, min));
       await stream.finish({ finished_at: Date.now(), methods: run.methods ?? 0, reused: 0,
         files: new Set((run.visited ?? []).map(visit => visit.path)).size, exit_code: exit })
-        .then(saved => io.note(`Results: ${saved.url}`), error => io.note(`Could not send results to Perch Cloud: ${error.message}`));
+        .then(saved => { if (saved.url) io.note(`Results: ${saved.url}`); },
+          error => io.note(`Could not send results to Perch Cloud: ${error.message}`));
     }
     return exit;
   },

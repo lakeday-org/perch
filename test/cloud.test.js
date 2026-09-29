@@ -313,4 +313,28 @@ describe('Perch Cloud', () => {
     expect(progress).toEqual([{ phase: 'reading', completed: 8, total: 20, failed: 0 }]);
     expect(finished).toBe(true);
   });
+  it('keeps only the latest progress while an earlier update is in flight', async () => {
+    let release;
+    const firstUpdate = new Promise(resolve => { release = resolve; });
+    const updates = [];
+    const client = {
+      startScan: async () => ({ id: 'scan' }),
+      appendFindings: async () => {},
+      updateScan: async (_id, value) => {
+        updates.push(value.completed);
+        if (updates.length === 1) await firstUpdate;
+      },
+      finishScan: async () => ({ id: 'scan' }),
+    };
+    const stream = createResultStream(client, { scope: 'partial' });
+    stream.progress({ phase: 'reading', completed: 1, total: 3, failed: 0 });
+    await new Promise(resolve => setTimeout(resolve, 800));
+    stream.progress({ phase: 'reading', completed: 2, total: 3, failed: 0 });
+    stream.progress({ phase: 'reading', completed: 3, total: 3, failed: 0 });
+    await new Promise(resolve => setTimeout(resolve, 800));
+    expect(updates).toEqual([1]);
+    release();
+    await stream.finish({ exit_code: 0 });
+    expect(updates).toEqual([1, 3]);
+  });
 });

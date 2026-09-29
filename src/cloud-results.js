@@ -63,7 +63,7 @@ export function reportFindings(findings, min) {
 /** Send findings during the scan. Batches bound each request, never the number of results a scan may report. */
 export function createResultStream(client, scan) {
   const seen = new Set(), buffered = [], queued = [], waiting = [];
-  let remote = null, failure = null, active = 0, timer = null, progressTimer = null, latestProgress = null, progressTask = Promise.resolve();
+  let remote = null, failure = null, active = 0, timer = null, progressTimer = null, latestProgress = null, progressTask = null;
   let lastProgress = { phase: 'preparing', completed: 0, total: 0, failed: 0 };
   const settle = () => {
     if (!failure && (active || queued.length)) return;
@@ -102,13 +102,23 @@ export function createResultStream(client, scan) {
   const sendProgress = () => {
     if (progressTimer) clearTimeout(progressTimer);
     progressTimer = null;
+    if (progressTask || !latestProgress) return;
     const current = latestProgress;
     latestProgress = null;
-    if (!current) return;
-    progressTask = progressTask.then(async () => {
+    progressTask = (async () => {
       await begin;
       if (remote && client.updateScan) await client.updateScan(remote.id, current);
-    }).catch(() => { /* The result batches and final report still decide whether upload succeeded. */ });
+    })().catch(() => { /* The result batches and final report still decide whether upload succeeded. */ })
+      .finally(() => {
+        progressTask = null;
+        if (latestProgress) sendProgress();
+      });
+  };
+  const finishProgress = async () => {
+    sendProgress();
+    if (!progressTask) return;
+    await progressTask;
+    if (progressTask || latestProgress) await finishProgress();
   };
   const heartbeat = setInterval(() => { latestProgress = lastProgress; sendProgress(); }, 30_000);
   heartbeat.unref?.();
@@ -129,8 +139,7 @@ export function createResultStream(client, scan) {
     async finish(finalScan) {
       clearInterval(heartbeat);
       flush();
-      sendProgress();
-      await progressTask;
+      await finishProgress();
       await begin;
       if (failure) throw failure;
       if (active || queued.length) await new Promise(resolve => waiting.push(resolve));

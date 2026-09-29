@@ -14,7 +14,7 @@ import {
  */
 export function createCloudClient({
   origin, getToken, organizationId, repositoryId, reports,
-  model = 'jev-latest', log, fetchImpl = globalThis.fetch, reportTimeoutMs = 10000,
+  model = 'jev-latest', log, fetchImpl = globalThis.fetch, reportTimeoutMs = 30000,
 }) {
   const gateway = createSystemOne({
     apiKey: 'cloud',
