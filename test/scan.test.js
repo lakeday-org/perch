@@ -287,7 +287,8 @@ describe('perch hunt', () => {
     const f = hunt.visited.find(visit => visit.method === 'src/a.js::f');
     expect(f).toMatchObject({ status: 'read', id: expect.stringMatching(/^[0-9a-f]{8}$/), has_bug: 0.9, where: { line: 4 }, kind: { choice: 'boundary', probability: 0.8 }, severity: { level: 'P1' }, documented: 0.3, refactor: { choice: 'split' }, callees: expect.arrayContaining(['src/a.js::g', 'src/b.js::h']) });
     expect(f.kind.probabilities.boundary).toBe(0.8);
-    expect(f.callers).toEqual([]);
+    // The test calls f from inside a callback no function names, which is its file's top-level code.
+    expect(f.callers).toEqual(['test/a.test.js::<top-level>']);
 
     // The first request carried the method with tagged lines, its callees' source, and its callers' call sites.
     const first = systemOne.calls.find(call => call.method === 'src/a.js::f');

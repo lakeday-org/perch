@@ -111,7 +111,7 @@ describe("scan summaries", () => {
   ])("preserves file metrics and diagnostics for %s without function detail", async (language, source) => {
     const analyzer = realAnalyzer();
     const full = await analyzer.analyzeSource(source, language);
-    const { declarations, references: _references, ...expected } = full;
+    const { declarations, top_level: _topLevel, references: _references, ...expected } = full;
     expect(await analyzer.analyzeSummary(source, language)).toEqual({ ...expected, declaration_count: declarations.length });
   });
 });

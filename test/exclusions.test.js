@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { createSourceAnalyzer, languageOf, sourceFile } from '../src/analysis.js';
 import { analyzeTree, scanIdentity } from '../src/analyze.js';
-import { ANALYSIS_PROFILE } from '../src/treesitter/types.ts';
+import { PARSE_VERSION } from '../src/treesitter/types.ts';
 import { identity } from '../src/store.js';
 import { selectUnits } from '../src/units.js';
 import { scanRepository } from '../src/scan.js';
@@ -76,7 +76,7 @@ it('uses project markers to exclude ambiguous output names only in the owning pr
 
 it('invalidates analysis cached before the exclusion policy changed', () => {
   const options = { revision: 'same-commit', paths: [] };
-  expect(scanIdentity(options)).not.toBe(identity('scan', ANALYSIS_PROFILE, options.revision, []));
+  expect(scanIdentity(options)).not.toBe(identity('scan', PARSE_VERSION, options.revision, []));
 });
 
 it('does not treat the repository itself as a generated directory', () => {

@@ -177,6 +177,21 @@ const ANONYMOUS_FUNCTION_TYPES = new Set([
   "func_literal",
 ]);
 
+/** What a function's name can come from when it has none of its own: the thing it is assigned to. */
+const BINDING_TYPES = new Set([
+  "variable_declarator",
+  "assignment",
+  "assignment_expression",
+  "binary_operator",
+  "pair",
+  "property_declaration",
+  "lexical_declaration",
+]);
+
+/** The argument lists and calls between a callback and the binding a wrapper's result is assigned to. */
+const ARGUMENT_TYPES = new Set(["arguments", "argument_list", "value_argument", "value_arguments", "call_suffix", "annotated_lambda"]);
+const CALL_TYPES = new Set(["call_expression", "call", "method_invocation", "await_expression"]);
+
 const SCOPE_TYPES = new Set([
   "class_definition",
   "class_declaration",
@@ -429,19 +444,13 @@ function readFunctionName(node: Node): string {
     }
   }
   if (!name) {
-    const parent = node.parent;
-    if (
-      parent &&
-      new Set([
-        "variable_declarator",
-        "assignment",
-        "assignment_expression",
-        "binary_operator",
-        "pair",
-        "property_declaration",
-        "lexical_declaration",
-      ]).has(parent.type)
-    ) {
+    let parent = node.parent;
+    // A callback handed to a wrapper is the code behind whatever the wrapper's result is bound to, so in `const wrapped =
+    // withAuth(async req => ...)` it is wrapped. Only outside a function: inside one, the callback is read with the function.
+    if (parent && ARGUMENT_TYPES.has(parent.type) && !enclosingFunction(node)) {
+      while (parent && (ARGUMENT_TYPES.has(parent.type) || CALL_TYPES.has(parent.type))) parent = parent.parent;
+    }
+    if (parent && BINDING_TYPES.has(parent.type)) {
       for (const field of ["name", "left", "lhs", "key"]) {
         name = parent.childForFieldName(field);
         if (name) break;
@@ -490,6 +499,15 @@ function readQualifiedName(node: Node): string {
   parts.push(functionName(node));
   return parts.filter(Boolean).join(".") || "<anonymous>";
 }
+
+function enclosingFunction(node: Node): Node | null {
+  let parent = node.parent;
+  while (parent && !isFunction(parent)) parent = parent.parent;
+  return parent;
+}
+
+/** Whether a declaration's own name was found. An anonymous function is read as part of the code around it. */
+export const isNamed = (qualifiedName: string): boolean => qualifiedName.split(".").at(-1) !== "<anonymous>";
 
 export function parentFunctionName(node: Node): string | null {
   let parent = node.parent;

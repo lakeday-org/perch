@@ -1,4 +1,5 @@
 export { analyzeSource, createAnalyzer } from "./analyzer";
+export { isNamed } from "./metrics";
 export {
   languageDefinition,
   languageDefinitions,

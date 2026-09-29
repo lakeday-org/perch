@@ -1,4 +1,4 @@
 name: perch
-# These defects are examples for the documentation, not application code.
+# The fixtures carry deliberate defects and vulnerabilities for tests and the documentation. They are not application code.
 paths-ignore:
-  - 'test/fixtures/order-service/**'
+  - 'test/fixtures/**'

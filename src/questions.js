@@ -256,10 +256,26 @@ export async function locateWhere({ systemOne, state, questions, windows }) {
   const second = await locateWhere({ systemOne, state, questions: next ? { where_window: whereWindowQuestion(next) } : { where: whereQuestion(ids) }, windows: next });
   return { ...first, answers: { ...first.answers, ...second.answers }, usage: addUsage(first.usage, second.usage) };
 }
-export const tagged = (lines, start) => lines.map((text, index) => `${lineId(start + index)}| ${text}`).join('\n');
+/** Lines tagged with their ids. A null line is one read elsewhere, and a run of them is shown as the gap it is. */
+export const tagged = (lines, start) => {
+  const out = [];
+  for (let index = 0; index < lines.length; index++) {
+    if (lines[index] !== null) { out.push(`${lineId(start + index)}| ${lines[index]}`); continue; }
+    let last = index;
+    while (lines[last + 1] === null) last++;
+    out.push(`... (lines ${start + index}-${start + last} are read on their own)`);
+    index = last;
+  }
+  return out.join('\n');
+};
+/** A unit's lines from its first to its last. The top-level unit runs across the methods it surrounds, and those lines are null. */
+export const spanOf = (node, lines) => {
+  const own = node.lines && new Set(node.lines);
+  return lines.slice(node.line - 1, node.end_line).map((text, index) => (!own || own.has(node.line + index) ? text : null));
+};
 /** A method's source, or a window of `limit` lines from it; when a `focus` line is given (a call site) the window is centered there so the call is visible. */
-const excerpt = (lines, start, end, limit, focus = null) => {
-  const slice = lines.slice(start - 1, end);
+const excerpt = (node, lines, limit, focus = null) => {
+  const slice = spanOf(node, lines), start = node.line;
   if (slice.length <= limit) return tagged(slice, start);
   const from = focus === null ? 0 : Math.min(Math.max(0, focus - start - Math.floor(limit / 2)), slice.length - limit);
   const shown = tagged(slice.slice(from, from + limit), start + from);
@@ -290,7 +306,7 @@ export function shownSource(lines, line, endLine) {
  */
 export function moduleScope(lines, methods, budget = MODULE_SCOPE_BUDGET) {
   const inside = new Set();
-  for (const method of methods) for (let line = method.line; line <= method.end_line; line++) inside.add(line);
+  for (const method of methods) if (!method.lines) for (let line = method.line; line <= method.end_line; line++) inside.add(line);
   const kept = [];
   let size = 0;
   for (let line = 1; line <= lines.length; line++) {
@@ -314,17 +330,17 @@ export function moduleScope(lines, methods, budget = MODULE_SCOPE_BUDGET) {
 export function methodStep({ node, lines, imports = [], methods = [node], moduleScopeText = moduleScope(lines, methods), callees, callers, edges = [], budget = STATE_BUDGET, limits = [40, 20, 8, 3], maxCallees = MAX_CALLEES, maxCallers = MAX_CALLERS, chunk = null, asked = questionSet().filter(question => question.each === 'method') }) {
   const build = (limit, own = Infinity, scope = true, [fewerCallees, fewerCallers] = [maxCallees, maxCallers]) => ({
     method: { path: node.path, name: node.qualified_name, leading_comment: leadingComment(lines, node.line) || null, metrics: node.metrics ?? null,
-      source: chunk ? tagged(chunk.source.split("\n"), chunk.line + node.line - 1) : excerpt(lines, node.line, node.end_line, own) },
+      source: chunk ? tagged(chunk.source.split("\n").map((text, index) => (!node.lines || node.lines.includes(chunk.line + node.line - 1 + index) ? text : null)), chunk.line + node.line - 1) : excerpt(node, lines, own) },
     imports: imports.map(item => `${item.name}${item.alias !== item.name ? ` as ${item.alias}` : ''} from ${item.module}`),
     module_scope: scope ? moduleScopeText : null,
     calls: callees.slice(0, fewerCallees).map(({ node: callee, lines: calleeLines, calls = [] }) =>
-      ({ id: callee.id, name: callee.qualified_name, path: callee.path, source: excerpt(calleeLines, callee.line, callee.end_line, limit), calls: calls.map(short) })),
+      ({ id: callee.id, name: callee.qualified_name, path: callee.path, source: excerpt(callee, calleeLines, limit), calls: calls.map(short) })),
     called_by: callers.slice(0, fewerCallers).map(({ node: caller, lines: callerLines, site, handover = false }) =>
       ({ id: caller.id, name: caller.qualified_name, path: caller.path,
         ...(handover
           ? { hands_method_on_at: site ?? null, note: 'this caller does not call the method here: it passes it on to be called later, so the call itself is not in view' }
           : { calls_method_at: site ?? null }),
-        source: excerpt(callerLines, caller.line, caller.end_line, limit, site ?? null) })),
+        source: excerpt(caller, callerLines, limit, site ?? null) })),
     // The edges are the neighbourhood drawn as lines, so they go when the neighbourhood does.
     call_graph: fewerCallees || fewerCallers ? edges : [],
   });
@@ -366,9 +382,11 @@ export function methodStep({ node, lines, imports = [], methods = [node], module
 
 /** Native syntax chunks overlap in source bytes, including when one line spans multiple requests. */
 export function methodSteps({ node, lines, imports = [], methods = [node], callees = [], callers = [], edges = [], ...options }) {
-  const source = lines.slice(node.line - 1, node.end_line).join('\n');
+  // Lines read elsewhere are blanked rather than cut, so a chunk's line numbers still count from the unit's first line.
+  const source = spanOf(node, lines).map(text => text ?? '').join('\n');
   const budget = options.budget ?? STATE_BUDGET;
-  const moduleScopeText = moduleScope(lines, methods);
+  // The top-level unit is the module scope, so it is not shown a second copy of itself.
+  const moduleScopeText = node.lines ? null : moduleScope(lines, methods);
   let maxTokens = budget;
   for (;;) {
     const chunks = sourceChunks(source, { path: node.path, maxTokens });

@@ -1,0 +1,9 @@
+# A file whose only code sits outside every function used to be left out of the scan without a word.
+- name: top-level-code-is-read
+  where: src/analysis.js
+  ensure: >-
+    Read analyzeFiles and the functions it calls. A file with code outside its
+    methods, other than imports and comments, is given one more method holding
+    that code, so a file with no function in it is still read. A file whose
+    only code sits outside every function ending up with no method breaks this
+    rule.

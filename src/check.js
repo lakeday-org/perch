@@ -9,7 +9,7 @@
  */
 import { readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
-import { analyzeFiles, languageOf } from './analysis.js';
+import { analyzeFiles, languageOf, methodsOf } from './analysis.js';
 import { analyzeTree } from './analyze.js';
 import { methodContext } from './context.js';
 import { listTree } from './git.js';
@@ -55,10 +55,10 @@ export async function resolveTarget({ target, root, out, analyzer }) {
   if (!language) throw new Error(`${path} is not a language perch parses, so it has no methods to point at`);
   const analysis = await analyzer.analyzeSource(text, language);
   if (analysis.parser_status !== 'parsed') throw new Error(`${path} does not parse: ${analysis.parser_message ?? 'syntax error'}`);
-  const found = analysis.declarations.find(declaration => declaration.qualified_name === name)
-    ?? analysis.declarations.find(declaration => declaration.qualified_name.endsWith(`.${name}`));
-  if (!found) throw new Error(`no method called ${name} in ${path}${analysis.declarations.length ? `; it has ${analysis.declarations.slice(0, 6).map(item => item.qualified_name).join(', ')}` : ''}`);
-  return { path, name: found.qualified_name, line: found.line, end_line: found.end_line, metrics: found.metrics, part: true, text, lines: text.split('\n') };
+  const methods = methodsOf(path, analysis, text.split('\n'));
+  const found = methods.find(method => method.qualified_name === name) ?? methods.find(method => method.qualified_name.endsWith(`.${name}`));
+  if (!found) throw new Error(`no method called ${name} in ${path}${methods.length ? `; it has ${methods.slice(0, 6).map(item => item.qualified_name).join(', ')}` : ''}`);
+  return { path, name: found.qualified_name, line: found.line, end_line: found.end_line, own: found.lines, metrics: found.metrics, part: true, text, lines: text.split('\n') };
 }
 
 /**
@@ -159,7 +159,7 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
     // nothing here reads as a clean bill of health for a method nothing was asked about, which is the opposite of the truth.
     if (!context && named.types.length) throw new Error(`no neighbourhood for ${unit.path}: ${note}. Run perch scan first, or name a rule from ${RULES_FILE} instead`);
     if (context) {
-      const node = { ...context.node, line: unit.line, end_line: unit.end_line, metrics: unit.metrics ?? context.node.metrics };
+      const node = { ...context.node, line: unit.line, end_line: unit.end_line, lines: unit.own, metrics: unit.metrics ?? context.node.metrics };
       const others = context.methods.filter(method => method.qualified_name !== unit.name);
       // The types a scan of this method would ask, or the ones --rules named. Asking everything perch ships reported a
       // vulnerability on a method whose scan never asks about security, so a check and a scan disagreed about the same code.

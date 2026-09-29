@@ -1,16 +1,16 @@
 import pack from '@xberg-io/tree-sitter-language-pack';
 import type { ProcessResult, StructureItem } from '@xberg-io/tree-sitter-language-pack';
-import { ANALYSIS_PROFILE, type Analyzer, type Declaration, type SourceAnalysis, type SourceSummary } from './types';
+import { PARSE_VERSION, type Analyzer, type Declaration, type SourceAnalysis, type SourceSummary } from './types';
 import { normalizeLanguage } from './languages';
 import { Node } from './node';
-import { functionDepth, functionName, isFunction, nonblankRows, parentFunctionName, qualityMetrics, qualifiedFunctionName, location, measure, walkNodes } from './metrics';
+import { functionDepth, functionName, isFunction, isNamed, nonblankRows, parentFunctionName, qualityMetrics, qualifiedFunctionName, location, measure, walkNodes } from './metrics';
 import { collectReferences } from './references';
 import { measureComplexity } from './complexity';
 import { hasSyntaxError } from './extensions';
 
 function unavailable(language: string, status: 'unsupported' | 'resource-unavailable', message: string): SourceAnalysis {
-  return { profile: ANALYSIS_PROFILE, language, parser_status: status, parser_message: message,
-    metrics: null, declarations: [], references: [], diagnostics: [{ kind: status === 'unsupported' ? 'unsupported' : 'resource', message, location: null }],
+  return { profile: PARSE_VERSION, language, parser_status: status, parser_message: message,
+    metrics: null, declarations: [], top_level: [], references: [], diagnostics: [{ kind: status === 'unsupported' ? 'unsupported' : 'resource', message, location: null }],
     truncated: { declarations: false, references: false, diagnostics: false } };
 }
 
@@ -34,6 +34,24 @@ function declarationsOf(items: StructureItem[], nodes: Map<string, Node>, langua
     result.push(...declarationsOf(item.children ?? [], nodes, language, nonblank));
   }
   return result;
+}
+
+/**
+ * Lines no named function holds: a callback handed to a call, an exported value, a macro invocation, a script's entry point.
+ * The first and last lines of whatever encloses a named function (a class, an impl block, an export) are its frame, not code.
+ */
+function topLevelLines(root: Node, declarations: Declaration[], nodes: Map<string, Node>, lines: number): number[] {
+  const held = new Set<number>();
+  for (const declaration of declarations) {
+    if (!isNamed(declaration.qualified_name)) continue;
+    for (let line = declaration.line; line <= declaration.end_line; line++) held.add(line);
+    let parent = nodes.get(`${declaration.location.start.byte}:${declaration.location.end.byte}`)?.parent ?? null;
+    for (; parent && parent.id !== root.id; parent = parent.parent) {
+      held.add(parent.startPosition.row + 1);
+      held.add(parent.endPosition.row + (parent.endPosition.column > 0 ? 1 : 0));
+    }
+  }
+  return Array.from({ length: lines }, (_, index) => index + 1).filter(line => !held.has(line));
 }
 
 function analysisOf(root: Node, language: string, built: ProcessResult): SourceAnalysis {
@@ -65,10 +83,11 @@ function analysisOf(root: Node, language: string, built: ProcessResult): SourceA
   // tree-sitter recovers locally, so a tree with an error in it still holds the declarations the error did not touch. Dropping
   // the file for one bad line, in any language, cost every method in it: a Flow import, a Groovy wildcard import, a C attribute
   // macro. The file is a parse error only when nothing in it can be read.
-  return { profile: ANALYSIS_PROFILE, language, parser_status: syntaxError && !declarations.length ? 'parse-error' : 'parsed',
+  return { profile: PARSE_VERSION, language, parser_status: syntaxError && !declarations.length ? 'parse-error' : 'parsed',
     parser_message: diagnostics[0]?.message ?? null,
     metrics: qualityMetrics(measurement, measureComplexity(root, language, false)),
     declarations,
+    top_level: topLevelLines(root, declarations, nodes, root.endPosition.row + 1),
     // The pack's import records do not expose every binding/alias or call site. This extractor adds those graph edges.
     references: collectReferences(root, language), diagnostics,
     truncated: { declarations: false, references: false, diagnostics: false } };
@@ -90,7 +109,7 @@ class LanguagePackAnalyzer implements Analyzer {
   }
 
   public async analyzeSummary(source: string, language: string): Promise<SourceSummary> {
-    const { declarations, references: _references, ...summary } = await this.analyzeSource(source, language);
+    const { declarations, top_level: _topLevel, references: _references, ...summary } = await this.analyzeSource(source, language);
     return { ...summary, declaration_count: declarations.length };
   }
 }

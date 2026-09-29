@@ -12,7 +12,7 @@ import { createFileSelector } from './exclusions.js';
 import { sourceChunks } from './chunks.js';
 import { TOKEN_LIMITS, estimateTokens, textTokens, questionBatches, IncompleteCheckError, ContextLimitError, withTokenRetries } from './tokens.js';
 import { appliesToLanguage, BUILTIN, compile, floorFor, installQuestions, merge, parseIgnored, parseQuestions, parseScanTypes, SEARCHES } from './ask.js';
-import { lineId, shownSource, lineWindows, locateWhere, tagged, whereQuestion, whereWindowQuestion } from './questions.js';
+import { lineId, shownSource, lineWindows, locateWhere, spanOf, tagged, whereQuestion, whereWindowQuestion } from './questions.js';
 import { findingId, sha256 } from './store.js';
 import { AuthenticationError } from './systemone.js';
 import { languageOf } from './analysis.js';
@@ -202,7 +202,7 @@ export function selectUnits(rule, { scan, graph, files, tree, inScope = () => tr
     .map(item => ({ id: item.path, path: item.path, name: item.path, line: 1, hash: item.sha })).filter(spared);
 }
 
-export const bodyOf = (text, unit) => shownSource(text.split('\n'), unit.line, unit.end_line);
+export const bodyOf = (text, unit) => shownSource(unit.own ? spanLines({ line: unit.line, end_line: unit.end_line, lines: unit.own }, text.split('\n')) : text.split('\n'), unit.line, unit.end_line);
 
 /**
  * The hash of a unit as it stands in this tree, or null when it is not there. A check is kept from one run to the next only while
@@ -217,8 +217,14 @@ export function unitHash(check, { graph, files, blobs }) {
   return block ? sha256(bodyOf(text, block)) : null;
 }
 
-const methodUnit = node => ({ id: node.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, hash: node.hash, method: true, part: true });
-const sourceOf = (node, files) => (files.get(node.path) ?? '').split('\n').slice(node.line - 1, node.end_line).join('\n');
+/** A file's lines with those a top-level unit surrounds, the methods read on their own, left blank so the rest keep their numbers. */
+const spanLines = (node, lines) => {
+  const span = spanOf(node, lines).map(text => text ?? '');
+  return [...lines.slice(0, node.line - 1), ...span, ...lines.slice(node.end_line)];
+};
+const spanText = (node, lines) => spanOf(node, lines).map(text => text ?? '').join('\n');
+const methodUnit = node => ({ id: node.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, own: node.lines, hash: node.hash, method: true, part: true });
+const sourceOf = (node, files) => spanText(node, (files.get(node.path) ?? '').split('\n'));
 
 /**
  * The tests in a file, as units. A test is what a suite is made of and what a person names when they say where something is

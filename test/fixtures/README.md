@@ -54,3 +54,12 @@ Run these commands inside the selected application's directory:
 The frontend opens at `http://localhost:8000`. Its Place order button is enabled
 despite the unavailable pens. The console applications likewise accept the
 mixed-stock order. These outcomes are the defects the checks must identify.
+
+## Code outside a named function
+
+`unnamed-code` holds source that no named function contains. It has a callback
+passed to a wrapper, a function assigned to an export, and a callback handed to
+a call. It also has a module that exports a value, functions a macro generates,
+and a Python entry point. `example/Inventory.java` has nothing outside its
+methods but the class around them. `npm test` checks which units a scan reads
+from each file.

@@ -1,6 +1,7 @@
 import type { LanguageId } from "./languages";
 
-export const ANALYSIS_PROFILE = "language-pack-1.20-v3" as const;
+/** Part of a saved parse's id. Change it whenever a parse would come out differently, so parses saved before are redone. */
+export const PARSE_VERSION = "language-pack-1.20-v4" as const;
 
 export interface SourcePoint {
   /** One-based source line. */
@@ -128,19 +129,21 @@ export interface AnalysisTruncation {
 }
 
 export interface SourceAnalysis {
-  profile: typeof ANALYSIS_PROFILE;
+  profile: typeof PARSE_VERSION;
   language: LanguageId | string;
   parser_status: ParserStatus;
   parser_message: string | null;
   metrics: QualityMetrics | null;
   declarations: Declaration[];
+  /** Lines no named declaration holds, in order. */
+  top_level: number[];
   references: Reference[];
   diagnostics: AnalysisDiagnostic[];
   truncated: AnalysisTruncation;
 }
 
 /** File-level analysis without materializing function metrics or a reference graph. */
-export interface SourceSummary extends Omit<SourceAnalysis, "declarations" | "references"> {
+export interface SourceSummary extends Omit<SourceAnalysis, "declarations" | "top_level" | "references"> {
   declaration_count: number;
 }
 

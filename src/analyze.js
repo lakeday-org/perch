@@ -3,11 +3,11 @@ import { join } from 'node:path';
 import { listTree, readBlobs } from './git.js';
 import { analyzeFiles, METHOD_HASH, sourceFile } from './analysis.js';
 import { createFileSelector, EXCLUSIONS_PROFILE } from './exclusions.js';
-import { ANALYSIS_PROFILE } from './treesitter/types.ts';
+import { PARSE_VERSION } from './treesitter/types.ts';
 import { identity, openStore, readJson, writeJson } from './store.js';
 
 export function scanIdentity({ revision, paths }) {
-  return identity('scan', ANALYSIS_PROFILE, EXCLUSIONS_PROFILE, METHOD_HASH, revision, [...paths].sort());
+  return identity('scan', PARSE_VERSION, EXCLUSIONS_PROFILE, METHOD_HASH, revision, [...paths].sort());
 }
 
 const selected = paths => file => !paths.length || paths.some(path => file.path === path || file.path.startsWith(path.replace(/\/$/, '') + '/'));
