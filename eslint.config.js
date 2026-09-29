@@ -38,4 +38,13 @@ export default [
     // A fixture is allowed to hold a GitHub Actions expression, which is a ${{ }} the shell never sees.
     rules: { '@typescript-eslint/no-explicit-any': 'off', 'no-template-curly-in-string': 'off' },
   },
+  {
+    files: ['src/**/*.js'],
+    rules: { 'no-process-env': 'error' },
+  },
+  {
+    // The CLI captures configuration; git passes the inherited environment to its child process.
+    files: ['src/cli.js', 'src/git.js'],
+    rules: { 'no-process-env': 'off' },
+  },
 ];

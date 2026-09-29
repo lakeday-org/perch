@@ -53,15 +53,6 @@ rules:
       This method reads and writes the results files through the store, not by
       opening them itself.
 
-  - name: env-read-once
-    where: "src/**/*.js"
-    except: "src/cli.js"
-    each: method
-    ensure: >-
-      This method does not directly access process.env. Reading fields from an
-      env object passed by the CLI is allowed; that object is the command line's
-      snapshot of the environment. Handing it to a child process is allowed too.
-
   - name: issues-closable
     where: "test/**/*.js"
     each: test
