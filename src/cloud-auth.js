@@ -131,15 +131,19 @@ export async function loginCloud({ env, organization, stdout, fetchImpl = global
 }
 
 /** Removes this device's login. A CI token lives in the dashboard and is revoked there, which the message says. */
-export async function logoutCloud({ env, stdout, fetchImpl = globalThis.fetch }) {
+export async function logoutCloud({ env, stdout, stderr = () => {}, fetchImpl = globalThis.fetch }) {
   const saved = await readCloudLogin(env).catch(() => null);
+  let revokeFailed = false;
   if (saved?.kind === 'perch' && saved.refreshToken) {
-    await cloudRequest(fetchImpl, `${CLOUD_ORIGIN}/auth/device/revoke`, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ refresh_token: saved.refreshToken }),
-    }, 3000);
+    try {
+      await cloudRequest(fetchImpl, `${CLOUD_ORIGIN}/auth/device/revoke`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ refresh_token: saved.refreshToken }),
+      }, 3000);
+    } catch (error) { revokeFailed = error.status !== 401; }
   }
   await rm(loginPath(env), { force: true });
   stdout('Removed this device\'s saved Perch login. Revoke CI credentials in the dashboard.');
+  if (revokeFailed) stderr('Could not confirm Cloud session revocation. This device’s saved login was removed.');
 }
 
 /** GitHub sets these two only in a job with `id-token: write`. Being able to mint a token is not opting in; see credentialSource. */

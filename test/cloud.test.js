@@ -156,6 +156,24 @@ describe('Perch Cloud', () => {
       expect(await main(['logout'], io)).toBe(0);
     } finally { await rm(root, { recursive: true, force: true }); }
   });
+  it('logout removes the saved login when revocation is already invalid or the Cloud is offline', async () => {
+    for (const [name, fetchImpl, warns] of [
+      ['revoked', async () => new Response(JSON.stringify({ error: 'Invalid refresh token' }), { status: 401 }), false],
+      ['offline', async () => { throw new Error('Network unavailable'); }, true],
+    ]) {
+      const root = await mkdtemp(join(tmpdir(), `perch-logout-${name}-`));
+      const file = join(root, '.perch', 'cloud.json');
+      const output = [], errors = [];
+      try {
+        await mkdir(join(root, '.perch'));
+        await writeFile(file, JSON.stringify({ kind: 'perch', refreshToken: 'expired-token' }));
+        await logoutCloud({ env: { HOME: root }, stdout: line => output.push(line), stderr: line => errors.push(line), fetchImpl });
+        await expect(readFile(file)).rejects.toMatchObject({ code: 'ENOENT' });
+        expect(output.join(' ')).toContain('Removed this device');
+        expect(errors.length > 0).toBe(warns);
+      } finally { await rm(root, { recursive: true, force: true }); }
+    }
+  });
   it('rejects incomplete device authorization responses before showing a code', async () => {
     const output = [];
     const fetchImpl = async () => response({ user_code: 'ABCD-EFGH' });
