@@ -164,7 +164,7 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
       // The types a scan of this method would ask, or the ones --rules named. Asking everything perch ships reported a
       // vulnerability on a method whose scan never asks about security, so a check and a scan disagreed about the same code.
       const kinds = named.types.length ? new Set(named.types) : typesAsked(await readScanTypes(root, revision));
-      const asked = methodQuestions(kinds, languageOf(unit.path));
+      const asked = methodQuestions(kinds, languageOf(unit.path), { topLevel: Boolean(unit.own) });
       const prepare = budget => methodSteps({ node, lines: unit.lines, imports: context.imports, methods: [...others, node], callees: context.callees, callers: context.callers, asked, budget });
       const steps = prepare(systemOne.limits?.state);
       const { answers } = await questionMethod({ systemOne, node, steps, prepare, lines: unit.lines, debug });

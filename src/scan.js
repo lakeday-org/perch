@@ -137,8 +137,12 @@ const createLineReader = (root, graph) => {
  * no issue comes along only when a kept one needs it, the way `kind` names a defect and `severity` ranks it. `perch check` asks
  * the same set, so a scan and a check of one method agree about what was asked.
  */
-export const methodQuestions = (kinds, language) => questionsFor(
-  questionSet().filter(question => question.each === 'method' && !question.kind && appliesToLanguage(question, language)),
+/** Questions about what a method's name and leading comment claim. A top-level unit has neither, so it is not asked them. */
+const ABOUT_A_NAME = new Set(['does_what_it_claims', 'documented']);
+
+export const methodQuestions = (kinds, language, { topLevel = false } = {}) => questionsFor(
+  questionSet().filter(question => question.each === 'method' && !question.kind && appliesToLanguage(question, language)
+    && !(topLevel && ABOUT_A_NAME.has(question.name))),
   [...kinds].map(value => ({ key: 'type', value })));
 
 /**
@@ -239,7 +243,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // not six.
     // A filter narrows what is asked, not just what is printed. Asking thirty questions about a method to print two is paying
     // for twenty-eight answers nobody reads, and a method no kept question covers is not read at all.
-    const asked = questionsFor([...methodQuestions(kinds, node.language), ...rulesForMethod(rules, node)], filters, kindLabel);
+    const asked = questionsFor([...methodQuestions(kinds, node.language, { topLevel: Boolean(node.lines) }), ...rulesForMethod(rules, node)], filters, kindLabel);
     askedByMethod.set(node.id, asked);
     const own = asked.filter(question => question.kind);
     if (!asked.length) return { node, calleeIds, callerIds, rules: own, skip: true };

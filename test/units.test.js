@@ -238,6 +238,8 @@ describe('the units a rule is asked about', () => {
     expect(at({ where: '**/*.js', each: 'method' }).every(unit => !unit.path.startsWith('test/'))).toBe(true);
     // The graph supplies the callers; h is called by f.
     expect(at({ where: 'callers of h' }).map(unit => unit.name)).toEqual(['f']);
+    // test/a.test.js calls f, and a test is not source a rule about callers is asking after.
+    expect(at({ where: 'callers of f' })).toEqual([]);
     expect(() => at({ where: 'callers of nosuchmethod' })).toThrow('no method named nosuchmethod');
     // mentions is text, and says so: it finds the methods worth asking about.
     expect(at({ where: 'mentions x - 1' }).map(unit => unit.name)).toEqual(['k']);

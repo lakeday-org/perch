@@ -179,7 +179,7 @@ export function selectUnits(rule, { scan, graph, files, tree, inScope = () => tr
   if (callers) {
     const target = [...graph.nodes.keys()].filter(id => id === callers[1] || id.endsWith(`::${callers[1]}`));
     if (!target.length) throw new Error(`${rule.name} (${rule.at}): no method named ${callers[1]}`);
-    return [...new Set(target.flatMap(id => graph.callers(id)))].map(id => methodUnit(graph.nodes.get(id))).filter(spared);
+    return [...new Set(target.flatMap(id => graph.callers(id)))].map(id => graph.nodes.get(id)).filter(node => !node.test).map(methodUnit).filter(spared);
   }
   if (mentions) {
     const needle = mentions[1].trim();
