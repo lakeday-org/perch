@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { revision } from '../src/git.js';
 import { createSourceAnalyzer, sourceFile } from '../src/analysis.js';
 import { check } from '../src/ask.js';
-import { rulesFor } from '../src/check.js';
+import { checkTarget, rulesFor } from '../src/check.js';
 import { expand, matches, neighbourhood, rank, readLint, readRules, selectUnits, testBlocks, unitStep } from '../src/units.js';
 import { scanRepository } from '../src/scan.js';
 import { openStore } from '../src/store.js';
@@ -93,6 +93,22 @@ describe('which rules cover one point in the code', () => {
     // disagreed about which rules apply to a path.
     expect(rulesFor([rule('prose', { except: 'skill.md' })], file)).toEqual([]);
     expect(rulesFor([rule('prose', { except: 'skill.md' })], { ...file, path: 'README.md', name: 'README.md' })).toHaveLength(1);
+  });
+
+  it('asks a mentions rule and a callers-of rule about the methods a scan would ask them about', async () => {
+    const repo = await repoWith([
+      '- name: counts-down', '  where: mentions x - 1', '  each: method', '  ensure: "x"',
+      '- name: calls-h', '  where: callers of h', '  each: method', '  ensure: "x"', ''].join('\n'));
+    const asked = async target => {
+      const calls = [];
+      const checked = await checkTarget({ target, root: repo.root, out: repo.out, analyzer, systemOne: answering(0.1, calls),
+        revision: repo.revision, only: ['counts-down', 'calls-h'] });
+      return { checked: checked.checked, rules: calls.flatMap(call => Object.keys(call.questions)).sort() };
+    };
+    // Matched against the path, neither `where` named src/b.js or src/a.js, so check asked nothing a scan asks.
+    expect(await asked('src/b.js::k')).toEqual({ checked: 1, rules: ['counts-down'] });
+    expect(await asked('src/a.js::f')).toEqual({ checked: 1, rules: ['calls-h'] });
+    expect(await asked('src/a.js::g')).toEqual({ checked: 0, rules: [] });
   });
 });
 

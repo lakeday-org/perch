@@ -9,12 +9,15 @@
  */
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { languageOf } from './analysis.js';
+import { analyzeFiles, languageOf } from './analysis.js';
+import { analyzeTree } from './analyze.js';
 import { methodContext } from './context.js';
+import { listTree } from './git.js';
+import { buildGraph } from './graph.js';
 import { methodQuestions, questionMethod, typesAsked } from './scan.js';
-import { bodyOf, matches, neighbourhood, readLint, readRules, readScanTypes, RULES_FILE, unitSteps, askUnitSteps } from './units.js';
+import { bodyOf, neighbourhood, readLint, readRules, readScanTypes, RULES_FILE, selectUnits, unitSteps, askUnitSteps } from './units.js';
 import { BELIEVED, filterKeys, meaning, methodSteps, issuesOf } from './questions.js';
-import { appliesToLanguage, floorFor } from './ask.js';
+import { floorFor } from './ask.js';
 import { openStore } from './store.js';
 
 /** A check reads one file off disk, so there is no graph to draw a neighbourhood from: what `sees` can reach is that file. */
@@ -59,20 +62,39 @@ export function splitOnly(only) {
   return { rules: named.filter(name => !types.has(name)), types: named.filter(name => types.has(name)) };
 }
 
-/** The rules that have anything to say about this target: the ones whose selector covers it, narrowed by `only` when given. */
-export function rulesFor(rules, unit, only = []) {
-  return rules.filter(rule => {
-    // A question written out longhand is asked of a method by a scan, not put to one file on its own.
-    if (!rule.kind) return false;
-    if (only.length && !only.includes(rule.name)) return false;
-    if (!appliesToLanguage(rule, languageOf(unit.path))) return false;
-    // A file the rule spares is spared here too. Left out, check asked a rule about the one file its author had said it did not
-    // cover, so check and a scan disagreed about which rules apply to a path.
-    if (rule.except && [rule.except].flat().some(glob => matches(glob, unit.path))) return false;
-    if (!matches(String(rule.where).replace(/^(callers? of|mentions|writers? of) /, ''), unit.path)) return rule.where === unit.path;
-    return Boolean(rule.each === 'method' || rule.each === 'test') === Boolean(unit.part);
-  });
+/** `callers of` and `mentions` select methods, so a file is never one of theirs and needs no graph to say so. */
+const methodsOnly = rule => /^(callers? of|mentions|writers? of) /.test(rule.where ?? '');
+
+/**
+ * What a scan selects units from, as a check sees it: the target's file read off disk, parsed, and put in place of the committed
+ * one. The graph is the whole repository's only when a `callers of` rule needs it, since that is the one selector that reads edges
+ * into this method from somewhere else.
+ */
+export async function selectionFor(unit, rules, { root, out, analyzer, revision, debug = () => {} }) {
+  const item = { path: unit.path, type: 'blob', sha: 'working copy' };
+  const here = unit.part ? (await analyzeFiles([item], { analyzer, readSource: async () => unit.text })).files : [];
+  const callers = unit.part && rules.some(rule => /^callers? of /.test(rule.where ?? ''));
+  const elsewhere = callers ? (await analyzeTree({ root, revision, out, analyzer, log: debug })).files.filter(file => file.path !== unit.path) : [];
+  const tree = revision ? (await listTree(root, revision)).filter(entry => entry.path !== unit.path) : [];
+  return { scan: { files: here }, graph: buildGraph([...elsewhere, ...here]), files: new Map([[unit.path, unit.text]]), tree: [...tree, item] };
 }
+
+/**
+ * The rules that have anything to say about this target: the ones a scan would ask about it, narrowed by `only` when given. Which
+ * units a rule covers is `selectUnits`'s to say. Deciding it here by matching `where` against the path never asked a `mentions` or
+ * `callers of` rule, since neither names a path.
+ */
+export function rulesFor(rules, unit, only = [], selection = selectionOf(unit)) {
+  const same = selected => selected.path === unit.path && (unit.part ? selected.part && selected.name === unit.name : !selected.part);
+  return askable(rules, only).filter(rule => (unit.part || !methodsOnly(rule)) && selectUnits(rule, selection).some(same));
+}
+
+/** The rules a check could ask at all. A question written out longhand is asked of a method by a scan, not put to one unit on its own. */
+const askable = (rules, only) => rules.filter(rule => rule.kind && (!only.length || only.includes(rule.name)));
+
+/** The selection for a unit with nothing parsed: enough to decide the rules that select files by path. */
+const selectionOf = unit => ({ scan: { files: [] }, graph: buildGraph([]), files: new Map([[unit.path, unit.text ?? '']]),
+  tree: [{ path: unit.path, type: 'blob', sha: 'working copy' }] });
 
 /**
  * How broken this one unit is. A scan decides an `ensure_present` rule over the whole codebase, so `readLint` reports it as
@@ -93,7 +115,8 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
   const unit = await resolveTarget({ target, root, out, analyzer });
   const named = splitOnly(only);
   // Naming only classes the scan answers about means the rule file was not named, so none of it is asked.
-  const rules = only.length && !named.rules.length ? [] : rulesFor(await readRules(root, revision), unit, named.rules);
+  const read = askable(only.length && !named.rules.length ? [] : await readRules(root, revision), named.rules);
+  const rules = read.length ? rulesFor(read, unit, named.rules, await selectionFor(unit, read, { root, out, analyzer, revision, debug })) : [];
   const body = unit.part ? bodyOf(unit.text, unit) : unit.text;
 
   // Every rule that covers this point, asked over it at once. A rule that wants more than the unit itself is its own context.
