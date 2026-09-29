@@ -7,8 +7,8 @@
  *
  * The target is a path, a path and a method, or an issue id, which resolves to whatever raised it.
  */
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readFile, realpath } from 'node:fs/promises';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { analyzeFiles, languageOf } from './analysis.js';
 import { analyzeTree } from './analyze.js';
 import { methodContext } from './context.js';
@@ -37,8 +37,18 @@ export async function resolveTarget({ target, root, out, analyzer }) {
     path = finding.path;
     name = finding.name === finding.path ? null : finding.name;
   } else if (target.includes('::')) [path, name] = target.split('::');
+  const repository = await realpath(root);
+  const targetPath = resolve(repository, path);
+  const inside = relative(repository, targetPath);
+  const outside = value => value === '..' || value.startsWith(`..${sep}`) || isAbsolute(value);
+  if (outside(inside)) throw new Error(`${path} is outside this repository`);
+  // A path inside the checkout can still be a symlink to a private file elsewhere.
+  const sourcePath = await realpath(targetPath)
+    .catch(error => { throw new Error(error.code === 'ENOENT' ? `${path} is not there` : `${path} could not be read: ${error.message}`); });
+  if (outside(relative(repository, sourcePath))) throw new Error(`${path} is outside this repository`);
+  path = inside.split(sep).join('/');
   // Why it could not be read is the difference between a typo and a permission, so the reason comes with it.
-  const text = await readFile(join(root, path), 'utf8')
+  const text = await readFile(sourcePath, 'utf8')
     .catch(error => { throw new Error(error.code === 'ENOENT' ? `${path} is not there` : `${path} could not be read: ${error.message}`); });
   if (!name) return { path, name: path, line: 1, text, lines: text.split('\n') };
   const language = languageOf(path);
@@ -76,7 +86,9 @@ export async function selectionFor(unit, rules, { root, out, analyzer, revision,
   const callers = unit.part && rules.some(rule => /^callers? of /.test(rule.where ?? ''));
   const elsewhere = callers ? (await analyzeTree({ root, revision, out, analyzer, log: debug })).files.filter(file => file.path !== unit.path) : [];
   const tree = revision ? (await listTree(root, revision)).filter(entry => entry.path !== unit.path) : [];
-  return { scan: { files: here }, graph: buildGraph([...elsewhere, ...here]), files: new Map([[unit.path, unit.text]]), tree: [...tree, item] };
+  // Other files are needed to resolve callers and generated-output exclusions, but only the named unit may be checked.
+  return { scan: { files: here }, graph: buildGraph([...elsewhere, ...here]), files: new Map([[unit.path, unit.text]]), tree: [...tree, item],
+    inScope: path => path === unit.path };
 }
 
 /**

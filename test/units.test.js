@@ -1,10 +1,11 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { join, relative } from 'node:path';
+import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
 import { revision } from '../src/git.js';
 import { createSourceAnalyzer, sourceFile } from '../src/analysis.js';
 import { check } from '../src/ask.js';
-import { checkTarget, rulesFor } from '../src/check.js';
+import { checkTarget, resolveTarget, rulesFor } from '../src/check.js';
 import { expand, matches, neighbourhood, rank, readLint, readRules, selectUnits, testBlocks, unitStep } from '../src/units.js';
 import { scanRepository } from '../src/scan.js';
 import { openStore } from '../src/store.js';
@@ -110,6 +111,18 @@ describe('which rules cover one point in the code', () => {
     expect(await asked('src/a.js::f')).toEqual({ checked: 1, rules: ['calls-h'] });
     expect(await asked('src/a.js::g')).toEqual({ checked: 0, rules: [] });
   });
+});
+
+it('does not read a check target outside the repository, including through a symlink', async () => {
+  const repo = await repoWith('');
+  const external = await mkdtemp(join(tmpdir(), 'perch-external-'));
+  cleanups.push(external);
+  await writeFile(join(external, 'private.js'), 'const secret = true;\n');
+  await symlink(join(external, 'private.js'), join(repo.root, 'linked.js'));
+  await expect(resolveTarget({ target: relative(repo.root, join(external, 'private.js')), root: repo.root, out: repo.out })).rejects.toThrow(/outside this repository/);
+  await expect(resolveTarget({ target: join(external, 'private.js'), root: repo.root, out: repo.out })).rejects.toThrow(/outside this repository/);
+  await expect(resolveTarget({ target: 'linked.js', root: repo.root, out: repo.out })).rejects.toThrow(/outside this repository/);
+  expect((await resolveTarget({ target: 'src/a.js', root: repo.root, out: repo.out })).path).toBe('src/a.js');
 });
 
 describe('the units a rule is asked about', () => {
