@@ -81,6 +81,28 @@ describe("Tree-sitter analysis", () => {
 });
 
 
+describe("deeply nested source", () => {
+  // Each of these took between 26 seconds and two minutes when every step up to an enclosing node searched down from the root.
+  // Parsing is repository content, so a small file in a pull request held a scan for as long as it liked.
+  it.each([
+    ["functions", Array.from({ length: 1000 }, (_, index) => `function f${index}() { const x = ${index};`).join("\n") + "}".repeat(1000), 1000],
+    ["conditions", "function g(a, b) {\n" + "if (a && b) {\n".repeat(1000) + "}\n".repeat(1000) + "}", 1],
+    ["logical chains", "function h(a) { return " + Array.from({ length: 2000 }, (_, index) => `a${index}`).join(" && ") + "; }", 1],
+  ])("parses a file of nested %s in a few seconds", async (_kind, source, declarations) => {
+    const started = performance.now();
+    const result = await realAnalyzer().analyzeSource(source, "javascript");
+    expect(result.parser_status).toBe("parsed");
+    expect(result.declarations).toHaveLength(declarations);
+    expect(performance.now() - started).toBeLessThan(10_000);
+  }, 60_000);
+
+  it("names a nested function by everything around it", async () => {
+    const result = await realAnalyzer().analyzeSource("class A {\n  run() {\n    function inner() { return 1; }\n    return inner();\n  }\n}\n", "javascript");
+    const inner = result.declarations.find(item => item.name === "inner");
+    expect(inner).toMatchObject({ qualified_name: "A.run.inner", parent_function: "A.run", function_depth: 1 });
+  });
+});
+
 describe("scan summaries", () => {
   it.each([
     ["javascript", "import x from './x.js'; function outer(v) { const inner = n => n && x(n); if (v) return inner(v); return 0; }"],

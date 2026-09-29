@@ -13,7 +13,13 @@ export class Node {
   #startPosition?: Point;
   #endPosition?: Point;
   #childCount?: number;
-  constructor(private readonly native: PackNode, private readonly source: Buffer) {}
+  /**
+   * The node this one was reached from, or undefined when it was not reached from one. Native `parent()` searches down from the
+   * root, so it costs the node's depth, and the walks that climb from a node to the function around it paid that at every step:
+   * a 34 KB file of nested functions took two minutes to parse. A node reached from its parent keeps it instead.
+   */
+  #parent?: Node | null;
+  constructor(private readonly native: PackNode, private readonly source: Buffer, parent?: Node | null) { this.#parent = parent; }
   get type() { return (this.#type ??= this.native.kind()); }
   get startIndex() { return (this.#startIndex ??= this.native.startByte()); }
   get endIndex() { return (this.#endIndex ??= this.native.endByte()); }
@@ -27,7 +33,10 @@ export class Node {
   get isMissing() { return this.native.isMissing(); }
   get childCount() { return (this.#childCount ??= this.native.childCount()); }
   get text() { return this.source.subarray(this.startIndex, this.endIndex).toString('utf8'); }
-  get parent(): Node | null { return this.wrap(this.native.parent()); }
+  get parent(): Node | null {
+    if (this.#parent === undefined) { const native = this.native.parent(); this.#parent = native ? new Node(native, this.source) : null; }
+    return this.#parent;
+  }
   get namedChildren(): Node[] {
     return Array.from({ length: this.native.namedChildCount() }, (_, index) => this.wrap(this.native.namedChild(index))!);
   }
@@ -35,11 +44,18 @@ export class Node {
   childForFieldName(name: string): Node | null { return this.wrap(this.native.childByFieldName(name)); }
   *walk(): Generator<Node> {
     const cursor = this.native.walk();
+    // The nodes above the cursor, so each one yielded knows its parent. The first stands for this node and has its parent.
+    const above: Node[] = [];
+    let current = new Node(cursor.node(), this.source, this.#parent);
     while (true) {
-      yield new Node(cursor.node(), this.source);
-      if (cursor.gotoFirstChild()) continue;
-      while (!cursor.gotoNextSibling()) if (!cursor.gotoParent()) return;
+      yield current;
+      if (cursor.gotoFirstChild()) { above.push(current); current = new Node(cursor.node(), this.source, current); continue; }
+      while (!cursor.gotoNextSibling()) {
+        if (!cursor.gotoParent() || !above.length) return;
+        above.pop();
+      }
+      current = new Node(cursor.node(), this.source, above.at(-1) ?? null);
     }
   }
-  private wrap(node: PackNode | null): Node | null { return node ? new Node(node, this.source) : null; }
+  private wrap(node: PackNode | null): Node | null { return node ? new Node(node, this.source, this) : null; }
 }

@@ -3,7 +3,7 @@ import type { ProcessResult, StructureItem } from '@xberg-io/tree-sitter-languag
 import { ANALYSIS_PROFILE, type Analyzer, type Declaration, type SourceAnalysis, type SourceSummary } from './types';
 import { normalizeLanguage } from './languages';
 import { Node } from './node';
-import { functionDepth, functionName, isFunction, parentFunctionName, qualityMetrics, qualifiedFunctionName, location, measure, walkNodes } from './metrics';
+import { functionDepth, functionName, isFunction, nonblankRows, parentFunctionName, qualityMetrics, qualifiedFunctionName, location, measure, walkNodes } from './metrics';
 import { collectReferences } from './references';
 import { measureComplexity } from './complexity';
 import { hasSyntaxError } from './extensions';
@@ -15,7 +15,7 @@ function unavailable(language: string, status: 'unsupported' | 'resource-unavail
 }
 
 /** Native callable nodes extend the pack's structure records with call ownership and risk measurements. */
-function declarationsOf(items: StructureItem[], nodes: Map<string, Node>, language: string): Declaration[] {
+function declarationsOf(items: StructureItem[], nodes: Map<string, Node>, language: string, nonblank: Set<number>): Declaration[] {
   const result: Declaration[] = [];
   for (const item of items) {
     if (['Function', 'Method', 'Constructor'].includes(item.kind?.type ?? '')) {
@@ -24,14 +24,14 @@ function declarationsOf(items: StructureItem[], nodes: Map<string, Node>, langua
       if (!node) throw new Error(`No syntax node for declaration ${item.name} at ${span.startByte}`);
       // A declaration the parser could not read whole is not offered as a method; the ones around it still are. Nested
       // declarations are read on their own, since a broken outer function says nothing about an inner one.
-      if (hasSyntaxError(node)) { result.push(...declarationsOf(item.children ?? [], nodes, language)); continue; }
+      if (hasSyntaxError(node)) { result.push(...declarationsOf(item.children ?? [], nodes, language, nonblank)); continue; }
       result.push({ id: `function:${node.startIndex}`, kind: 'function', syntax_kind: node.type,
         name: ['kotlin', 'cpp'].includes(language) ? functionName(node) : item.name ?? '<anonymous>', qualified_name: qualifiedFunctionName(node), parent_function: parentFunctionName(node),
         function_depth: functionDepth(node), line: span.startLine! + 1,
         end_line: Math.max(span.startLine! + 1, span.endLine! + (span.endColumn! > 0 ? 1 : 0)),
-        location: location(node), metrics: qualityMetrics(measure(node, true), measureComplexity(node, language, true)) });
+        location: location(node), metrics: qualityMetrics(measure(node, true, nonblank), measureComplexity(node, language, true)) });
     }
-    result.push(...declarationsOf(item.children ?? [], nodes, language));
+    result.push(...declarationsOf(item.children ?? [], nodes, language, nonblank));
   }
   return result;
 }
@@ -53,11 +53,12 @@ function analysisOf(root: Node, language: string, built: ProcessResult): SourceA
     if (wanted.has(key)) nodes.set(key, node);
   }
   const syntaxError = hasSyntaxError(root);
-  const declarations = declarationsOf(structure, nodes, language).sort((a, b) => a.location.start.byte - b.location.start.byte);
+  const nonblank = nonblankRows(root);
+  const declarations = declarationsOf(structure, nodes, language, nonblank).sort((a, b) => a.location.start.byte - b.location.start.byte);
   const diagnostics = (syntaxError ? built.diagnostics ?? [] : []).map(item => ({ kind: 'syntax' as const, message: item.message!,
     location: item.span ? { start: { line: item.span.startLine! + 1, column: item.span.startColumn! + 1, byte: item.span.startByte! },
       end: { line: item.span.endLine! + 1, column: item.span.endColumn! + 1, byte: item.span.endByte! } } : null }));
-  const measurement = measure(root, false);
+  const measurement = measure(root, false, nonblank);
   measurement.sloc = built.metrics!.codeLines!;
   measurement.comment_lines = built.metrics!.commentLines!;
   if (syntaxError && !diagnostics.length) diagnostics.push({ kind: 'syntax', message: 'Syntax error in source', location: location(root) });

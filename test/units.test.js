@@ -81,6 +81,35 @@ describe('a glob with alternatives in it', () => {
     // Everything without a brace is untouched.
     expect(expand('**/*.md')).toEqual(['**/*.md']);
   });
+
+  it('refuses a glob whose braces write out to more than a person means, naming it', () => {
+    const glob = `${'{a,b}'.repeat(20)}.md`;
+    // A million alternatives, each tried against every path in the tree, from one line of perch.yaml.
+    expect(() => matches(glob, 'a.md')).toThrow(`${glob}: more than 256 alternatives in its braces`);
+    expect(expand('{a,b}'.repeat(8))).toHaveLength(256);
+  });
+});
+
+describe('a glob written against the matcher', () => {
+  it('answers in the time it takes to read the glob and the path, however many wildcards it has', () => {
+    // As a regular expression, ten `**/` against a path forty directories deep ran for minutes: every one of them could take
+    // any share of the directories, and the engine tried each way before saying no.
+    const deep = `${'a/'.repeat(40)}y`;
+    const started = performance.now();
+    expect(matches(`${'**/'.repeat(10)}x`, deep)).toBe(false);
+    expect(matches(`${'**/'.repeat(10)}y`, deep)).toBe(true);
+    expect(matches(`${'*'.repeat(30)}x`, 'a'.repeat(3000))).toBe(false);
+    expect(matches(`${'**/a/'.repeat(12)}*`, deep)).toBe(true);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  it('keeps `**/` to whole directories and `*` inside one name', () => {
+    for (const [glob, path, want] of [
+      ['**/x', 'x', true], ['**/x', 'a/b/x', true], ['**/x', 'ax', false], ['a/**/b', 'a/b', true], ['a/**/b', 'a/x/y/b', true],
+      ['a/**/b', 'ab', false], ['src/**', 'src/a.js', true], ['src/**', 'src/a/b.js', false], ['*.md', 'a/b.md', false],
+      ['a*b', 'a/b', false], ['a?b', 'a?b', true], ['a?b', 'axb', false], ['', '', true], ['*', '', true],
+    ]) expect([glob, path, matches(glob, path)]).toEqual([glob, path, want]);
+  });
 });
 
 describe('which rules cover one point in the code', () => {

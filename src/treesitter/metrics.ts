@@ -349,12 +349,18 @@ function halstead(
   };
 }
 
-export function measure(root: Node, excludeNested = false): Measurement {
+/** The rows of a node's text that hold anything but whitespace, numbered as rows of the file. */
+export const nonblankRows = (root: Node): Set<number> => new Set([...nonblankLines(root.text)].map(line => line + root.startPosition.row));
+
+/**
+ * `nonblank` is the file's nonblank rows, when the caller measures many nodes of one file. Read from each node's own text, a
+ * function nested thousands deep re-read everything inside it once per function around it.
+ */
+export function measure(root: Node, excludeNested = false, nonblank = nonblankRows(root)): Measurement {
   const operators = new Map<string, number>();
   const operands = new Map<string, number>();
   const codeLines = new Set<number>();
   const comments = new Set<number>();
-  const nonblank = new Set([...nonblankLines(root.text)].map(line => line + root.startPosition.row));
   let opaque_bytes = 0;
   const stack = [root];
   while (stack.length > 0) {
@@ -400,7 +406,21 @@ function text(node: Node | null | undefined, limit = 160): string {
   return node.text.slice(0, limit);
 }
 
-export function functionName(node: Node): string {
+/**
+ * Names are read once per node. A declaration's qualified name reads the name of every function around it, so a file of nested
+ * functions asked for each enclosing name once per declaration inside it, and the native field lookups behind a name were most
+ * of the time left in parsing one.
+ */
+const names = new WeakMap<Node, string>(), qualifiedNames = new WeakMap<Node, string>();
+const remembered = (cache: WeakMap<Node, string>, node: Node, read: (node: Node) => string): string => {
+  let name = cache.get(node);
+  if (name === undefined) { name = read(node); cache.set(node, name); }
+  return name;
+};
+
+export const functionName = (node: Node): string => remembered(names, node, readFunctionName);
+
+function readFunctionName(node: Node): string {
   let name = callableName(node) ?? node.childForFieldName("name");
   if (!name) {
     const declarator = node.childForFieldName("declarator");
@@ -451,7 +471,9 @@ function receiverName(node: Node): string | null {
   return text(name) || null;
 }
 
-export function qualifiedFunctionName(node: Node): string {
+export const qualifiedFunctionName = (node: Node): string => remembered(qualifiedNames, node, readQualifiedName);
+
+function readQualifiedName(node: Node): string {
   const parts: string[] = [];
   let parent = node.parent;
   while (parent) {

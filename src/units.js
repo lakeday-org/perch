@@ -89,7 +89,7 @@ export const asRules = questions => questions.filter(question => question.kind);
  * `{a,b}` as the alternatives a person means by it. Written out one at a time, because the brace is the only part of a glob that
  * is a list rather than a pattern, and the matcher below reads a pattern. A `{` with no `}` is a literal brace and is left alone.
  */
-export function expand(glob) {
+export function expand(glob, whole = glob) {
   const open = glob.indexOf('{');
   if (open < 0) return [glob];
   let depth = 0, close = -1;
@@ -105,12 +105,60 @@ export function expand(glob) {
     else if (glob[at] === '}' && at < close) inner--;
     else if ((glob[at] === ',' && inner === 0) || at === close) { parts.push(glob.slice(start, at)); start = at + 1; }
   }
-  return parts.flatMap(part => expand(glob.slice(0, open) + part + glob.slice(close + 1)));
+  const all = parts.flatMap(part => expand(glob.slice(0, open) + part + glob.slice(close + 1), whole));
+  // Each brace multiplies the ones before it, so twenty of them in one glob is a million globs to hold and try against every
+  // path in the tree. No glob a person means has more than a handful.
+  if (all.length > MAX_ALTERNATIVES) throw new Error(`${whole}: more than ${MAX_ALTERNATIVES} alternatives in its braces`);
+  return all;
 }
 
+/** Globs one pattern may stand for once its braces are written out. */
+export const MAX_ALTERNATIVES = 256;
+
+/**
+ * A glob as the pieces it matches with: `**\/` is any number of directories, `*` is anything inside one name, and the rest is
+ * itself. `?` and the rest of the glob alphabet are not wildcards here, since a rule file only ever needs these two.
+ */
+const GLOBSTAR = 0, STAR = 1;
+const piecesOf = glob => {
+  const pieces = [];
+  for (let at = 0; at < glob.length;) {
+    if (glob.startsWith('**/', at)) { pieces.push(GLOBSTAR); at += 3; }
+    else { pieces.push(glob[at] === '*' ? STAR : glob[at]); at++; }
+  }
+  return pieces;
+};
+const compiled = new Map();
+
+/**
+ * Whether a path is one a glob names. Matched a piece and a character at a time, from the end: whether the rest of the glob matches
+ * the rest of the path, for every pair of positions, which is the length of one times the other however the glob is written.
+ *
+ * This was a regular expression, `(?:.*\/)?` for each `**\/`. A glob with ten of them against a path forty directories deep ran
+ * for minutes, since every one of them could take any share of the directories and the engine tried them all.
+ */
 export function matches(glob, path) {
-  const segment = part => part.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*');
-  return expand(glob).some(one => new RegExp(`^${one.split('**/').map(segment).join('(?:.*/)?')}$`).test(path));
+  if (!compiled.has(glob)) compiled.set(glob, expand(glob).map(piecesOf));
+  return compiled.get(glob).some(pieces => {
+    const size = path.length;
+    // `next[j]` is whether the pieces after this one match path[j..]; `here[j]` is the same for this piece onward.
+    let next = new Uint8Array(size + 1);
+    next[size] = 1;
+    for (let index = pieces.length - 1; index >= 0; index--) {
+      const piece = pieces[index], here = new Uint8Array(size + 1);
+      // For `**\/`: whether some directory boundary at or after j leaves the rest matching what follows it.
+      let later = 0;
+      for (let j = size; j >= 0; j--) {
+        if (piece === GLOBSTAR) {
+          if (j < size && path[j] === '/' && next[j + 1]) later = 1;
+          here[j] = next[j] || later;
+        } else if (piece === STAR) here[j] = next[j] || (j < size && path[j] !== '/' && here[j + 1]);
+        else here[j] = j < size && path[j] === piece && next[j + 1];
+      }
+      next = here;
+    }
+    return next[0] === 1;
+  });
 }
 
 /**

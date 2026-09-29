@@ -66,19 +66,27 @@ export function readBlobs(root, shas, onBlob) {
   return new Promise((resolve, reject) => {
     const child = spawn('git', ['-c', 'core.hooksPath=/dev/null', 'cat-file', '--batch'], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] });
     let pending = Buffer.alloc(0), index = 0, stderr = '';
+    // Chunks of a blob not yet whole, joined once it is. Joining every chunk onto what came before copied a large blob once per
+    // chunk of it: a 64 MB file took three seconds to read, and each doubling took four times as long.
+    let held = [], heldBytes = 0, wanted = 0;
     const drain = () => {
       for (;;) {
         const newline = pending.indexOf(10);
-        if (newline < 0) return;
+        if (newline < 0) { wanted = 0; return; }
         const header = pending.subarray(0, newline).toString();
         if (header.endsWith(' missing')) throw new Error(`git cat-file: ${header}`);
         const size = batchBlobSize(header, newline + 1);
-        if (pending.length < newline + 1 + size + 1) return;
+        if (pending.length < newline + 1 + size + 1) { wanted = newline + 1 + size + 1; return; }
         onBlob(index++, pending.subarray(newline + 1, newline + 1 + size).toString('utf8'));
         pending = pending.subarray(newline + 1 + size + 1);
       }
     };
-    child.stdout.on('data', chunk => { pending = Buffer.concat([pending, chunk]); try { drain(); } catch (error) { child.kill(); reject(error); } });
+    child.stdout.on('data', chunk => {
+      held.push(chunk); heldBytes += chunk.length;
+      if (pending.length + heldBytes < wanted) return;
+      pending = Buffer.concat([pending, ...held]); held = []; heldBytes = 0;
+      try { drain(); } catch (error) { child.kill(); reject(error); }
+    });
     child.stderr.on('data', chunk => { stderr += chunk; });
     child.on('error', reject);
     child.on('close', code => (code === 0 && index === shas.length ? resolve() : reject(new Error(`git cat-file --batch failed: ${stderr.trim() || `read ${index} of ${shas.length} blobs`}`))));
