@@ -106,7 +106,7 @@ describe('a glob written against the matcher', () => {
   it('keeps `**/` to whole directories and `*` inside one name', () => {
     for (const [glob, path, want] of [
       ['**/x', 'x', true], ['**/x', 'a/b/x', true], ['**/x', 'ax', false], ['a/**/b', 'a/b', true], ['a/**/b', 'a/x/y/b', true],
-      ['a/**/b', 'ab', false], ['src/**', 'src/a.js', true], ['src/**', 'src/a/b.js', false], ['*.md', 'a/b.md', false],
+      ['a/**/b', 'ab', false], ['src/**', 'src/a.js', true], ['src/**', 'src/a/b.js', true], ['*.md', 'a/b.md', false],
       ['a*b', 'a/b', false], ['a?b', 'a?b', true], ['a?b', 'axb', false], ['', '', true], ['*', '', true],
     ]) expect([glob, path, matches(glob, path)]).toEqual([glob, path, want]);
   });
@@ -194,6 +194,15 @@ describe('the units a rule is asked about', () => {
       ['**/*.md', 'README.md', true], ['**/*.md', 'doc/fix.md', true], ['**/*.md', 'src/a.js', false],
       ['src/**/*.js', 'src/cli.js', true], ['src/**/*.js', 'src/treesitter/deep/x.js', true], ['src/**/*.js', 'test/a.js', false],
       ['test/**/*.js', 'test/cli.test.js', true], ['src/*.js', 'src/nested/a.js', false],
+    ]) expect([glob, path, matches(glob, path)]).toEqual([glob, path, want]);
+  });
+
+  it('reads `dir/**` as everything under the directory, at any depth', () => {
+    for (const [glob, path, want] of [
+      ['src/**', 'src/a.js', true], ['src/**', 'src/a/b.js', true], ['src/**', 'src/a/b/c.js', true],
+      ['src/**', 'src', false], ['src/**', 'srcs/a.js', false], ['src/**', 'test/src/a.js', false],
+      ['test/fixtures/**', 'test/fixtures/order-service/cart.py', true], ['**', 'a/b.js', true],
+      ['a/**/b.js', 'a/b.js', true], ['a/**/b.js', 'a/x/y/b.js', true], ['src/*', 'src/a/b.js', false],
     ]) expect([glob, path, matches(glob, path)]).toEqual([glob, path, want]);
   });
 

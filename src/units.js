@@ -84,7 +84,6 @@ export async function readRules(root, revision) {
  * here. So this is the split between the two, not a narrowing of one. */
 export const asRules = questions => questions.filter(question => question.kind);
 
-/** `**\/*.md` and `src/**\/*.js` as a test on a path. Only the two wildcards a rule file ever needs. */
 /**
  * `{a,b}` as the alternatives a person means by it. Written out one at a time, because the brace is the only part of a glob that
  * is a list rather than a pattern, and the matcher below reads a pattern. A `{` with no `}` is a literal brace and is left alone.
@@ -117,7 +116,8 @@ export const MAX_ALTERNATIVES = 256;
 
 /**
  * A glob as the pieces it matches with: `**\/` is any number of directories, `*` is anything inside one name, and the rest is
- * itself. `?` and the rest of the glob alphabet are not wildcards here, since a rule file only ever needs these two.
+ * itself. `?` and the rest of the glob alphabet are not wildcards here, since a rule file only ever needs these two. A `**` that
+ * ends the glob is `**\/*`, so `vendor/**` is everything under vendor at any depth rather than only what sits directly inside it.
  */
 const GLOBSTAR = 0, STAR = 1;
 const piecesOf = glob => {
@@ -138,7 +138,7 @@ const compiled = new Map();
  * for minutes, since every one of them could take any share of the directories and the engine tried them all.
  */
 export function matches(glob, path) {
-  if (!compiled.has(glob)) compiled.set(glob, expand(glob).map(piecesOf));
+  if (!compiled.has(glob)) compiled.set(glob, expand(glob).map(one => piecesOf(one.replace(/(^|\/)\*\*$/, '$1**/*'))));
   return compiled.get(glob).some(pieces => {
     const size = path.length;
     // `next[j]` is whether the pieces after this one match path[j..]; `here[j]` is the same for this piece onward.
