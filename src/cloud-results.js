@@ -61,7 +61,7 @@ export function reportFindings(findings, min) {
 }
 
 /** Send findings during the scan. Batches bound each request, never the number of results a scan may report. */
-export function createResultStream(client, scan) {
+export function createResultStream(client, scan, onProgressError = () => {}) {
   const seen = new Set(), buffered = [], queued = [], waiting = [];
   let remote = null, failure = null, active = 0, timer = null, progressTimer = null, latestProgress = null, progressTask = null;
   let lastProgress = { phase: 'preparing', completed: 0, total: 0, failed: 0 };
@@ -108,17 +108,11 @@ export function createResultStream(client, scan) {
     progressTask = (async () => {
       await begin;
       if (remote && client.updateScan) await client.updateScan(remote.id, current);
-    })().catch(() => { /* The result batches and final report still decide whether upload succeeded. */ })
+    })().catch(onProgressError)
       .finally(() => {
         progressTask = null;
         if (latestProgress) sendProgress();
       });
-  };
-  const finishProgress = async () => {
-    sendProgress();
-    if (!progressTask) return;
-    await progressTask;
-    if (progressTask || latestProgress) await finishProgress();
   };
   const heartbeat = setInterval(() => { latestProgress = lastProgress; sendProgress(); }, 30_000);
   heartbeat.unref?.();
@@ -139,7 +133,10 @@ export function createResultStream(client, scan) {
     async finish(finalScan) {
       clearInterval(heartbeat);
       flush();
-      await finishProgress();
+      sendProgress();
+      const currentProgress = progressTask;
+      if (currentProgress) await currentProgress;
+      if (progressTask && progressTask !== currentProgress) await progressTask;
       await begin;
       if (failure) throw failure;
       if (active || queued.length) await new Promise(resolve => waiting.push(resolve));

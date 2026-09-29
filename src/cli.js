@@ -401,7 +401,8 @@ const commands = {
     const where = await runContext(io.env, revision, branch === 'HEAD' ? null : branch);
     const full = !io.flags.since && !io.flags.paths && !resolved.scope;
     const stream = systemOne.startScan && resolved.kind === 'local'
-      ? createResultStream(systemOne, { ...where, scope: full ? 'full' : 'partial', perch_version: VERSION, started_at: started }) : null;
+      ? createResultStream(systemOne, { ...where, scope: full ? 'full' : 'partial', perch_version: VERSION, started_at: started },
+        error => io.note(`Could not update scan progress in Perch Cloud: ${error.message}`)) : null;
     // A file prints the moment it is finished rather than at the end, so a long run says what it is finding while it finds it.
     const said = new Set();
     const say = (path, findings) => {
