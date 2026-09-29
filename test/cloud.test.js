@@ -337,4 +337,19 @@ describe('Perch Cloud', () => {
     await stream.finish({ exit_code: 0 });
     expect(updates).toEqual([1, 3]);
   });
+  it('settles a failed result upload without leaving the scan waiting', async () => {
+    const started = createResultStream({
+      startScan: async () => { throw new Error('start failed'); },
+      appendFindings: async () => {},
+    }, { scope: 'partial' });
+    started.add([{ id: 'one', kind: 'defect' }]);
+    await expect(started.finish({ exit_code: 1 })).rejects.toThrow('start failed');
+
+    const appended = createResultStream({
+      startScan: async () => ({ id: 'scan' }),
+      appendFindings: async () => { throw new Error('append failed'); },
+    }, { scope: 'partial' });
+    appended.add([{ id: 'one', kind: 'defect' }]);
+    await expect(appended.finish({ exit_code: 1 })).rejects.toThrow('append failed');
+  });
 });

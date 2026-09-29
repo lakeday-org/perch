@@ -23,6 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # --since needs the base branch's history.
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
@@ -45,8 +46,6 @@ cart.js
 shop at commit a97a4f6: 4 methods, read 4
 4 requests  13k tokens in / 2k out  $0.0005
 ```
-
-`fetch-depth: 0` gives `--since` the base branch to compare against.
 
 Pull requests from forks get no secrets. To skip them, add this to the job:
 
