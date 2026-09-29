@@ -13,6 +13,10 @@ permissions:
 jobs:
   perch:
     runs-on: ubuntu-latest
+    # Questions go to System One directly for now. Remove this block to send them to Perch Cloud again.
+    env:
+      PERCH_BASE_URL: https://api.typesafe.ai/v1/systemone
+      TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
     steps:
       - uses: actions/checkout@v5
         with:
