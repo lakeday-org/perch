@@ -114,6 +114,14 @@ export function createResultStream(client, scan, onProgressError = () => {}) {
         if (latestProgress) sendProgress();
       });
   };
+  const drainProgress = async () => {
+    sendProgress();
+    let pending = progressTask;
+    while (pending) {
+      await pending;
+      pending = progressTask === pending ? null : progressTask;
+    }
+  };
   const heartbeat = setInterval(() => { latestProgress = lastProgress; sendProgress(); }, 30_000);
   heartbeat.unref?.();
   return {
@@ -133,10 +141,7 @@ export function createResultStream(client, scan, onProgressError = () => {}) {
     async finish(finalScan) {
       clearInterval(heartbeat);
       flush();
-      sendProgress();
-      const currentProgress = progressTask;
-      if (currentProgress) await currentProgress;
-      if (progressTask && progressTask !== currentProgress) await progressTask;
+      await drainProgress();
       await begin;
       if (failure) throw failure;
       if (active || queued.length) await new Promise(resolve => waiting.push(resolve));
