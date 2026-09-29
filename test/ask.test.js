@@ -9,7 +9,7 @@ describe('the question grammar', () => {
     const names = BUILTIN.map(question => question.name);
     expect(new Set(names).size).toBe(names.length);
     expect(names).toEqual(expect.arrayContaining(['has_bug', 'kind', 'severity', 'refactor', 'cwe_79', 'cwe_416']));
-    expect(names.filter(name => name.startsWith('bug_'))).toHaveLength(0);
+    expect(names.filter(name => name.startsWith('bug_'))).toEqual(['bug_edge_case']);
     expect(names.filter(name => name.startsWith('cwe_'))).toHaveLength(30);
     // An ID says which check it was; the label is what a row prints, so it is a name a reader knows without a lookup.
     const specific = BUILTIN.filter(question => /^(bug|cwe)_/.test(question.name));
@@ -90,6 +90,14 @@ describe('the question grammar', () => {
     expect(issues(answers, 0.5, set).map(issue => issue.label)).toEqual(['has_bug' in answers ? 'boundary' : '', 'split'].filter(Boolean));
     // An option a question excepts raises nothing: no refactor needed is not a finding.
     expect(issues({ ...answers, refactor: { choice: 'none', probability: 0.9 } }, 0, set).some(issue => issue.type === 'refactor')).toBe(false);
+  });
+
+  it('reports the stronger bug answer once under the chosen kind', () => {
+    const set = BUILTIN.filter(question => ['has_bug', 'bug_edge_case', 'kind'].includes(question.name));
+    const answers = { has_bug: 0.42, bug_edge_case: 0.73, kind: { choice: 'boundary', probability: 0.8 } };
+    expect(issues(answers, 0.5, set)).toEqual([
+      expect.objectContaining({ type: 'defect', label: 'boundary', from: 'bug_edge_case', probability: 0.73 }),
+    ]);
   });
 
   it('takes a floor from the question, for one the model hedges on', () => {

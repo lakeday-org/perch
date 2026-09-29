@@ -240,7 +240,8 @@ Fails column, and a custom rule is read no differently from perch's own:
 ```console
 $ perch rules list
 Question                     From        Asks            Fails  Over
-has_bug                      builtin     noul >60%       yes    **/*
+has_bug                      builtin     noul >50%       yes    **/*
+bug_edge_case                builtin     noul >50%       yes    **/*
 refactor                     builtin     choice >60%     yes    **/*
 documented                   builtin     noul >75%       yes    **/*
 ```
@@ -392,12 +393,13 @@ Every question carries a floor, in percent. Below it, an answer is not listed.
 | Floor | Question |
 | --- | --- |
 | 75% | `documented` |
-| 70% | `does_what_it_claims` and most security checks |
-| 60% | `has_bug`, `refactor`, `cwe_79` (XSS), `cwe_89` (SQL injection), `cwe_125` (out-of-bounds read) |
+| 70% | Most security checks |
+| 60% | `refactor`, `cwe_79` (XSS), `cwe_89` (SQL injection), `cwe_125` (out-of-bounds read) |
+| 50% | `has_bug`, `bug_edge_case` |
 
 A score near 50% is a weak signal, not a calibrated probability of a bug. The
-default 60% floor for `has_bug` limits the number of alerts. Raising it further
-also misses more bugs; use `--min` to choose a stricter floor for a run.
+default 50% floor for the bug checks limits the number of alerts. Raising it
+further also misses more bugs; use `--min` to choose a stricter floor for a run.
 XSS, SQL injection, and out-of-bounds reads have 60% floors; the other security
 checks use 70%. These are alert cutoffs, not calibrated probabilities that a
 vulnerability exists.

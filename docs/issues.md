@@ -105,7 +105,7 @@ as well.
 ## Floors
 
 An issue is listed when its score exceeds both its question's floor and the
-run's `--min`. The default `has_bug` floor is 60 percent; see
+run's `--min`. The default floor for both bug checks is 50 percent; see
 [the question floors](/rules/#floors).
 
 ```sh

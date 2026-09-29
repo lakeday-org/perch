@@ -156,8 +156,8 @@ describe('which issue types a scan asks about', () => {
     // refactor and documented are the only two questions raising the advisory types, so they are what goes.
     expect(names).not.toContain('refactor');
     expect(names).not.toContain('documented');
-    // does_what_it_claims is a defect: a method not doing what its name says is wrong, not untidy.
-    expect(names).toContain('does_what_it_claims');
+    expect(names).toContain('bug_edge_case');
+    expect(names).not.toContain('does_what_it_claims');
     // severity and kind raise nothing on their own. They feed the ones that do, so dropping them would take the band off a defect.
     expect(names).toContain('severity');
     expect(names).toContain('kind');

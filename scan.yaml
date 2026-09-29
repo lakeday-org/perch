@@ -21,7 +21,18 @@
     type: defect
     label: kind
     pick: strongest
-  min: 60
+  min: 50
+- name: bug_edge_case
+  each: method
+  where: "**/*"
+  ask: Does `method` produce a wrong result for a valid empty, zero, first, last, or missing input?
+  "true": One of these valid inputs produces an incorrect result or failure.
+  "false": These valid inputs produce the intended results and errors.
+  issue:
+    type: defect
+    label: kind
+    pick: strongest
+  min: 50
 - name: kind
   type: choice
   each: method
@@ -67,19 +78,6 @@
     label: refactor
     except: none
   min: 60
-- name: does_what_it_claims
-  each: method
-  where: "**/*"
-  ask: Does `method` do what its name, its parameters and its `leading_comment` say it does?
-  "true": It behaves the way its name and its comment say it does
-  "false": It does something different from, less than, or more than its name and comment say, so one
-    of the two is wrong
-  issue:
-    type: defect
-    label: does_not_do_what_it_claims
-    on: false
-    pick: strongest
-  min: 70
 - name: documented
   each: method
   where: "**/*"

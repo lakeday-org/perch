@@ -119,13 +119,13 @@ distribution over its levels.
 | Question | Primitive | |
 | --- | --- | --- |
 | `has_bug` | noul | A concrete behavioral defect a caller can reach. |
+| `bug_edge_case` | noul | A wrong result for a valid empty, zero, first, last, or missing input. |
 | `where` | choice over line ids | Which line, with confidence. A method longer than 255 lines gets a window chosen first, then a line within it. |
 | `kind` | choice over 8 | `boundary`, `missing_null_handling`, `wrong_return`, `swallowed_error`, `state_mutation`, `ordering`, `resource_leak`, `inverted_condition`. |
 | `severity` | score over 4 levels | The rubric below. |
 | `cwe_*` | Up to 30 nouls | The 2025 MITRE Top 25 CWEs except CWE-20, and six more, filtered by language where needed. |
 | `misuse_N` | noul per callee | Does this call violate the callee's evident contract? |
 | `misused_by_N` | noul per caller | Does the caller violate this method's contract? |
-| `does_what_it_claims` | noul | Does the behavior match the name, parameters, and comment? |
 | `documented` | noul | Could a caller learn what it promises from the comment? |
 | `refactor` | choice over 7 | `split`, `flatten`, `simplify_conditions`, `deduplicate`, `rename`, `remove_dead_code`, `none`. |
 | `follow` | choice over neighbors | Which related method to examine next. |
@@ -160,21 +160,20 @@ injectable and leaking a secret.
 
 Each answer becomes at most one issue, carrying the probability that it is real.
 
-**A defect** is the strongest of `has_bug` and the contract check. The broad
-result uses the `kind` choice for its label.
+**A defect** is the stronger of `has_bug` and `bug_edge_case`. The `kind`
+choice supplies its label.
 
 **A vulnerability** is the strongest answer among the applicable CWE checks.
 A memory-safety check does not apply to a language without native memory
 operations. Vulnerabilities are asked
 only with `--filter type=security` or `security` in `scan_types`.
 
-**Design issues** are the refactor the `refactor` choice picked, `1 − P(does what
-it claims)`, and `docs`.
+**Design issues** are the refactor the `refactor` choice picked and `docs`.
 
 ### The floor
 
 An issue is listed only when its score exceeds both the question's floor and
-the run's `--min`. The default `has_bug` floor is **60%**. Most security checks
+the run's `--min`. Both bug checks use the default **50%** floor. Most security checks
 use 70%; XSS, SQL injection, and out-of-bounds reads use 60%.
 These scores rank answers but are not calibrated probabilities that a reported
 issue is real. Higher floors produce fewer alerts and miss more issues.
