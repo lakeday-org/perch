@@ -8,7 +8,6 @@ import { issuesFor, severityBand } from './questions.js';
  * the pull request's head is reported instead: that is the commit the dashboard and the check run belong to.
  */
 export async function runContext(env, revision, localBranch = null) {
-  // Exercise the merged CLI's GitHub OIDC scan.
   const source = env.CI || env.GITHUB_ACTIONS ? 'ci' : 'cli';
   let head = null;
   let pull = null;
