@@ -69,13 +69,11 @@ perch setup cursor        # .cursor/rules/perch.mdc
 Extend perch with custom rules, in `perch.yaml`:
 
 ```yaml
-- name: env-read-once
-  where: "src/**/*.js"
+- name: private-logs
+  where: "src/**/*.ts"
   each: method
-  min: 70
   ensure: >
-    This method takes its configuration as arguments. Reading process.env is the
-    command line's job.
+    Keep passwords and access tokens out of logs.
 ```
 
 ## Documentation

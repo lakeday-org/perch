@@ -39,7 +39,7 @@ about: `defect`, `security`, `refactor`, `docs`.
 
 ```sh
 perch check src/model.js::createModel --rules security
-perch check src/model.js --rules env-read-once,no-silent-failure
+perch check src/model.js --rules private-logs,no-silent-failure
 ```
 
 After a security fix, asking about security alone is one question against one

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { revision } from '../src/git.js';
 import { analyzeFiles, createSourceAnalyzer } from '../src/analysis.js';
-import { scanRepository } from '../src/scan.js';
+import { methodQuestions, scanRepository } from '../src/scan.js';
 import { methodSteps } from '../src/questions.js';
 import { fixtureOptions, initRepo, scriptedSystemOne } from './helpers.js';
 
@@ -95,6 +95,17 @@ describe('code no function holds', () => {
     expect(step.state.method.source).toContain('sys.exit(main(sys.argv))');
     expect(step.state.method.source).toContain('LIMIT = 3');
     expect(step.state.method.source).not.toContain('return len(argv[:LIMIT])');
+  });
+});
+
+describe('the questions a top-level unit is asked', () => {
+  it('leaves out the ones about what a name or comment claims, since it has neither', () => {
+    const named = methodQuestions(new Set(['defect', 'lint']), 'javascript').map(question => question.name);
+    const top = methodQuestions(new Set(['defect', 'lint']), 'javascript', { topLevel: true }).map(question => question.name);
+    expect(named).toEqual(expect.arrayContaining(['does_what_it_claims', 'has_bug']));
+    expect(top).toContain('has_bug');
+    expect(top).not.toContain('does_what_it_claims');
+    expect(top).not.toContain('documented');
   });
 });
 

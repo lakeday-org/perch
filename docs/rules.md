@@ -37,13 +37,12 @@ That is what it appended to `perch.yaml`:
 defaults to the file as a whole. Narrow any of them when you need to:
 
 ```yaml
-- name: env-read-once
-  where: "src/**/*.js"
-  except: "src/cli.js"
+- name: private-logs
+  where: "src/**/*.ts"
+  except: "src/**/*.test.ts"
   each: method
   ensure: >
-    This method does not read process.env. Reading the environment is the command
-    line's job, and everything below it is passed the values.
+    Keep passwords and access tokens out of logs.
 
 - name: tests-assert-real-behavior
   where: "test/**/*.test.js"
@@ -372,7 +371,7 @@ perch rules list
 perch rules list --file .perch/rules/docs.yaml
 perch rules add no-stale-docs --where "docs/**/*.md" --ensure_absent "docs for code that was deleted"
 perch rules add docs-no-rationale --file .perch/rules/docs.yaml --where "docs/**/*.md" --ensure "..."
-perch rules edit env-read-once --except "src/cli.js,src/config.js"
+perch rules edit private-logs --except "src/**/*.test.ts,scripts/**"
 perch rules remove no-stale-docs
 ```
 
