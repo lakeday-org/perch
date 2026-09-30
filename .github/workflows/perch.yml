@@ -20,11 +20,11 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - name: Scan what this pull request changed
+      - name: Scan the pull request
         if: github.event_name == 'pull_request'
         run: |
           set +e
-          npm exec --yes --package='github:lakeday-org/perch#main' -- perch scan --filter type=defect,lint,security --since origin/${{ github.base_ref }}
+          npm exec --yes --package='github:lakeday-org/perch#main' -- perch scan --filter type=defect,lint,security
           status=$?
           # While findings from the new model are audited, they are reported in the Perch issues check rather than failing the
           # job. Exit 3 means perch found something; 1 and 2 mean it could not run, and still fail.
