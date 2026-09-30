@@ -301,7 +301,7 @@ describe('perch hunt', () => {
     expect(first.state.method.metrics.risk_score).toBeTypeOf('number');
     expect(first.questions.misuse_0.instructions.callee).toBe(first.state.calls[0].id);
     expect(first.questions.kind.type).toBe('choice');
-    expect(Object.keys(first.questions.kind.criteria)).toHaveLength(8);
+    expect(Object.keys(first.questions.kind.criteria)).toHaveLength(9);
     expect(first.questions.severity.type).toBe('score');
     expect(first.questions.refactor.type).toBe('choice');
     expect(Object.keys(first.questions.follow.criteria)).toEqual(expect.arrayContaining(['src/a.js::g', 'src/b.js::h', 'none']));
