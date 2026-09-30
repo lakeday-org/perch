@@ -87,7 +87,7 @@ describe('system one client', () => {
   it('prices Perch Cloud answers at its published rate for input and output tokens', () => {
     const meter = createMeter();
     meter.add('perch-latest', { input_tokens: 1_000_000, output_tokens: 1_000_000 }, { requests: 1 });
-    expect(meter.cost('perch-latest')).toBeCloseTo(0.084, 10);
+    expect(meter.cost('perch-latest')).toBeCloseTo(0.1, 10);
   });
 
   it('prices Liquid AI decision models by family, so a free tier costs nothing rather than an unknown amount', () => {

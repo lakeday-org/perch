@@ -8,7 +8,7 @@
 export const PRICES = {
   jev: { input: 0.042, output: 0 },
   d1: { input: 0, output: 0 },
-  perch: { input: 0.042, output: 0.042 },
+  perch: { input: 0.05, output: 0.05 },
 };
 
 /** A family nobody published a price for costs an unknown amount, which the summary says rather than guessing. */
