@@ -234,16 +234,16 @@ describe('perch hunt', () => {
     const lines = Array.from({ length: 400 }, (_, index) => `  x += ${index};`);
     const step = methodStep({ node: { path: 'a.rs', qualified_name: 'big', line: 1, end_line: 400 }, lines, callees: [], callers: [] });
     expect(step.questions.where).toBeUndefined();
-    expect(Object.keys(step.questions.where_window.criteria)).toEqual(['W0001', 'W0002']);
-    expect(step.windows).toHaveLength(2);
+    expect(Object.keys(step.questions.where_window.criteria)).toEqual(['W0001', 'W0002', 'W0003', 'W0004']);
+    expect(step.windows).toHaveLength(4);
     expect(step.windows.every(window => window.length <= MAX_CHOICES)).toBe(true);
     expect(step.windows[0][0]).toBe('L0001');
     expect(step.windows.at(-1).at(-1)).toBe('L0400');
-    const systemOne = scriptedSystemOne({ 'a.rs::big': { where_window: 'W0002', where: 'L0400' } });
+    const systemOne = scriptedSystemOne({ 'a.rs::big': { where_window: 'W0004', where: 'L0400' } });
     const located = await locateWhere({ systemOne, state: step.state, questions: step.questions, windows: step.windows });
     expect(located.answers.where.choice).toBe('L0400');
     expect(systemOne.calls).toHaveLength(2);
-    expect(Object.keys(systemOne.calls[1].questions.where.criteria)).toEqual(step.windows[1]);
+    expect(Object.keys(systemOne.calls[1].questions.where.criteria)).toEqual(step.windows[3]);
   });
 
   it('ranks a method by what its problems would cost, not how many it has', () => {

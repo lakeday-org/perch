@@ -2,7 +2,7 @@
 import { compile, floorFor, issues, questionSet, readAnswer, setHash, vocabulary } from './ask.js';
 import { RULES_FILE } from './units.js';
 import { sourceChunks } from './chunks.js';
-import { TOKEN_LIMITS, estimateTokens, textTokens, questionBatches, IncompleteCheckError, ContextLimitError } from './tokens.js';
+import { MAX_CHOICES, TOKEN_LIMITS, estimateTokens, textTokens, questionBatches, IncompleteCheckError, ContextLimitError } from './tokens.js';
 
 /** The bands a severity score is named by, worst last, matching the rubric declared in the question set. */
 export const SEVERITY_BANDS = ['P3', 'P2', 'P1', 'P0'];
@@ -217,8 +217,7 @@ export const needsDesign = (answers, min = 0) => issuesOf(answers, min).some(isD
 export const hasIssue = (answers, min = 0) => issuesOf(answers, min).length > 0;
 
 export const MAX_CALLEES = 8, MAX_CALLERS = 8, STATE_BUDGET = TOKEN_LIMITS.state, MODULE_SCOPE_BUDGET = 2000;
-/** A Choice accepts at most 255 options; past that, pick a window then the line inside it. */
-export const MAX_CHOICES = 255;
+export { MAX_CHOICES };
 export const lineId = line => `L${String(line).padStart(4, '0')}`;
 const windowId = index => `W${String(index + 1).padStart(4, '0')}`;
 const addUsage = (a, b) => !b ? a : { input_tokens: (a?.input_tokens ?? 0) + (b.input_tokens ?? 0), output_tokens: (a?.output_tokens ?? 0) + (b.output_tokens ?? 0) };
@@ -246,7 +245,7 @@ export const whereQuestion = ids => ({ type: 'choice', instructions: 'Which line
 export const whereWindowQuestion = windows => ({ type: 'choice', instructions: 'Which span of `method` contains the defect? If there is no defect, pick the span most likely to hide one.',
   criteria: Object.fromEntries(windows.map((ids, index) => [windowId(index), `${ids[0]}–${ids.at(-1)}`])) });
 
-/** Narrow the chosen span repeatedly until its lines fit in one Choice, with at most 255 options at every stage. */
+/** Narrow the chosen span repeatedly until its lines fit in one Choice, with at most MAX_CHOICES options at every stage. */
 export async function locateWhere({ systemOne, state, questions, windows }) {
   const first = await systemOne.ask(state, questions);
   if (!windows) return first;

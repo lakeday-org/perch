@@ -1,14 +1,14 @@
 import { expect, it } from 'vitest';
-import { lineId, lineWindows, locateWhere, whereWindowQuestion } from '../src/questions.js';
+import { lineId, lineWindows, locateWhere, MAX_CHOICES, whereWindowQuestion } from '../src/questions.js';
 
-it.each([255, 256, 65025, 65026, 150195])('keeps all %i candidate lines reachable with at most 255 windows', count => {
+it.each([128, 129, 16384, 16385, 150195])('keeps all %i candidate lines reachable with at most 128 windows', count => {
   // Gaps represent blank/comment lines that were removed before localization.
   const ids = Array.from({ length: count }, (_, index) => lineId(17 + index * 3));
   const windows = lineWindows(ids);
-  if (count <= 255) { expect(windows).toBeNull(); return; }
-  expect(windows.length).toBeLessThanOrEqual(255);
+  if (count <= MAX_CHOICES) { expect(windows).toBeNull(); return; }
+  expect(windows.length).toBeLessThanOrEqual(MAX_CHOICES);
   expect(windows.flat()).toEqual(ids);
-  expect(Object.keys(whereWindowQuestion(windows).criteria).length).toBeLessThanOrEqual(255);
+  expect(Object.keys(whereWindowQuestion(windows).criteria).length).toBeLessThanOrEqual(MAX_CHOICES);
 });
 
 it.each([1, 75098, 150195])('can locate line %i among 150,195 candidates without an oversized choice', async target => {
@@ -20,7 +20,7 @@ it.each([1, 75098, 150195])('can locate line %i among 150,195 candidates without
     const answers = {};
     for (const [name, question] of Object.entries(questions)) {
       if (name === 'has_bug') { answers[name] = { noul: 0.9 }; continue; }
-      expect(Object.keys(question.criteria).length).toBeLessThanOrEqual(255);
+      expect(Object.keys(question.criteria).length).toBeLessThanOrEqual(MAX_CHOICES);
       if (name === 'where_window') {
         const match = Object.entries(question.criteria).find(([, span]) => {
           const [start, end] = span.match(/\d+/g).map(Number);

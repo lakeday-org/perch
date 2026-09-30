@@ -1,6 +1,9 @@
 /** Request sizes are token estimates. Jev does not publish its tokenizer. */
 import { countTokens } from 'gpt-tokenizer/encoding/o200k_base';
 
+/** Perch Cloud's bug model takes at most 128 options in one Choice; a longer list is narrowed through windows first. */
+export const MAX_CHOICES = 128;
+
 // Leave room below Jev's 32k per question and 64k per request limits for server formatting.
 export const TOKEN_LIMITS = Object.freeze({ state: 24000, single: 30000, request: 60000 });
 const literal = { disallowedSpecial: new Set() };
@@ -54,8 +57,8 @@ export function questionBatches(state, questions, limits = TOKEN_LIMITS) {
     const tokens = estimateTokens({ [name]: question }) + 32;
     if (size + tokens + 64 > limits.single)
       throw new ContextLimitError(`question ${name} and its context exceed the estimated token budget`, Math.floor(size / 2));
-    if (question.criteria && Object.keys(question.criteria).length > 255)
-      throw new IncompleteCheckError(`question ${name} has more than 255 choices`);
+    if (question.criteria && Object.keys(question.criteria).length > MAX_CHOICES)
+      throw new IncompleteCheckError(`question ${name} has more than ${MAX_CHOICES} choices`);
     if (total + tokens > limits.request && Object.keys(current).length) { batches.push(current); current = {}; total = size + 64; }
     if (total + tokens > limits.request) throw new ContextLimitError(`question ${name} exceeds the request token budget`, Math.floor(size / 2));
     current[name] = question;

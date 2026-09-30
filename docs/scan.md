@@ -120,7 +120,7 @@ distribution over its levels.
 | --- | --- | --- |
 | `has_bug` | noul | A concrete behavioral defect a caller can reach. |
 | `bug_edge_case` | noul | A wrong result for a valid empty, zero, first, last, or missing input. |
-| `where` | choice over line ids | Which line, with confidence. A method longer than 255 lines gets a window chosen first, then a line within it. |
+| `where` | choice over line ids | Which line, with confidence. A method longer than 128 lines gets a window chosen first, then a line within it. |
 | `kind` | choice over 8 | `boundary`, `missing_null_handling`, `wrong_return`, `swallowed_error`, `state_mutation`, `ordering`, `resource_leak`, `inverted_condition`. |
 | `severity` | score over 4 levels | The rubric below. |
 | `cwe_*` | Up to 30 nouls | The 2025 MITRE Top 25 CWEs except CWE-20, and six more, filtered by language where needed. |
