@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { expect, it } from 'vitest';
 import { parseQuestions } from '../src/ask.js';
 import { createSystemOne } from '../src/systemone.js';
-import { askUnitSteps, unitSteps, locateBreak } from '../src/units.js';
+import { askUnitSteps, unitSteps } from '../src/units.js';
 import { methodSteps } from '../src/questions.js';
 import { questionMethod } from '../src/scan.js';
 import { scriptedSystemOne } from './helpers.js';
@@ -66,33 +66,11 @@ it('retries oversized method readings and keeps the defect at its original line'
     if (body.state.method.source.length > 5000) { rejected++; return oversized(); }
     const response = await scripted.ask(body.state, body.questions);
     if (body.questions.has_bug) response.answers.has_bug = { noul: body.state.method.source.includes('BROKEN') ? 0.99 : 0.01 };
-    if (body.questions.where && body.state.method.source.includes('BROKEN')) response.answers.where = { choice: 'L1202', confidence: 0.99 };
     return reply(200, response);
   } });
-  const result = await questionMethod({ systemOne: client, node, lines, steps: prepare(), prepare });
+  const result = await questionMethod({ systemOne: client, node, steps: prepare(), prepare });
   expect(rejected).toBeGreaterThan(0);
-  expect(result.answers.where.line).toBe(1202);
   expect(result.answers.has_bug).toBe(0.99);
-});
-
-it('retries oversized localization requests without changing the original line', async () => {
-  const body = 'safe\n'.repeat(3000) + 'BROKEN\n';
-  let rejected = 0;
-  const client = createSystemOne({ apiKey: 'fixture', fetchImpl: async (_url, init) => {
-    const { state, questions } = JSON.parse(init.body);
-    if (state.source.length > 4000) { rejected++; return oversized(); }
-    if (questions.has_break) return reply(200, { answers: { has_break: { noul: state.source.includes('BROKEN') ? 0.99 : 0.01 } } });
-    if (questions.where_window) {
-      const choice = Object.entries(questions.where_window.criteria).find(([, span]) => {
-        const [start, end] = span.match(/\d+/g).map(Number); return start <= 3041 && end >= 3041;
-      })?.[0];
-      return reply(200, { answers: { where_window: { choice } } });
-    }
-    expect(questions.where.criteria).toHaveProperty('L3041');
-    return reply(200, { answers: { where: { choice: 'L3041' } } });
-  } });
-  expect(await locateBreak({ systemOne: client, rule, unit: { path: 'example.md', line: 41 }, body })).toBe(3041);
-  expect(rejected).toBeGreaterThan(0);
 });
 
 it('does not retry an unrelated validation error', async () => {

@@ -6,6 +6,19 @@ import {
 } from './cloud-auth.js';
 
 /**
+ * Refreshing a login retires its access token at once. With many requests in flight, one can read the token just before another
+ * refreshes it and arrive holding a token the Cloud no longer knows. A 401 is sent again, once, when the login now holds a
+ * different token; a 401 with the current token is a login that has really ended.
+ */
+export async function withCurrentToken(getToken, signal, send) {
+  const token = await getToken(signal);
+  const response = await send(token);
+  if (response.status !== 401) return response;
+  const next = await getToken(signal);
+  return next === token ? response : send(next);
+}
+
+/**
  * System One through Perch Cloud, which caches answers per repository and bills the organization. getToken is asked before every
  * request, since an OIDC token or a login's access token can expire partway through a long scan.
  *
@@ -23,21 +36,27 @@ export function createCloudClient({
     log,
     fetchImpl: async (url, options) => {
       const input = JSON.parse(options.body);
-      const token = await getToken();
-      return fetchImpl(url, {
+      return withCurrentToken(getToken, undefined, token => fetchImpl(url, {
         ...options,
         headers: { ...options.headers, authorization: `Bearer ${token}` },
         // A forced request skips the Cloud's cached answers and replaces them with the new ones.
         body: JSON.stringify({ ...input, organizationId, repositoryId, ...(force ? { force: true } : {}) }),
-      });
+      }));
     },
   });
 
   if (!reports) return gateway;
   const sendScan = async (path, input) => {
     const signal = AbortSignal.timeout(reportTimeoutMs);
+    const send = token => cloudRequest(fetchImpl, `${origin}/v1/scans/${path}`, { ...jsonBody(token, { organizationId, repositoryId, ...input }), signal }, reportTimeoutMs);
     const token = await getToken(signal);
-    return cloudRequest(fetchImpl, `${origin}/v1/scans/${path}`, { ...jsonBody(token, { organizationId, repositoryId, ...input }), signal }, reportTimeoutMs);
+    try { return await send(token); }
+    catch (error) {
+      if (error.status !== 401) throw error;
+      const next = await getToken(signal);
+      if (next === token) throw error;
+      return send(next);
+    }
   };
   return {
     ...gateway,

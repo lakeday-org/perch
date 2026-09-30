@@ -66,9 +66,6 @@ c25aa687  cancel_order  auth.py:12-16
          90%  security  P0 (0.4)  missing_authorization
          65%  defect    P0 (0.4)  unhandled_null
 
-     14  order = orders[order_id]
-         the line it points at, 67% sure
-
   Kind           unhandled_null 79%  bad_state_change 21%
   Severity       P0 76%  P1 11%  P3 7%  P2 6%
   Vulnerability  missing_authorization 90%  missing_authentication 90%  idor 85%  +18 more

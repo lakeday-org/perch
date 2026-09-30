@@ -111,7 +111,7 @@ it('refuses an add shadowed by an uncommitted nested split rule, and edits or re
   expect(await readFile(join(root, 'perch.yaml'), 'utf8')).toBe('# local rules\n[]\n');
 });
 
-it('reads a failing file and then asks which line, however many requests that takes', async () => {
+it('reads a failing file in one request, without asking which line', async () => {
   const options = await fixture('- name: prose\n  where: docs/*.md\n  ensure: The text explains the API.\n', { 'bad.md': 'Missing reference.\nMissing example.\n' });
   let requests = 0;
   const fetchImpl = async (_url, init) => {
@@ -121,7 +121,7 @@ it('reads a failing file and then asks which line, however many requests that ta
   };
   const run = await scanRepository({ ...options, paths: ['docs'], systemOne: createSystemOne({apiKey:'fixture',fetchImpl}) });
   expect(run.broken).toHaveLength(1);
-  expect(requests).toBe(2);
+  expect(requests).toBe(1);
   expect(run.status).toBe('complete');
 });
 

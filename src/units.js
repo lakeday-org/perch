@@ -12,7 +12,7 @@ import { createFileSelector } from './exclusions.js';
 import { sourceChunks } from './chunks.js';
 import { TOKEN_LIMITS, estimateTokens, textTokens, questionBatches, IncompleteCheckError, ContextLimitError, withTokenRetries } from './tokens.js';
 import { appliesToLanguage, BUILTIN, compile, floorFor, installQuestions, merge, parseIgnored, parseQuestions, parseScanTypes, SEARCHES } from './ask.js';
-import { lineId, shownSource, lineWindows, locateWhere, spanOf, tagged, whereQuestion, whereWindowQuestion } from './questions.js';
+import { shownSource, spanOf, tagged } from './questions.js';
 import { findingId, sha256 } from './store.js';
 import { AuthenticationError } from './systemone.js';
 import { languageOf } from './analysis.js';
@@ -386,8 +386,8 @@ export async function askUnitSteps({ systemOne, steps, rules, prepare }) {
 }
 
 /**
- * Where a broken rule is broken. A whole file scored 68% tells you nothing you can act on, so a file that fails is asked a second
- * question: which line. Only failing files are asked, so a clean run still costs one request each.
+ * Where a broken rule is broken. A file too long for one reading is split, and a failing file is asked which part holds the
+ * evidence; the finding points at the start of that part. Only failing files are asked, so a clean run still costs one request each.
  */
 export async function locateBreak({ systemOne, rule, unit, body }) {
   return withTokenRetries(async budget => {
@@ -406,17 +406,7 @@ export async function locateBreak({ systemOne, rule, unit, body }) {
       if (typeof answers.has_break?.noul !== 'number') throw new Error('Missing location evidence answer');
       if (answers.has_break.noul > confidence) { confidence = answers.has_break.noul; picked = chunk; }
     }
-    const start = unit.line + picked.line - 1, lines = picked.source.split('\n');
-    const ids = lines.flatMap((text, index) => text.trim() ? [lineId(start + index)] : []);
-    if (ids.length < 2) return start;
-    const windows = lineWindows(ids);
-    const state = { rule: rule.text, path: unit.path, source: tagged(lines, start) };
-    const question = ids => ({ ...whereQuestion(ids), instructions: { rule: rule.text, question: 'Which line breaks `rule`? Pick the worst one.' } });
-    const questions = windows ? { where_window: whereWindowQuestion(windows) } : { where: question(ids) };
-    const { answers } = await locateWhere({ systemOne, state, questions, windows });
-    const chosen = answers.where?.choice;
-    if (!ids.includes(chosen)) throw new Error(`Invalid location answer: ${chosen}`);
-    return Number(chosen.slice(1));
+    return unit.line + picked.line - 1;
   }, systemOne.limits?.state);
 }
 

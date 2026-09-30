@@ -167,7 +167,7 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
       const asked = methodQuestions(kinds, languageOf(unit.path), { topLevel: Boolean(unit.own) });
       const prepare = budget => methodSteps({ node, lines: unit.lines, imports: context.imports, methods: [...others, node], callees: context.callees, callers: context.callers, asked, budget });
       const steps = prepare(systemOne.limits?.state);
-      const { answers } = await questionMethod({ systemOne, node, steps, prepare, lines: unit.lines, debug });
+      const { answers } = await questionMethod({ systemOne, node, steps, prepare, debug });
       issues = issuesOf({ ...answers, metrics: node.metrics });
       if (named.types.length) issues = issues.filter(issue => named.types.includes(issue.type));
     }

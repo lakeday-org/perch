@@ -31,6 +31,33 @@ describe('Perch Cloud', () => {
     expect(meter.total()).toBe(0);
   });
 
+  it('sends a request again with the new token when another request refreshed the login under it, and only then', async () => {
+    let saved = 'perch_cli_old';
+    const sent = [];
+    const client = createCloudClient({
+      origin: 'https://example.com', getToken: async () => saved, organizationId: 'org', repositoryId: 'repo', reports: true,
+      fetchImpl: async (url, options) => {
+        const token = options.headers.authorization.slice(7);
+        sent.push({ path: new URL(url).pathname, token });
+        // The token was read, then another request refreshed the login before this one arrived.
+        if (token === 'perch_cli_old') { saved = 'perch_cli_new'; return new Response(JSON.stringify({ error: 'CLI session expired. Run perch login again.' }), { status: 401 }); }
+        return url.endsWith('/v1/systemone') ? response({ model: 'perch-latest', answers: { a: { noul: 0.9 } }, usage: null }) : response({ ok: true });
+      },
+    });
+    await client.ask({ code: 'a' }, { a: { type: 'noul', criteria: { true: 'yes', false: 'no' } } });
+    expect(sent.map(request => request.token)).toEqual(['perch_cli_old', 'perch_cli_new']);
+    saved = 'perch_cli_old'; sent.length = 0;
+    await client.updateScan('scan', { completed: 1 });
+    expect(sent.map(request => request.token)).toEqual(['perch_cli_old', 'perch_cli_new']);
+
+    // A login that has really ended is refused with the token it still holds, and is not asked again.
+    const ended = createCloudClient({ origin: 'https://example.com', getToken: async () => 'perch_cli_gone', organizationId: 'org', repositoryId: 'repo',
+      fetchImpl: async () => { sent.push('gone'); return new Response(JSON.stringify({ error: 'CLI session expired. Run perch login again.' }), { status: 401 }); } });
+    sent.length = 0;
+    await expect(ended.ask({ code: 'a' }, { a: { type: 'noul', criteria: { true: 'yes', false: 'no' } } })).rejects.toThrow(/401/);
+    expect(sent).toEqual(['gone']);
+  });
+
   it('asks the Cloud to skip its cached answers only when forced', async () => {
     const bodies = [];
     const client = force => createCloudClient({
