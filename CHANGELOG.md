@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.4.0](https://github.com/lakeday-org/perch/compare/v0.3.5...v0.4.0) (2026-09-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* report scans to Perch Cloud and replace local answer reuse ([#170](https://github.com/lakeday-org/perch/issues/170))
+* A scan asks one broad bug question, `has_bug`, alerting at 60%, and `kind` names what it found. The 15 specific bug checks are gone: on held-out bug pairs they added false alerts without ranking bugs any better. Security is asked only with `--filter type=security` or `security` in `scan_types`. It asks the 2025 CWE Top 25, less CWE-20, plus six more classes, filtered by language: 21 checks for Python, JavaScript and TypeScript, 22 for Java and Go, 28 for Rust, 30 for C and C++. Security findings use labels such as `sql_injection` and `missing_authorization`, so filters and closures written against the old labels no longer match. See the [benchmark results](https://huggingface.co/datasets/perchscan/benchmark-results).
+
+### Features
+
+* one bug question, and security checks chosen by CWE and language ([#172](https://github.com/lakeday-org/perch/issues/172)) ([9398517](https://github.com/lakeday-org/perch/commit/9398517a6f6c20d7af0c3aa4f85e9b1f27739a63))
+* Optimize bug questions ([#228](https://github.com/lakeday-org/perch/issues/228)) ([3f15291](https://github.com/lakeday-org/perch/commit/3f15291bc371eae0134d9fd11d7680180af154c5))
+* perch scan --force asks Perch Cloud again instead of using cached answers ([#233](https://github.com/lakeday-org/perch/issues/233)) ([f90c379](https://github.com/lakeday-org/perch/commit/f90c379d64dac62ae834bd6d2ac90c3ccd48253f)), closes [#232](https://github.com/lakeday-org/perch/issues/232)
+* report scans to Perch Cloud and replace local answer reuse ([#170](https://github.com/lakeday-org/perch/issues/170)) ([268f9e1](https://github.com/lakeday-org/perch/commit/268f9e1ef09323ff200e5949e7ec560dca0fc39d))
+* scan with Liquid AI decision models ([#230](https://github.com/lakeday-org/perch/issues/230)) ([0157f09](https://github.com/lakeday-org/perch/commit/0157f09b6abd6ff87e5f668255c02f4b97cb56cd)), closes [#229](https://github.com/lakeday-org/perch/issues/229)
+
+
+### Bug Fixes
+
+* a Choice names at most 128 lines, which is what Perch Cloud's bug model accepts ([#243](https://github.com/lakeday-org/perch/issues/243)) ([43cf831](https://github.com/lakeday-org/perch/commit/43cf831e8e22bccd885bed2b4be43dc8b4775be2))
+* a method or file needing more than 64 requests was skipped instead of read ([#179](https://github.com/lakeday-org/perch/issues/179)) ([0f3269c](https://github.com/lakeday-org/perch/commit/0f3269c70e48b5e4cba46fafea48a7ddb64b6f9a))
+* a request that meets a login refreshed under it is sent again with the new token ([#247](https://github.com/lakeday-org/perch/issues/247)) ([0d8181f](https://github.com/lakeday-org/perch/commit/0d8181f0fb878fcbdd91ad1bc977c39c1a7f40e3))
+* a scan that could not read some methods exits 1 instead of passing ([#249](https://github.com/lakeday-org/perch/issues/249)) ([0f6a33e](https://github.com/lakeday-org/perch/commit/0f6a33eef9afb60da990881ac4960dfc91032eeb))
+* code outside a named function was never scanned ([#214](https://github.com/lakeday-org/perch/issues/214)) ([93844c7](https://github.com/lakeday-org/perch/commit/93844c75058393b99c430b8754db477398bdfbb4))
+* ignore dir/** skipped only the directory's top level ([#216](https://github.com/lakeday-org/perch/issues/216)) ([63ffd5d](https://github.com/lakeday-org/perch/commit/63ffd5d2b73868c7dd64563c08f4af1d45047041))
+* parser downloads are retried and happen on first use, so a GitHub error no longer stops a scan ([#245](https://github.com/lakeday-org/perch/issues/245)) ([dc538f2](https://github.com/lakeday-org/perch/commit/dc538f2de821866911d801180579e754fa052fe1))
+* perch check never asked mentions or callers-of rules ([#209](https://github.com/lakeday-org/perch/issues/209)) ([66a6999](https://github.com/lakeday-org/perch/commit/66a6999db4957522d75d47e2d592b849819e51c4))
+* perch issues &lt;id&gt; printed documented NaN% on a default scan ([#165](https://github.com/lakeday-org/perch/issues/165)) ([b50eb63](https://github.com/lakeday-org/perch/commit/b50eb6365fee3fc94ae2b761b558dce0f86d8f08))
+* perch no longer asks which line a defect or broken rule is on; a finding points at its method ([#248](https://github.com/lakeday-org/perch/issues/248)) ([389d15a](https://github.com/lakeday-org/perch/commit/389d15a3766927f2ced36bbb833f14d86ea8aeb4))
+* perch scan &lt;path&gt; read nothing when ignore covered it ([#177](https://github.com/lakeday-org/perch/issues/177)) ([eaa137b](https://github.com/lakeday-org/perch/commit/eaa137bf229ba5947740ea0c82820bd5517b17fb))
+* perch scan flagged code outside functions as misnamed ([#224](https://github.com/lakeday-org/perch/issues/224)) ([0a71e83](https://github.com/lakeday-org/perch/commit/0a71e83e6ded6ca5941f4f0f75eb79f80ee763e3))
+* perch scan kept rule answers about edited comments and deleted tests ([#213](https://github.com/lakeday-org/perch/issues/213)) ([c4ef3c1](https://github.com/lakeday-org/perch/commit/c4ef3c1ee9329d3fac93dcbf0df5ea09ab9d7cf8))
+* pull requests ran Perch twice ([#211](https://github.com/lakeday-org/perch/issues/211)) ([3903626](https://github.com/lakeday-org/perch/commit/3903626842356be8cf65b8af2af16027e77c6379))
+* security questions no longer treat the operator's own arguments as untrusted ([#241](https://github.com/lakeday-org/perch/issues/241)) ([2256b58](https://github.com/lakeday-org/perch/commit/2256b58e2f62bd5de023368f76187ec8cbeb7887)), closes [#240](https://github.com/lakeday-org/perch/issues/240)
+
+
+### Performance Improvements
+
+* scan reads methods in a rolling pool of 32 and asks file rules alongside searches ([#244](https://github.com/lakeday-org/perch/issues/244)) ([7e1c704](https://github.com/lakeday-org/perch/commit/7e1c7041a0d9ab41928495ce400792c8eea677bf))
+
 ## [0.3.5](https://github.com/lakeday-org/perch/compare/v0.3.4...v0.3.5) (2026-09-24)
 
 
