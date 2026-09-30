@@ -16,7 +16,7 @@
     when it should not, or fails to throw when it should
   "false": >
     The method behaves correctly for every input its callers can pass; style, performance, and
-    hypothetical misuse do not count
+    hypothetical misuse do not count. A helper is judged by what its shown callers pass it
   issue:
     type: defect
     label: kind
@@ -26,8 +26,8 @@
   each: method
   where: "**/*"
   ask: Does `method` produce a wrong result for a valid empty, zero, first, last, or missing input?
-  "true": One of these valid inputs produces an incorrect result or failure.
-  "false": These valid inputs produce the intended results and errors.
+  "true": One of these inputs produces an incorrect result or failure, and a shown caller can pass it or it arrives from outside the program.
+  "false": These inputs produce the intended results and errors, or no shown caller can pass them.
   issue:
     type: defect
     label: kind
@@ -40,12 +40,13 @@
   ask: If `method` has a defect, which kind is it?
   options:
     boundary: An off-by-one, a wrong comparison, or a mishandled edge of a range
-    missing_null_handling: A null, undefined, empty, or absent value is not handled
+    missing_null_handling: A null, undefined, empty, or absent value that a caller can pass is not handled
     wrong_return: The wrong value, or a value of the wrong shape, is returned for some input
     swallowed_error: An error is caught, ignored, or turned into a misleading result
     state_mutation: Shared or input state is mutated when it should not be, or left stale when it should change
-    ordering: Operations run in the wrong order, or rely on an order that is not guaranteed
+    ordering: Operations run in an order that gives a wrong result or state for a concrete sequence of calls or events
     resource_leak: A handle, lock, timer, process, or connection is not released on some path
+    wrong_lookup: A lookup or match finds the wrong entry, such as an inherited key, the wrong scope, or a partial match
     inverted_condition: A condition, sign, or boolean is the wrong way round
 - name: severity
   type: score
@@ -95,7 +96,7 @@
   each: method
   where: "**/*"
   ask: "Is `method` vulnerable to cross-site scripting?"
-  "true": "Outside text reaches HTML or script output without escaping. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
+  "true": "Outside text reaches HTML or script output without escaping. `method` or its callers show that input comes from someone less trusted than whoever runs the program: a network request, a message, or a file or upload from another party. The operator's own arguments, environment and configuration are trusted."
   "false": "Its output is escaped, or no attacker-controlled text reaches it."
   issue:
     type: security
@@ -106,7 +107,7 @@
   each: method
   where: "**/*"
   ask: "Is `method` vulnerable to SQL injection?"
-  "true": "Outside text becomes part of the SQL it runs. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
+  "true": "Outside text becomes part of the SQL it runs. `method` or its callers show that input comes from someone less trusted than whoever runs the program: a network request, a message, or a file or upload from another party. The operator's own arguments, environment and configuration are trusted."
   "false": "Its SQL is fixed, or outside values are bound as parameters."
   issue:
     type: security
@@ -155,8 +156,8 @@
   each: method
   where: "**/*"
   ask: "Is `method` vulnerable to path traversal?"
-  "true": "A path built from outside input can reach files beyond the directory it should be limited to. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
-  "false": "Its paths are fixed or confined to their directory."
+  "true": "A path built from outside input can reach files beyond the directory it should be limited to. `method` or its callers show that input comes from someone less trusted than whoever runs the program: a network request, a message, or a file or upload from another party. The operator's own arguments, environment and configuration are trusted."
+  "false": "Its paths are fixed, confined to their directory, or chosen by the operator for their own files."
   issue:
     type: security
     label: path_traversal
@@ -198,7 +199,7 @@
   each: method
   where: "**/*"
   ask: "Is `method` vulnerable to OS command injection?"
-  "true": "Outside text becomes part of a shell command. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
+  "true": "Outside text becomes part of a shell command. `method` or its callers show that input comes from someone less trusted than whoever runs the program: a network request, a message, or a file or upload from another party. The operator's own arguments, environment and configuration are trusted."
   "false": "Its commands are fixed, or pass arguments without a shell."
   issue:
     type: security
@@ -209,7 +210,7 @@
   each: method
   where: "**/*"
   ask: "Is `method` vulnerable to code injection?"
-  "true": "Outside text is evaluated or compiled as code. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
+  "true": "Outside text is evaluated or compiled as code. `method` or its callers show that input comes from someone less trusted than whoever runs the program: a network request, a message, or a file or upload from another party. The operator's own arguments, environment and configuration are trusted."
   "false": "It never runs outside input as code."
   issue:
     type: security
@@ -236,7 +237,7 @@
   each: method
   where: "**/*"
   ask: "Does `method` accept a dangerous file upload?"
-  "true": "An uploaded file of any type can be stored where it can be run or served. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
+  "true": "An uploaded file of any type can be stored where it can be run or served. `method` or its callers show that input comes from someone less trusted than whoever runs the program: a network request, a message, or a file or upload from another party. The operator's own arguments, environment and configuration are trusted."
   "false": "Uploads are checked, or stored where they cannot do harm."
   issue:
     type: security
@@ -278,8 +279,8 @@
   each: method
   where: "**/*"
   ask: "Does `method` deserialize untrusted data unsafely?"
-  "true": "Outside data is deserialized in a way that can create arbitrary objects or run code. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
-  "false": "It deserializes only trusted data, or only plain values."
+  "true": "Outside data is deserialized in a way that can create arbitrary objects or run code. `method` or its callers show that input comes from someone less trusted than whoever runs the program: a network request, a message, or a file or upload from another party. The operator's own arguments, environment and configuration are trusted."
+  "false": "It deserializes only trusted data, or only plain values. Parsing JSON, or YAML with a safe schema, produces plain values and is not this."
   issue:
     type: security
     label: unsafe_deserialization
@@ -327,8 +328,8 @@
   each: method
   where: "**/*"
   ask: "Does `method` expose sensitive information?"
-  "true": "It returns, logs or sends secrets, tokens or personal data to someone who should not see them."
-  "false": "It exposes nothing sensitive."
+  "true": "It writes a secret, token or personal data to a log, error message, URL or response, or sends it to anyone other than the service that issued or requires it."
+  "false": "It exposes nothing sensitive. Returning a credential to its caller, or sending it to the service it authenticates with, is not exposure."
   issue:
     type: security
     label: information_exposure
@@ -349,8 +350,8 @@
   each: method
   where: "**/*"
   ask: "Is `method` vulnerable to server-side request forgery?"
-  "true": "A destination taken from outside input decides where the server sends a request. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
-  "false": "Its destinations are fixed or checked against an allow list."
+  "true": "A destination from untrusted input decides where a server sends a request. `method` or its callers show that input comes from someone less trusted than whoever runs the program: a network request, a message, or a file or upload from another party. The operator's own arguments, environment and configuration are trusted."
+  "false": "Its destinations are fixed, checked against an allow list, or set by the operator's own configuration."
   issue:
     type: security
     label: ssrf
@@ -360,7 +361,7 @@
   each: method
   where: "**/*"
   ask: "Is `method` vulnerable to command injection?"
-  "true": "Outside text changes a command passed to an interpreter. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
+  "true": "Outside text changes a command passed to an interpreter. `method` or its callers show that input comes from someone less trusted than whoever runs the program: a network request, a message, or a file or upload from another party. The operator's own arguments, environment and configuration are trusted."
   "false": "Its commands are fixed, or outside input is passed as data."
   issue:
     type: security
@@ -371,8 +372,8 @@
   each: method
   where: "**/*"
   ask: "Can a user reach someone else's data by changing an ID that `method` receives?"
-  "true": "It looks up a record by an ID taken from outside input without checking the record belongs to the caller. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
-  "false": "It checks ownership, or its records are not per user."
+  "true": "It runs where records belonging to different users are kept, such as a request handler or a database query, and looks one up by an ID from another party's request without checking the record belongs to that caller. `method` or its callers show that input comes from someone less trusted than whoever runs the program: a network request, a message, or a file or upload from another party. The operator's own arguments, environment and configuration are trusted."
+  "false": "It checks ownership, its records belong to one user, or it only passes an ID to a service that makes the ownership decision."
   issue:
     type: security
     label: idor
@@ -382,8 +383,8 @@
   each: method
   where: "**/*"
   ask: "Can a request or other untrusted input make `method` use unbounded memory or work?"
-  "true": "A size, count or depth taken from outside input sets how much it allocates or loops, with no limit. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
-  "false": "Its work is fixed, limited, or set only by the program's own data."
+  "true": "A size, count or depth set by untrusted input decides how much it allocates, loops or recurses, with no limit. `method` or its callers show that input comes from someone less trusted than whoever runs the program: a network request, a message, or a file or upload from another party. The operator's own arguments, environment and configuration are trusted."
+  "false": "Its work is fixed, capped, or grows only with data the program already holds or was asked to process, such as one file or one parsed tree."
   issue:
     type: security
     label: resource_exhaustion
@@ -463,7 +464,7 @@
   each: method
   where: "**/*"
   ask: "Is `method` vulnerable to an open redirect?"
-  "true": "A redirect target taken from outside input can send users to any site. `method` or its callers show that input comes from a request, a message, or a file or argument a user supplied."
+  "true": "A redirect target taken from outside input can send users to any site. `method` or its callers show that input comes from someone less trusted than whoever runs the program: a network request, a message, or a file or upload from another party. The operator's own arguments, environment and configuration are trusted."
   "false": "Its redirect targets are fixed or checked."
   issue:
     type: security

@@ -49,7 +49,7 @@ const shownAs = question => (question.issue.label && question.issue.label !== 's
  * `--filter` takes it, underscores and all, so what a row shows is what you can type back at the command: `too_big 78%` is
  * filtered with `--filter kind=too_big`.
  */
-export const KIND_LABELS = { boundary: 'off_by_one', missing_null_handling: 'unhandled_null', wrong_return: 'wrong_return_value', swallowed_error: 'error_ignored', state_mutation: 'bad_state_change', ordering: 'wrong_order', resource_leak: 'leak', inverted_condition: 'inverted_condition',
+export const KIND_LABELS = { boundary: 'off_by_one', missing_null_handling: 'unhandled_null', wrong_return: 'wrong_return_value', swallowed_error: 'error_ignored', state_mutation: 'bad_state_change', ordering: 'wrong_order', resource_leak: 'leak', inverted_condition: 'inverted_condition', wrong_lookup: 'wrong_lookup',
   split: 'too_big', flatten: 'too_nested', simplify_conditions: 'tangled_conditions', deduplicate: 'duplicated_logic', rename: 'misnamed', remove_dead_code: 'dead_code', none: 'none' };
 export const label = kind => KIND_LABELS[kind] ?? kind;
 
