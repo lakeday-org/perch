@@ -210,7 +210,7 @@ it includes the end of `.perch/scan.log`.
 | --- | --- |
 | `PERCH_API_KEY` | `scan`, `check`: bearer token for the System One endpoint. |
 | `PERCH_BASE_URL` | `scan`, `check`: complete System One request URL. |
-| `PERCH_MODEL_ID` | `scan`, `check`: model ID; defaults to `jev-latest`. |
+| `PERCH_MODEL_ID` | `scan`, `check`: model ID; defaults to `jev-latest`. Set it to the endpoint's model, such as `d1:free` on Liquid AI. |
 
 `PERCH_BASE_URL` is the complete URL to POST to, including its path and any
 query string. perch uses it unchanged, including a trailing slash. To use
@@ -219,6 +219,15 @@ TypeSafe System One:
 ```sh
 export PERCH_BASE_URL=https://api.typesafe.ai/v1/systemone
 export PERCH_API_KEY='paste-your-TypeSafe-key-here'
+```
+
+To use a [Liquid AI decision model](https://docs.liquid.ai/lfm/models/decision-models),
+which speaks the same format:
+
+```sh
+export PERCH_BASE_URL=https://api.liquid.ai/decisions/v1/systemone
+export PERCH_API_KEY='paste-your-Liquid-key-here'
+export PERCH_MODEL_ID=d1:free
 ```
 
 The endpoint must support the System One request and response format: typed

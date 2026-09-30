@@ -2,14 +2,16 @@
 
 /**
  * Published prices, dollars per million tokens, by family. Output is free on System One, which is the only model perch talks to.
- * A price is published for a family and a request comes back naming a version of it, so `jev-1.13.0` is priced as `jev`.
+ * A price is published for a family and a request comes back naming a version or tier of it, so `jev-1.13.0` is priced as `jev`
+ * and Liquid AI's `d1:free` as `d1`.
  */
 export const PRICES = {
   jev: { input: 0.042, output: 0 },
+  d1: { input: 0, output: 0 },
 };
 
 /** A family nobody published a price for costs an unknown amount, which the summary says rather than guessing. */
-const priceOf = model => PRICES[String(model).split('-')[0]] ?? null;
+const priceOf = model => PRICES[String(model).split(/[-:]/)[0]] ?? null;
 
 export function createMeter() {
   const models = new Map();
