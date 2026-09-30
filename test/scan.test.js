@@ -513,4 +513,74 @@ describe('perch hunt', () => {
     expect((await store.findFinding(first.id.slice(0, 4))).method).toBe(first.method);
     await expect(store.findFinding('zzzz')).rejects.toThrow('no finding zzzz');
   });
+
+  it('sends the next method the moment one lands, so a slow reply holds up only its own slot', async () => {
+    const repo = await fixture();
+    const scripted = scriptedSystemOne();
+    let inFlight = 0, peak = 0, release;
+    const slow = new Promise(resolve => { release = resolve; });
+    const finished = [];
+    // f does not answer until every other method has been sent and has answered.
+    const systemOne = { id: scripted.id, calls: scripted.calls, async ask(state, questions) {
+      const key = `${state.method.path}::${state.method.name}`;
+      peak = Math.max(peak, ++inFlight);
+      // Given up on after two seconds, so a pool that cannot send the rest fails the assertions below rather than the clock.
+      if (key === 'src/a.js::f') await Promise.race([slow, new Promise(resolve => setTimeout(resolve, 2000))]);
+      else await new Promise(resolve => setTimeout(resolve, 5));
+      inFlight--; finished.push(key);
+      if (finished.length === 3) release();
+      return scripted.ask(state, questions);
+    } };
+    const hunt = await scanRepository(await withRevision(repo, { systemOne, parallel: 2 }));
+    expect(hunt.status).toBe('complete');
+    expect(hunt.calls).toBe(4);
+    // Two slots and four methods, and f waits on the other three. In batches its partner was the only other method that could
+    // answer, so f held the other two back until it gave up. Rolling, the rest go through the one free slot while f is still
+    // out, and f lands last.
+    expect(finished).toHaveLength(4);
+    expect(finished.at(-1)).toBe('src/a.js::f');
+    expect(peak).toBe(2);
+    // Recorded in the order the answers came, so the run on disk says what had been read at every point.
+    expect(hunt.visited.map(visit => visit.method)).toEqual(finished);
+  });
+
+  it('never has more than `parallel` methods in flight', async () => {
+    const repo = await fixture();
+    for (const parallel of [1, 2, 3, 8]) {
+      const scripted = scriptedSystemOne();
+      let inFlight = 0, peak = 0;
+      const systemOne = { id: scripted.id, calls: scripted.calls, async ask(state, questions) {
+        peak = Math.max(peak, ++inFlight);
+        await new Promise(resolve => setTimeout(resolve, 20 + (state.method.name.charCodeAt(0) % 3) * 20));
+        inFlight--;
+        return scripted.ask(state, questions);
+      } };
+      const hunt = await scanRepository(await withRevision(repo, { systemOne, parallel }));
+      expect(hunt.calls).toBe(4);
+      // Four methods, so a pool wider than that is never full.
+      expect(peak).toBe(Math.min(parallel, 4));
+    }
+  });
+
+  it('stops when twice `parallel` methods in a row cannot be read, counted in the order they fail', async () => {
+    const repo = await fixture();
+    const scripted = scriptedSystemOne();
+    // Three failures in a row with a parallel of two is one short, so the run carries on and f still answers after them.
+    const fails = new Set(['g', 'h', 'k']);
+    const some = { id: scripted.id, calls: scripted.calls, async ask(state, questions) {
+      await new Promise(resolve => setTimeout(resolve, state.method.name === 'f' ? 40 : 1));
+      if (fails.has(state.method.name)) throw new Error('HTTP 503');
+      return scripted.ask(state, questions);
+    } };
+    const run = await scanRepository(await withRevision(repo, { systemOne: some, parallel: 2 }));
+    expect(run.calls).toBe(1);
+    expect(run.failed.map(failed => failed.name).sort()).toEqual(['g', 'h', 'k']);
+    // Four in a row with a parallel of two is the threshold.
+    const other = await fixture();
+    let sent = 0;
+    const broken = { id: 'dead', calls: [], ask: async () => { sent++; await new Promise(resolve => setTimeout(resolve, 1)); throw new Error('HTTP 503'); } };
+    await expect(scanRepository(await withRevision(other, { systemOne: broken, parallel: 2 }))).rejects.toThrow('4 methods in a row could not be read; last error: HTTP 503');
+    expect(sent).toBe(4);
+    expect((await openStore(other.out).latestRun()).status).toBe('failed');
+  });
 });

@@ -64,7 +64,9 @@ A stack, seeded with the riskiest method by `risk_score`:
 4. When the stack empties, take the next riskiest method overall.
 
 Test methods are analyzed, so they can appear as callers, but never questioned.
-Up to `--parallel` methods are in flight at once.
+Up to `--parallel` methods are in flight at once, 32 by default. The next
+method is sent as soon as any one answers, after that answer has pushed its
+neighbors. Rules about files and searches are asked alongside the walk.
 
 Every method in scope is read. Scope comes from `--paths` or `--since`, and
 nothing else. There is no cap on how many methods a run reads.

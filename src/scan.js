@@ -17,8 +17,11 @@ import { findingId, identity, openStore } from './store.js';
 import { TOKEN_LIMITS, IncompleteCheckError, withTokenRetries } from './tokens.js';
 export { findingId };
 
-/** Methods in flight at once. Each request carries a whole neighborhood and the applicable question pack. */
-export const DEFAULT_PARALLEL = 8;
+/**
+ * Methods in flight at once. Each request carries a whole neighborhood and the applicable question pack. The service takes 600
+ * requests a minute for an organization and retries a busy provider itself, so eight left most of that unused.
+ */
+export const DEFAULT_PARALLEL = 32;
 
 /**
  * What one method's readings say together. The first pass carries the neighborhood and answers for the method as a whole, so its
@@ -127,7 +130,7 @@ const createLineReader = (root, graph) => {
 /**
  * One scan over a repository: analyze the revision, read every method in scope, and walk on through its neighbors, asking the
  * questions perch ships with and the rules you wrote in the same request. A reading that fails is recorded against its method and
- * the walk carries on, unless two full batches fail in a row. The record is written after every batch.
+ * the walk carries on, unless twice `parallel` fail in a row. The record is written after every reading.
  *
  * What a run covers is `paths`, which is a directory you named or what a branch changed. There is no cap on how many methods it
  * reads: a number that stops partway through leaves a report that looks complete and is not.
@@ -290,53 +293,95 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     }
   };
 
-  let inARow = 0;
+  // Once the run has failed, nothing more is asked: a method still in flight comes back to nobody, and a rule about a file is
+  // refused before it is sent. The rules about files are asked on a view of the service that checks this first, since askUnits has no
+  // other way to be told the walk it runs beside has stopped.
+  let halted = null, landing = Promise.resolve();
+  const gated = Object.create(systemOne, { ask: { value: (...args) => halted ? Promise.reject(halted) : systemOne.ask(...args) } });
   try {
     // Said once before anything is asked. A counter that only moves when an answer arrives shows the phase before it, frozen,
     // for as long as the first request takes, which on a service that is retrying is a long time and reads as a hang.
     progress(0, total);
-    for (;;) {
-      const batch = [];
-      while (batch.length < parallel) {
-        const nodeId = walk.next(); if (!nodeId) break;
-        walk.visited.add(nodeId);
-        batch.push(nodeId);
-      }
-      if (!batch.length) break;
-      let done = 0;
-      const settled = await Promise.all(batch.map(async nodeId => { try { const result = await ask(nodeId); progress(run.calls + ++done, total); return result; } catch (error) { if (error instanceof AuthenticationError) throw error; progress(run.calls + ++done, total); const node = graph.nodes.get(nodeId); log(`${node.qualified_name} in ${node.path}: ${error.message}`); return { failed: { method: nodeId, id: findingId(nodeId), path: node.path, name: node.qualified_name, line: node.line, status: 'failed', error: error.message, incomplete: error instanceof IncompleteCheckError } }; } }));
-      const results = settled.filter(result => !result.failed);
-      for (const { failed } of settled.filter(result => result.failed)) {
-        run.failed.push(failed); run.visited.push(failed);
-        missing.set(failed.path, (missing.get(failed.path) ?? 0) + 1);
-        finish(failed.path, null);
-      }
-      inARow = results.length ? 0 : inARow + settled.length;
-      if (inARow >= parallel * 2) throw new Error(`${inARow} methods in a row could not be read; last error: ${run.failed.at(-1)?.error ?? 'unknown'}`);
-      await record(results); await saveRun();
-      onProgress({ phase: 'reading', completed: walk.visited.size, total, failed: run.failed.length });
-    }
-
-    // What is left is every rule that is not about a method, and every claim about the codebase rather than about one file. The
-    // source they are asked about comes from the revision, not from disk, so a finding is still about a commit.
-    // Method questions carry their own source, so the tree is only read when a file rule or a search is in the set. All rules,
-    // not the filtered ones: a rule filtered out is still counted in coverage, and counting a file rule's units needs the tree.
+    // The rules about files and the searches start now, beside the walk rather than after it. They read the tree, the graph and
+    // the rules, all settled before the first method is asked, and nothing a reading adds: a finding is written once at the
+    // end, and neither the methods nor the rules about files wait on the other. Waiting for the last method only made a run the
+    // length of both. The tree is only read when a file rule or a search is in the set; all rules, not the filtered ones, since a
+    // rule filtered out is still counted in coverage, and counting a file rule's units needs the tree.
     const files = new Map();
     let tree = [];
-    if (rules.some(rule => SEARCHES(rule.kind) || rule.each !== 'method')) {
-      for (const file of scan.files) files.set(file.path, (await linesOf({ id: file.path, path: file.path })).join('\n'));
-      tree = await listTree(root, revision);
-      const eligible = createFileSelector(tree);
-      for (const item of tree) if (eligible(item) && !files.has(item.path)) files.set(item.path, await readBlob(root, item.sha).catch(() => ''));
-    }
-    const over = { scan, graph, files, tree, revision, systemOne, inScope, min, debug };
     const kept = new Set(questionsFor(rules, filters, kindLabel).map(rule => rule.name));
     const asking = rules.filter(rule => kept.has(rule.name));
-    onProgress({ phase: 'checking', completed: walk.visited.size, total, failed: run.failed.length });
-    const units = await askUnits({ ...over, rules: asking.filter(rule => !SEARCHES(rule.kind) && rule.each !== 'method'), parallel: unitParallel, progress: unitProgress });
-    const searches = await searchUnits({ ...over, rules: asking.filter(rule => SEARCHES(rule.kind)), parallel: unitParallel, progress: searchProgress });
+    const checking = (async () => {
+      if (rules.some(rule => SEARCHES(rule.kind) || rule.each !== 'method')) {
+        for (const file of scan.files) files.set(file.path, (await linesOf({ id: file.path, path: file.path })).join('\n'));
+        tree = await listTree(root, revision);
+        const eligible = createFileSelector(tree);
+        for (const item of tree) if (eligible(item) && !files.has(item.path)) files.set(item.path, await readBlob(root, item.sha).catch(() => ''));
+      }
+      // What is left is every rule that is not about a method, and every claim about the codebase rather than about one file. The
+      // source they are asked about comes from the revision, not from disk, so a finding is still about a commit.
+      const over = { scan, graph, files, tree, revision, systemOne: gated, inScope, min, debug };
+      return Promise.all([
+        askUnits({ ...over, rules: asking.filter(rule => !SEARCHES(rule.kind) && rule.each !== 'method'), parallel: unitParallel, progress: unitProgress }),
+        searchUnits({ ...over, rules: asking.filter(rule => SEARCHES(rule.kind)), parallel: unitParallel, progress: searchProgress }),
+      ]);
+    })();
+
+    // Up to `parallel` methods in flight, and the next one sent the moment any of them lands, so one slow reply holds up one slot
+    // rather than every other. A reading is recorded before the next method is taken off the walk, because what it says
+    // decides what that is: its callees, its callers, the neighbor it points at and the rest of its file go on top. Recording is
+    // one at a time, in the order answers arrive, since two at once would push onto the walk and append to the journal together.
+    const reading = new Promise((resolve, reject) => {
+      let flying = 0, settled = 0, landed = 0, inARow = 0;
+      const stop = error => { halted ??= error; reject(error); };
+      const land = async (nodeId, outcome) => {
+        if (halted) return;
+        if (outcome.failed) {
+          const { failed } = outcome;
+          run.failed.push(failed); run.visited.push(failed);
+          missing.set(failed.path, (missing.get(failed.path) ?? 0) + 1);
+          finish(failed.path, null);
+        }
+        // Counted in the order answers arrive: a slot that keeps failing while its neighbors answer is one bad method, and every
+        // slot failing is a key or a service the rest of the repository will not fix.
+        inARow = outcome.failed ? inARow + 1 : 0;
+        if (inARow >= parallel * 2) throw new Error(`${inARow} methods in a row could not be read; last error: ${run.failed.at(-1)?.error ?? 'unknown'}`);
+        if (!outcome.failed) await record([outcome]);
+        await saveRun();
+        landed++;
+        onProgress({ phase: 'reading', completed: landed, total, failed: run.failed.length });
+      };
+      const fill = () => {
+        if (halted) return;
+        while (flying < parallel) {
+          const nodeId = walk.next(); if (!nodeId) break;
+          walk.visited.add(nodeId); flying++;
+          ask(nodeId).then(result => result, error => {
+            if (error instanceof AuthenticationError) throw error;
+            const node = graph.nodes.get(nodeId); log(`${node.qualified_name} in ${node.path}: ${error.message}`);
+            return { failed: { method: nodeId, id: findingId(nodeId), path: node.path, name: node.qualified_name, line: node.line, status: 'failed', error: error.message, incomplete: error instanceof IncompleteCheckError } };
+          }).then(outcome => {
+            if (halted) return;
+            progress(++settled, total);
+            // Queued when the answer arrives, not when the method was sent, so a slow reply is written down when it comes and
+            // does not hold the queue for the ones behind it. The slot is given back once the answer is written down, not when
+            // it arrives, so the next pick sees what it enqueued.
+            landing = landing.then(() => land(nodeId, outcome)).then(() => { flying--; fill(); });
+            return landing;
+          }).catch(stop);
+        }
+        // The walk is empty only when nothing is still in flight: an answer yet to arrive can put its neighbors on it.
+        if (!flying) resolve();
+      };
+      fill();
+    });
+    // Both at once, so a file rule that fails its key stops the walk as surely as a method that does, and the other way round.
+    const [, [units, searches]] = await Promise.all([
+      reading.then(() => onProgress({ phase: 'checking', completed: walk.visited.size, total, failed: run.failed.length })),
+      checking,
+    ]);
     run.failed.push(...[...units.results, ...searches.results].filter(result => result.error));
-    // Every attempt failed and none answered. The in-a-row check above only fires after two full batches, so a pull request that
+    // Every attempt failed and none answered. The in-a-row check above only fires after twice `parallel`, so a pull request that
     // touched three methods ran through an outage and came back clean. Nothing read is not nothing found, however small the run.
     // Code that cannot fit a request at any token budget is incomplete rather than failed: that is the code, not perch being
     // unable to run.
@@ -393,5 +438,5 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     await store.recordScan([...read, ...elsewhere, ...broken, ...unasked]);
     run.remaining = walk.remaining(); run.status = run.incomplete.length ? 'incomplete' : 'complete'; run.completed_at = new Date().toISOString();
     await saveRun(true); await store.prune('runs', id).catch(error => log(`Could not remove earlier runs: ${error.message}`)); return run;
-  } catch (error) { run.status = 'failed'; run.error = error.message; await saveRun(true).catch(() => {}); await store.prune('runs', id).catch(prune => log(`Could not remove earlier runs: ${prune.message}`)); throw error; }
+  } catch (error) { halted ??= error; await landing.catch(() => {}); run.status = 'failed'; run.error = error.message; await saveRun(true).catch(() => {}); await store.prune('runs', id).catch(prune => log(`Could not remove earlier runs: ${prune.message}`)); throw error; }
 }

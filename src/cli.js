@@ -29,7 +29,7 @@ export const VERSION = typeof PERCH_VERSION === 'string' ? PERCH_VERSION : 'dev'
 
 const options = {
   paths: ['--paths a,b', 'Only consider files under these repository paths', ['scan']],
-  parallel: ['--parallel N', `How many methods to read at once (default ${DEFAULT_PARALLEL}; files and tests go ${UNIT_PARALLEL} at a time)`, ['scan']],
+  parallel: ['--parallel N', `How many methods to read at once (default ${DEFAULT_PARALLEL}; files and tests go ${UNIT_PARALLEL} at a time, alongside them)`, ['scan']],
   since: ['--since REF', 'Only what changed since this branch or commit', ['scan']],
   all: ['--all', 'List every row instead of the top 10', ['scan', 'issues']],
   limit: ['--limit N', `Rows per page (default ${TOP})`, ['issues']],
@@ -232,6 +232,21 @@ function liveCounter(io, doing) {
   return { update: (done, total) => write(total ? `${doing} ${done} of ${total}` : `${doing} ${done}`), say: text => write(text), clear: stop };
 }
 
+/**
+ * Counters that run at the same time, on one line. The methods, the rules about files and the searches are asked together, and
+ * three counters taking turns on one line showed whichever answered last, flickering between them. A phase that has finished drops
+ * off so the line says what is still going. Clearing one clears the line for a file to print under; the next answer redraws it.
+ */
+function liveCounters(io, ...doing) {
+  const line = liveCounter(io, ''), counts = new Map();
+  const draw = () => {
+    const going = [...counts].filter(([, [done, total]]) => !total || done < total);
+    const text = (going.length ? going : [...counts].slice(-1)).map(([label, [done, total]]) => total ? `${label} ${done} of ${total}` : `${label} ${done}`).join(', ');
+    if (text) line.say(text);
+  };
+  return doing.map(label => ({ update: (done, total) => { counts.set(label, [done, total]); draw(); }, say: line.say, clear: line.clear }));
+}
+
 /** The open issues at HEAD: findings for methods that no longer exist are dropped and counted. */
 async function openIssues(store, min, io) {
   const root = (await store.latestRun())?.root ?? (await store.latestScan())?.root ?? null;
@@ -383,8 +398,8 @@ const commands = {
     const filters = filtersFrom(io.flags, await rulesInForce(resolved.root));
     const paths = await scanPaths(io, resolved.root, resolved.scope);
     if (io.flags.since && !paths.length) { io.stdout(`Nothing changed since ${io.flags.since}.`); return EXIT.clean; }
-    const files = liveCounter(io, 'finding methods,'), methods = liveCounter(io, 'scanning method'),
-      units = liveCounter(io, 'checking file'), searches = liveCounter(io, 'searching');
+    const files = liveCounter(io, 'finding methods,');
+    const [methods, units, searches] = liveCounters(io, 'scanning method', 'checking file', 'searching');
     // A request that is being retried answers nothing, so the counter it belongs to would sit still and read as a hang. Whatever
     // the service said is worth more than a frozen number, and it is said on the counter's own line.
     // Every run writes down what it did, whether or not anyone asked to watch it, because the run you want the log of is the one
@@ -437,7 +452,7 @@ const commands = {
     const everything = visibleFindings(splitStale(await store.issues(min, { scan }), scan).current)
       .filter(finding => inScope(finding.path));
     const issues = narrow(everything, filters, min);
-    // Whatever has not gone past already: the rules about files and tests, which are asked after the walk. Then the tally, which
+    // Whatever has not gone past already: the rules about files and tests, which report once they have all answered. Then the tally, which
     // counts the whole run. What was read and what it cost is context for a person watching, and goes under it on stderr.
     const rest = issues.filter(finding => !said.has(finding.path));
     // A run that read no method and asked no rule found nothing because it looked at nothing. Saying "nothing to report" there

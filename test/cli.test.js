@@ -335,7 +335,7 @@ describe('cli', () => {
     const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
     const hunt = await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.8, kind: 'wrong_return', severity: 1 } }), budget: 2 }));
     const { out, err, io } = capture();
-    const [f] = hunt.visited;
+    const f = hunt.visited.find(visit => visit.method === 'src/a.js::f');
     expect(await main(['issues', '--out', repo.out], io)).toBe(0);
     expect(out.at(-1)).toMatch(new RegExp(`^${f.id}  f +src/a.js:\\d+ +defect +wrong_return_value \\d+%.* +P2 \\(1\\.8\\)$`, 'm'));
     // Every column a filter reads is named after it: kind, severity.
@@ -429,7 +429,7 @@ describe('cli', () => {
     await commitAll(repoRoot, 'scan types');
     const repo = { root: repoRoot, revision: await revision(repoRoot), out: join(repoRoot, '.perch') };
     const hunt = await scanRepository(fixtureOptions(repo, { analyzer: createSourceAnalyzer(), systemOne: scriptedSystemOne({ 'src/a.js::f': { has_bug: 0.9 } }) }));
-    const [f] = hunt.visited;
+    const f = hunt.visited.find(visit => visit.method === 'src/a.js::f');
     const { out, err, io } = capture();
 
     expect(await main(['close', f.id.slice(0, 5), '--reason', 'verifies before it parses', '--out', repo.out], io)).toBe(0);
