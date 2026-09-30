@@ -22,7 +22,19 @@ jobs:
           node-version: 22
       - name: Scan what this pull request changed
         if: github.event_name == 'pull_request'
-        run: npm exec --yes --package='github:lakeday-org/perch#main' -- perch scan --filter type=defect,lint,security --since origin/${{ github.base_ref }}
+        run: |
+          set +e
+          npm exec --yes --package='github:lakeday-org/perch#main' -- perch scan --filter type=defect,lint,security --since origin/${{ github.base_ref }}
+          status=$?
+          # While findings from the new model are audited, they are reported in the Perch issues check rather than failing the
+          # job. Exit 3 means perch found something; 1 and 2 mean it could not run, and still fail.
+          if [ "$status" -eq 3 ]; then exit 0; fi
+          exit "$status"
       - name: Scan the default branch
         if: github.event_name == 'push'
-        run: npm exec --yes --package='github:lakeday-org/perch#main' -- perch scan --filter type=defect,lint,security
+        run: |
+          set +e
+          npm exec --yes --package='github:lakeday-org/perch#main' -- perch scan --filter type=defect,lint,security
+          status=$?
+          if [ "$status" -eq 3 ]; then exit 0; fi
+          exit "$status"
