@@ -7,7 +7,7 @@ import { createSourceAnalyzer } from '../src/analysis.js';
 import { mergeAnswers, scanRepository, typesAsked } from '../src/scan.js';
 import { parseQuestions, parseScanTypes, questionSet } from '../src/ask.js';
 import { securities, securityOf } from '../src/questions.js';
-import { methodStep, methodSteps, issueWeight, locateWhere, MAX_CHOICES, STATE_BUDGET } from '../src/questions.js';
+import { methodSteps, issueWeight, STATE_BUDGET } from '../src/questions.js';
 import { countTokens } from 'gpt-tokenizer/encoding/o200k_base';
 import { openStore } from '../src/store.js';
 import { createSystemOne } from '../src/systemone.js';
@@ -230,22 +230,6 @@ describe('perch hunt', () => {
     }
   });
 
-  it('picks a window then a line when a method has more lines than a Choice can name', async () => {
-    const lines = Array.from({ length: 400 }, (_, index) => `  x += ${index};`);
-    const step = methodStep({ node: { path: 'a.rs', qualified_name: 'big', line: 1, end_line: 400 }, lines, callees: [], callers: [] });
-    expect(step.questions.where).toBeUndefined();
-    expect(Object.keys(step.questions.where_window.criteria)).toEqual(['W0001', 'W0002', 'W0003', 'W0004']);
-    expect(step.windows).toHaveLength(4);
-    expect(step.windows.every(window => window.length <= MAX_CHOICES)).toBe(true);
-    expect(step.windows[0][0]).toBe('L0001');
-    expect(step.windows.at(-1).at(-1)).toBe('L0400');
-    const systemOne = scriptedSystemOne({ 'a.rs::big': { where_window: 'W0004', where: 'L0400' } });
-    const located = await locateWhere({ systemOne, state: step.state, questions: step.questions, windows: step.windows });
-    expect(located.answers.where.choice).toBe('L0400');
-    expect(systemOne.calls).toHaveLength(2);
-    expect(Object.keys(systemOne.calls[1].questions.where.criteria)).toEqual(step.windows[3]);
-  });
-
   it('ranks a method by what its problems would cost, not how many it has', () => {
     // Two readings of the same shape: one would lose data, the other would be noticed by nobody.
     const reading = probabilities => ({ has_bug: 0.7, kind: { choice: 'boundary', probability: 1 }, severity: { probabilities },
@@ -285,7 +269,7 @@ describe('perch hunt', () => {
     expect(hunt.visited.map(visit => visit.method)[0]).toBe('src/a.js::f');
     expect(new Set(hunt.visited.map(visit => visit.method))).toEqual(new Set(['src/a.js::f', 'src/a.js::g', 'src/b.js::h', 'src/b.js::k']));
     const f = hunt.visited.find(visit => visit.method === 'src/a.js::f');
-    expect(f).toMatchObject({ status: 'read', id: expect.stringMatching(/^[0-9a-f]{8}$/), has_bug: 0.9, where: { line: 4 }, kind: { choice: 'boundary', probability: 0.8 }, severity: { level: 'P1' }, documented: 0.3, refactor: { choice: 'split' }, callees: expect.arrayContaining(['src/a.js::g', 'src/b.js::h']) });
+    expect(f).toMatchObject({ status: 'read', id: expect.stringMatching(/^[0-9a-f]{8}$/), has_bug: 0.9, kind: { choice: 'boundary', probability: 0.8 }, severity: { level: 'P1' }, documented: 0.3, refactor: { choice: 'split' }, callees: expect.arrayContaining(['src/a.js::g', 'src/b.js::h']) });
     expect(f.kind.probabilities.boundary).toBe(0.8);
     // The test calls f from inside a callback no function names, which is its file's top-level code.
     expect(f.callers).toEqual(['test/a.test.js::<top-level>']);
@@ -305,7 +289,8 @@ describe('perch hunt', () => {
     expect(first.questions.severity.type).toBe('score');
     expect(first.questions.refactor.type).toBe('choice');
     expect(Object.keys(first.questions.follow.criteria)).toEqual(expect.arrayContaining(['src/a.js::g', 'src/b.js::h', 'none']));
-    expect(Object.keys(first.questions.where.criteria)).toEqual(['L0003', 'L0004', 'L0005', 'L0006', 'L0007']);
+    // No question asks which line: a finding points at its method.
+    expect(first.questions.where).toBeUndefined(); expect(first.questions.where_window).toBeUndefined();
     const h = systemOne.calls.find(call => call.method === 'src/b.js::h');
     expect(h.state.called_by[0]).toMatchObject({ id: 'src/a.js::f', calls_method_at: 4 });
     expect(h.questions.misused_by_0.instructions.caller).toBe('src/a.js::f');
@@ -315,7 +300,6 @@ describe('perch hunt', () => {
     expect(events.map(event => event.method)).toEqual(hunt.visited.map(visit => visit.method));
     expect(existsSync(join(repo.out, 'workspaces'))).toBe(false);
     expect((await git(['status', '--porcelain'], repo.root)).trim()).toBe('');
-    expect(f.where.text).toBe('if (x > 10) return g(x) + h(x);');
     // A file is handed over the moment every method in it has been read, so a long run says what it finds while it finds it.
     expect(seen.map(file => file.path).sort()).toEqual(['src/a.js', 'src/b.js']);
     expect(seen.every(file => file.findings.length)).toBe(true);
@@ -478,10 +462,10 @@ describe('perch hunt', () => {
     expect(steps[1].state.module_scope).toBeNull();
 
     // The worst defect anywhere in the method is the method's defect; the first pass still speaks for its shape.
-    const whole = { has_bug: 0.2, where: { line: 4 }, kind: { choice: 'boundary' }, cwe_89: 0.1, cwe_416: 0.4, refactor: { choice: 'split' } };
-    const later = { has_bug: 0.8, where: { line: 2600 }, kind: { choice: 'resource_leak' }, cwe_89: 0.9, cwe_416: 0.2, refactor: { choice: 'none' } };
+    const whole = { has_bug: 0.2, kind: { choice: 'boundary' }, cwe_89: 0.1, cwe_416: 0.4, refactor: { choice: 'split' } };
+    const later = { has_bug: 0.8, kind: { choice: 'resource_leak' }, cwe_89: 0.9, cwe_416: 0.2, refactor: { choice: 'none' } };
     const merged = mergeAnswers([whole, later]);
-    expect(merged).toMatchObject({ has_bug: 0.8, where: { line: 2600 }, kind: { choice: 'resource_leak' }, refactor: { choice: 'split' }, passes: 2 });
+    expect(merged).toMatchObject({ has_bug: 0.8, kind: { choice: 'resource_leak' }, refactor: { choice: 'split' }, passes: 2 });
     // A class a later pass rated lower keeps the higher reading: a slice that saw less is not evidence of less.
     expect(merged).toMatchObject({ cwe_89: 0.9, cwe_416: 0.4 });
     expect(securityOf(merged)).toEqual({ kind: 'sql_injection', probability: 0.9 });

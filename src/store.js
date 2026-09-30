@@ -281,8 +281,6 @@ export function openStore(out) {
           finding.lint.source = lines.slice(from - 1, to).map((text, index) => `${String(from + index).padStart(5)}| ${text}`).join('\n');
           finding.lint.more = Math.max(0, (finding.end_line ?? from) - to);
         }
-        if (finding.where?.text !== undefined || !finding.where?.line) continue;
-        finding.where.text = (await linesOf(finding))?.[finding.where.line - 1]?.trim() ?? '';
       }
       return findings;
     },

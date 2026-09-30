@@ -11,7 +11,7 @@ import { AuthenticationError } from './systemone.js';
 import { createFileSelector } from './exclusions.js';
 import { buildGraph } from './graph.js';
 import { appliesToLanguage, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES } from './ask.js';
-import { issuesOf, label as kindLabel, methodSteps, locateWhere, readAnswers } from './questions.js';
+import { issuesOf, label as kindLabel, methodSteps, readAnswers } from './questions.js';
 import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL, unitHash } from './units.js';
 import { findingId, identity, openStore } from './store.js';
 import { TOKEN_LIMITS, IncompleteCheckError, withTokenRetries } from './tokens.js';
@@ -37,27 +37,26 @@ export function mergeAnswers(readings, questions = questionSet().filter(question
   const gates = new Set(questions.filter(question => CORRECTNESS.has(question.issue?.type)).map(question => question.when).filter(Boolean));
   const grows = questions.filter(question => question.type === 'noul' && (CORRECTNESS.has(question.issue?.type) || gates.has(question.name)));
   for (const later of readings.slice(1)) {
-    if (later.has_bug > merged.has_bug) Object.assign(merged, { has_bug: later.has_bug, where: later.where, kind: later.kind, severity: later.severity });
+    if (later.has_bug > merged.has_bug) Object.assign(merged, { has_bug: later.has_bug, kind: later.kind, severity: later.severity });
     for (const question of grows) merged[question.name] = Math.max(merged[question.name] ?? 0, later[question.name] ?? 0);
   }
   if (readings.length > 1) merged.passes = readings.length;
   return merged;
 }
 
-/** One System One reading of a method, in as many passes as its length takes, and the line they point at. */
-export async function questionMethod({ systemOne, node, step, steps = [step], lines, rules = [], debug = () => {}, prepare }) {
+/** One System One reading of a method, in as many passes as its length takes. */
+export async function questionMethod({ systemOne, node, step, steps = [step], rules = [], debug = () => {}, prepare }) {
   return withTokenRetries(async budget => {
     if (budget < (systemOne.limits?.state ?? TOKEN_LIMITS.state) && !prepare) throw new IncompleteCheckError('source cannot be rebuilt for a smaller token budget');
     const active = steps?.[0] && budget === (systemOne.limits?.state ?? TOKEN_LIMITS.state) ? steps : prepare ? prepare(budget) : steps;
-    debug(`asking ${systemOne.id} about ${node.qualified_name} in ${node.path}:${node.line} (${Object.keys(active[0].questions).length} questions${active.length > 1 ? ` over ${active.length} passes` : ''}${active[0].windows ? `, then a line in the chosen window` : ''})`);
+    debug(`asking ${systemOne.id} about ${node.qualified_name} in ${node.path}:${node.line} (${Object.keys(active[0].questions).length} questions${active.length > 1 ? ` over ${active.length} passes` : ''})`);
     const readings = [];
     let response;
     for (const pass of active) {
-      response = await locateWhere({ systemOne, state: pass.state, questions: pass.questions, windows: pass.windows });
+      response = await systemOne.ask(pass.state, pass.questions);
       readings.push(readAnswers(response.answers, pass));
     }
     const answers = mergeAnswers(readings, [...questionSet().filter(question => question.each === 'method' && !question.kind), ...rules]);
-    answers.where.text = lines[answers.where.line - 1]?.trim() ?? '';
     // A partial source reading must remain visible instead of looking like a complete method check.
     const to = active.at(-1).covers.end_line;
     if (to < node.end_line) answers.read = { passes: active.length, to_line: to, of_line: node.end_line };
@@ -258,7 +257,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const ask = async nodeId => {
     const { node, calleeIds, callerIds, rules: own, steps, prepare, skip } = await stepFor(nodeId);
     if (skip) return { node, calleeIds, callerIds, rules: own, skipped: true };
-    const { response, answers } = await questionMethod({ systemOne, node, steps, prepare, lines: await linesOf(node), rules: own, debug });
+    const { response, answers } = await questionMethod({ systemOne, node, steps, prepare, rules: own, debug });
     return { node, calleeIds, callerIds, rules: own, response, answers };
   };
   /** Every reading this run made. The file is written whole at the end, so what this run did not cover is carried onto it. */

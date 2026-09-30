@@ -51,9 +51,8 @@ const issueCell = (issues, width = Infinity) => {
   const left = issues.length - shown.length;
   return [...shown, ...(left > 0 ? [`+${left} more`] : [])].join(', ');
 };
-/** A defect points at a line inside the method; everything else points at the method. A reading with no line located falls back
- * to the method's own, rather than throwing in the one place a person is looking at a list of what is wrong. */
-const locationOf = (finding, issues) => `${finding.path}:${issues[0]?.type === 'defect' ? finding.where?.line ?? finding.line : finding.line}`;
+/** A finding points at the method it is about. */
+const locationOf = finding => `${finding.path}:${finding.line}`;
 /** Cut to `width`, keeping the end: a path's file and line say more than the crates/ it starts with. */
 const keepEnd = (text, width) => (text.length <= width ? text : '…' + text.slice(text.length - width + 1));
 const keepStart = (text, width) => (text.length <= width ? text : text.slice(0, width - 1) + '…');
@@ -86,7 +85,7 @@ function issueTable(findings, min = 0, filters = [], { width = WIDTH() } = {}) {
   const cells = findings.map(finding => {
     const issues = issuesFor(finding, min, filters);
     // Severity is asked about a behavioral defect, so a method whose issues are all design or security has none to show.
-    return { id: finding.id, method: shortId(finding.name), location: locationOf(finding, issues), type: issues[0]?.type ?? '-', issues,
+    return { id: finding.id, method: shortId(finding.name), location: locationOf(finding), type: issues[0]?.type ?? '-', issues,
       // The rubric is about the harm a caller would feel, which is what a vulnerability is ranked by too. Showing it only on a
       // defect was the list disagreeing with its own ordering.
       severity: issues.some(issue => CORRECTNESS.has(issue.type)) ? severityName(finding.severity) : '-', status: workedOn(finding) };
@@ -128,7 +127,7 @@ export function formatScanReport(findings, { min = 0, width = WIDTH(), color = C
     const searched = String(finding.unit ?? '').startsWith('search:');
     const issues = shownIssues(finding, min, filters);
     if (!issues.length) continue;
-    const line = issues[0]?.type === 'defect' ? finding.where?.line ?? finding.line : finding.line;
+    const line = finding.line;
     const under = searched ? SEARCHED : finding.path;
     if (!byFile.has(under)) byFile.set(under, []);
     // A band is about a defect the method might have, so it is said on the rows that are about one and left off the rest.
@@ -411,9 +410,6 @@ export function formatFinding(finding, { width = WIDTH(), color = COLOR() } = {}
   }
 
   if (finding.has_bug !== undefined) {
-    lines.push('', `  ${dim(String(finding.where?.line ?? finding.line).padStart(5), color)}  ${finding.where?.text ?? ''}`.trimEnd(),
-      ...(finding.where ? [dim(`         the line it points at, ${percent(finding.where.confidence)} sure`, color)] : []));
-
     const said = [];
     const add = (name, value) => { if (value) said.push([name, value]); };
     add('Kind', spread(finding.kind?.probabilities));

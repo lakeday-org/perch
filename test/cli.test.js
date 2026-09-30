@@ -354,9 +354,6 @@ describe('cli', () => {
     expect(out.at(-1)).toMatch(/^ +80% {2}defect {2}P\d \(\d\.\d\) {2}wrong_return_value$/m);
     expect(out.at(-1)).toMatch(/^ {2}Kind +wrong_return_value \d+%/m);
     expect(out.at(-1)).toMatch(/^ {2}Code +risk \d+ {2}maintainability \d+/m);
-    // The line it points at, with the code on it.
-    expect(out.at(-1)).toMatch(/^ +\d+ {2}\S/m);
-    expect(out.at(-1)).toMatch(/the line it points at, \d+% sure/);
     // --min is how sure the scan has to be: nothing is answered at a flat 100%, and over 100 is not a percentage.
     expect(await main(['issues', '--out', repo.out, '--min', '100'], io)).toBe(0);
     expect(out.at(-1)).toBe('Nothing matches.');

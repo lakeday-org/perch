@@ -2,7 +2,7 @@
 import { compile, floorFor, issues, questionSet, readAnswer, setHash, vocabulary } from './ask.js';
 import { RULES_FILE } from './units.js';
 import { sourceChunks } from './chunks.js';
-import { MAX_CHOICES, TOKEN_LIMITS, estimateTokens, textTokens, questionBatches, IncompleteCheckError, ContextLimitError } from './tokens.js';
+import { TOKEN_LIMITS, estimateTokens, textTokens, questionBatches, IncompleteCheckError, ContextLimitError } from './tokens.js';
 
 /** The bands a severity score is named by, worst last, matching the rubric declared in the question set. */
 export const SEVERITY_BANDS = ['P3', 'P2', 'P1', 'P0'];
@@ -217,44 +217,7 @@ export const needsDesign = (answers, min = 0) => issuesOf(answers, min).some(isD
 export const hasIssue = (answers, min = 0) => issuesOf(answers, min).length > 0;
 
 export const MAX_CALLEES = 8, MAX_CALLERS = 8, STATE_BUDGET = TOKEN_LIMITS.state, MODULE_SCOPE_BUDGET = 2000;
-export { MAX_CHOICES };
 export const lineId = line => `L${String(line).padStart(4, '0')}`;
-const windowId = index => `W${String(index + 1).padStart(4, '0')}`;
-const addUsage = (a, b) => !b ? a : { input_tokens: (a?.input_tokens ?? 0) + (b.input_tokens ?? 0), output_tokens: (a?.output_tokens ?? 0) + (b.output_tokens ?? 0) };
-
-/** Blanks and comments are dropped so the model cannot point at a line no defect could live on. */
-export function codeLineIds(lines, start, end) {
-  const ids = [];
-  for (let line = start; line <= end; line++) {
-    const text = lines[line - 1] ?? '';
-    if (!text.trim() || commentLine.test(text)) continue;
-    ids.push(lineId(line));
-  }
-  return ids.length ? ids : [lineId(start)];
-}
-
-/** Partition lines into at most `limit` windows; a chosen window may need another partition. */
-export function lineWindows(ids, limit = MAX_CHOICES) {
-  if (ids.length <= limit) return null;
-  const count = Math.min(limit, Math.ceil(ids.length / limit));
-  const size = Math.ceil(ids.length / count);
-  return Array.from({ length: count }, (_, index) => ids.slice(index * size, (index + 1) * size)).filter(window => window.length);
-}
-
-export const whereQuestion = ids => ({ type: 'choice', instructions: 'Which line of `method` is the defect on? If there is no defect, pick the line most likely to hide one.', criteria: Object.fromEntries(ids.map(id => [id, null])) });
-export const whereWindowQuestion = windows => ({ type: 'choice', instructions: 'Which span of `method` contains the defect? If there is no defect, pick the span most likely to hide one.',
-  criteria: Object.fromEntries(windows.map((ids, index) => [windowId(index), `${ids[0]}–${ids.at(-1)}`])) });
-
-/** Narrow the chosen span repeatedly until its lines fit in one Choice, with at most MAX_CHOICES options at every stage. */
-export async function locateWhere({ systemOne, state, questions, windows }) {
-  const first = await systemOne.ask(state, questions);
-  if (!windows) return first;
-  const index = Math.max(0, Number(String(first.answers.where_window?.choice ?? windowId(0)).slice(1)) - 1);
-  const ids = windows[index] ?? windows[0];
-  const next = lineWindows(ids);
-  const second = await locateWhere({ systemOne, state, questions: next ? { where_window: whereWindowQuestion(next) } : { where: whereQuestion(ids) }, windows: next });
-  return { ...first, answers: { ...first.answers, ...second.answers }, usage: addUsage(first.usage, second.usage) };
-}
 /** Prefixes each line with its id. Consecutive null lines are replaced by one line saying which line numbers were left out. */
 export const tagged = (lines, start) => {
   const out = [];
@@ -358,15 +321,11 @@ export function methodStep({ node, lines, imports = [], methods = [node], module
   const neighbors = [...calls, ...calledBy].filter((item, index, all) => all.findIndex(other => other.id === item.id) === index);
   // Only lines the model can see are lines it can point at: a trimmed method must not be asked about the part that was cut.
   const shown = [...state.method.source.matchAll(/^L(\d+)\|/gm)].map(match => Number(match[1]));
-  const visible = new Set(shown.map(line => lineId(line)));
-  const lineIds = codeLineIds(lines, shown[0] ?? node.line, shown.at(-1) ?? node.end_line).filter(id => visible.has(id));
-  const windows = lineWindows(lineIds);
   // The questions themselves are declared, not written here: what perch asks of a method is data, so a repository can reword a
   // class or add one without this function hearing about it. What stays is what is not a question about your code — which line
   // the defect is on, and which method to read next — because both are built from this method's own neighbourhood.
   const questions = {
     ...compile(asked),
-    ...(windows ? { where_window: whereWindowQuestion(windows) } : { where: whereQuestion(lineIds) }),
     follow: { type: 'choice', instructions: 'Which related method most likely holds or reveals a defect connected to `method`, and is worth examining next?',
       criteria: { ...Object.fromEntries(neighbors.map(item => [item.id, `${item.name} in ${item.path}`])), none: 'No related method is worth following' } },
   };
@@ -376,7 +335,7 @@ export function methodStep({ node, lines, imports = [], methods = [node], module
   for (const [index, caller] of calledBy.entries())
     questions[`misused_by_${index}`] = { type: 'noul', instructions: { caller: caller.id, question: 'Does `caller` call `method` in a way that violates the contract evident from the method\'s source, or rely on behavior the method does not guarantee?' },
       criteria: { true: 'The caller passes something the method does not handle, or depends on a result or side effect the method does not reliably provide', false: 'The caller uses the method as its source intends' } };
-  return { state, questions, asked, calls, calledBy, neighbors, windows, covers: { line: shown[0] ?? node.line, end_line: shown.at(-1) ?? node.end_line, ...(chunk ? { start_byte: chunk.startByte, end_byte: chunk.endByte } : {}) } };
+  return { state, questions, asked, calls, calledBy, neighbors, covers: { line: shown[0] ?? node.line, end_line: shown.at(-1) ?? node.end_line, ...(chunk ? { start_byte: chunk.startByte, end_byte: chunk.endByte } : {}) } };
 }
 
 /** Native syntax chunks overlap in source bytes, including when one line spans multiple requests. */
@@ -404,8 +363,8 @@ export function methodSteps({ node, lines, imports = [], methods = [node], calle
 
 /**
  * Typed answers reduced to what the walk and the log use. Every declared question is kept under its own name, whatever it is, so
- * a class added to the question set is recorded without this function being told. The rest are the machinery's own answers: where
- * the defect is, which method to read next, and what the neighbours look like from here.
+ * a class added to the question set is recorded without this function being told. The rest are the machinery's own answers: which
+ * method to read next, and what the neighbours look like from here.
  */
 export function readAnswers(answers, { calls, calledBy, neighbors, asked = questionSet().filter(question => question.each === 'method') }) {
   const follow = answers.follow.choice;
@@ -413,7 +372,6 @@ export function readAnswers(answers, { calls, calledBy, neighbors, asked = quest
   for (const question of asked) read[question.name] = readAnswer(question, answers[question.name]);
   return {
     ...read,
-    where: { line: Number(answers.where.choice.slice(1)), confidence: answers.where.confidence },
     severity: { ...read.severity, level: severityOf(read.severity)?.band ?? null, predicted: severityOf(read.severity)?.predicted ?? null },
     misuse: calls.map((call, index) => ({ callee: call.id, probability: answers[`misuse_${index}`].noul })),
     misused_by: calledBy.map((caller, index) => ({ caller: caller.id, probability: answers[`misused_by_${index}`].noul })),
