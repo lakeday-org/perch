@@ -20,6 +20,12 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+      # Parsers come from GitHub releases on first use. Kept between runs so a scan rarely has to download one.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/tree-sitter-language-pack
+          key: tree-sitter-language-pack-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: tree-sitter-language-pack-${{ runner.os }}-
       - name: Scan what this pull request changed
         if: github.event_name == 'pull_request'
         run: |

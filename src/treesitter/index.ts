@@ -5,7 +5,8 @@ export {
   languageDefinitions,
   languageForPath,
   normalizeLanguage,
-  SUPPORTED_LANGUAGES,
+  supportedLanguages,
+  downloading,
 } from "./languages";
 export type { LanguageId, LanguageDefinition } from "./languages";
 export type {

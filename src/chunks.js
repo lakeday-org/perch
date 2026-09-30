@@ -1,5 +1,6 @@
 /** The language pack selects syntax boundaries; token estimates decide how much source fits. */
 import pack from '@xberg-io/tree-sitter-language-pack';
+import { downloading } from './treesitter/languages.ts';
 import { textTokens, TOKEN_LIMITS, IncompleteCheckError } from './tokens.js';
 
 /** A suffix bounded in estimated tokens, without splitting a Unicode character. */
@@ -36,7 +37,7 @@ function nativeChunks(bytes, options) {
       if (newline >= from) to = newline + 1;
       else while (to > from + 1 && (bytes[to] & 0xc0) === 0x80) to--;
     }
-    const chunks = pack.process(bytes.subarray(from, to).toString('utf8'), options).chunks;
+    const chunks = downloading(() => pack.process(bytes.subarray(from, to).toString('utf8'), options)).chunks;
     if (!chunks?.length) return [];
     for (const chunk of chunks) pieces.push({ startByte: chunk.startByte + from, endByte: chunk.endByte + from, content: chunk.content });
     from = to;

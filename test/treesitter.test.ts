@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  SUPPORTED_LANGUAGES,
+  supportedLanguages,
+  downloading,
   createAnalyzer,
   languageForPath,
 } from "../src/treesitter/index";
@@ -8,8 +9,20 @@ import {
 function realAnalyzer() { return createAnalyzer(); }
 
 describe("language registry", () => {
+  it("tries a failed download again, and lets other errors and a lasting outage through", () => {
+    let calls = 0;
+    expect(downloading(() => { if (++calls < 3) throw new Error("Download error: http status: 500"); return "parsed"; }, [1, 1, 1])).toBe("parsed");
+    expect(calls).toBe(3);
+    calls = 0;
+    expect(() => downloading(() => { calls++; throw new Error("Download error: http status: 500"); }, [1, 1])).toThrow(/Download error/);
+    expect(calls).toBe(3);
+    calls = 0;
+    expect(() => downloading(() => { calls++; throw new Error("Unknown language"); }, [1, 1])).toThrow(/Unknown language/);
+    expect(calls).toBe(1);
+  });
+
   it("registers the language pack and detects source languages", () => {
-    expect(SUPPORTED_LANGUAGES.length).toBeGreaterThan(30);
+    expect(supportedLanguages().length).toBeGreaterThan(30);
     expect(languageForPath("src/index.ts")).toBe("typescript");
     expect(languageForPath("src/view.tsx")).toBe("tsx");
     expect(languageForPath("Dockerfile")).toBe("dockerfile");

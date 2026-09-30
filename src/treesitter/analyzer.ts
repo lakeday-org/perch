@@ -1,7 +1,7 @@
 import pack from '@xberg-io/tree-sitter-language-pack';
 import type { ProcessResult, StructureItem } from '@xberg-io/tree-sitter-language-pack';
 import { PARSE_VERSION, type Analyzer, type Declaration, type SourceAnalysis, type SourceSummary } from './types';
-import { normalizeLanguage } from './languages';
+import { downloading, normalizeLanguage } from './languages';
 import { Node } from './node';
 import { functionDepth, functionName, isFunction, isNamed, nonblankRows, parentFunctionName, qualityMetrics, qualifiedFunctionName, location, measure, walkNodes } from './metrics';
 import { collectReferences } from './references';
@@ -98,10 +98,10 @@ class LanguagePackAnalyzer implements Analyzer {
     const normalized = normalizeLanguage(language);
     if (!normalized) return unavailable(language, 'unsupported', `No language-pack grammar is registered for ${language}`);
     try {
-      const parser = pack.getParser(normalized);
+      const parser = downloading(() => pack.getParser(normalized));
       const tree = parser.parse(source);
       if (!tree) throw new Error('Language pack returned no syntax tree');
-      const built = pack.process(source, { language: normalized, structure: true, imports: true, diagnostics: true });
+      const built = downloading(() => pack.process(source, { language: normalized, structure: true, imports: true, diagnostics: true }));
       return analysisOf(new Node(tree.rootNode(), Buffer.from(source)), normalized, built);
     } catch (error) {
       return unavailable(normalized, 'resource-unavailable', error instanceof Error ? error.message : String(error));
