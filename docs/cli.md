@@ -241,7 +241,7 @@ endpoint alone does not provide that contract.
 | Code | Meaning |
 | --- | --- |
 | `0` | Command completed successfully. |
-| `1` | Command failed. See the error message for details. |
+| `1` | Command failed, or a scan could not read some methods or rules after retrying. See the error message for details. |
 | `2` | Invalid arguments, or `perch setup` requires `--force` to replace an existing file. |
 | `3` | `scan` or `check` found issues. |
 

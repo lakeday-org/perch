@@ -468,9 +468,13 @@ const commands = {
     // decide the exit code. A run that printed findings and then returned 1 told CI perch could not run, and one oversize file
     // made that permanent.
     if (run.incomplete?.length) io.note(`${run.incomplete.length} ${run.incomplete.length === 1 ? 'check' : 'checks'} incomplete; perch doctor lists them`, ...run.incomplete);
-    // The scan passes when nothing it gates on came back. Which questions those are is on the questions, so a defect and a
-    // vulnerability count the same as a rule you wrote.
-    const exit = gating(issues, min).length ? EXIT.found : EXIT.clean;
+    // A method or rule that got no answer after every retry is code nobody checked. What was found still prints, but the run did
+    // not finish: it exits 1, so CI does not pass a scan that read none of the lint it was asked for during a provider outage.
+    const unanswered = (run.failed ?? []).filter(result => result.incomplete !== true && !result.oversize);
+    if (unanswered.length) io.note(`${unanswered.length} could not be read after retries, so this scan did not finish; perch doctor lists them`);
+    // Otherwise the scan passes when nothing it gates on came back. Which questions those are is on the questions, so a defect and
+    // a vulnerability count the same as a rule you wrote.
+    const exit = unanswered.length ? EXIT.broke : gating(issues, min).length ? EXIT.found : EXIT.clean;
     if (stream) {
       // File rules finish after method readings; add any issues not already sent before publishing the scan.
       stream.add(reportFindings(everything, min));

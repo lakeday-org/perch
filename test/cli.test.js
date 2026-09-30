@@ -132,6 +132,26 @@ describe('cli', () => {
     expect(out.at(-1)).toBe('Nothing matches.');
   });
 
+  it('exits 1 when a method could not be read after its retries, even though others were', async () => {
+    const repo = await realpath(await makeGraphFixture());
+    cleanups.push(repo);
+    vi.spyOn(process, 'cwd').mockReturnValue(repo);
+    const service = scriptedSystemOne({});
+    let failed = null;
+    vi.stubGlobal('fetch', async (_url, init) => {
+      const { state, questions } = JSON.parse(init.body);
+      // One method is refused every time (422 is not retried); every other request is answered.
+      if (state.method) failed ??= state.method.source;
+      if (state.method?.source === failed) return new Response('{"error":"The model refused this request."}', { status: 422 });
+      return new Response(JSON.stringify(await service.ask(state, questions)));
+    });
+    const { err, io } = capture();
+    io.env = { PERCH_API_KEY: 'test-key', PERCH_BASE_URL: 'https://api.typesafe.ai/v1/systemone' };
+    expect(await main(['scan', repo, '--out', join(repo, '.perch')], io)).toBe(1);
+    expect(err.join('\n')).toMatch(/1 could not be read after retries, so this scan did not finish/);
+    expect(err.join('\n')).not.toMatch(/nothing could be read/);
+  });
+
   it('check asks a method the questions a scan would, unless --rules names others', async () => {
     const repo = await realpath(await makeFixture());
     cleanups.push(repo);
