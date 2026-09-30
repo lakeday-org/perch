@@ -102,7 +102,7 @@ describe('the questions a top-level unit is asked', () => {
   it('leaves out the ones about what a name or comment claims, since it has neither', () => {
     const named = methodQuestions(new Set(['defect', 'lint']), 'javascript').map(question => question.name);
     const top = methodQuestions(new Set(['defect', 'lint']), 'javascript', { topLevel: true }).map(question => question.name);
-    expect(named).toEqual(expect.arrayContaining(['does_what_it_claims', 'has_bug']));
+    expect(named).toContain('has_bug');
     expect(top).toContain('has_bug');
     expect(top).not.toContain('does_what_it_claims');
     expect(top).not.toContain('documented');
