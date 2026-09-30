@@ -26,7 +26,7 @@ export async function analyzeTree({ root, revision, out, analyzer, label = root,
   await store.exclude(root);
   const tree = await listTree(root, revision);
   const sources = tree.filter(createFileSelector(tree)).filter(sourceFile).filter(selected(paths));
-  if (!sources.length) throw new Error('No supported source files in this repository');
+  // A repository with no code still has files a rule can be about: a docs-only repository scans zero methods, not an error.
   debug(`analyzing ${sources.length} source files`);
   // Blobs stream from one git process while the analyzer works through them in order.
   const blobs = new Map(), waiting = new Map();

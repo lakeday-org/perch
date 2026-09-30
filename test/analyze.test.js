@@ -95,6 +95,9 @@ describe('perch scan', () => {
     const scan = await analyzeTree(fixtureOptions(repo, { analyzer, paths: ['test'] }));
     expect(scan.coverage.parsed).toBe(1);
     expect(scan.candidates).toEqual([]);
-    await expect(analyzeTree(fixtureOptions(repo, { analyzer, paths: ['nowhere'] }))).rejects.toThrow('No supported source files');
+    // Nothing parseable in scope is an empty scan, not an error: a docs-only repository still has files its rules are about.
+    const empty = await analyzeTree(fixtureOptions(repo, { analyzer, paths: ['nowhere'] }));
+    expect(empty.status).toBe('complete');
+    expect(empty.candidates).toEqual([]);
   });
 });
