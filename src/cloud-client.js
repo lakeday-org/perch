@@ -14,7 +14,7 @@ import {
  */
 export function createCloudClient({
   origin, getToken, organizationId, repositoryId, reports,
-  model = 'jev-latest', log, fetchImpl = globalThis.fetch, reportTimeoutMs = 30000,
+  model = 'jev-latest', force = false, log, fetchImpl = globalThis.fetch, reportTimeoutMs = 30000,
 }) {
   const gateway = createSystemOne({
     apiKey: 'cloud',
@@ -27,7 +27,8 @@ export function createCloudClient({
       return fetchImpl(url, {
         ...options,
         headers: { ...options.headers, authorization: `Bearer ${token}` },
-        body: JSON.stringify({ ...input, organizationId, repositoryId }),
+        // A forced request skips the Cloud's cached answers and replaces them with the new ones.
+        body: JSON.stringify({ ...input, organizationId, repositoryId, ...(force ? { force: true } : {}) }),
       });
     },
   });
@@ -75,9 +76,9 @@ async function repositoryForLogin({ env, root, token, organizationId, fetchImpl 
 }
 
 /** The Cloud says which model it serves; PERCH_MODEL_ID asks for another. */
-async function cloudClient({ env, log, fetchImpl, credentials }) {
+async function cloudClient({ env, log, fetchImpl, credentials, force }) {
   const config = await cloudRequest(fetchImpl, `${CLOUD_ORIGIN}/api/config`);
-  return createCloudClient({ origin: CLOUD_ORIGIN, ...credentials, model: env.PERCH_MODEL_ID || config.model, log, fetchImpl });
+  return createCloudClient({ origin: CLOUD_ORIGIN, ...credentials, model: env.PERCH_MODEL_ID || config.model, force, log, fetchImpl });
 }
 
 /** A CI token from the dashboard. It is issued for one repository, so the Cloud knows which without being told. */
@@ -113,7 +114,7 @@ export async function credentialSource(env) {
   return { kind: 'none' };
 }
 
-export async function configuredSystemOne({ env, root, log, fetchImpl = globalThis.fetch }) {
+export async function configuredSystemOne({ env, root, log, force = false, fetchImpl = globalThis.fetch }) {
   const source = await credentialSource(env);
   if (source.kind === 'none') throw new Error('Not signed in to Perch Cloud. Run perch login, or set PERCH_API_KEY to a CI token from the dashboard.');
   if (source.kind === 'direct') {
@@ -122,5 +123,5 @@ export async function configuredSystemOne({ env, root, log, fetchImpl = globalTh
   const credentials = source.kind === 'token' ? tokenCredentials(env)
     : source.kind === 'saved' ? await savedCredentials({ env, root, fetchImpl, saved: source.saved })
       : actionsCredentials(env, fetchImpl);
-  return cloudClient({ env, log, fetchImpl, credentials });
+  return cloudClient({ env, log, fetchImpl, credentials, force });
 }

@@ -38,7 +38,8 @@ export PERCH_BASE_URL=https://api.typesafe.ai/v1/systemone
 export PERCH_API_KEY='paste-your-TypeSafe-key-here'
 ```
 
-To use another endpoint, see [Environment](/cli/#environment).
+Liquid AI's decision models use the same format; [Environment](/cli/#environment) shows how to
+point perch at them or at another endpoint.
 
 ## The first scan
 

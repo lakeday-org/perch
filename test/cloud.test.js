@@ -30,6 +30,18 @@ describe('Perch Cloud', () => {
     expect(requests[0].body).toMatchObject({ organizationId: 'org', repositoryId: 'repo' });
     expect(meter.total()).toBe(0);
   });
+
+  it('asks the Cloud to skip its cached answers only when forced', async () => {
+    const bodies = [];
+    const client = force => createCloudClient({
+      origin: 'https://example.com', getToken: async () => 'perch_ci_test', organizationId: 'org', repositoryId: 'repo', force,
+      fetchImpl: async (url, options) => { bodies.push(JSON.parse(options.body)); return response({ model: 'd1:free', answers: { a: { noul: 0.9 } }, usage: null }); },
+    });
+    await client(true).ask({ code: 'a' }, { a: { type: 'noul' } });
+    await client(false).ask({ code: 'a' }, { a: { type: 'noul' } });
+    expect(bodies[0].force).toBe(true);
+    expect('force' in bodies[1]).toBe(false);
+  });
   it('uses the Cloud charge for cost even when the provider used no tokens', async () => {
     const client = createCloudClient({
       origin: 'https://example.com', getToken: async () => 'token', organizationId: 'org', repositoryId: null,

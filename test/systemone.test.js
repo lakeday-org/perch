@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createSystemOne } from '../src/systemone.js';
+import { createMeter } from '../src/meter.js';
 
 const reply = (status, body, headers = {}) => ({ status, ok: status < 400, headers: { get: name => headers[name] }, json: async () => body, text: async () => JSON.stringify(body) });
 const answers = { has_bug: { type: 'noul', noul: 0.7 } };
@@ -63,5 +64,29 @@ describe('system one client', () => {
     const client = createSystemOne({ apiKey: 'k', fetchImpl: async () => reply(200, { answers: {} }) });
     await expect(client.ask({}, { has_bug: { type: 'noul' } })).rejects.toThrow('missing answers for has_bug');
     expect(() => createSystemOne({ apiKey: '' })).toThrow('PERCH_API_KEY');
+  });
+
+  it('answers a Choice with one option itself and asks only the rest', async () => {
+    // Liquid AI's endpoint rejects a Choice with fewer than two options; perch asks one about a method with one line.
+    const bodies = [];
+    const fetchImpl = async (url, init) => { bodies.push(JSON.parse(init.body)); return reply(200, { model: 'd1:free', answers, usage: { input_tokens: 5, output_tokens: 0 } }); };
+    const client = createSystemOne({ apiKey: 'k', model: 'd1:free', fetchImpl, baseUrl: 'https://api.liquid.ai/decisions/v1/systemone' });
+    const where = { type: 'choice', instructions: 'Which line?', criteria: { L3: null } };
+    const response = await client.ask({ method: 'x' }, { has_bug: { type: 'noul', instructions: 'q' }, where });
+    expect(Object.keys(bodies[0].questions)).toEqual(['has_bug']);
+    expect(response.answers).toEqual({ ...answers, where: { type: 'choice', choice: 'L3', probabilities: { L3: 1 }, confidence: 1 } });
+    expect(response.usage).toEqual({ input_tokens: 5, output_tokens: 0 });
+  });
+
+  it('sends nothing when every question has one possible answer', async () => {
+    const client = createSystemOne({ apiKey: 'k', fetchImpl: async () => { throw new Error('no request expected'); } });
+    const response = await client.ask({}, { follow: { type: 'choice', instructions: 'Which next?', criteria: { none: 'Nothing to follow' } } });
+    expect(response).toEqual({ model: 'jev-latest', answers: { follow: { type: 'choice', choice: 'none', probabilities: { none: 1 }, confidence: 1 } }, usage: null, requests: 0 });
+  });
+
+  it('prices Liquid AI decision models by family, so a free tier costs nothing rather than an unknown amount', () => {
+    const meter = createMeter();
+    meter.add('d1:free', { input_tokens: 145000, output_tokens: 0 }, { requests: 21 });
+    expect(meter.cost('d1:free')).toBe(0);
   });
 });

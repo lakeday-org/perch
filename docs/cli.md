@@ -49,6 +49,7 @@ or a custom rule that broke.
 | `--paths a,b` | Only consider files under these repository paths. |
 | `--since REF` | Only what changed since this branch or commit. `--since origin/main` is what CI wants. |
 | `--parallel N` | How many methods to read at once. Default 8; files and tests go 32 at a time. |
+| `--force` | Ask Perch Cloud again instead of using cached answers, and keep the new answers. |
 | `--all` | List every row instead of the top 10. |
 | `--min P` | Only issues perch is at least P percent sure of. Default 50; `--min 0` shows everything it answered. |
 | `--out DIR` | Results directory. Default `.perch`. |
@@ -90,6 +91,7 @@ still wrong.
 | Flag | |
 | --- | --- |
 | `--rules a,b` | Ask only these: rule names, or `defect`, `security`, `refactor`, `docs`. |
+| `--force` | Ask Perch Cloud again instead of using cached answers. |
 | `--out DIR` | Results directory. Default `.perch`. |
 | `--json` | Print JSON instead of a summary. |
 | `--verbose` | Show every file, method, model call, and command. |
@@ -210,7 +212,7 @@ it includes the end of `.perch/scan.log`.
 | --- | --- |
 | `PERCH_API_KEY` | `scan`, `check`: bearer token for the System One endpoint. |
 | `PERCH_BASE_URL` | `scan`, `check`: complete System One request URL. |
-| `PERCH_MODEL_ID` | `scan`, `check`: model ID; defaults to `jev-latest`. |
+| `PERCH_MODEL_ID` | `scan`, `check`: model ID; defaults to `jev-latest`. Set it to the endpoint's model, such as `d1:free` on Liquid AI. |
 
 `PERCH_BASE_URL` is the complete URL to POST to, including its path and any
 query string. perch uses it unchanged, including a trailing slash. To use
@@ -219,6 +221,15 @@ TypeSafe System One:
 ```sh
 export PERCH_BASE_URL=https://api.typesafe.ai/v1/systemone
 export PERCH_API_KEY='paste-your-TypeSafe-key-here'
+```
+
+To use a [Liquid AI decision model](https://docs.liquid.ai/lfm/models/decision-models),
+which speaks the same format:
+
+```sh
+export PERCH_BASE_URL=https://api.liquid.ai/decisions/v1/systemone
+export PERCH_API_KEY='paste-your-Liquid-key-here'
+export PERCH_MODEL_ID=d1:free
 ```
 
 The endpoint must support the System One request and response format: typed

@@ -73,48 +73,67 @@ export function createSystemOne({
     return pending;
   }
 
+  /** A Choice with one option has one possible answer, so it is answered here rather than asked. Some endpoints, Liquid AI's
+   * among them, reject a Choice with fewer than two options, and a question with a known answer should cost nothing anyway. */
+  function settle(questions) {
+    const settled = {}, rest = {};
+    for (const [id, question] of Object.entries(questions)) {
+      const options = question?.type === 'choice' && question.criteria && !Array.isArray(question.criteria) ? Object.keys(question.criteria) : null;
+      if (options?.length === 1) settled[id] = { type: 'choice', choice: options[0], probabilities: { [options[0]]: 1 }, confidence: 1 };
+      else rest[id] = question;
+    }
+    return { settled, rest };
+  }
+
   return {
     id: model,
     limits,
     /** Batch independent questions within the request budget and return one answer per question id. */
-    async ask(state, questions, { beforeRequest = () => {} } = {}) {
-      const responses = [];
-      let requests = 0;
-      const usage = () => {
-        const sum = {};
-        for (const response of responses) for (const [key, value] of Object.entries(response.usage ?? {}))
-          if (typeof value === 'number') sum[key] = (sum[key] ?? 0) + value;
-        return sum;
-      };
-      const send = async batch => {
-        let response;
-        try { response = await sendRequest({ model, state, questions: batch }, () => requests++, beforeRequest); }
-        catch (error) {
-          if (!(error instanceof ContextLimitError)) throw error;
-          const entries = Object.entries(batch);
-          log(`System One rejected the token estimate; ${entries.length > 1 ? 'retrying with fewer questions' : 'reducing the source token budget'}`);
-          if (entries.length === 1) throw error;
-          if (!entries.length) throw error;
-          const middle = Math.ceil(entries.length / 2);
-          await send(Object.fromEntries(entries.slice(0, middle)));
-          await send(Object.fromEntries(entries.slice(middle)));
-          return;
-        }
-        const missing = Object.keys(batch).filter(id => !response.answers?.[id]);
-        if (missing.length) throw new Error(`System One response is missing answers for ${missing.join(', ')}`);
-        responses.push(response);
-      };
-      try { for (const batch of questionBatches(state, questions, limits)) await send(batch); }
-      catch (error) {
-        error.usage = usage(); error.requests = requests; error.model = responses.at(-1)?.model ?? model;
-        throw error;
-      }
-      const charged = responses.every(response => Number.isSafeInteger(response.charge?.totalNanos) && response.charge.totalNanos >= 0);
-      const charge = charged ? { totalNanos: responses.reduce((total, response) => total + response.charge.totalNanos, 0) } : null;
-      if (responses.length === 1) return { model: responses[0].model ?? model, answers: responses[0].answers, usage: responses[0].usage ?? null,
-        ...(charge ? { charge } : {}), ...(requests > 1 ? { requests } : {}) };
-      return { model: responses.at(-1).model ?? model, answers: Object.assign({}, ...responses.map(response => response.answers)), usage: usage(),
-        ...(charge ? { charge } : {}), requests };
+    async ask(state, allQuestions, { beforeRequest = () => {} } = {}) {
+      const { settled, rest: questions } = settle(allQuestions);
+      if (Object.keys(settled).length && !Object.keys(questions).length) return { model, answers: settled, usage: null, requests: 0 };
+      const answered = await askAll(state, questions, beforeRequest);
+      return Object.keys(settled).length ? { ...answered, answers: { ...answered.answers, ...settled } } : answered;
     },
   };
+
+  async function askAll(state, questions, beforeRequest) {
+    const responses = [];
+    let requests = 0;
+    const usage = () => {
+      const sum = {};
+      for (const response of responses) for (const [key, value] of Object.entries(response.usage ?? {}))
+        if (typeof value === 'number') sum[key] = (sum[key] ?? 0) + value;
+      return sum;
+    };
+    const send = async batch => {
+      let response;
+      try { response = await sendRequest({ model, state, questions: batch }, () => requests++, beforeRequest); }
+      catch (error) {
+        if (!(error instanceof ContextLimitError)) throw error;
+        const entries = Object.entries(batch);
+        log(`System One rejected the token estimate; ${entries.length > 1 ? 'retrying with fewer questions' : 'reducing the source token budget'}`);
+        if (entries.length === 1) throw error;
+        if (!entries.length) throw error;
+        const middle = Math.ceil(entries.length / 2);
+        await send(Object.fromEntries(entries.slice(0, middle)));
+        await send(Object.fromEntries(entries.slice(middle)));
+        return;
+      }
+      const missing = Object.keys(batch).filter(id => !response.answers?.[id]);
+      if (missing.length) throw new Error(`System One response is missing answers for ${missing.join(', ')}`);
+      responses.push(response);
+    };
+    try { for (const batch of questionBatches(state, questions, limits)) await send(batch); }
+    catch (error) {
+      error.usage = usage(); error.requests = requests; error.model = responses.at(-1)?.model ?? model;
+      throw error;
+    }
+    const charged = responses.every(response => Number.isSafeInteger(response.charge?.totalNanos) && response.charge.totalNanos >= 0);
+    const charge = charged ? { totalNanos: responses.reduce((total, response) => total + response.charge.totalNanos, 0) } : null;
+    if (responses.length === 1) return { model: responses[0].model ?? model, answers: responses[0].answers, usage: responses[0].usage ?? null,
+      ...(charge ? { charge } : {}), ...(requests > 1 ? { requests } : {}) };
+    return { model: responses.at(-1).model ?? model, answers: Object.assign({}, ...responses.map(response => response.answers)), usage: usage(),
+      ...(charge ? { charge } : {}), requests };
+  }
 }
