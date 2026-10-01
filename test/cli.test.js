@@ -152,6 +152,25 @@ describe('cli', () => {
     expect(err.join('\n')).not.toMatch(/nothing could be read/);
   });
 
+  it('scans nothing in a directory when the branch changed nothing since the base', async () => {
+    // The fixture's branch has no commits of its own, so --since main finds no changed files at all.
+    const repo = await realpath(await makeFixture());
+    cleanups.push(repo);
+    vi.spyOn(process, 'cwd').mockReturnValue(repo);
+    const service = scriptedSystemOne({});
+    const asked = [];
+    vi.stubGlobal('fetch', async (_url, init) => {
+      const { state, questions } = JSON.parse(init.body);
+      if (state.method) asked.push(state.method.name);
+      return new Response(JSON.stringify(await service.ask(state, questions)));
+    });
+    const { out, err, io } = capture();
+    io.env = { PERCH_API_KEY: 'test-key', PERCH_BASE_URL: 'https://api.typesafe.ai/v1/systemone' };
+    expect(await main(['scan', join(repo, 'src'), '--since', 'main', '--out', join(repo, '.perch')], io), err.join('\n')).toBe(0);
+    expect(out.join('\n')).toContain('Nothing changed since main.');
+    expect(asked).toEqual([]);
+  });
+
   it('check asks a method the questions a scan would, unless --rules names others', async () => {
     const repo = await realpath(await makeFixture());
     cleanups.push(repo);
