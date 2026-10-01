@@ -1,5 +1,5 @@
 /** perch command line: scan, issues, check, close, rules, doctor. */
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { git, repoRoot, revision as gitRevision } from './git.js';
 import { resolveTarget } from './target.js';
 import { loginCloud, logoutCloud } from './cloud-auth.js';
@@ -161,7 +161,15 @@ function checkFlags(flags, commandName) {
   }
 }
 
-const parsePaths = flags => flags.paths ? flags.paths.split(',').map(path => path.trim()).filter(Boolean) : [];
+/**
+ * `--paths a,b` as paths under the repository root, the way git names them. One that leaves the repository names nothing perch
+ * reads, and a run that read nothing reported itself clean, so it is refused. `./src` and `src/` are `src`.
+ */
+const parsePaths = flags => (flags.paths ? flags.paths.split(',').map(path => path.trim()).filter(Boolean) : []).map(path => {
+  const normal = posix.normalize(path.replaceAll('\\', '/')).replace(/\/$/, '');
+  if (posix.isAbsolute(normal) || normal === '..' || normal.startsWith('../')) throw new UsageError(`--paths takes paths inside the repository; ${path} is outside it`);
+  return normal;
+}).filter(path => path !== '.');
 const storeFrom = async flags => openStore(await resolveOut(flags.out));
 /**
  * Put this repository's own questions in force. Anything that names a kind, or reads one back off a finding, has to know what
