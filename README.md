@@ -34,8 +34,9 @@ perch login
 perch scan
 ```
 
-`perch login` signs you in to [Perch Cloud](https://perchscan.com). The first $5 is free. Decisions are cached between
-runs, so unchanged code costs a tenth as much, and pull requests are scanned in CI with no workflow to write.
+Run `perch login` to sign in to [Perch Cloud](https://perchscan.com). The first $5 is free. Since decisions are cached,
+running perch again on unchanged code costs a tenth as much. Perch Cloud also scans pull requests in CI, without writing
+any workflows.
 
 ```console
 $ perch scan
@@ -52,8 +53,9 @@ cart.py
 ✖ 20 problems in 5 files, all failing
 ```
 
-`perch issues` lists them worst first. `perch issues <id>` opens one up. `perch check
-<id>` asks again after a fix, and records what it finds nowhere.
+Run `perch issues` to see them worst first, and `perch issues <id>` to view one.
+
+`perch check <id>` asks again after you think you've fixed it. It doesn't record anything.
 
 ## Agent skills
 
@@ -66,7 +68,7 @@ perch setup cursor        # .cursor/rules/perch.mdc
 
 ## Semantic linting
 
-Extend perch with custom rules, in `perch.yaml`:
+You can extend perch with your own linting rules by adding them to `perch.yaml`:
 
 ```yaml
 - name: private-logs
@@ -78,8 +80,8 @@ Extend perch with custom rules, in `perch.yaml`:
 
 ## Models
 
-Perch Cloud sends each question to the model that answers it best. To send questions straight to a decision model
-instead, set its endpoint, key and model:
+By default, Perch Cloud routes your questions to the best model for answering them. To ask a specific decision model,
+override the endpoint, key, and model:
 
 ```sh
 export PERCH_BASE_URL=https://api.typesafe.ai/v1/systemone
@@ -94,10 +96,10 @@ export PERCH_MODEL_ID=jev-latest
 | [DiffusionGemma Jev](https://github.com/razorback16/openjev) on Beam | `https://app.beam.cloud/v1/models/jev/diffusiongemma/invoke` | `jev/diffusiongemma` |
 | [SemiF](https://github.com/TheoLeeCJ/SemIf) on Beam | `https://app.beam.cloud/v1/models/jev/semif/invoke` | `jev/semif` |
 
-Any endpoint that speaks the System One format works the same way. The Beam models take 32 questions per request, fewer
-than a security scan asks of one method, so keep `scan_types` to `defect` and `lint` with them until
-[#257](https://github.com/lakeday-org/perch/issues/257) is fixed. How they compare is in the
-[benchmarks](https://huggingface.co/datasets/perchscan/benchmark-results).
+Any endpoint that supports the System One format will work. Beam decision models only accept 32 questions per request,
+which is fewer than a security scan asks of one method. Until [#257](https://github.com/lakeday-org/perch/issues/257) is
+resolved, limit `scan_types` to `defect` and `lint` when using a Beam model. See the
+[benchmarks](https://huggingface.co/datasets/perchscan/benchmark-results) for a comparison.
 
 ## Documentation
 
@@ -128,5 +130,4 @@ npm run check     # lint, typecheck, test
 npm run build     # bundle src/cli.js into dist/cli.mjs
 ```
 
-From a checkout: `npm install && npm run build && npm link` puts `perch` on the
-path.
+To install perch from a checkout, run `npm install && npm run build && npm link`.
