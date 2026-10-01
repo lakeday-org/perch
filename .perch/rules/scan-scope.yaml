@@ -2,18 +2,17 @@
 - name: named-target-overrides-ignore
   where: src/scan.js
   ensure: >-
-    Read where scanRepository builds inScope. An ignore glob that covers a path
-    the run was explicitly given, its target or a --paths entry, is not applied
-    to that run, while other ignore globs still are. Dropping a named target
-    because ignore covers it breaks this rule.
+    Read coversNamed and ignored in scanRepository. An ignore glob that covers a
+    path in named is filtered out of ignored, so inScope never applies it.
+    Applying every ignore glob, whether or not it covers a named path, breaks
+    this rule.
 - name: a-scan-that-read-nothing-fails
   where: src/scan.js
   ensure: >-
-    Read what scanRepository does once its methods and rules have been asked.
-    If none of them was answered and at least one failed for a reason other than
-    being too big to check, it throws, however few methods were tried. Relying
-    only on a count of failures in a row, so a run of a few methods can end
-    with none answered and no error, breaks this rule.
+    Read answered and failures in scanRepository, after the reading and the
+    checking finish. When answered is 0 and failures has entries, it throws
+    nothing could be read. Throwing only on a count of failures in a row, so a
+    run of a few methods ends with none answered and no error, breaks this rule.
 - name: empty-scope-is-said
   where: src/cli.js
   ensure: >-

@@ -3,16 +3,16 @@
 - name: scan-asks-every-method
   where: src/scan.js
   ensure: >-
-    Read the ask function inside scanRepository. Every method it is handed
-    that is not skipped for being out of scope is sent to the model through
-    questionMethod. Returning an answer an earlier run saved, instead of
-    asking, breaks this rule.
+    Read ask inside scanRepository. Unless stepFor marked the method skip, it
+    calls questionMethod, which sends the method to the model. Returning an
+    answer an earlier run saved instead of calling questionMethod breaks this
+    rule.
 - name: rules-asked-every-run
   where: src/units.js
   ensure: >-
-    Read askOne inside askUnits and the plans inside searchUnits. Every unit
-    and rule in scope is sent to the model. Skipping a request because a check
-    an earlier run saved still matches breaks this rule.
+    Read askOne inside askUnits and askOne inside searchUnits. Each calls
+    askUnitSteps for the unit it is given. Returning a check an earlier run
+    saved instead of calling askUnitSteps breaks this rule.
 - name: parse-reused-per-commit
   where: src/analyze.js
   ensure: >-
@@ -22,6 +22,6 @@
 - name: no-answer-history
   where: src/store.js
   ensure: >-
-    Read the code that removes earlier scan and run folders. Every folder but
-    the current one is removed. Keeping earlier runs, which hold every answer
-    they got, breaks this rule.
+    Read prune. It removes every folder of the kind it is given except the one
+    named by the id it is given. Leaving earlier run folders in place breaks
+    this rule.

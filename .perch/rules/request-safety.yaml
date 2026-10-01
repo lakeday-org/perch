@@ -16,56 +16,47 @@
 - name: split-requests-preserve-results
   where: src/systemone.js
   ensure: >-
-    Inspect the successful return from ask when responses contains more than
-    one response. Its answers combine the question IDs from all those
-    responses. Returning answers from just the last response breaks this rule
-    because earlier questions would disappear from the result.
+    Read the last return in askAll. With more than one response, answers is
+    every response's answers merged into one object. Returning only the last
+    response's answers breaks this rule.
 - name: split-requests-account-for-all-usage
   where: src/systemone.js
   ensure: >-
-    Inspect the successful return from ask when responses contains more than
-    one response. Its usage totals the token usage of those responses.
-    Returning only the last response's usage breaks this rule because it
-    omits tokens consumed by the earlier successful batches.
+    Read the usage function in askAll and the last return. With more than one
+    response, the usage returned is the sum over all of them. Returning only the
+    last response's usage breaks this rule.
 - name: failed-batches-do-not-return-partial-success
   where: src/systemone.js
   ensure: >-
-    Inspect the outer try/catch around the questionBatches loop in ask. When
-    sending a batch fails, that catch propagates the error to the caller.
-    Returning answers accumulated from earlier batches breaks this rule,
-    even if the returned answer object is nonempty. Attaching partial usage
-    to an error and then throwing it is allowed.
+    Read the try/catch around the questionBatches loop in askAll. When a batch
+    fails, the catch puts usage and requests on the error and throws it.
+    Returning the answers earlier batches gathered breaks this rule.
 - name: source-retries-rebuild-the-request
   where: callers of withTokenRetries
   ensure: >-
-    The callback passed to withTokenRetries uses its budget argument to
-    regenerate the source readings it sends, by invoking preparation or
-    chunking inside that callback. Ignoring the callback argument and loading
-    the initial configured budget again on each attempt breaks this rule.
-    Iterating the originally supplied steps
-    on every attempt without preparing them again breaks this rule, even if
-    the budget is checked first. Without a way to regenerate the readings,
-    a reduced-budget attempt must fail instead of resending the old steps.
+    Read the callback this method passes to withTokenRetries. On the first
+    budget it may send the steps it was given. On a budget below the first one,
+    what it sends is rebuilt for that budget: it calls prepare(budget), or
+    chunks the source again to fit, and throws when it can do neither. Sending
+    the steps it was first given on a smaller budget breaks this rule.
 - name: incomplete-scans-keep-their-status
   where: src/scan.js
   ensure: >-
-    Inspect scanRepository's final assignment to run.status before it writes
-    runPath and returns. A nonempty run.incomplete must result in status
-    incomplete. An unconditional status complete breaks this rule, regardless
-    of whether earlier code collected incomplete reasons correctly.
+    scanRepository sets run.status to incomplete when run.incomplete has entries
+    and to complete otherwise. Setting it to complete without looking at
+    run.incomplete breaks this rule.
 - name: incomplete-scans-retain-the-reasons
   where: src/scan.js
   ensure: >-
-    Inspect the assignment to run.incomplete. It retains the incomplete
-    method errors from run.failed and the incomplete file and search check
-    results. Replacing that collection with an empty array, or leaving one
-    of those sources out, breaks this rule because unread code disappears
-    from the run's explanation.
+    Read the assignment to run.incomplete in scanRepository. The list holds the
+    error of every run.failed entry marked incomplete, and the incomplete
+    message of every file and search result that has one. Assigning an empty
+    list, or leaving either source out, breaks this rule.
 - name: incomplete-checks-do-not-decide-the-exit-code
   where: src/cli.js
   ensure: >-
-    Read the scan command's final reporting and exit decision. When the run
-    has incomplete checks, it reports each reason on stderr and still returns
-    the clean exit code when nothing gated came back, or the findings exit
-    code when something did. Returning the execution-error exit code because
-    a check was incomplete breaks this rule, and so does dropping the reasons.
+    Read where the scan command chooses exit. run.incomplete is printed with
+    io.note and plays no part in the choice: exit is EXIT.broke only when
+    unanswered has entries, EXIT.found when a gating issue came back, and
+    EXIT.clean otherwise. Choosing EXIT.broke because run.incomplete has entries
+    breaks this rule.

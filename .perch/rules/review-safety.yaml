@@ -1,11 +1,11 @@
 - name: size-errors-require-context-evidence
   where: src/systemone.js
   ensure: >-
-    In request's HTTP error handling, authentication-token errors and token
-    quota or rate-limit errors cannot trigger source-size retries. Matching
-    the word token near exceed or limit without identifying the request's
-    context size breaks this rule. HTTP 413 and explicit context-size error
-    codes are valid size signals.
+    Read sizeError in request. It is true for HTTP 413, or for a 400 or 422
+    whose detail names the size of the request or its context length and does
+    not match accessError. A detail about an invalid token, a quota or a rate
+    limit matches accessError and is never a size error. Treating any detail
+    that mentions token and limit as a size error breaks this rule.
 - name: file-unit-failures-stay-local
   where: src/units.js
   ensure: >-
@@ -25,8 +25,7 @@
 - name: prepared-source-is-reused
   where: '{src/scan.js,src/units.js}'
   ensure: >-
-    Read the selection of active steps inside questionMethod or askUnitSteps.
-    When steps were supplied and the budget is still the initial budget,
-    those steps are used directly. Selecting prepare(budget) whenever prepare
-    exists breaks this rule, because the first attempt rebuilds work its
-    caller already prepared. Smaller-budget retries must still rebuild.
+    Read the line that chooses active in questionMethod or askUnitSteps,
+    whichever this file holds. When steps were passed in and budget equals the
+    first budget, active is those steps. Calling prepare(budget) on that first
+    attempt, when steps were passed in, breaks this rule.

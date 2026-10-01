@@ -8,8 +8,7 @@
 - name: search-witness-does-not-erase-failures
   where: mentions unresolved.push
   ensure: >-
-    Read the result added after searchUnits finishes its unit batches. When
-    unresolved is nonempty, that result retains those error messages and
-    cannot qualify for cache reuse, even when settled names a witness.
-    Retaining errors only in the branch where no witness was found breaks
-    this rule. The witness still determines whether the condition was found.
+    Read the two results.push calls that end each plan in searchUnits. When
+    unresolved has entries and settled names a witness, the result pushed
+    carries incomplete with those messages. Dropping the messages once a witness
+    is found breaks this rule.
