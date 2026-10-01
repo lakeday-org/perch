@@ -49,12 +49,15 @@ export async function registerMcp({ root, target }) {
 
 export const TARGET_NAMES = Object.keys(TARGETS);
 
-/** The frontmatter and the body, so one can be replaced without touching the other. */
+/**
+ * The frontmatter and the body, so one can be replaced without touching the other. A description runs to the next key or the
+ * end of the frontmatter, however many lines that is, and a folded one loses its `>-` since Cursor is given it on one line.
+ */
 function split(text) {
   const match = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(text);
   if (!match) throw new Error('the skill that ships with perch has no frontmatter; reinstall perch');
-  const description = /^description:\s*([\s\S]*?)(?=\n[a-z_]+:|$)/m.exec(match[1])?.[1];
-  return { description: String(description ?? '').replace(/\s+/g, ' ').trim(), body: match[2] };
+  const description = /(?:^|\n)description:\s*([\s\S]*?)(?=\n[a-z_]+:|$)/.exec(match[1])?.[1];
+  return { description: String(description ?? '').replace(/^[>|][+-]?\s/, '').replace(/\s+/g, ' ').trim(), body: match[2] };
 }
 
 /**

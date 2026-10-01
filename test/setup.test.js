@@ -39,6 +39,15 @@ describe('perch setup', () => {
     expect(cursor).toContain('alwaysApply: true');
   });
 
+  it('gives Cursor the whole description when it runs over several lines', async () => {
+    // Stopping at the end of the first line left Cursor with half a sentence, or with nothing but the `>-` of a folded one.
+    const body = '\n# perch\n';
+    expect(TARGETS.cursor.rewrite(`---\nname: perch\ndescription: Semantic linting with perch.\n  Use it on a diff: bugs, leaks.\nlicense: MIT\n---\n${body}`))
+      .toBe(`---\ndescription: Semantic linting with perch. Use it on a diff: bugs, leaks.\nalwaysApply: true\n---\n${body}`);
+    expect(TARGETS.cursor.rewrite(`---\nname: perch\ndescription: >-\n  Semantic linting with perch.\n  Use it on a diff.\n---\n${body}`))
+      .toBe(`---\ndescription: Semantic linting with perch. Use it on a diff.\nalwaysApply: true\n---\n${body}`);
+  });
+
   it('keeps a skill you have edited until you say otherwise', async () => {
     const root = await repo();
     await installSkill({ root, target: 'claude-code' });

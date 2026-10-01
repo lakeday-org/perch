@@ -81,7 +81,10 @@ describe('perch mcp', () => {
     const listed = JSON.parse((await server.call('perch_scans', {})).content[0].text);
     expect(asked[0]).toEqual({ path: '/v1/scans/recent', authorization: 'Bearer login-token',
       query: { repository: 'acme/web', branch: 'work', organizationId: 'org_1' } });
-    expect(listed.scans).toEqual([expect.objectContaining({ id: 'scan-1', pull_request: 318, result: 'issues', defect: 1 })]);
+    // What the Cloud stores is reworded for a reader: a revision is a commit, a partial scope is the changes, exit 3 is issues.
+    expect(listed).toEqual({ repository: 'acme/web', branch: 'work', pull_request: null, scans: [{ id: 'scan-1', url: scan.url,
+      pull_request: 318, branch: 'work', commit: 'a1b2c3d4', scope: 'changes only', finished_at: '1970-01-01T00:00:00.000Z',
+      result: 'issues', issues: 1, security: 0, defect: 1, lint: 0, refactor: 0, docs: 0, methods: 38 }] });
     await server.call('perch_scans', { all_branches: true });
     expect(asked[1].query).not.toHaveProperty('branch');
     await server.close();
