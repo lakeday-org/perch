@@ -327,6 +327,27 @@ describe('cli', () => {
     expect(() => parseFilters('rule=nope', rules)).toThrow('is not one of');
   });
 
+  it('says why perch.yaml would not parse when a filter names a rule', async () => {
+    const repo = await realpath(await makeFixture());
+    cleanups.push(repo);
+    vi.spyOn(process, 'cwd').mockReturnValue(repo);
+    // The rule is there, but the file does not parse. Read as no rules, the filter was told there were none.
+    await writeFile(join(repo, 'perch.yaml'), 'rules:\n  - name: x\n    where: [src/clamp.js\n    ensure: The function returns a number.\n');
+    for (const command of ['scan', 'issues']) {
+      const { err, io } = capture();
+      expect(await main([command, ...command === 'scan' ? [repo] : [], '--filter', 'rule=x', '--out', join(repo, '.perch')], io)).toBe(1);
+      expect(err.join('\n')).toContain('Flow sequence in block collection must be sufficiently indented and end with a ]');
+      expect(err.join('\n')).not.toContain('there are none');
+    }
+    // With no perch.yaml there is nothing to misread: the filter is a usage error naming that.
+    await rm(join(repo, 'perch.yaml'));
+    for (const command of ['scan', 'issues']) {
+      const { err, io } = capture();
+      expect(await main([command, ...command === 'scan' ? [repo] : [], '--filter', 'rule=x', '--out', join(repo, '.perch')], io)).toBe(2);
+      expect(err.join('\n')).toContain('rule takes a name from perch.yaml, and there are none');
+    }
+  });
+
   it('asks only the rule a filter named', () => {
     // Names this repository does not use, since perch.yaml's own rules are compiled into the question set by then.
     const rules = [

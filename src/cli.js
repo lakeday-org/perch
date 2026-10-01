@@ -175,8 +175,11 @@ const ownQuestions = async () => {
 };
 /** `--filter type=security,severity=P1` as tests a finding must pass; a bad clause is a usage error naming the real values. */
 const filtersFrom = (flags, rules = []) => { try { return parseFilters(flags.filter ?? '', rules); } catch (error) { throw new UsageError(error.message); } };
-/** The rules in force, so `--filter rule=` can name one and a typo is answered with the list. */
-const rulesInForce = async root => readRules(root, await gitRevision(root)).catch(() => []);
+/**
+ * The rules in force, so `--filter rule=` can name one and a typo is answered with the list. A perch.yaml that does not parse is
+ * an error to show. Read as no rules, it answered a filter naming a rule the file holds with there being none.
+ */
+const rulesInForce = async root => readRules(root, await gitRevision(root));
 /** The findings a filter keeps, the surest match first: filtering for one kind of problem should rank by that problem, not by whatever else the method carries. With no filter the scan's own ranking stands. */
 const narrow = (findings, filters, min) => findings.filter(finding => matchesFilters(finding, filters, min))
   .sort((a, b) => filters.length ? filterStrength(b, filters) - filterStrength(a, filters) : 0);

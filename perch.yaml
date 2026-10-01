@@ -91,9 +91,12 @@ rules:
   - name: no-silent-failure
     where: "src/**/*.js"
     each: method
-    ensure_absent: >-
-      A catch block or .catch() callback that discards the error and returns a
-      stand-in value, such as null, [] or '', for every error it receives.
+    min: 80
+    ensure: >-
+      Every catch block and .catch() callback in this method rethrows the
+      error, returns it to the caller, or reports it. An empty catch, or one
+      that returns a stand-in value such as null, [] or '' so the method
+      carries on as if the step had worked, breaks this rule.
 
   - name: tests-assert-real-behavior
     where: "test/**/*.js"
