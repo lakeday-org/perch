@@ -409,7 +409,8 @@ const commands = {
     // On the counter and in the log both. On the counter because a retry is the wait that looks like a hang, and in the log
     // because the counter is gone by the time anyone asks what the run was doing.
     const retrying = message => { methods.say(message); note(message); };
-    const systemOne = metered(await configuredSystemOne({ env: io.env, root: resolved.root, log: retrying, force: Boolean(io.flags.force) }), meter);
+    const systemOne = metered(await configuredSystemOne({ env: io.env, root: resolved.root, log: retrying, command: 'scan', version: VERSION,
+      force: Boolean(io.flags.force) }), meter);
     const revision = await gitRevision(resolved.root);
     const started = Date.now();
     const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD'], resolved.root).then(out => out.trim(), () => null);
@@ -542,7 +543,8 @@ const commands = {
     if (!io.argument) throw new UsageError('perch check needs a path, a path::method, or an issue id');
     const meter = createMeter();
     const root = await repoRoot(process.cwd());
-    const systemOne = metered(await configuredSystemOne({ env: io.env, root, log: io.debug, force: Boolean(io.flags.force) }), meter);
+    const systemOne = metered(await configuredSystemOne({ env: io.env, root, log: io.debug, command: 'check', version: VERSION,
+      force: Boolean(io.flags.force) }), meter);
     const only = io.flags.rules ? io.flags.rules.split(',').map(name => name.trim()).filter(Boolean) : [];
     const checked = await checkTarget({ target: io.argument, root, out: await resolveOut(io.flags.out), analyzer: createSourceAnalyzer(),
       systemOne, revision: await gitRevision(root), only, debug: io.debug });

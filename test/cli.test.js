@@ -219,6 +219,32 @@ describe('cli', () => {
     }
   });
 
+  it.each(['scan', 'check'])('%s names itself, its release, its run and its scan on each request to Perch Cloud', async command => {
+    const repo = await realpath(await makeFixture());
+    cleanups.push(repo);
+    vi.spyOn(process, 'cwd').mockReturnValue(repo);
+    const service = scriptedSystemOne({});
+    const named = [], scans = [];
+    vi.stubGlobal('fetch', async (url, init = {}) => {
+      named.push([init.headers?.['x-perch-command'], init.headers?.['x-perch-version'], init.headers?.['x-perch-run']]);
+      if (url.endsWith('/v1/systemone')) scans.push(init.headers['x-perch-scan']);
+      if (url.endsWith('/api/config')) return new Response(JSON.stringify({ model: 'jev-latest' }));
+      if (url.includes('/v1/scans/')) return new Response(JSON.stringify({ id: 'scan' }));
+      const { state, questions } = JSON.parse(init.body);
+      return new Response(JSON.stringify(await service.ask(state, questions)));
+    });
+    const { err, io } = capture();
+    io.env = { HOME: repo, PERCH_API_KEY: 'perch_ci_test' };
+    const args = command === 'scan' ? ['scan', repo] : ['check', 'src/clamp.js::clamp'];
+    expect([0, 3], err.join('\n')).toContain(await main([...args, '--json', '--out', join(repo, '.perch')], io));
+    expect(named.length).toBeGreaterThan(1);
+    expect(named[0][2]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(new Set(named.map(values => values.join(' ')))).toEqual(new Set([`${command} ${VERSION} ${named[0][2]}`]));
+    // A scan's questions name the Cloud scan they belong to. A check starts none.
+    expect(scans.length).toBeGreaterThan(0);
+    expect(new Set(scans)).toEqual(new Set([command === 'scan' ? 'scan' : undefined]));
+  });
+
   it.each([
     [{ PERCH_API_KEY: 'private-fixture-key' }, 'PERCH_API_KEY, 19 characters, for Perch Cloud'],
     [{ TYPESAFE_API_KEY: 'legacy-fixture-key', PERCH_BASE_URL: 'https://api.typesafe.ai/v1/systemone' }, 'TYPESAFE_API_KEY, 18 characters, for https://api.typesafe.ai/v1/systemone'],
