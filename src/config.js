@@ -24,7 +24,8 @@ function parseConfig(content) {
       throw new Error(name ? `${name} on line ${index + 1} must be a quoted string` : `line ${index + 1} must be a string assignment`);
     }
     const [, name, quoted] = match;
-    if (!settings[name]) throw new Error(`Unknown setting ${name}`);
+    // Its own keys only: every object has a constructor and a __proto__, and reading those as settings put junk in the environment.
+    if (!Object.hasOwn(settings, name)) throw new Error(`Unknown setting ${name}`);
     if (Object.hasOwn(config, name)) throw new Error(`Duplicate setting ${name}`);
     try { config[name] = quoted.startsWith('"') ? JSON.parse(quoted) : quoted.slice(1, -1); }
     catch (error) { throw new Error(`${name} on line ${index + 1}: ${error.message}`, { cause: error }); }
