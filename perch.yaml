@@ -23,14 +23,21 @@ rules:
   - name: configured-endpoint-is-exact
     where: src/systemone.js
     ensure: >-
-      An explicitly configured endpoint URL is used unchanged for requests.
-      Appending a route such as /systemone, removing a trailing slash, or
-      replacing the supplied path or query breaks this rule.
+      Read request inside createSystemOne. It hands baseUrl to fetchImpl as it
+      was given. Building the request URL from baseUrl by adding a route such as
+      /systemone, trimming a trailing slash, or replacing its path or query
+      breaks this rule.
 
   - name: prose-not-generated
     where: "**/*.md"
-    ensure: >
-      The file does not sound AI generated
+    ensure: >-
+      Read the first six prose paragraphs. They read as one person's plain
+      notes. Any of these breaks the rule: a list whose every item opens with a
+      bolded label and a colon, a paragraph that restates its heading before
+      saying anything, a closing line that sums up what was just said, three
+      adjectives or three parallel phrases in a row for rhythm, or stock words
+      such as seamless, robust, comprehensive, powerful, leverage, delve and
+      It's worth noting.
     except: skill.md
     min: 65
 
@@ -43,28 +50,36 @@ rules:
 
   - name: closed-never-listed
     where: callers of issues
-    ensure: >
-      This method passes the findings through visibleFindings before a person
-      sees them, or it is not producing a list for a person to read.
+    ensure: >-
+      Findings this method prints, to stdout or to Perch Cloud, go through
+      visibleFindings first, so a closed issue is not listed. Printing findings
+      as store.issues or a scan gave them breaks this rule. A method that only
+      computes on findings, or returns them to its caller, prints nothing and
+      satisfies it.
 
   - name: one-way-into-the-log
     where: mentions .jsonl
+    # The store is the one place that opens them, so its own methods are not asked.
+    except: src/store.js
     ensure: >-
-      This method reads and writes the results files through the store, not by
-      opening them itself.
+      This method reads and writes the .jsonl result files by calling the store:
+      readLines, writeLines, recordScan or indexes. Calling readFile, writeFile
+      or appendFile on a .jsonl path here breaks this rule.
 
   - name: issues-closable
     where: "test/**/*.js"
     each: test
-    ensure_present: >
-      A test that closes an issue with a reason and then asserts it is gone from
-      the default list.
+    ensure_present: >-
+      A call to main with close, an issue id and --reason, followed by a call to
+      main with issues and an expect that what it printed does not contain that
+      id.
 
   - name: no-dead-command
     where: "src/**/*.js"
     each: method
-    ensure_absent: >
-      A command or flag that is parsed and then never used.
+    ensure_absent: >-
+      A command-line flag or argument, such as io.flags.json or io.argument,
+      that this method reads into a variable and then never uses.
 
   - name: no-legacy-fallback
     where: "src/**/*.js"
@@ -77,15 +92,19 @@ rules:
     where: "src/**/*.js"
     each: method
     ensure_absent: >-
-      A catch that returns a default in place of the error, or a ?? or ||
-      standing in for a call that failed. A default for a value that was never
-      set is not this.
+      A catch block or .catch() callback that discards the error and returns a
+      stand-in value, such as null, [] or '', for every error it receives.
 
   - name: tests-assert-real-behavior
     where: "test/**/*.js"
-    ensure: >
-      Tests assert on the code under test, not on mocks they set up or values
-      they built.
+    ensure: >-
+      Read the first three tests in this file. Each calls code imported from
+      src/, or runs the perch command, and asserts on what that code returned,
+      printed, wrote or sent. A test breaks this rule when its assertions would
+      still pass if the code under test did nothing: they check a value the test
+      built itself, or a fake's canned reply that never went through code from
+      src/. A fake that records what the code sent it is fine to assert on. A
+      file that defines no tests satisfies this rule.
   - name: readme-shows-not-tells
     where: README.md
     ensure: >-
@@ -100,10 +119,14 @@ rules:
   - name: no-filler-tails
     where: "{README.md,skill.md,docs/**/*.md}"
     ensure: >-
-      Every sentence carries information the reader does not already have. A
-      line telling them to do the obvious after a command block, a link whose
-      only label is a gesture such as What it says or Every field, or a closing
-      sentence that summarises the block above it, all break this.
+      Read the sentence that directly follows each of the page's first four
+      fenced blocks, and the last sentence of the page. Each tells the reader
+      something the block above it did not show. A sentence telling them to run
+      the command just shown, restating what the block printed, or summing up
+      the section breaks this rule. So does a link whose whole label is a
+      gesture, such as What it says or Every field. A block followed by a
+      heading, a table or another block has no such sentence and satisfies the
+      rule.
     min: 65
   # Bounded to the first such block on purpose. Asked of a whole page, this reads 61% on a page whose every command shows its
   # output and 66% on a longer one, because it is then a question about whether any counterexample exists, and a longer page
@@ -111,14 +134,12 @@ rules:
   - name: docs-show-output
     where: "{README.md,skill.md,docs/**/*.md}"
     ensure: >-
-      Find the first fenced block on the page that runs a real `perch` command,
-      and weigh that block together with the block immediately after it. What
-      the command printed is shown in one of the two. A `perch` command with
-      nothing shown that it printed breaks the rule, whether or not it carries a
-      `$` prompt. A line carrying a placeholder in angle or square brackets,
-      such as `perch scan [options]`, is syntax rather than a command being run,
-      and so is an install line or an export; pass over all of them. A page that
-      runs no real `perch` command satisfies this rule.
+      Find the first fenced block on the page with a line that runs perch, such
+      as `$ perch scan` or `perch check src/a.js`. That block, or the block
+      right after it, also shows lines the command printed. A command shown with
+      nothing it printed breaks this rule. Skip a usage line with a placeholder
+      in angle or square brackets, such as `perch scan [options]`, and skip
+      install lines and exports. A page with no such block satisfies the rule.
   - name: docs-headings-name-things
     where: "{README.md,skill.md,docs/**/*.md}"
     ensure: >-
@@ -135,29 +156,31 @@ rules:
   - name: docs-sentences-are-short
     where: "{README.md,skill.md,docs/**/*.md}"
     ensure: >-
-      Skip the frontmatter first: everything between the opening `---` and the
-      closing `---` at the top of the file is metadata for a machine to read,
-      and is never judged by this rule whatever it contains. Then read the first
-      four prose paragraphs of the body. Every sentence in them runs under
-      twenty-five words. One sentence of twenty-five words or more breaks the
-      rule, and so does one joining three or more clauses with commas,
-      semicolons and "and". Judge only those four paragraphs and do not read on.
-      Headings, table cells, list items and fenced blocks are not prose.
+      Skip the frontmatter between the `---` markers at the top. Read the first
+      four prose paragraphs of the body; headings, tables, lists and fenced
+      blocks are not prose. Each sentence in them is under twenty-five words. A
+      sentence of twenty-five words or more breaks this rule. So does one that
+      chains three or more full clauses, each with its own verb, using commas,
+      semicolons and "and". A list of nouns or short phrases inside a sentence
+      is not a chain of clauses.
     # A long frontmatter block still pulls this to the mid fifties on a file whose body is clean, so the floor sits above that
     # band. Broken controls read 76 to 85.
     min: 65
   - name: docs-no-next-steps
     where: "{README.md,skill.md,docs/**/*.md}"
     ensure: >-
-      No section exists to list links the navigation already shows. A closing
-      Where to go next, Next steps, or See also that repeats the sidebar breaks
-      this.
+      Read the last heading on the page and what sits under it. That last
+      section says something of its own. A last section titled Where to go next,
+      Next steps, See also or Further reading, or one made only of links to
+      other pages, breaks this rule.
   - name: intro-anchors-to-a-linter
     where: docs/index.md
     ensure: >-
-      The first sentence says perch is a linter and what kind. Leaving what it
-      is to a section further down breaks this, and so does defining it by what
-      other linters fail to do.
+      Skip the frontmatter between the `---` markers. Read the first sentence
+      under the page's first heading. It says perch is a linter and what kind,
+      as in perch is a semantic linter. A first sentence that says something
+      else, or that describes perch by what other linters fail to do, breaks
+      this rule.
   - name: docs-no-antithesis
     where: "{README.md,skill.md,docs/**/*.md}"
     ensure: >-
@@ -196,14 +219,17 @@ rules:
   - name: scan-covers-only-the-target
     where: src/target.js
     ensure: >-
-      A target inside the repository is kept as the path the run covers.
-      Resolving it to the repository root and dropping the rest breaks this.
+      resolveTarget returns scope, the target's path relative to the repository
+      root, so perch scan docs/ covers docs/ and nothing else. Returning the
+      root alone, with scope null for a target below the root, breaks this rule.
   - name: filter-narrows-the-work
     where: src/scan.js
     ensure: >-
-      A filter decides which questions are asked of a method, and a method no
-      kept question covers is skipped rather than read. Filtering only what is
-      printed breaks this.
+      Read the line in stepFor, inside scanRepository, that assigns asked. It
+      calls questionsFor with the run's filters as the second argument, and the
+      next lines return skip: true when asked is empty, so that method is not
+      sent to the model. Passing an empty list in place of filters there, or
+      sending a method that has no question left, breaks this rule.
   - name: search-results-are-reported
     where: src/report.js
     ensure: >-
@@ -223,7 +249,9 @@ rules:
   - name: scan-types-filter-overrides
     where: src/scan.js
     ensure: >-
-      A type named by --filter is asked even when scan_types leaves it out.
+      Read typesAsked. The set it returns holds scan_types, or the defaults, and
+      every type a --filter type= clause names. Returning scan_types alone, so a
+      type named by a filter is not asked, breaks this rule.
   - name: every-type-fails-a-run
     where: src/ask.js
     ensure: >-

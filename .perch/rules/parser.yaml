@@ -16,10 +16,11 @@
 - name: grammar-errors-stay-visible
   where: src/treesitter/analyzer.ts
   ensure: >-
-    An unsupported language or failure to obtain a syntax tree cannot yield
-    parser_status parsed or usable metrics. The reason remains available to
-    the caller. A successful empty result in place of a parser failure breaks
-    this rule.
+    Read analyzeSource and unavailable. For a language with no grammar, and when
+    parsing throws, analyzeSource returns unavailable(...): parser_status is
+    unsupported or resource-unavailable, metrics is null, and parser_message
+    holds the reason. Returning parser_status parsed with no declarations in
+    either case breaks this rule.
 - name: chunks-preserve-source
   where: src/chunks.js
   ensure: >-

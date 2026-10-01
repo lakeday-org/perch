@@ -1,11 +1,21 @@
-- name: references-read-what-the-language-allows
+- name: reference-names-allow-any-script
   where: src/treesitter/references.ts
   ensure: >-
-    Three things hold of reference extraction. A call to a function whose name
-    uses letters outside ASCII, such as café, is recorded under that name and
-    not as dynamic, since every language here allows such identifiers. A
-    TypeScript import-equals declaration, import Foo = require("./foo"),
-    yields "./foo" as the module and Foo as the local binding. A call
-    expression whose callee is the import keyword, in a type position or as a
-    dynamic import, is recorded as an import of its argument and not as a call
-    to a function named import. Any of the three failing breaks this rule.
+    Read IDENTIFIER and validReference. A name with letters outside ASCII,
+    such as café, matches IDENTIFIER and is returned as it is. An ASCII-only
+    pattern such as [A-Za-z_], which turns that name into <dynamic>, breaks
+    this rule.
+- name: import-equals-is-an-import
+  where: src/treesitter/references.ts
+  ensure: >-
+    Read importModule and the import_require_clause branch below it. For
+    TypeScript's import Foo = require("./foo"), the module is the clause's
+    source, "./foo", and Foo is the local binding. Leaving
+    import_require_clause out of either breaks this rule.
+- name: import-call-is-an-import
+  where: src/treesitter/references.ts
+  ensure: >-
+    Read collectReferences. A call node whose callee is the import keyword is
+    recorded with makeReference("import", ...), naming its argument as the
+    module. Recording it as a call to a function named import breaks this
+    rule.
