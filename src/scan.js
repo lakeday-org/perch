@@ -35,7 +35,10 @@ export const DEFAULT_PARALLEL = 32;
 export function mergeAnswers(readings, questions = questionSet().filter(question => question.each === 'method')) {
   const merged = { ...readings[0] };
   const gates = new Set(questions.filter(question => CORRECTNESS.has(question.issue?.type)).map(question => question.when).filter(Boolean));
-  const grows = questions.filter(question => question.type === 'noul' && (CORRECTNESS.has(question.issue?.type) || gates.has(question.name)));
+  // Only a question some pass was asked has anything to grow. A filtered run asks a few of them, and the rest came out of here
+  // answered 0, which then overwrote what the last run had said about them.
+  const grows = questions.filter(question => question.type === 'noul' && (CORRECTNESS.has(question.issue?.type) || gates.has(question.name))
+    && readings.some(reading => reading[question.name] !== undefined));
   for (const later of readings.slice(1)) {
     if (later.has_bug > merged.has_bug) Object.assign(merged, { has_bug: later.has_bug, kind: later.kind, severity: later.severity });
     for (const question of grows) merged[question.name] = Math.max(merged[question.name] ?? 0, later[question.name] ?? 0);
