@@ -105,17 +105,18 @@ Configuration: ~/.perch/config.toml (environment variables take precedence)
 Environment:
 ${column([['PERCH_API_KEY', 'a Perch Cloud CI token, or the key for PERCH_BASE_URL'], ['PERCH_BASE_URL', 'scan, check: another endpoint instead of Perch Cloud, the exact URL to POST to'], ['PERCH_MODEL_ID', 'scan, check: model ID (default: the one Perch Cloud serves, or jev-latest elsewhere)'], ['PERCH_ORGANIZATION', 'Perch Cloud organization, when a login has several'], ['PERCH_REPOSITORY', 'Perch Cloud repository ID, instead of the one the git remote names']])}`;
 
+/** A command that takes no options, login and logout, says so by leaving them out rather than printing an empty heading. */
 function usageFor(name) {
   const help = commandHelp[name];
   const own = Object.values(options).filter(([, , verbs]) => verbs.includes(name));
   return `perch ${name}: ${help.summary}
 
-Usage: perch ${name} ${help.args ? `${help.args} ` : ''}[options]
+Usage: perch ${[name, help.args, own.length ? '[options]' : ''].filter(Boolean).join(' ')}
 
-${wrap(help.detail)}
+${wrap(help.detail)}${own.length ? `
 
 Options:
-${column(own.map(([flag, text]) => [flag, text]))}`;
+${column(own.map(([flag, text]) => [flag, text]))}` : ''}`;
 }
 
 /**
@@ -240,7 +241,8 @@ function liveCounter(io, doing) {
 function liveCounters(io, ...doing) {
   const line = liveCounter(io, ''), counts = new Map();
   const draw = () => {
-    const going = [...counts].filter(([, [done, total]]) => !total || done < total);
+    // A phase with nothing to do is told 0 of 0, and is finished rather than going.
+    const going = [...counts].filter(([, [done, total]]) => total == null || done < total);
     const text = (going.length ? going : [...counts].slice(-1)).map(([label, [done, total]]) => total ? `${label} ${done} of ${total}` : `${label} ${done}`).join(', ');
     if (text) line.say(text);
   };
