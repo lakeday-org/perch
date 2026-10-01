@@ -342,7 +342,12 @@ const IDENTIFIER_TYPES = new Set([
 function isPassedAsValue(node: Node): boolean {
   const parent = node.parent;
   if (!parent) return false;
-  if (parent.type === "arguments" || parent.type === "argument_list" || parent.type === "expression_list") return true;
+  if (parent.type === "arguments" || parent.type === "argument_list") return true;
+  // Go writes both sides of `:=`, `=` and `range` as an expression_list; the one on the left names what is assigned to.
+  if (parent.type === "expression_list") {
+    const left = parent.parent?.childForFieldName("left");
+    return !(left && left.startIndex === parent.startIndex && left.endIndex === parent.endIndex);
+  }
   for (const field of ["value", "right"]) {
     const held = parent.childForFieldName(field);
     if (held && held.startIndex === node.startIndex && held.endIndex === node.endIndex) return true;
