@@ -16,11 +16,36 @@ const source = () => readFile(new URL('../skill.md', import.meta.url), 'utf8');
  * one a person can find when they go looking for what perch installed, so that is where it goes.
  */
 export const TARGETS = {
-  'claude-code': { path: '.claude/skills/perch/SKILL.md', name: 'Claude Code' },
-  codex: { path: '.codex/skills/perch/SKILL.md', name: 'Codex' },
+  'claude-code': { path: '.claude/skills/perch/SKILL.md', name: 'Claude Code', mcp: '.mcp.json' },
+  codex: { path: '.codex/skills/perch/SKILL.md', name: 'Codex', mcpCommand: 'codex mcp add perch -- perch mcp' },
   pi: { path: '.pi/skills/perch/SKILL.md', name: 'pi' },
-  cursor: { path: '.cursor/rules/perch.mdc', name: 'Cursor', rewrite: asCursorRule },
+  cursor: { path: '.cursor/rules/perch.mdc', name: 'Cursor', rewrite: asCursorRule, mcp: '.cursor/mcp.json' },
 };
+
+/** How an assistant starts perch's MCP server, which reads what Perch Cloud's CI scans found. */
+export const MCP_SERVER = { command: 'perch', args: ['mcp'] };
+
+/**
+ * Adds perch to the project's MCP servers where the assistant reads them from the repository: Claude Code's .mcp.json and
+ * Cursor's .cursor/mcp.json. Codex keeps its servers in the user's own configuration, so it gets the command to run instead, and
+ * pi has no MCP support. A perch entry already there is left alone, and so is a file that does not parse, rather than being
+ * rewritten into something its owner did not write.
+ */
+export async function registerMcp({ root, target }) {
+  const chosen = TARGETS[target];
+  if (!chosen?.mcp) return { registered: false, command: chosen?.mcpCommand ?? null };
+  const path = join(root, chosen.mcp);
+  const text = await readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+  let config = {};
+  if (text !== null) {
+    try { config = JSON.parse(text); } catch { return { registered: false, path: chosen.mcp, why: `${chosen.mcp} is not valid JSON, so perch left it alone` }; }
+  }
+  if (config.mcpServers?.perch) return { registered: false, already: true, path: chosen.mcp };
+  config.mcpServers = { ...config.mcpServers, perch: MCP_SERVER };
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(config, null, 2)}\n`);
+  return { registered: true, path: chosen.mcp };
+}
 
 export const TARGET_NAMES = Object.keys(TARGETS);
 

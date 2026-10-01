@@ -190,8 +190,33 @@ To replace a modified or older file, use `--force`.
 | --- | --- |
 | `--force` | Replace an existing file, including any local edits. |
 
-Commit the generated file to share these instructions with your team.
+It also adds the perch MCP server to `.mcp.json` for Claude Code and
+`.cursor/mcp.json` for Cursor, and prints `codex mcp add perch -- perch mcp` for
+Codex. An existing `perch` entry is left as it is.
+
+Commit the generated files to share these instructions with your team.
 See [Using Perch with coding assistants](skill.md).
+
+## perch mcp
+
+```sh
+perch mcp
+```
+
+A Model Context Protocol server on standard input and output. A coding assistant
+starts it to read what Perch Cloud's CI scans found:
+
+| Tool | Returns |
+| --- | --- |
+| `perch_scans` | Recent CI scans of the checked-out branch: id, pull request, commit, result and issue counts. `all_branches` lists every branch, and `pull_request` takes a number. |
+| `perch_scan` | One scan's issues: method, line, type, kind, severity, probability and the `perch check` command for that method. |
+
+It signs in the way `perch scan` does, with `perch login` or `PERCH_API_KEY` set to
+a CI token. The repository comes from the git remote.
+
+```sh
+claude mcp add perch -- perch mcp
+```
 
 ## perch doctor
 

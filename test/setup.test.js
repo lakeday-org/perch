@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { installSkill, TARGET_NAMES, TARGETS } from '../src/setup.js';
+import { installSkill, MCP_SERVER, registerMcp, TARGET_NAMES, TARGETS } from '../src/setup.js';
 
 const cleanups = [];
 afterEach(async () => { for (const dir of cleanups.splice(0)) await rm(dir, { recursive: true, force: true }); });
@@ -76,5 +76,20 @@ describe('perch setup', () => {
     // And a finding is a belief about a method rather than a defect pinned to a line.
     expect(skill).toMatch(/adjacent/i);
     expect(skill).toMatch(/does not locate a\s+defect/);
+  });
+
+  it('adds the perch MCP server beside a project\'s other servers, and leaves an existing perch entry or broken file alone', async () => {
+    const root = await repo();
+    await writeFile(join(root, '.mcp.json'), JSON.stringify({ mcpServers: { other: { command: 'other' } } }));
+    expect(await registerMcp({ root, target: 'claude-code' })).toEqual({ registered: true, path: '.mcp.json' });
+    expect(JSON.parse(await readFile(join(root, '.mcp.json'), 'utf8')).mcpServers).toEqual({ other: { command: 'other' }, perch: MCP_SERVER });
+    expect(await registerMcp({ root, target: 'claude-code' })).toEqual({ registered: false, already: true, path: '.mcp.json' });
+    expect(await registerMcp({ root, target: 'cursor' })).toEqual({ registered: true, path: '.cursor/mcp.json' });
+    expect(await registerMcp({ root, target: 'codex' })).toEqual({ registered: false, command: 'codex mcp add perch -- perch mcp' });
+    expect(await registerMcp({ root, target: 'pi' })).toEqual({ registered: false, command: null });
+    const broken = await repo();
+    await writeFile(join(broken, '.mcp.json'), '{ not json');
+    expect((await registerMcp({ root: broken, target: 'claude-code' })).registered).toBe(false);
+    expect(await readFile(join(broken, '.mcp.json'), 'utf8')).toBe('{ not json');
   });
 });

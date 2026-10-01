@@ -1,6 +1,6 @@
 ---
 name: perch
-description: Semantic linting with perch. Use it to verify code changes in flight. Scan a branch or a diff. Check one method right after editing it. Confirm a fix landed before opening a pull request. Use it to lint behavior a compiler cannot check: bugs, vulnerabilities, swallowed errors, and a method that does not do what its name says. Use it to act on what a scan found. Use it to write rules that turn a repeated mistake into verifiable behavior.
+description: Semantic linting with perch. Use it to verify code changes in flight. Scan a branch or a diff. Check one method right after editing it. Confirm a fix landed before opening a pull request. Use it to lint behavior a compiler cannot check: bugs, vulnerabilities, swallowed errors, and a method that does not do what its name says. Use it to act on what a scan found, including what Perch Cloud CI found on a pull request. Use it to write rules that turn a repeated mistake into verifiable behavior.
 ---
 
 # perch
@@ -109,6 +109,24 @@ This reads the file off disk, so it works on uncommitted code. It records nothin
 it will not move the numbers on the issue you are fixing. It exits `3` while something
 is still wrong.
 
+## Act on what CI found
+
+A pull request scanned in CI has its results in Perch Cloud. When the perch MCP
+server is connected, read them there instead of scanning again:
+
+| Tool | |
+| --- | --- |
+| `perch_scans` | Recent CI scans of the checked-out branch, newest first. `all_branches` lists every branch; `pull_request` takes a number. |
+| `perch_scan` | One scan's issues, each with its method, line, kind and probability, and the `perch check` command for that method. |
+
+Take the newest scan of the branch, then work through `perch_scan` the way you
+would a local finding: read the method, fix what is real, and run the `check`
+command it gives until it exits `0`. Without the MCP server, `perch scan --since
+origin/main --json` finds the same things on this machine.
+
+`perch setup` adds the server for Claude Code and Cursor. Elsewhere it is
+`perch mcp`, started by the assistant, signed in with `perch login`.
+
 ## Close a finding you have judged
 
 ```console
@@ -184,5 +202,6 @@ rule needs another pass.
 | | |
 | --- | --- |
 | `perch doctor` | Whether perch can run here, and what the last run asked. |
+| `perch mcp` | The MCP server that reads Perch Cloud's CI scans. An assistant starts it. |
 | `perch issues --types` | Everything `--filter` accepts. |
 | `perch --version` | The version in use. |
