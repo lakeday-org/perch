@@ -35,7 +35,7 @@ perch scan
 ```
 
 Run `perch login` to sign in to [Perch Cloud](https://perchscan.com). The first $5 is free. Since decisions are cached,
-running perch again on unchanged code costs a tenth as much. Perch Cloud also scans pull requests in CI, without writing
+running perch again on unchanged code is free. Perch Cloud also scans pull requests in CI, without writing
 any workflows.
 
 ```console
