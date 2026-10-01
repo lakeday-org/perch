@@ -5,8 +5,8 @@ export const DEFAULT_SYSTEM_ONE_MODEL = 'jev-latest';
 
 /** Credentials apply to the whole run, so trying another file cannot repair their rejection. */
 export class AuthenticationError extends Error {
-  constructor(status, detail) {
-    super(`System One request failed with HTTP ${status}: ${detail.slice(0, 500)}`);
+  constructor(status, detail = '') {
+    super(`System One request failed with HTTP ${status}: ${String(detail).slice(0, 500)}`);
     this.name = 'AuthenticationError'; this.status = status; this.detail = detail;
   }
 }
@@ -105,8 +105,8 @@ export function createSystemOne({
     async ask(state, allQuestions, { beforeRequest = () => {} } = {}) {
       const { settled, rest: questions } = settle(allQuestions);
       if (Object.keys(settled).length && !Object.keys(questions).length) return { model, answers: settled, usage: null, requests: 0 };
-      const answered = await askAll(state, questions, beforeRequest);
-      return Object.keys(settled).length ? { ...answered, answers: { ...answered.answers, ...settled } } : answered;
+      const reply = await askAll(state, questions, beforeRequest);
+      return Object.keys(settled).length ? { ...reply, answers: { ...reply.answers, ...settled } } : reply;
     },
   };
 
