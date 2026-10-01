@@ -22,21 +22,20 @@
   <a href="https://discord.gg/znTcuKRK">Discord</a>
 </p>
 
-Semantic code linting with Jev.
+Semantic code linting with decision models.
 
 ![Writing a rule, and perch catching this README with it](.github/demo.svg)
 
 ## Getting started
 
-Create an API key at [console.typesafe.ai](https://console.typesafe.ai), then set
-the System One request URL and your key:
-
 ```sh
 npm install -g @lakeday/perch
-export PERCH_BASE_URL=https://api.typesafe.ai/v1/systemone
-export PERCH_API_KEY='paste-your-TypeSafe-key-here'
+perch login
 perch scan
 ```
+
+`perch login` signs you in to [Perch Cloud](https://perchscan.com) with a code you confirm in the browser. The first $5 of
+usage is free.
 
 ```console
 $ perch scan
@@ -77,11 +76,34 @@ Extend perch with custom rules, in `perch.yaml`:
     Keep passwords and access tokens out of logs.
 ```
 
+## Models
+
+Perch Cloud picks the model for you. To send questions straight to a decision model instead, set its endpoint, key and
+model:
+
+```sh
+export PERCH_BASE_URL=https://api.typesafe.ai/v1/systemone
+export PERCH_API_KEY='paste-your-TypeSafe-key-here'
+export PERCH_MODEL_ID=jev-latest
+```
+
+| Model | `PERCH_BASE_URL` | `PERCH_MODEL_ID` |
+| --- | --- | --- |
+| [Jev](https://docs.typesafe.ai/models) | `https://api.typesafe.ai/v1/systemone` | `jev-latest` |
+| [Liquid AI d1](https://docs.liquid.ai/lfm/models/decision-models) | `https://api.liquid.ai/decisions/v1/systemone` | `d1:free` |
+| [DiffusionGemma Jev](https://github.com/razorback16/openjev) on Beam | `https://app.beam.cloud/v1/models/jev/diffusiongemma/invoke` | `jev/diffusiongemma` |
+| [SemiF](https://github.com/TheoLeeCJ/SemIf) on Beam | `https://app.beam.cloud/v1/models/jev/semif/invoke` | `jev/semif` |
+
+Any endpoint that speaks the System One format works the same way. The Beam models take 32 questions per request, fewer
+than a security scan asks of one method, so keep `scan_types` to `defect` and `lint` with them until
+[#257](https://github.com/lakeday-org/perch/issues/257) is fixed. How they compare is in the
+[benchmarks](https://huggingface.co/datasets/perchscan/benchmark-results).
+
 ## Documentation
 
 | | |
 | --- | --- |
-| [Getting started](https://docs.perchscan.com/install/) | Install, the key, the first scan. |
+| [Getting started](https://docs.perchscan.com/install/) | Install, sign in, the first scan. |
 | [Reading issues](https://docs.perchscan.com/issues/) | The list, the filters, closing what does not matter. |
 | [Semantic linting](https://docs.perchscan.com/rules/) | `where`, `each`, `sees`, `min`, `gate`, and the longhand grammar. |
 | [Checking a change](https://docs.perchscan.com/check/) | `perch check` on work in progress. |
