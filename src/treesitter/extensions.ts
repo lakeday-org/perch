@@ -1,17 +1,30 @@
 /** Language-specific facts absent from the pack's structure records, read from its native tree. */
 import type { Node } from './node';
 
-/** Groovy wraps both typed declarations and calls in command nodes; a declaration has a prefix before its block. */
+/**
+ * Groovy wraps both typed declarations and calls in command nodes; a declaration has a prefix before its block. An operator in
+ * the prefix is kept, since it makes the block a call: `def r = retry(3) { ... }` assigns what retry returns.
+ */
 function groovyPrefix(node: Node): string[] {
   if (node.type !== 'block' || !['command', 'end_command'].includes(node.parent?.type ?? '')) return [];
   let prefix: string[] = [];
   for (const child of node.parent!.namedChildren) {
     if (child.id === node.id) break;
     if (child.type === 'block') prefix = [];
-    else if (child.type === 'unit') prefix.push(child.text);
+    else if (child.type === 'unit' || child.type === 'operators') prefix.push(child.text);
   }
   return prefix;
 }
+
+/** The words that can stand before a Groovy method's name, besides a class type: its modifiers, then def, void or a primitive. */
+const SIGNATURE_WORDS = new Set(['public', 'protected', 'private', 'static', 'final', 'abstract', 'native', 'strictfp',
+  'def', 'var', 'void', 'boolean', 'byte', 'char', 'short', 'int', 'long', 'float', 'double']);
+
+/**
+ * Whether a prefix word can be part of a method's signature. A class type is capitalized, as `String`, `List<String>` or
+ * `java.util.List`. Anything else is a call: `println qux(1) { it }` hands qux's result to println.
+ */
+const signatureWord = (word: string): boolean => SIGNATURE_WORDS.has(/^\w+/.exec(word)?.[0] ?? '') || /^([a-z_]\w*\.)*[A-Z]/.test(word);
 
 export function callableName(node: Node): Node | null {
   if (node.type === 'Decl') return node.namedChildren.find(child => child.type === 'FnProto')?.childForFieldName('function') ?? null;
@@ -22,7 +35,7 @@ export function callableName(node: Node): Node | null {
       return parent.namedChildren.find(child => child.type === 'variable_declaration')?.namedChildren.find(child => child.type === 'simple_identifier') ?? null;
   }
   const prefix = groovyPrefix(node);
-  if (!prefix.length || prefix.some(word => ['return', 'throw', 'new', 'if', 'else', 'for', 'while', 'switch', 'catch', 'synchronized', 'assert'].includes(word))) return null;
+  if (!prefix.length || !prefix.every(signatureWord)) return null;
   const call = node.namedChildren[0]?.namedChildren.find(child => child.type === 'func');
   return call?.namedChildren.find(child => child.type === 'identifier') ?? null;
 }
