@@ -3,7 +3,7 @@ import type { ProcessResult, StructureItem } from '@xberg-io/tree-sitter-languag
 import { PARSE_VERSION, type Analyzer, type Declaration, type SourceAnalysis, type SourceSummary } from './types';
 import { downloading, normalizeLanguage } from './languages';
 import { Node } from './node';
-import { functionDepth, functionName, isFunction, isNamed, nonblankRows, parentFunctionName, qualityMetrics, qualifiedFunctionName, location, measure, walkNodes } from './metrics';
+import { functionDepth, functionName, isComment, isFunction, isNamed, nonblankRows, parentFunctionName, qualityMetrics, qualifiedFunctionName, location, measure, walkNodes } from './metrics';
 import { collectReferences } from './references';
 import { measureComplexity } from './complexity';
 import { hasSyntaxError } from './extensions';
@@ -36,21 +36,44 @@ function declarationsOf(items: StructureItem[], nodes: Map<string, Node>, langua
   return result;
 }
 
+/** The 1-based number of a node's last line. A node that ends at the start of a line ends on the line before it. */
+const lastLine = (node: Node): number => node.endPosition.row + (node.endPosition.column > 0 ? 1 : 0);
+
 /**
- * Returns the line numbers outside every named function. The first and last lines of a node that contains a named function,
- * such as a class declaration, are left out too, since they only open and close it.
+ * Whether a line holds nothing but punctuation, comments and the keywords that close the nodes around named functions: the `}`
+ * of a class, the `})();` after a callback, the `end` of a Ruby module. A name, a literal or a keyword of its own, like Python's
+ * `pass`, is code.
+ */
+function onlyCloses(root: Node, line: number, around: Set<string>): boolean {
+  const stack = [root];
+  while (stack.length) {
+    const node = stack.pop()!;
+    if (node.startPosition.row + 1 > line || lastLine(node) < line || node.endIndex <= node.startIndex || isComment(node)) continue;
+    if (node.childCount) { for (let index = 0; index < node.childCount; index++) stack.push(node.child(index)!); continue; }
+    if (node.isNamed || (/\w/.test(node.text) && !around.has(node.parent?.id ?? ''))) return false;
+  }
+  return true;
+}
+
+/**
+ * Returns the line numbers outside every named function. The first line of a node that contains a named function, such as a
+ * class declaration, is left out too, since it only opens it, and so is its last line when that only closes it. A Python class
+ * has nothing to close it, so its last line is a statement of the class and stays.
  */
 function topLevelLines(root: Node, declarations: Declaration[], nodes: Map<string, Node>, lines: number): number[] {
-  const held = new Set<number>();
+  const held = new Set<number>(), around = new Set<string>(), ends = new Set<number>();
   for (const declaration of declarations) {
     if (!isNamed(declaration.qualified_name)) continue;
     for (let line = declaration.line; line <= declaration.end_line; line++) held.add(line);
     let parent = nodes.get(`${declaration.location.start.byte}:${declaration.location.end.byte}`)?.parent ?? null;
-    for (; parent && parent.id !== root.id; parent = parent.parent) {
+    // A node seen before had everything above it seen with it.
+    for (; parent && parent.id !== root.id && !around.has(parent.id); parent = parent.parent) {
+      around.add(parent.id);
       held.add(parent.startPosition.row + 1);
-      held.add(parent.endPosition.row + (parent.endPosition.column > 0 ? 1 : 0));
+      ends.add(lastLine(parent));
     }
   }
+  for (const line of ends) if (!held.has(line) && onlyCloses(root, line, around)) held.add(line);
   return Array.from({ length: lines }, (_, index) => index + 1).filter(line => !held.has(line));
 }
 
