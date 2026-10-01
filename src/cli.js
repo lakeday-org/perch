@@ -103,7 +103,7 @@ ${column([...Object.values(options).filter(([, , verbs]) => verbs.length === Obj
 Configuration: ~/.perch/config.toml (environment variables take precedence)
 
 Environment:
-${column([['PERCH_API_KEY', 'a Perch Cloud CI token, or the key for PERCH_BASE_URL'], ['PERCH_BASE_URL', 'scan, check: another endpoint instead of Perch Cloud, the exact URL to POST to'], ['PERCH_MODEL_ID', 'scan, check: model ID (default: the one Perch Cloud serves, or jev-latest elsewhere)'], ['PERCH_ORGANIZATION', 'Perch Cloud organization, when a login has several'], ['PERCH_REPOSITORY', 'Perch Cloud repository ID, instead of the one the git remote names']])}`;
+${column([['PERCH_API_KEY', 'a Perch Cloud CI token, or the key for PERCH_BASE_URL'], ['PERCH_BASE_URL', 'scan, check: another endpoint instead of Perch Cloud, the exact URL to POST to'], ['PERCH_MODEL_ID', 'scan, check: model ID (default: the one Perch Cloud serves, or jev-latest elsewhere)'], ['PERCH_MAX_QUESTIONS', 'scan, check: most questions per request, for a PERCH_BASE_URL model that does not report it'], ['PERCH_MAX_OPTIONS', 'scan, check: most options in one choice, likewise'], ['PERCH_ORGANIZATION', 'Perch Cloud organization, when a login has several'], ['PERCH_REPOSITORY', 'Perch Cloud repository ID, instead of the one the git remote names']])}`;
 
 function usageFor(name) {
   const help = commandHelp[name];
