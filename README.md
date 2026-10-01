@@ -34,8 +34,8 @@ perch login
 perch scan
 ```
 
-`perch login` signs you in to [Perch Cloud](https://perchscan.com) with a code you confirm in the browser. The first $5 of
-usage is free.
+`perch login` signs you in to [Perch Cloud](https://perchscan.com). The first $5 is free. Decisions are cached between
+runs, so unchanged code costs a tenth as much, and pull requests are scanned in CI with no workflow to write.
 
 ```console
 $ perch scan
@@ -78,9 +78,8 @@ Extend perch with custom rules, in `perch.yaml`:
 
 ## Models
 
-Perch Cloud sends each question to the model that answers it best, and caches the answers: code that has not changed
-reads the same on every run and costs a tenth as much. To send questions straight to a decision model instead, set its
-endpoint, key and model:
+Perch Cloud sends each question to the model that answers it best. To send questions straight to a decision model
+instead, set its endpoint, key and model:
 
 ```sh
 export PERCH_BASE_URL=https://api.typesafe.ai/v1/systemone
