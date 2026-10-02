@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.1](https://github.com/lakeday-org/perch/compare/v0.4.0...v0.4.1) (2026-10-02)
+
+
+### Features
+
+* perch tells Perch Cloud which command and run sent each request ([#267](https://github.com/lakeday-org/perch/issues/267)) ([93f6730](https://github.com/lakeday-org/perch/commit/93f6730d3bdd03d7894ec70d63a688ab32b6b344))
+
+
+### Bug Fixes
+
+* a repository with no code scans its file rules instead of failing ([#250](https://github.com/lakeday-org/perch/issues/250)) ([bba684d](https://github.com/lakeday-org/perch/commit/bba684d70051ab54ef609047692dd262ae4a0455))
+* perch scan --filter rule= hid perch.yaml parse errors ([#264](https://github.com/lakeday-org/perch/issues/264)) ([879944b](https://github.com/lakeday-org/perch/commit/879944bc330bc0b5c7b203200616f939b4af3386))
+* perch scan asked again about unchanged methods when lines above them moved ([#310](https://github.com/lakeday-org/perch/issues/310)) ([7f6967d](https://github.com/lakeday-org/perch/commit/7f6967dbe1802c78f885745df02aa87ac2d0b423))
+* perch scan failed on defect readings barely over 50% ([#303](https://github.com/lakeday-org/perch/issues/303)) ([613c4c4](https://github.com/lakeday-org/perch/commit/613c4c41f3728ecd5fe5c71a33b43d0e15c3253b)), closes [#302](https://github.com/lakeday-org/perch/issues/302)
+* perch sent a model more questions per request than it accepts ([#265](https://github.com/lakeday-org/perch/issues/265)) ([07d38ca](https://github.com/lakeday-org/perch/commit/07d38cacba96f1def641899ec695dceeb0fd7f43))
+* Rust super imports resolved to no module or the wrong one ([#287](https://github.com/lakeday-org/perch/issues/287)) ([32ecb54](https://github.com/lakeday-org/perch/commit/32ecb5441a4696d190ec28f913f970cff20dcf8d))
+
 ## [0.4.0](https://github.com/lakeday-org/perch/compare/v0.3.5...v0.4.0) (2026-09-30)
 
 
