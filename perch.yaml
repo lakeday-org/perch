@@ -96,7 +96,9 @@ rules:
       Every catch block and .catch() callback in this method rethrows the
       error, returns it to the caller, or reports it. An empty catch, or one
       that returns a stand-in value such as null, [] or '' so the method
-      carries on as if the step had worked, breaks this rule.
+      carries on as if the step had worked, breaks this rule. A method with
+      no catch satisfies it, and so does a catch that turns only a missing
+      file (ENOENT) into an empty value and rethrows every other error.
 
   - name: tests-assert-real-behavior
     where: "test/**/*.js"
