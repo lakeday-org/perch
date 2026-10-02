@@ -82,3 +82,24 @@ it.each([
   expect(result.parser_status).toBe('parsed');
   expect(result.declarations.map(item => item.qualified_name)).toEqual(names);
 });
+
+it('reads a Groovy call with a trailing closure as a call, not a declaration', async () => {
+  const source = [
+    "def sourcesJar = tasks.register('sourcesJar', Jar) { from sourceSets.main.allSource }",
+    'def build() {',
+    "    def result = retry(3) { sh 'make' }",
+    '    println qux(1) { it }',
+    '}',
+    "private List<String> names(int a, String b = 'x') { return [] }",
+    'static main(args) { build() }',
+    'java.util.List all() { [] }',
+  ].join('\n');
+  const result = await createAnalyzer().analyzeSource(source, 'groovy');
+  expect(result.parser_status).toBe('parsed');
+  expect(result.declarations.map(item => item.qualified_name)).toEqual(['build', 'names', 'main', 'all']);
+  const build = result.declarations.find(item => item.name === 'build')!;
+  const calls = result.references.filter(ref => ref.kind === 'call');
+  expect(calls).toContainEqual(expect.objectContaining({ reference: 'register', line: 1 }));
+  expect(calls).toContainEqual(expect.objectContaining({ reference: 'retry', source: build.id }));
+  expect(calls).toContainEqual(expect.objectContaining({ reference: 'qux', source: build.id }));
+});
