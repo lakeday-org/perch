@@ -182,8 +182,14 @@ export function parseScanTypes(text, at) {
   return types.map(type => String(type).trim().toLowerCase());
 }
 
+/**
+ * The raw text of scan.yaml. `perch rules edit` on a shipped question copies that question's lines out of this text into
+ * perch.yaml, so the copy keeps scan.yaml's wording and line breaks instead of being re-wrapped.
+ */
+export const SCAN_YAML = readFileSync(new URL('../scan.yaml', import.meta.url), 'utf8');
+
 /** The questions perch ships with, read once. The file is the source of truth; nothing here is duplicated in code. */
-export const BUILTIN = parseQuestions(readFileSync(new URL('../scan.yaml', import.meta.url), 'utf8'), 'scan.yaml');
+export const BUILTIN = parseQuestions(SCAN_YAML, 'scan.yaml');
 
 /**
  * The set in force. Reading a repository's own questions installs them here, so a report built from a finding on disk labels it

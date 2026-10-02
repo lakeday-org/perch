@@ -1,13 +1,14 @@
 /**
  * Editing `perch.yaml` from the command line. The file is yours to write by hand and always will be, but adding a rule mid-thought
  * should not mean stopping to find the file, and an agent that spots a pattern worth a rule has no business rewriting YAML by
- * string surgery. Comments and the order of what is already there survive every edit.
+ * string surgery. An edit writes the lines it changed and nothing else: every other rule, comment and blank line is put back
+ * byte for byte.
  */
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
-import { parseDocument, Scalar } from 'yaml';
-import { BUILTIN, check, ENSURES, SHAPES, parseQuestions } from './ask.js';
+import { Document, isMap, isSeq, Pair, parseDocument, Scalar } from 'yaml';
+import { BUILTIN, check, ENSURES, SCAN_YAML, SHAPES, parseQuestions } from './ask.js';
 import { RULES_DIR, RULES_FILE, readRuleFiles } from './units.js';
 import { revision } from './git.js';
 
@@ -29,16 +30,36 @@ const NESTED = new Set(['options', 'levels', 'issue']);
  *
  * A file that is not there reads as an empty one and not as `[]`, which parses to a flow sequence and would write the first rule
  * as `[ { name: r1, ... } ]`. Every later edit reparses that and keeps the style, so one missing file at the start meant a rule
- * file nobody could read from then on.
+ * file nobody could read from then on. A list the last rule was taken out of is the same `[]` arrived at from the other end, so
+ * an empty list is never read as a flow one either.
  */
 async function open(root, file = RULES_FILE) {
   const path = join(root, file);
   const text = await readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
   const doc = parseDocument(text);
+  const empty = !doc.contents;
   if (!doc.contents || !doc.contents.items) doc.contents = doc.createNode([]);
-  // The text it was parsed from goes back with it, because the write puts the whole document down again and has to know it is
-  // putting it down over the one it picked up.
-  return { path, file, doc, rules: rulesOf(doc), text };
+  // Where the list of rules is in the text: after the colon of rules: in a map, and the list itself otherwise. Found before the
+  // list is, since a rules: with nothing under it is given a list there that has no place in the text.
+  const key = isMap(doc.contents) ? doc.contents.items.find(pair => pair.key?.value === 'rules') : undefined;
+  const span = key ? key.key.range && key.value?.range && [text.indexOf(':', key.key.range[1]) + 1, key.value.range[2]]
+    : isSeq(doc.contents) ? doc.contents.range : undefined;
+  // What a list with nothing in it is written as, and where. Leaving nothing instead would leave a file a scan refuses to read.
+  const none = span && { from: span[0], to: lineEnd(text, span.at(-1)), text: key ? ' []\n' : '[]\n' };
+  const rules = rulesOf(doc);
+  if (!rules.items.length) rules.flow = false;
+  const origin = new Map();
+  const before = place(text, rules, origin);
+  // A new rule goes after the last one there. A file with none takes it where the empty list is, or at the end: as it comes
+  // when the file holds nothing but comments, and under a rules: key when the file is a map that has not got one yet.
+  const last = before.at(-1)?.at;
+  const end = before.length ? last && { from: last.to, to: last.to, dash: last.dash }
+    : empty ? { from: text.length, to: text.length, dash: 0 }
+    : isMap(doc.contents) && !doc.contents.flow && !key ? { from: text.length, to: text.length, dash: 2, under: 'rules:\n' }
+    : none && { from: none.from, to: none.to, dash: key ? 2 : 0 };
+  // The text it was parsed from goes back with it, because the write is made against that text and has to know it is putting
+  // it down over the one it picked up.
+  return { path, file, doc, rules, text, before, origin, end, none };
 }
 
 /**
@@ -86,12 +107,119 @@ async function withLock(root, file, work) {
  * The lock holds other perch commands off, and this holds off everything else: an editor with the file open, a script, a hand.
  * Read again and refused if it moved, which turns losing somebody's rule into being told to run the command again.
  */
-async function save(path, file, doc, was) {
+async function save(page) {
+  const { path, file, text } = page;
   const now = await readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
-  if (now !== was) throw new Error(`${file} changed while perch was editing it, so nothing was written. Run that again.`);
+  if (now !== text) throw new Error(`${file} changed while perch was editing it, so nothing was written. Run that again.`);
   const tmp = `${path}.${randomUUID().slice(0, 8)}.tmp`;
-  await writeFile(tmp, String(doc));
+  await writeFile(tmp, rewrite(page));
   await rename(tmp, path);
+}
+
+/** What a node holds, as text two of them can be compared by. */
+const plain = node => JSON.stringify(node);
+
+/** The end of the line a value ends on. One with nothing in it ends before its line does. */
+const lineEnd = (text, at) => (text[at - 1] === '\n' ? at : at + /^[ \t]*(?:\r?\n)?/.exec(text.slice(at))[0].length);
+
+/** Lines moved right or left by a number of columns. A blank line stays blank, and nothing moved by nothing is not touched. */
+const shift = (text, by) => (by > 0 ? text.replace(/^(?=.)/gm, ' '.repeat(by)) : by < 0 ? text.replace(new RegExp(`^ {0,${-by}}`, 'gm'), '') : text);
+
+/**
+ * Where each rule and each of its keys sits in the text it was parsed from, so a write can put back what an edit left alone as
+ * it was typed. The stringifier cannot: it wraps folded text at its own width, pads a flow list and settles comments where it
+ * likes, so putting the whole document through it changed rules nobody had asked to change.
+ *
+ * A key's lines run from the end of the key before it, which takes in the comment written over it. A rule written in braces on
+ * its dash is placed whole, with no keys to keep. One laid out any other way is given no place, and an edit that touches it
+ * writes the whole document.
+ */
+function place(text, rules, origin) {
+  const lineOf = at => text.lastIndexOf('\n', at - 1) + 1;
+  return rules.items.map(item => {
+    const was = plain(item);
+    if (!isMap(item) || !item.range || item.items.some(pair => !pair.key?.range || !pair.value?.range)) return { item, was };
+    const from = lineOf(item.range[0]);
+    const lead = text.slice(from, item.range[0]);
+    if (!/^ *- +$/.test(lead)) return { item, was };
+    const column = lead.length;
+    const at = { from, to: lineEnd(text, item.range[2]), dash: lead.indexOf('-'), column };
+    if (item.flow || !item.items.length) return { item, was, at };
+    const keys = [];
+    at.to = from;
+    for (const pair of item.items) {
+      const start = pair === item.items[0] ? from : lineOf(pair.key.range[0]);
+      if (start < at.to || (start > from && text.slice(start, pair.key.range[0]) !== ' '.repeat(column))) return { item, was };
+      const end = lineEnd(text, pair.value.range[2]);
+      const own = (start === from ? ' '.repeat(column) : '') + text.slice(start === from ? item.range[0] : start, end);
+      keys.push([pair, { gap: text.slice(at.to, start), own: own.endsWith('\n') ? own : `${own}\n`, column, was: plain(pair.value) }]);
+      at.to = end;
+    }
+    for (const [pair, placed] of keys) origin.set(pair, placed);
+    return { item, was, at };
+  });
+}
+
+/** A node written fresh, at the column it goes in, folding where the whole file written fresh would have folded. */
+const render = (node, column) => shift(new Document(node).toString({ lineWidth: Math.max(20, 80 - column) }), column);
+
+/**
+ * One rule as its lines: a key the edit left alone comes back as it was typed, and one it set or added is written fresh. A rule
+ * in braces has no lines of its own to keep, so it is written fresh whole.
+ */
+function written(item, dash, column, origin) {
+  const keys = item.flow ? [['', render(item, column)]] : item.items.map(pair => {
+    const from = origin.get(pair);
+    const kept = from && from.was === plain(pair.value);
+    return [from ? shift(from.gap, column - from.column) : '',
+      kept ? shift(from.own, column - from.column) : render(new Pair(pair.key?.value ?? pair.key, pair.value), column)];
+  });
+  return keys.map(([gap, own], index) => gap + (index ? own : `${' '.repeat(dash)}-${own.slice(dash + 1)}`)).join('');
+}
+
+/**
+ * The file with the edit in it and every line the edit did not touch as it was. A rule that changed has its own lines replaced,
+ * one that went is cut out with the comment over it, and a new one goes after the last. The last rule out leaves an empty list
+ * where the rules were, and the first one in takes its place.
+ *
+ * What comes out is read back before it is trusted, since a file that parses to something other than the rules that were meant
+ * is worse than one that was rewrapped. Where the text cannot be worked on, or does not read back, the whole document is written
+ * the way it always was: a list of rules written in brackets, say.
+ */
+function rewrite({ doc, rules, text, before, origin, end, none }) {
+  const whole = () => String(doc);
+  const edits = [];
+  for (const [index, { item, was, at }] of before.entries()) {
+    const gone = !rules.items.includes(item);
+    if (!gone && plain(item) === was) continue;
+    if (!at) return whole();
+    if (!gone) edits.push([at.from, at.to, written(item, at.dash, at.column, origin)]);
+    else if (!rules.items.length && before.length === 1 && none) edits.push([none.from, at.to, none.text]);
+    // The comment over a rule is about that rule, so it goes too. The first has nothing over it and takes the gap under it.
+    else if (index) edits.push([before[index - 1].at?.to ?? at.from, at.to, '']);
+    else edits.push([at.from, at.to + /^(?:[ \t\r]*\n)*/.exec(text.slice(at.to))[0].length, '']);
+  }
+  const added = rules.items.filter(item => !before.some(known => known.item === item));
+  if (added.length) {
+    if (!end || !added.every(isMap)) return whole();
+    const lines = added.map(item => written(item, end.dash, end.dash + 2, origin)).join('');
+    edits.push([end.from, end.to, (end.from && text[end.from - 1] !== '\n' ? '\n' : '') + (end.under ?? '') + lines]);
+  }
+  // New lines end the way the file's lines do.
+  const ending = lines => (text.includes('\r\n') ? lines.replace(/\r?\n/g, '\r\n') : lines);
+  const next = edits.sort(([a], [b]) => b - a).reduce((out, [from, to, lines]) => out.slice(0, from) + ending(lines) + out.slice(to), text);
+  const back = parseDocument(next);
+  return !back.errors.length && plain(back) === plain(doc) ? next : whole();
+}
+
+/**
+ * A question perch ships, as the node scan.yaml holds it. Its keys are placed against scan.yaml's own text, so a copy in your
+ * file is worded and wrapped the way perch wrote it. Read fresh each time, because an edit changes the node it is given.
+ */
+function shipped(name, origin) {
+  const rules = rulesOf(parseDocument(SCAN_YAML));
+  place(SCAN_YAML, rules, origin);
+  return rules.items[named(rules, name)];
 }
 
 const named = (rules, name) => rules.items.findIndex(item => item.get?.('name') === name);
@@ -146,7 +274,8 @@ async function fileFor(root, name, file) {
 export async function addRule(root, rule, { file } = {}) {
   const chosen = ruleFile(file ?? RULES_FILE);
   return withLock(root, chosen, async () => {
-    const { path, doc, rules, text } = await open(root, chosen);
+    const page = await open(root, chosen);
+    const { doc, rules } = page;
     const defined = await filesDefining(root, rule.name);
     if (defined.length || named(rules, rule.name) >= 0)
       throw new Error(`${rule.name} is already a rule in ${defined[0] ?? chosen}; perch rules edit ${rule.name} changes it`);
@@ -154,7 +283,7 @@ export async function addRule(root, rule, { file } = {}) {
     const node = doc.createNode({});
     for (const key of FIELDS) if (rule[key] !== undefined) node.set(key, write(doc, key, rule[key]));
     rules.items.push(node);
-    await save(path, chosen, doc, text);
+    await save(page);
     return rule;
   });
 }
@@ -169,24 +298,28 @@ export async function addRule(root, rule, { file } = {}) {
 export async function editRule(root, name, changes, { file: inFile } = {}) {
   const { file } = await fileFor(root, name, inFile);
   return withLock(root, file, async () => {
-    const { path, doc, rules, text } = await open(root, file);
+    const page = await open(root, file);
+    const { doc, rules, origin } = page;
     if (changes.name && changes.name !== name) {
       const taken = await filesDefining(root, changes.name);
       if (taken.length) throw new Error(`${changes.name} is already a rule in ${taken[0]}`);
     }
     let at = named(rules, name);
     if (at < 0) {
-      const shipped = BUILTIN.find(question => question.name === name);
-      if (!shipped) throw new Error(`no question called ${name}; perch rules list shows them`);
-      rules.items.push(doc.createNode(shipped.declared));
+      const copy = shipped(name, origin);
+      if (!copy) throw new Error(`no question called ${name}; perch rules list shows them`);
+      rules.items.push(copy);
       at = rules.items.length - 1;
     }
     const node = rules.items[at];
     // Changing a question that was turned off is asking for it back, worded the new way.
     if (node.get('disabled') && changes.disabled === undefined) {
       node.delete('disabled');
-      const shipped = BUILTIN.find(question => question.name === name);
-      if (shipped) for (const [key, value] of Object.entries(shipped.declared)) if (key !== 'name' && node.get(key) === undefined) node.set(key, write(doc, key, value));
+      for (const pair of shipped(name, origin)?.items ?? []) {
+        if (node.get(pair.key.value) !== undefined) continue;
+        node.delete(pair.key.value);
+        node.items.push(pair);
+      }
     }
     // One assertion per rule: naming a different one replaces the one that was there rather than sitting beside it, and takes with
     // it anything the old one had been written out as. Writing it out longhand does the same to the shorthand.
@@ -196,7 +329,7 @@ export async function editRule(root, name, changes, { file: inFile } = {}) {
     for (const key of FIELDS) if (changes[key] === null) node.delete(key);
     for (const key of FIELDS) if (changes[key] !== undefined && changes[key] !== null) node.set(key, write(doc, key, changes[key]));
     legible(node.toJSON(), file);
-    await save(path, file, doc, text);
+    await save(page);
     return name;
   });
 }
@@ -209,20 +342,21 @@ export async function editRule(root, name, changes, { file: inFile } = {}) {
 export async function removeRule(root, name, { file: inFile } = {}) {
   const { file } = await fileFor(root, name, inFile);
   return withLock(root, file, async () => {
-    const { path, doc, rules, text } = await open(root, file);
+    const page = await open(root, file);
+    const { doc, rules } = page;
     const at = named(rules, name);
-    const shipped = BUILTIN.find(question => question.name === name);
-    if (at < 0 && !shipped) throw new Error(`no question called ${name}; perch rules list shows them`);
+    const builtin = BUILTIN.some(question => question.name === name);
+    if (at < 0 && !builtin) throw new Error(`no question called ${name}; perch rules list shows them`);
     if (at < 0) rules.items.push(doc.createNode({ name, disabled: true }));
     // Your copy of a question perch ships is what kept the shipped one out. Taking the copy out asked the original again, so it
     // is emptied down to the line turning it off instead, in the same place.
-    else if (shipped) {
+    else if (builtin) {
       const node = rules.items[at];
       for (const key of FIELDS) if (key !== 'name') node.delete(key);
       node.set('disabled', true);
     }
     else rules.items.splice(at, 1);
-    await save(path, file, doc, text);
-    return { name, file, turnedOff: Boolean(shipped) };
+    await save(page);
+    return { name, file, turnedOff: builtin };
   });
 }
