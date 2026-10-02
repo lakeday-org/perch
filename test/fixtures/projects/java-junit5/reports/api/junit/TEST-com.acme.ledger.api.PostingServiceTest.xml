@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.acme.ledger.api.PostingServiceTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-10-01T18:51:30.122Z" hostname="studio.local" time="0.823">
+  <properties/>
+  <testcase name="buildsAJournalEntryFromTheRequest()" classname="com.acme.ledger.api.PostingServiceTest" time="0.67"/>
+  <testcase name="rejectsAnInvalidRequestWithoutTouchingTheLedger()" classname="com.acme.ledger.api.PostingServiceTest" time="0.006"/>
+  <testcase name="postsAValidRequestToTheLedger()" classname="com.acme.ledger.api.PostingServiceTest" time="0.043"/>
+  <testcase name="classifiesARejectionMessage(String, ApiError) [1] no account 9999, UNKNOWN_ACCOUNT" classname="com.acme.ledger.api.PostingServiceTest" time="0.012"/>
+  <testcase name="classifiesARejectionMessage(String, ApiError) [2] period through 2025-12-31 is closed, PERIOD_CLOSED" classname="com.acme.ledger.api.PostingServiceTest" time="0.001"/>
+  <testcase name="classifiesARejectionMessage(String, ApiError) [3] debits $1.00 do not equal credits $2.00, UNBALANCED" classname="com.acme.ledger.api.PostingServiceTest" time="0.001"/>
+  <testcase name="classifiesARejectionMessage(String, ApiError) [4] line 1: side must be debit or credit, INVALID_REQUEST" classname="com.acme.ledger.api.PostingServiceTest" time="0.001"/>
+  <testcase name="turnsALedgerRefusalIntoARejection()" classname="com.acme.ledger.api.PostingServiceTest" time="0.007"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[Mockito is currently self-attaching to enable the inline-mock-maker. This will no longer work in future releases of the JDK. Please add Mockito as an agent to your build as described in Mockito's documentation: https://javadoc.io/doc/org.mockito/mockito-core/latest/org.mockito/org/mockito/Mockito.html#0.3
+WARNING: A Java agent has been loaded dynamically (~/.gradle/caches/modules-2/files-2.1/net.bytebuddy/byte-buddy-agent/1.17.7/fbf3d6d649ed37fc9e9c59480a05be0a26e3c2da/byte-buddy-agent-1.17.7.jar)
+WARNING: If a serviceability tool is in use, please run with -XX:+EnableDynamicAgentLoading to hide this warning
+WARNING: If a serviceability tool is not in use, please run with -Djdk.instrument.traceUsage for more information
+WARNING: Dynamic loading of agents will be disallowed by default in a future release
+]]></system-err>
+</testsuite>

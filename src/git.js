@@ -1,9 +1,6 @@
 /** Thin git wrapper; hooks are disabled so the operator's global hook path never runs. */
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { existsSync } from 'node:fs';
-import { mkdir, rm } from 'node:fs/promises';
-import { dirname } from 'node:path';
 
 const execFileAsync = promisify(execFile);
 
@@ -33,19 +30,6 @@ export async function listTree(root, rev) {
     if (!match) throw new Error(`Unexpected ls-tree entry: ${entry}`);
     return { mode: match[1], type: match[2], sha: match[3], size: match[4] === '-' ? 0 : Number(match[4]), path: match[5] };
   });
-}
-
-export async function addWorktree(root, dir, rev) {
-  if (existsSync(dir)) await removeWorktree(root, dir);
-  await git(['worktree', 'prune'], root);
-  await mkdir(dirname(dir), { recursive: true });
-  await git(['worktree', 'add', '--detach', dir, rev], root);
-}
-
-export async function removeWorktree(root, dir) {
-  try { await git(['worktree', 'remove', '--force', dir], root); }
-  catch { await rm(dir, { recursive: true, force: true }); }
-  await git(['worktree', 'prune'], root).catch(() => {});
 }
 
 /** The content of one tracked blob, read without a checkout. */
@@ -130,4 +114,32 @@ export async function readBlobs(root, shas, onBlob) {
   const blobs = openBlobReader(root);
   try { await Promise.all(shas.map((sha, index) => blobs.read(sha).then(text => onBlob(index, text)))); }
   finally { blobs.close(); }
+}
+
+/** A path as git prints it in a diff: quoted, with C escapes, when it holds anything unusual. */
+const diffPath = text => (text.startsWith('"') ? JSON.parse(text.replace(/\\([0-7]{3})/g, (_, octal) => `\\u00${parseInt(octal, 8).toString(16).padStart(2, '0')}`)) : text);
+
+/**
+ * The lines a branch added or changed: for every file the diff from the merge base with `since` to `rev` touches, the line numbers
+ * in `rev` that are new or different. A file the branch deleted has none; a renamed file is under its new path. Lines are read
+ * from the hunk headers of a zero-context diff, which is exactly the set git itself calls changed.
+ */
+export async function changedLines(root, since, rev = 'HEAD') {
+  const base = (await git(['merge-base', since, rev], root)).trim();
+  const text = await git(['-c', 'core.quotePath=false', 'diff', '--unified=0', '--no-color', '--no-ext-diff', '-M', `${base}..${rev}`], root);
+  const files = new Map();
+  let current = null;
+  for (const line of text.split('\n')) {
+    if (line.startsWith('+++ ')) {
+      const path = diffPath(line.slice(4).trimEnd());
+      current = path === '/dev/null' ? null : path.replace(/^b\//, '');
+      if (current && !files.has(current)) files.set(current, []);
+      continue;
+    }
+    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
+    if (!hunk || !current) continue;
+    const start = Number(hunk[1]), count = hunk[2] === undefined ? 1 : Number(hunk[2]);
+    for (let number = start; number < start + count; number++) files.get(current).push(number);
+  }
+  return { base, files };
 }

@@ -4,8 +4,10 @@
 
 # The example applications have deliberate bugs for scanner and workflow verification.
 # Keep it out of ordinary repository scans.
+# scripts/ is dev tooling that regenerates fixture reports and runs live checks; it is not shipped and no test runs it.
 ignore:
   - test/fixtures/**/*
+  - scripts/**
 
 rules:
   - name: cli-honors-api-configuration
@@ -67,7 +69,6 @@ rules:
       or appendFile on a .jsonl path here breaks this rule.
 
   - name: issues-closable
-    where: "test/**/*.js"
     each: test
     ensure_present: >-
       A call to main with close, an issue id and --reason, followed by a call to

@@ -1,6 +1,8 @@
 mod cart;
 mod inventory;
 mod checkout;
+#[cfg(test)]
+mod tests;
 
 use std::collections::HashMap;
 use crate::cart::Item;

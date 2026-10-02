@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.acme.ledger.api.RequestValidatorTest" tests="5" skipped="0" failures="0" errors="0" timestamp="2026-10-01T18:51:30.946Z" hostname="studio.local" time="0.012">
+  <properties/>
+  <testcase name="rejectsADateThatIsNotIso(String) [1] 2026-13-01" classname="com.acme.ledger.api.RequestValidatorTest" time="0.001"/>
+  <testcase name="rejectsADateThatIsNotIso(String) [2] 01/02/2026" classname="com.acme.ledger.api.RequestValidatorTest" time="0.001"/>
+  <testcase name="rejectsADateThatIsNotIso(String) [3] yesterday" classname="com.acme.ledger.api.RequestValidatorTest" time="0.0"/>
+  <testcase name="reportsEveryProblemNotJustTheFirst()" classname="com.acme.ledger.api.RequestValidatorTest" time="0.002"/>
+  <testcase name="acceptsAWellFormedRequest()" classname="com.acme.ledger.api.RequestValidatorTest" time="0.001"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

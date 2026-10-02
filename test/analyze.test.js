@@ -1,4 +1,4 @@
-import { rm } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -77,6 +77,16 @@ describe('perch scan', () => {
     expect(again.id).toBe(scan.id);
     expect(again.created_at).toBe(scan.created_at);
     expect(analyzed).toBe(0);
+    expect(again.files).toEqual(scan.files);
+  });
+
+  it('keeps file records out of scan.json, one line each in files.jsonl', async () => {
+    const repo = await fixture();
+    const scan = await analyzeTree(fixtureOptions(repo, { analyzer }));
+    const header = JSON.parse(await readFile(join(scan.out, 'scan.json'), 'utf8'));
+    expect(header.files).toBe('files.jsonl');
+    const lines = (await readFile(join(scan.out, 'files.jsonl'), 'utf8')).trim().split('\n');
+    expect(lines.map(line => JSON.parse(line).path)).toEqual(scan.files.map(file => file.path));
   });
 
   it('records calls and imports per file and keeps test methods out of the ranking', async () => {

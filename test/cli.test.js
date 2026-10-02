@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { main, parseArgs, VERSION } from '../src/cli.js';
-import { parseFilters } from '../src/questions.js';
+import { filterStrength, parseFilters } from '../src/questions.js';
 import { parseQuestions, questionSet, questionsFor } from '../src/ask.js';
 import { readLint } from '../src/units.js';
 import { gating, shownIssues } from '../src/report.js';
@@ -662,5 +662,95 @@ describe('cli', () => {
     await promisify(execFile)('node', ['build.mjs'], { cwd: root });
     const bundle = await import(new URL('../dist/cli.mjs', import.meta.url).href);
     expect(typeof bundle.main).toBe('function');
-  }, 60_000);
+    // Loaded by node itself, as bin/perch.mjs is: Vitest's loader let a bundle with two imports of one name through.
+    const { stdout } = await promisify(execFile)('node', ['bin/perch.mjs', '--version'], { cwd: root });
+    expect(stdout).toMatch(/\S/);
+    // The bundle parses a large tree in several processes, and what it reads is what one process reads.
+    const files = Array.from({ length: 240 }, (_, at) => ({ type: 'blob', path: `src/f${at}.js`, sha: `sha${at}` }));
+    const source = (_, at) => `import { g } from './f${(at + 1) % 240}.js';\nexport function f${at}(a) {\n  if (a > ${at}) return g(a);\n  return a;\n}\n`;
+    const parse = workers => bundle.analyzeFiles(files, { analyzer: bundle.createSourceAnalyzer(), readSource: source, workers });
+    const [alone, together] = [await parse(0), await parse(4)];
+    expect(together.coverage.parsed).toBe(240);
+    expect(together).toEqual(alone);
+  }, 120_000);
+});
+
+describe('perch rules', () => {
+  const rulesRepo = async () => {
+    const repo = await makeFixture();
+    cleanups.push(repo);
+    vi.spyOn(process, 'cwd').mockReturnValue(repo);
+    return repo;
+  };
+
+  it('adds, lists, edits and removes a rule from the command line', async () => {
+    const repo = await rulesRepo();
+    const { out, io } = capture();
+    expect(await main(['rules', 'add', 'no-todo', '--ensure_absent', 'a TODO comment left in the code', '--where', 'src/**'], io)).toBe(0);
+    expect(out.at(-1)).toBe('Added no-todo to perch.yaml.');
+    await commitAll(repo, 'rule');
+    expect(await main(['rules', 'list', '--json'], io)).toBe(0);
+    expect(JSON.parse(out.at(-1)).find(rule => rule.name === 'no-todo')).toMatchObject({ from: 'perch.yaml', kind: 'ensure_absent', where: 'src/**', text: 'a TODO comment left in the code' });
+    expect(await main(['rules', 'list'], io)).toBe(0);
+    expect(out.at(-1)).toContain('no-todo');
+    expect(await main(['rules', 'edit', 'no-todo', '--ensure_absent', 'a FIXME comment'], io)).toBe(0);
+    expect(out.at(-1)).toBe('Changed no-todo.');
+    expect(await readFile(join(repo, 'perch.yaml'), 'utf8')).toContain('a FIXME comment');
+    expect(await main(['rules', 'remove', 'no-todo'], io)).toBe(0);
+    expect(out.at(-1)).toBe('Removed no-todo from perch.yaml.');
+    expect(await readFile(join(repo, 'perch.yaml'), 'utf8')).not.toContain('no-todo');
+  });
+
+  it('writes a choice rule from --ask, --options, --issue and --gate', async () => {
+    const repo = await rulesRepo();
+    const { out, io } = capture();
+    expect(await main(['rules', 'add', 'handles_absence', '--type', 'choice', '--each', 'method', '--where', 'src/**/*.js',
+      '--ask', 'How does this method handle a value that is missing?', '--options', 'checks=It checks for it; ignores=It carries on with it',
+      '--issue', 'type=defect,label=handles_absence,except=checks,on=true', '--gate', 'no'], io)).toBe(0);
+    expect(out.at(-1)).toBe('Added handles_absence to perch.yaml.');
+    const written = await readFile(join(repo, 'perch.yaml'), 'utf8');
+    expect(written).toContain('checks: It checks for it');
+    expect(written).toContain('ignores: It carries on with it');
+    expect(written).toMatch(/issue:\n\s+type: defect\n\s+label: handles_absence\n\s+except: checks\n\s+on: true/);
+    expect(written).toContain('gate: false');
+  });
+
+  it('refuses a malformed option, issue or yes-or-no flag', async () => {
+    await rulesRepo();
+    const { err, io } = capture();
+    expect(await main(['rules', 'add', 'q', '--type', 'choice', '--ask', 'Which?', '--options', 'checks'], io)).toBe(2);
+    expect(err.at(-2)).toBe('perch: --options is written "name=what it means", separated by semicolons; "checks" is not');
+    expect(await main(['rules', 'add', 'q', '--type', 'choice', '--ask', 'Which?', '--options', ';'], io)).toBe(2);
+    expect(err.at(-2)).toBe('perch: --options needs at least one');
+    expect(await main(['rules', 'add', 'q', '--ensure', 'x', '--issue', 'defect'], io)).toBe(2);
+    expect(err.at(-2)).toBe('perch: --issue is written "name=what it means", separated by semicolons; "defect" is not');
+    expect(await main(['rules', 'add', 'q', '--ensure', 'x', '--gate', 'maybe'], io)).toBe(2);
+    expect(err.at(-2)).toBe('perch: --gate is yes or no, not maybe');
+  });
+
+  it('says what a rules command is missing, and writes nothing', async () => {
+    const repo = await rulesRepo();
+    const { err, io } = capture();
+    expect(await main(['rules', 'rename'], io)).toBe(2);
+    expect(err[0]).toBe('perch: perch rules takes list, add, edit or remove, not rename');
+    expect(await main(['rules', 'add'], io)).toBe(2);
+    expect(err.at(-2)).toBe('perch: perch rules add needs a name');
+    expect(await main(['rules', 'add', 'two', '--ensure', 'a', '--ensure_absent', 'b'], io)).toBe(2);
+    expect(err.at(-2)).toBe('perch: a rule asks one thing: give one of --ensure, --ensure_present, --ensure_absent');
+    expect(await main(['rules', 'add', 'none'], io)).toBe(2);
+    expect(err.at(-2)).toBe('perch: perch rules add needs something to write: --ensure, or --ask with --type');
+    await expect(readFile(join(repo, 'perch.yaml'), 'utf8')).rejects.toThrow();
+  });
+});
+
+describe('ranking what a filter keeps', () => {
+  it('ranks by how likely the filtered problem is, not by whatever else a method carries', () => {
+    const filters = parseFilters('type=lint');
+    const surer = { lint: { rule: 'no-todo', broken: 0.9 } }, lessSure = { lint: { rule: 'no-todo', broken: 0.6 } };
+    expect(filterStrength(surer, filters)).toBe(0.9);
+    expect(filterStrength(lessSure, filters)).toBe(0.6);
+    expect([lessSure, surer].sort((a, b) => filterStrength(b, filters) - filterStrength(a, filters))).toEqual([surer, lessSure]);
+    // No filter, no ranking of its own: the scan's order stands.
+    expect(filterStrength(surer, [])).toBe(null);
+  });
 });

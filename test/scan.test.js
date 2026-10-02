@@ -271,8 +271,8 @@ describe('perch hunt', () => {
     const f = hunt.visited.find(visit => visit.method === 'src/a.js::f');
     expect(f).toMatchObject({ status: 'read', id: expect.stringMatching(/^[0-9a-f]{8}$/), has_bug: 0.9, kind: { choice: 'boundary', probability: 0.8 }, severity: { level: 'P1' }, documented: 0.3, refactor: { choice: 'split' }, callees: expect.arrayContaining(['src/a.js::g', 'src/b.js::h']) });
     expect(f.kind.probabilities.boundary).toBe(0.8);
-    // The test calls f from inside a callback no function names, which is its file's top-level code.
-    expect(f.callers).toEqual(['test/a.test.js::<top-level>']);
+    // The test that calls f is a caller like any other; it is named by its title, and it is never itself read.
+    expect(f.callers).toEqual(['test/a.test.js::f']);
 
     // The first request carried the method and its call graph, and nothing else: its callees' source, its caller's, and the
     // calls between them.
@@ -280,8 +280,8 @@ describe('perch hunt', () => {
     expect(Object.keys(first.state)).toEqual(['method', 'graph']);
     expect(first.state.method).toEqual({ path: 'src/a.js', name: 'f', metrics: expect.any(Object), source: expect.stringMatching(/^export function f\(x\) \{\n/) });
     expect(first.state.method.metrics.risk_score).toBeTypeOf('number');
-    expect(first.state.graph.nodes.map(node => node.id).sort()).toEqual(['src/a.js::g', 'src/b.js::h', 'test/a.test.js::<top-level>']);
-    expect(first.state.graph.edges).toEqual(expect.arrayContaining(['src/a.js::f -> src/a.js::g', 'src/a.js::f -> src/b.js::h', 'src/b.js::h -> src/b.js::k', 'test/a.test.js::<top-level> -> src/a.js::f']));
+    expect(first.state.graph.nodes.map(node => node.id).sort()).toEqual(['src/a.js::g', 'src/b.js::h', 'test/a.test.js::f']);
+    expect(first.state.graph.edges).toEqual(expect.arrayContaining(['src/a.js::f -> src/a.js::g', 'src/a.js::f -> src/b.js::h', 'src/b.js::h -> src/b.js::k', 'test/a.test.js::f -> src/a.js::f']));
     expect(first.questions.misuse_0.instructions.callee).toBe(first.state.graph.nodes[0].id);
     expect(first.questions.kind.type).toBe('choice');
     expect(Object.keys(first.questions.kind.criteria)).toHaveLength(9);

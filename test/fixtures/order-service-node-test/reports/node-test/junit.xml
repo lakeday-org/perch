@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+	<testsuite name="applyDiscount" time="0.001386" disabled="0" errors="0" tests="5" failures="0" skipped="0" hostname="studio.local">
+		<testcase name="takes 10 percent off" time="0.000519" classname="test" file="test/cart.test.ts"/>
+		<testcase name="takes 20 percent off" time="0.000051" classname="test" file="test/cart.test.ts"/>
+		<testcase name="takes 25 percent off" time="0.000041" classname="test" file="test/cart.test.ts"/>
+		<testcase name="takes 50 percent off" time="0.000042" classname="test" file="test/cart.test.ts"/>
+		<testcase name="takes 75 percent off" time="0.000041" classname="test" file="test/cart.test.ts"/>
+	</testsuite>
+	<testsuite name="subtotal" time="0.023696" disabled="0" errors="0" tests="2" failures="1" skipped="0" hostname="studio.local">
+		<testcase name="adds up the cart" time="0.000074" classname="test" file="test/cart.test.ts"/>
+		<testcase name="matches the total the orders API saved" time="0.023529" classname="test" file="test/cart.test.ts" failure="Failed to parse URL from undefined/orders/1">
+			<failure type="testCodeFailure" message="Failed to parse URL from undefined/orders/1">
+[Error [ERR_TEST_FAILURE]: Failed to parse URL from undefined/orders/1] {
+  code: 'ERR_TEST_FAILURE',
+  failureType: 'testCodeFailure',
+  cause: TypeError: Failed to parse URL from undefined/orders/1
+      at node:internal/deps/undici/undici:16416:13
+      at async TestContext.&lt;anonymous> (file://test/cart.test.ts:34:22)
+      at async Test.run (node:internal/test_runner/test:1116:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:786:7) {
+    [cause]: TypeError: Invalid URL
+        at new URL (node:internal/url:819:25)
+        at new Request (node:internal/deps/undici/undici:10971:25)
+        at fetch (node:internal/deps/undici/undici:11891:25)
+        at fetch (node:internal/deps/undici/undici:16414:10)
+        at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)
+        at TestContext.&lt;anonymous> (file://test/cart.test.ts:34:28)
+        at Test.runInAsyncScope (node:async_hooks:212:14)
+        at Test.run (node:internal/test_runner/test:1109:25)
+        at Suite.processPendingSubtests (node:internal/test_runner/test:786:18)
+        at Test.postRun (node:internal/test_runner/test:1238:19) {
+      code: 'ERR_INVALID_URL',
+      input: 'undefined/orders/1'
+    }
+  }
+}
+			</failure>
+		</testcase>
+	</testsuite>
+	<testsuite name="placeOrder" time="0.001135" disabled="0" errors="0" tests="1" failures="0" skipped="0" hostname="studio.local">
+		<testcase name="returns the subtotal when every item is in stock" time="0.000501" classname="test" file="test/checkout.test.ts"/>
+	</testsuite>
+	<testsuite name="canFulfil" time="0.003469" disabled="0" errors="0" tests="4" failures="0" skipped="0" hostname="studio.local">
+		<testcase name="accepts a cart when every item is in stock" time="0.000539" classname="test" file="test/inventory.test.ts"/>
+		<testcase name="rejects an empty cart" time="0.000056" classname="test" file="test/inventory.test.ts"/>
+		<testcase name="accepts a quantity equal to the stock level" time="0.000046" classname="test" file="test/inventory.test.ts"/>
+		<testcase name="returns what the stub returns" time="0.002103" classname="test" file="test/inventory.test.ts"/>
+	</testsuite>
+	<!-- tests 12 -->
+	<!-- suites 4 -->
+	<!-- pass 11 -->
+	<!-- fail 1 -->
+	<!-- cancelled 0 -->
+	<!-- skipped 0 -->
+	<!-- todo 0 -->
+	<!-- duration_ms 144.801125 -->
+</testsuites>

@@ -1,0 +1,168 @@
+{
+  "language": "cpp",
+  "framework": "googletest",
+  "sources": 7,
+  "availability": {
+    "path": "src/checkout.cpp",
+    "name": "can_fulfil"
+  },
+  "tests": [
+    {
+      "n": 1,
+      "file": "test/checkout_test.cpp",
+      "name": "AcceptsWhenEveryItemIsInStock",
+      "direct": [
+        "src/checkout.cpp::can_fulfil"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 2,
+      "file": "test/checkout_test.cpp",
+      "name": "RejectsAnEmptyCart",
+      "direct": [
+        "src/checkout.cpp::can_fulfil"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "empty_or_absent_input",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 3,
+      "file": "test/checkout_test.cpp",
+      "name": "AcceptsQuantityEqualToStock",
+      "direct": [
+        "src/checkout.cpp::can_fulfil"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "boundary",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 4,
+      "file": "test/cart_test.cpp",
+      "name": "TakesTenPercentOff",
+      "direct": [
+        "src/cart.cpp::apply_discount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 5,
+      "file": "test/cart_test.cpp",
+      "name": "TakesTwentyPercentOff",
+      "direct": [
+        "src/cart.cpp::apply_discount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 6,
+      "file": "test/cart_test.cpp",
+      "name": "TakesTwentyFivePercentOff",
+      "direct": [
+        "src/cart.cpp::apply_discount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 7,
+      "file": "test/cart_test.cpp",
+      "name": "TakesFiftyPercentOff",
+      "direct": [
+        "src/cart.cpp::apply_discount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 8,
+      "file": "test/cart_test.cpp",
+      "name": "TakesSeventyFivePercentOff",
+      "direct": [
+        "src/cart.cpp::apply_discount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 9,
+      "file": "test/checkout_test.cpp",
+      "name": "ReturnsWhatTheStubReturns",
+      "direct": [],
+      "cuts": [],
+      "touches": [],
+      "decides": "nothing",
+      "smell": "asserts_mock",
+      "infra": false
+    },
+    {
+      "n": 10,
+      "file": "test/cart_test.cpp",
+      "name": "AddsUpTheCart",
+      "direct": [
+        "src/cart.cpp::subtotal"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "nothing",
+      "smell": "no_assertion",
+      "infra": false
+    },
+    {
+      "n": 11,
+      "file": "test/cart_test.cpp",
+      "name": "MatchesThePriceServiceTotal",
+      "direct": [
+        "src/cart.cpp::subtotal"
+      ],
+      "cuts": [],
+      "touches": [
+        "network",
+        "environment"
+      ],
+      "decides": "happy_path",
+      "smell": "mystery_guest",
+      "infra": true
+    },
+    {
+      "n": 12,
+      "file": "test/checkout_test.cpp",
+      "name": "ReturnsTheSubtotal",
+      "direct": [
+        "src/checkout.cpp::place_order"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    }
+  ]
+}

@@ -1,6 +1,8 @@
 import type { Node } from "./node";
 import type { Reference, ReferenceKind, SourceLocation } from "./types";
 import { isComment, isFunction, location, walkNodes } from "./metrics";
+import { walk, type SyntaxIndex, type Visitor } from "./visit";
+import type { Held } from "./types";
 import { callableName } from "./extensions";
 
 const IMPORT_TYPES = new Set([
@@ -124,6 +126,8 @@ function makeReference(
     module?: string | null;
     imported_name?: string | null;
     alias?: string | null;
+    reexport?: boolean;
+    held?: Held | null;
   },
 ): Reference {
   const point = node.startPosition;
@@ -136,6 +140,8 @@ function makeReference(
     module: values.module ?? null,
     imported_name: values.imported_name ?? null,
     alias: values.alias ?? null,
+    ...(values.reexport ? { reexport: true } : {}),
+    ...(values.held ? { held: values.held } : {}),
     source: sourceRef(node),
     line: point.row + 1,
     column: point.column + 1,
@@ -232,6 +238,8 @@ function importReferences(node: Node, language: string): Reference[] {
       name: module || "<unknown-module>",
       reference: module || "<unknown-module>",
       module: module || null,
+      // `#include "ledger.hpp"` brings the whole header in, and binds no name of its own.
+      ...(node.type === "preproc_include" && module ? { imported_name: "*", alias: "<include>" } : {}),
     }),
   );
 
@@ -301,19 +309,99 @@ function importReferences(node: Node, language: string): Reference[] {
   return references;
 }
 
-function callReference(node: Node): string {
-  // Java's method_invocation and Ruby's call hold the receiver apart from the method, where other grammars hold one callee.
-  const receiver = child(node, "object", "receiver");
-  const method = node.type === "method_invocation" ? child(node, "name") : child(node, "method");
-  if (receiver || method) return validReference(safeNavigation(receiver ? `${text(receiver)}.${text(method)}` : text(method)));
-  return validReference(safeNavigation(text(referenceBase(node))));
+/**
+ * A Java or Kotlin import as the graph needs it: the package it reaches into, the class (or, in Kotlin, the top-level name) it
+ * binds, and the local name. A Java static import binds a member, recorded as `Class.member`; an on-demand import binds `*`.
+ * Which package holds which class is the graph's to decide, since only the graph sees every file's package.
+ */
+function jvmImportReference(node: Node, language: string): Reference | null {
+  const path = node.namedChildren.find((item) => ["scoped_identifier", "identifier"].includes(item.type));
+  if (!path) return null;
+  const segment = language === "kotlin" ? "simple_identifier" : "identifier";
+  const segments = [...walkNodes(path)].filter((item) => item.type === segment).map((item) => item.text);
+  const wildcard = node.namedChildren.some((item) => item.type === "asterisk" || item.type === "wildcard_import");
+  const isStatic = language === "java" && Array.from({ length: node.childCount }, (_, index) => node.child(index)).some((item) => item?.type === "static");
+  const alias = language === "kotlin" ? node.namedChildren.find((item) => item.type === "import_alias")?.namedChildren[0]?.text ?? null : null;
+  const last = segments.at(-1) ?? "";
+  const [module, imported, local] = isStatic
+    ? (wildcard ? [segments.slice(0, -1), `${last}.*`, "*"] : [segments.slice(0, -2), `${segments.at(-2)}.${last}`, last])
+    : (wildcard ? [segments, "*", "*"] : [segments.slice(0, -1), last, alias ?? last]);
+  const reference = wildcard ? `${segments.join(".")}.*` : segments.join(".");
+  return makeReference("import", node, { name: reference, reference, module: module.join("."), imported_name: imported, alias: local });
 }
 
-function callReferenceRecord(node: Node): Reference {
-  const reference = callReference(node);
+function callReference(node: Node, language: string): string {
+  if (node.type === "method_invocation") {
+    const object = child(node, "object");
+    const name = text(child(node, "name"));
+    const named = validReference(object ? `${pathText(object, language)}.${name}` : name);
+    // `Money.of(1).plus(...)`: the member of what the receiver holds, as for every other language's member call.
+    return named === '<dynamic>' && object ? `$receiver.${name}` : named;
+  }
+  // Ruby's call holds the receiver apart from the method, where other grammars hold one callee.
+  const receiver = child(node, "receiver"), method = child(node, "method");
+  if (receiver || method) return validReference(safeNavigation(receiver ? `${text(receiver)}.${text(method)}` : text(method)));
+  const callee = referenceBase(node);
+  const named = validReference(pathText(callee, language));
+  // `"x".size()`, `Thing::new().get()` or `Entry(day).debit()`: the receiver is no name, but the member is. `$` cannot begin a name
+  // in these languages, so `$receiver` stands for one the tree cannot name without being mistaken for one.
+  if (named === '<dynamic>') {
+    const split = memberOf(callee, language);
+    if (split?.member) return `$receiver.${split.member}`;
+  }
+  return named;
+}
+
+/**
+ * A callee as a path: `ledger->post` in C++ and `ledger?.post` in Kotlin are member calls as `ledger.post` is, and a chain rustfmt
+ * breaks across lines (`ledger\n    .post`) is the same path.
+ */
+function pathText(callee: Node | null, language: string): string {
+  // A safe call, `a?.b()` or Ruby's `a&.b`, calls the same method `a.b()` does whenever it calls anything.
+  let written = safeNavigation(text(callee).replace(/\s*(\.|::|\?\.|&\.|->)\s*/g, '$1'));
+  if (language === 'c' || language === 'cpp') written = written.replaceAll('->', '.');
+  return written;
+}
+
+/** What a call calls: its callee, or for a Java invocation, the invocation itself, which holds the object and the name. */
+const calleeOf = (node: Node): Node | null => (node.type === 'method_invocation' ? node : referenceBase(node));
+
+/** A member access as its receiver and the member's name: `a.b`, `a->b`, `a?.b`, a Java invocation's object and name. */
+function memberOf(callee: Node | null, language: string): { receiver: Node | null; member: string } | null {
+  if (!callee) return null;
+  if (callee.type === 'method_invocation') return { receiver: child(callee, 'object'), member: text(child(callee, 'name')) };
+  const receiver = child(callee, 'object', 'value', 'argument', 'operand');
+  const field = child(callee, 'property', 'attribute', 'field', 'name');
+  if (receiver && field && /^[\p{L}_$][\p{L}\p{N}_$]*$/u.test(text(field))) return { receiver, member: text(field) };
+  if (language === 'kotlin' && callee.type === 'navigation_expression') {
+    const member = [...walkNodes(callee)].reverse().find(item => item.type === 'simple_identifier');
+    if (member && member.endIndex === callee.endIndex) return { receiver: callee.namedChildren[0] ?? null, member: text(member) };
+  }
+  return null;
+}
+
+/**
+ * What a receiver the tree cannot name holds, when its source says: the result of a call (`Thing::new()`, `Entry(day)`, `make()`),
+ * a construction (`new Ledger()`), or a value of a type (`Color::Red`).
+ */
+function receiverOf(receiver: Node | null, language: string): Held | null {
+  const value = valueOf(receiver, language);
+  if (value) return value;
+  // `Color::Red`: a variant, or a constant, of the type named before it.
+  if (receiver && ['scoped_identifier', 'field_expression', 'member_expression', 'attribute'].includes(receiver.type)) {
+    const parts = pathText(receiver, language).split(/::|\./);
+    if (parts.length >= 2 && /^[A-Z]/.test(parts.at(-2)!)) return { type: parts.at(-2) };
+  }
+  return null;
+}
+
+function callReferenceRecord(node: Node, language: string): Reference {
+  const reference = callReference(node, language);
+  const hint = reference.startsWith('$receiver.') ? receiverOf(memberOf(calleeOf(node), language)?.receiver ?? null, language) : null;
   return makeReference("call", node, {
     name: reference,
     reference,
+    ...(hint ? { held: hint } : {}),
   });
 }
 
@@ -347,32 +435,453 @@ function isPassedAsValue(node: Node): boolean {
   return false;
 }
 
+/** The method a Java or Kotlin method reference names, as a call to it would: `builder.build`, `Money.plus`, `Account` for `::new`. */
+function methodReferenceName(node: Node): string | null {
+  const [receiver, member] = node.namedChildren.length >= 2 ? node.namedChildren : [null, node.namedChildren[0] ?? null];
+  const written = node.text.slice(node.text.lastIndexOf("::") + 2).trim();
+  const target = receiver ? text(receiver, 128).replace(/<.*>$/s, "") : "";
+  if (written === "new") return target ? validReference(target) : null;
+  const name = member?.text === written ? written : written.match(/^[\p{L}_$][\p{L}\p{N}_$]*/u)?.[0];
+  if (!name) return null;
+  const reference = validReference(target ? `${target}.${name}` : name);
+  return reference === "<dynamic>" ? null : reference;
+}
+
+/**
+ * `Limiter limiter(config, clock);` in a function body: C++ reads it as a variable constructed from two arguments, and the
+ * grammar, which cannot tell a type from a value, as a function declared with two parameters. A body declares no functions.
+ */
+function constructedInBody(declarator: Node): boolean {
+  return declarator.type === 'function_declarator' && declarator.parent?.type === 'declaration' && declarator.parent.parent?.type === 'compound_statement';
+}
+
+/**
+ * `using Squares = LruCache<int, int>;` and `typedef LruCache<int, int> Squares;`: a call or a type written with the alias
+ * names the class, so each reference to one is rewritten to it in place.
+ */
+function unaliased(index: SyntaxIndex, references: Reference[]): void {
+  const aliases = new Map<string, string>();
+  for (const node of index.of('alias_declaration', 'type_definition')) {
+    const name = node.type === 'alias_declaration' ? child(node, 'name') : node.type === 'type_definition' ? child(node, 'declarator') : null;
+    const type = name ? bareType(child(node, 'type')) : null;
+    if (name?.type === 'type_identifier' && type && type !== name.text) aliases.set(name.text, type.replaceAll('::', '.'));
+  }
+  if (!aliases.size) return;
+  const swap = (written: string) => {
+    const [head, ...rest] = written.split(/::|\./);
+    return aliases.has(head) ? [aliases.get(head)!, ...rest].join('.') : written;
+  };
+  for (const reference of references) {
+    if (reference.kind === 'call') { reference.name = swap(reference.name); reference.reference = reference.name; }
+    if (reference.held?.type) reference.held = { ...reference.held, type: swap(reference.held.type) };
+  }
+}
+
+/** The class a C++ declaration constructs with arguments, `Cart cart(3)` or `Cart cart{3}`; not a standard library type. */
+function cppConstructed(node: Node): string | null {
+  const type = child(node, 'type');
+  if (!type || !['type_identifier', 'qualified_identifier', 'template_type'].includes(type.type) || /^std::/.test(type.text)) return null;
+  const constructs = node.namedChildren.some(item => (item.type === 'init_declarator' && ['argument_list', 'initializer_list'].includes(child(item, 'value')?.type ?? ''))
+    || constructedInBody(item));
+  return constructs ? bareType(type)?.replaceAll('::', '.') ?? null : null;
+}
+
 function valueReference(node: Node): Reference {
   const name = text(node, 128);
   return makeReference("value", node, { name, reference: name });
 }
 
-export function collectReferences(root: Node, language: string): Reference[] {
-  const references: Reference[] = [];
-  for (const node of walkNodes(root)) {
-    if (isComment(node)) continue;
-    if (IMPORT_TYPES.has(node.type)) {
-      references.push(...importReferences(node, language));
-    } else if (language === 'groovy' && node.type === 'func') {
-      const unit = node.parent, block = unit?.parent;
-      // A declaration's signature also contains a func node; only uses are calls.
-      if (block?.type === 'block' && block.namedChildren[0]?.id === unit?.id && callableName(block)) continue;
-      const name = validReference(text(node.namedChildren[0]));
-      references.push(makeReference('call', node, { name, reference: name }));
-    } else if (CALL_TYPES.has(node.type) && referenceBase(node)?.type === "import") {
-      // `import("./foo")` names a module, as a dynamic import or in a type position; it calls nothing named import.
-      const module = stripModule(text(child(node, "arguments")?.namedChildren[0] ?? null));
-      references.push(makeReference("import", node, { name: module || "<unknown-module>", reference: module || "<unknown-module>", module: module || null }));
-    } else if (CALL_TYPES.has(node.type)) {
-      references.push(callReferenceRecord(node));
-    } else if (IDENTIFIER_TYPES.has(node.type) && isPassedAsValue(node) && validReference(text(node, 128))) {
-      references.push(valueReference(node));
+/**
+ * Calls written inside a Rust macro's arguments. The grammar leaves a macro's arguments as a flat token tree, so
+ * `assert_eq!(apply_discount(200, 10), 180)` holds no call node, and every call a test makes inside an assertion was missing
+ * from the graph. In the tokens a call is a path, `f`, `cart::f` or `x.f`, followed directly by a parenthesized tree. A path
+ * with anything else in it, a turbofish or a call result, is not a name the graph could resolve and is skipped.
+ */
+function rustMacroCalls(tree: Node): Reference[] {
+  const tokens = Array.from({ length: tree.childCount }, (_, index) => tree.child(index)!);
+  const calls: Reference[] = [];
+  // What each call's result holds, by the index of its argument list: `Version::new(1, 4, 7).bump(..)` is a bump of what new
+  // returns, and `.unwrap()` or `?` on it hands the same value on.
+  const results = new Map<number, Held | null>();
+  for (let at = 0; at + 1 < tokens.length; at += 1) {
+    const next = tokens[at + 1];
+    if (tokens[at].type !== "identifier" || next.type !== "token_tree" || next.child(0)?.type !== "(") continue;
+    const parts = [tokens[at].text];
+    let start = at, broken = false;
+    while (start >= 2 && ["::", "."].includes(tokens[start - 1].type)) {
+      const before = tokens[start - 2];
+      if (!["identifier", "self", "super", "crate"].includes(before.type)) { broken = true; break; }
+      parts.unshift(before.text, tokens[start - 1].type);
+      start -= 2;
+    }
+    if (broken && start === at && tokens[at - 1]?.type === ".") {
+      const receiver = tokens[at - 2]?.type === "?" ? at - 3 : at - 2;
+      if (!results.has(receiver)) continue;
+      const held = results.get(receiver) ?? null;
+      if (UNWRAPS.has(tokens[at].text)) { results.set(at + 1, held); continue; }
+      calls.push(makeReference("call", tokens[at], { name: `$receiver.${tokens[at].text}`, reference: `$receiver.${tokens[at].text}`, held }));
+      results.set(at + 1, held ? { call: `$receiver.${tokens[at].text}`, on: held } : null);
+      continue;
+    }
+    if (broken || (start >= 1 && ["::", ".", "fn"].includes(tokens[start - 1].type))) continue;
+    const name = validReference(parts.join(""));
+    if (name === "<dynamic>") continue;
+    calls.push(makeReference("call", tokens[start], { name, reference: name }));
+    const local = parts.length === 3 && parts[1] === "." ? parts[0] : null;
+    results.set(at + 1, local ? { call: `$receiver.${tokens[at].text}`, on: { local } } : { call: name });
+  }
+  return calls;
+}
+
+/**
+ * Member access that reads through an object by name: `process.env.KEY`, `os.environ`, `config.url`. A call records its callee
+ * already; this is the access nothing calls, which is how a program reads its environment and much of its configuration. Only
+ * the whole chain is kept, since `a.b.c` read once is not also a read of `a.b`.
+ */
+const MEMBER_TYPES = new Set([
+  "member_expression",
+  "attribute",
+  "field_access",
+  "field_expression",
+  "navigation_expression",
+  "selector_expression",
+]);
+
+/** The child of a member access that holds the object it is read from. */
+function memberObject(node: Node): Node | null {
+  return child(node, "object", "value", "argument", "operand") ?? node.namedChildren[0] ?? null;
+}
+
+/** Whether `node` is the whole of a member chain and not the callee of a call: the part a read is recorded for. */
+function isMemberRead(node: Node): boolean {
+  if (!MEMBER_TYPES.has(node.type)) return false;
+  const parent = node.parent;
+  if (!parent) return true;
+  if (MEMBER_TYPES.has(parent.type) && memberObject(parent)?.id === node.id) return false;
+  return !(CALL_TYPES.has(parent.type) && referenceBase(parent)?.id === node.id);
+}
+
+const COMMONJS = new Set(["javascript", "typescript", "tsx"]);
+
+/**
+ * `export * from "./m"` and `export { a, b as c } from "./m"`: names this module passes on from another without defining them, as
+ * a TypeScript barrel file does. Recorded as imports marked `reexport`, so a lookup that misses here follows them to the definition.
+ */
+function reexportReferences(node: Node): Reference[] {
+  const module = stripModule(text(node.childForFieldName("source")));
+  const record = (imported: string, alias: string | null) => makeReference("import", node, { name: module, reference: module, module, imported_name: imported, alias, reexport: true });
+  const clause = node.namedChildren.find((item) => item.type === "export_clause");
+  if (!clause) {
+    const namespace = node.namedChildren.find((item) => item.type === "namespace_export");
+    return [record("*", namespace ? text(namespace.namedChildren.at(-1) ?? null) || null : null)];
+  }
+  return clause.namedChildren.filter((item) => item.type === "export_specifier").map((item) => {
+    const name = text(item.childForFieldName("name"));
+    return record(name, text(item.childForFieldName("alias")) || name);
+  });
+}
+
+/** `require("./foo")` with a literal path: CommonJS's import, which is a call to the grammar. */
+function isRequire(node: Node, language: string): boolean {
+  if (!COMMONJS.has(language) || node.type !== "call_expression") return false;
+  const callee = referenceBase(node);
+  const argument = child(node, "arguments")?.namedChildren[0] ?? null;
+  return callee?.type === "identifier" && text(callee) === "require" && argument?.type === "string";
+}
+
+/**
+ * The names a `require` binds: the whole module as `x` in `const x = require("m")`, each name in `const { a, b: c } = require("m")`,
+ * and the module alone when nothing is bound. Recorded as imports, so a call through them resolves as it does through `import`.
+ */
+function requireReferences(node: Node): Reference[] {
+  const module = stripModule(text(child(node, "arguments")?.namedChildren[0] ?? null));
+  const bound = node.parent?.type === "variable_declarator" ? node.parent.childForFieldName("name") : null;
+  const record = (imported: string, alias: string | null) => makeReference("import", node, { name: module, reference: module, module, imported_name: imported, alias });
+  if (bound?.type === "identifier") return [record("*", text(bound))];
+  // `exports.request = require('./request')`: the module passes another on under a name, as `export * as request from` does.
+  const assigned = node.parent?.type === "assignment_expression" ? node.parent.childForFieldName("left") : null;
+  const passed = assigned && /^(?:module\.)?exports\.([\p{L}_$][\p{L}\p{N}_$]*)$/u.exec(text(assigned));
+  if (passed) return [makeReference("import", node, { name: module, reference: module, module, imported_name: "*", alias: passed[1], reexport: true })];
+  if (bound?.type === "object_pattern") {
+    const names = bound.namedChildren.flatMap((item) => {
+      if (item.type === "shorthand_property_identifier_pattern") return [record(text(item), text(item))];
+      if (item.type === "pair_pattern") return [record(text(item.childForFieldName("key")), text(item.childForFieldName("value")))];
+      return [];
+    });
+    if (names.length) return names;
+  }
+  return [record("*", null)];
+}
+
+/** Types that hold one value of another: an `Option<Ledger>` or a `Promise<Ledger>` is, for a call on what it gives, a Ledger. */
+const WRAPPERS = new Set(['Option', 'Result', 'Box', 'Rc', 'Arc', 'RefCell', 'Cow', 'Optional', 'Promise', 'Awaitable', 'Future', 'unique_ptr', 'shared_ptr']);
+
+/** A type as written, without its arguments or its pointer: `Ledger<T>`, `Ledger*` and `&mut Ledger` are Ledger. */
+function typeName(written: string): string | null {
+  let type = written.replace(/^:\s*/, '').replace(/^->\s*/, '').replace(/\s+/g, ' ').trim()
+    .replace(/^(const|mut|dyn|impl|final|readonly)\s+/, '').replace(/[*&]+/g, '').replace(/^(mut|const)\s+/, '').replace(/\s+(const)$/, '').trim();
+  const generic = /^([\p{L}_][\p{L}\p{N}_.:]*)\s*<(.*)>$/su.exec(type);
+  if (generic) {
+    const head = generic[1].split(/::|\./).at(-1)!;
+    if (WRAPPERS.has(head)) {
+      let depth = 0, first = '';
+      for (const character of generic[2]) { if (character === '<') depth++; if (character === '>') depth--; if (character === ',' && depth === 0) break; first += character; }
+      return typeName(first);
+    }
+    type = generic[1];
+  }
+  type = type.replace(/\[\]$/, '').replace(/\s/g, '');
+  return /^[\p{L}_][\p{L}\p{N}_.:]*$/u.test(type) && !['var', 'auto', 'Self', 'self'].includes(type) ? type : null;
+}
+const bareType = (node: Node | null): string | null => {
+  if (!node || ['placeholder_type_specifier', 'void_type', 'primitive_type', 'integral_type', 'floating_point_type', 'boolean_type', 'unit_type'].includes(node.type)) return null;
+  return typeName(text(node));
+};
+/** Calls that hand back the one value they were given or hold: `Some(x)`, `Ok(x)`, `Box::new(x)`, `x.unwrap()`, `x?`. */
+const PASS_THROUGH = new Set(['Some', 'Ok', 'Box::new', 'Rc::new', 'Arc::new', 'RefCell::new', 'Optional.of', 'Promise.resolve']);
+// Rust's `map_err`, `ok_or` and `context` change only the error a Result or an Option carries, and `as_ref` or `borrow` only how
+// the value is held: `Version::parse(v).map_err(..)?` is a Version.
+const UNWRAPS = new Set(['unwrap', 'expect', 'unwrap_or_default', 'unwrap_or', 'unwrap_or_else', 'clone', 'to_owned', 'get', 'orElseThrow', 'value',
+  'map_err', 'ok_or', 'ok_or_else', 'context', 'with_context', 'as_ref', 'as_mut', 'borrow', 'borrow_mut']);
+
+/**
+ * What a value is, when its source says: an instance of a class it constructs (`new Ledger()`, `Ledger { .. }`), or the result of
+ * a call whose type is found later (`make()`, `Ledger::new()`, `Ledger(1)` in Python, where a class is called like a function).
+ */
+function valueOf(value: Node | null, language: string): Held | null {
+  if (!value) return null;
+  if (['parenthesized_expression', 'await_expression', 'try_expression', 'reference_expression'].includes(value.type)) return valueOf(value.namedChildren.at(-1) ?? null, language);
+  // `return this` or `self`: a fluent method hands back an instance of its own class.
+  if (['this', 'self'].includes(value.type) || (value.type === 'identifier' && text(value) === 'self')) return { type: '$self' };
+  // A local handed on: `t` at the end of a Rust function, `return entry`, followed to what that local holds.
+  if (value.type === 'identifier') return { local: text(value) };
+  // `items[0]`: an element of a typed list is of the list's element type, which is what a `Money[]` is recorded as.
+  if (['subscript_expression', 'index_expression', 'subscript', 'element_reference'].includes(value.type)) return valueOf(child(value, 'object', 'value') ?? value.namedChildren[0] ?? null, language);
+  if (CALL_TYPES.has(value.type)) {
+    const callee = referenceBase(value);
+    const argument = child(value, 'arguments')?.namedChildren.find(item => !isComment(item)) ?? null;
+    if (PASS_THROUGH.has(pathText(callee, language))) return valueOf(argument, language);
+    const split = memberOf(callee, language);
+    if (split && UNWRAPS.has(split.member)) return valueOf(split.receiver, language);
+  }
+  if (value.type === 'new_expression') return { type: bareType(child(value, 'constructor', 'type')) };
+  if (value.type === 'object_creation_expression') return { type: bareType(child(value, 'type')) };
+  if (value.type === 'struct_expression') return { type: bareType(child(value, 'name')) };
+  if (CALL_TYPES.has(value.type)) {
+    const callee = callReference(value, language);
+    if (callee === '<dynamic>') return null;
+    // `Entry(day).debit(...)`: a member of what the receiver holds, kept with the receiver so a chain of them is followed.
+    const on = callee.startsWith('$receiver.') ? receiverOf(memberOf(calleeOf(value), language)?.receiver ?? null, language) : null;
+    return on ? { call: callee, on } : { call: callee };
+  }
+  return null;
+}
+
+/** `const ledger = new Ledger()`, `Ledger a(1);`, `let l: Ledger = make();`, `self.store = Store()`: a name and what it holds. */
+function bindingOf(node: Node, language: string): { name: string; held: Held } | null {
+  let name: Node | null, type: Node | null = null, value: Node | null = null;
+  if (node.type === 'variable_declarator') {
+    name = child(node, 'name'); value = child(node, 'value');
+    type = child(node, 'type') ?? (['local_variable_declaration', 'field_declaration'].includes(node.parent?.type ?? '') ? child(node.parent!, 'type') : null);
+  } else if (node.type === 'assignment' || node.type === 'assignment_expression') {
+    name = child(node, 'left'); value = child(node, 'right');
+  } else if (node.type === 'field_declaration' && (language === 'cpp' || language === 'c')) {
+    // `Ledger book_{Currency::USD};` in a class: a member the class's methods name bare.
+    type = child(node, 'type');
+    const declarator = child(node, 'declarator');
+    name = declarator?.type === 'pointer_declarator' || declarator?.type === 'reference_declarator' ? declarator.namedChildren.at(-1) ?? null : declarator;
+  } else if (node.type === 'property_declaration' && language === 'kotlin') {
+    // `val source: Source = make()`: the name and type are in the variable_declaration, the value after it.
+    const variable = node.namedChildren.find(item => item.type === 'variable_declaration');
+    if (!variable) return null;
+    name = variable.namedChildren.find(item => item.type === 'simple_identifier') ?? null;
+    type = variable.namedChildren.find(item => item.type === 'user_type' || item.type === 'nullable_type') ?? null;
+    const after = node.namedChildren.slice(node.namedChildren.indexOf(variable) + 1).filter(item => !isComment(item));
+    value = after.find(item => !['property_delegate', 'getter', 'setter', 'type_constraints'].includes(item.type)) ?? null;
+  } else if (node.type === 'let_declaration') {
+    name = child(node, 'pattern'); type = child(node, 'type'); value = child(node, 'value');
+  } else if (node.type === 'init_declarator' || (node.type === 'declaration' && language !== 'python')) {
+    const declaration = node.type === 'init_declarator' ? node.parent : node;
+    if (declaration?.type !== 'declaration') return null;
+    type = child(declaration, 'type');
+    const declarator = node.type === 'init_declarator' ? child(node, 'declarator') : child(node, 'declarator');
+    name = declarator?.type === 'pointer_declarator' || declarator?.type === 'reference_declarator' ? declarator.namedChildren.at(-1) ?? null
+      : declarator && constructedInBody(declarator) ? child(declarator, 'declarator') : declarator;
+    if (node.type === 'init_declarator') value = child(node, 'value');
+    if (value?.type === 'argument_list' || value?.type === 'initializer_list') value = null;
+  } else return null;
+  const written = text(name).replace(/^self\./, 'this.');
+  if (!written || !/^(this\.)?[\p{L}_$][\p{L}\p{N}_$]*$/u.test(written)) return null;
+  const held = valueOf(value, language);
+  const declared = bareType(type);
+  if (!declared && !held) return null;
+  return { name: written, held: declared ? { type: declared } : held! };
+}
+
+/** The classes a class extends or implements, by name: `class A(Base)`, `extends Base implements I`, `: public Base`. */
+function basesOf(node: Node): string[] {
+  const names: Node[] = [];
+  if (node.type === 'class_definition') names.push(...(child(node, 'superclasses')?.namedChildren ?? []));
+  else if (node.type === 'class_declaration' || node.type === 'class' || node.type === 'class_specifier' || node.type === 'struct_specifier') {
+    const superclass = child(node, 'superclass');
+    if (superclass) names.push(...superclass.namedChildren);
+    for (const list of node.namedChildren.filter(item => ['class_heritage', 'super_interfaces', 'base_class_clause'].includes(item.type))) {
+      for (const item of list.namedChildren) {
+        if (item.type === 'extends_clause') names.push(child(item, 'value') ?? item.namedChildren[0]!);
+        else if (item.type === 'implements_clause' || item.type === 'type_list') names.push(...item.namedChildren);
+        else if (item.type !== 'access_specifier') names.push(item);
+      }
     }
   }
-  return references;
+  return names.map(item => typeName(text(item).replace(/^(public|private|protected|virtual)\s+/, ''))).filter((name): name is string => Boolean(name) && name !== 'object');
+}
+
+/** A parameter with a declared type: `entry: Entry`, `Entry entry`, `entry: &Entry`, `const Entry& entry`. */
+function parameterOf(node: Node): { name: string; held: Held } | null {
+  let name: Node | null, type: Node | null;
+  if (node.type === 'typed_parameter') { name = node.namedChildren.find(item => item.type === 'identifier') ?? null; type = child(node, 'type'); }
+  else if (node.type === 'typed_default_parameter') { name = child(node, 'name'); type = child(node, 'type'); }
+  else if (node.type === 'required_parameter' || node.type === 'optional_parameter') { name = child(node, 'pattern'); type = child(node, 'type'); }
+  else if (node.type === 'formal_parameter' || node.type === 'parameter') { name = child(node, 'name', 'pattern'); type = child(node, 'type'); }
+  // `for (Box b : boxes)` and `catch (StockException e)` in Java: a variable with the type written before it.
+  else if (node.type === 'enhanced_for_statement') { name = child(node, 'name'); type = child(node, 'type'); }
+  else if (node.type === 'catch_formal_parameter') { name = child(node, 'name'); type = node.namedChildren.find(item => item.type === 'catch_type') ?? null; }
+  else if (node.type === 'parameter_declaration') {
+    type = child(node, 'type');
+    let declarator = child(node, 'declarator');
+    while (declarator && ['reference_declarator', 'pointer_declarator'].includes(declarator.type)) declarator = declarator.namedChildren.at(-1) ?? null;
+    name = declarator;
+  } else return null;
+  const written = text(name).replace(/^mut\s+/, '');
+  const kind = bareType(type);
+  return kind && /^[\p{L}_$][\p{L}\p{N}_$]*$/u.test(written) ? { name: written, held: { type: kind } } : null;
+}
+
+/** A function's declared return type: Python's `-> Entry`, a TypeScript annotation, Java's method type, Rust's `-> Entry`. */
+function declaredReturn(node: Node, language: string): string | null {
+  if (!isFunction(node)) return null;
+  const declared = child(node, 'return_type') ?? (['java', 'cpp', 'c', 'c_sharp', 'csharp'].includes(language) ? child(node, 'type') : null);
+  // `sort(): this` in TypeScript and `-> Self` in Rust: an instance of the class the method is in, whichever that is.
+  if (declared && /^(?::|->)?\s*&?\s*(?:mut\s+)?(?:this|Self)$/.test(text(declared).trim())) return '$self';
+  return bareType(declared);
+}
+
+/** What a function returns, when it says: `return new Ledger()`, `return make()`, an arrow's body, a Rust block's last expression. */
+function returnOf(node: Node, language: string): Node | null {
+  if (node.type === 'return_statement' || node.type === 'return_expression') return node.namedChildren.find(item => !isComment(item)) ?? null;
+  if (node.type === 'arrow_function') { const body = child(node, 'body'); return body && body.type !== 'statement_block' ? body : null; }
+  if (language === 'rust' && node.type === 'block' && node.parent?.type === 'function_item') {
+    const last = node.namedChildren.filter(item => !isComment(item)).at(-1);
+    return last && !last.type.endsWith('_statement') && last.type !== 'let_declaration' ? last : null;
+  }
+  return null;
+}
+
+/**
+ * `const { Response } = app` where `const app = require('..')`: each name taken out of a required module is an import of that
+ * name from it, as `const { Response } = require('..')` would be.
+ */
+function destructuredRequires(references: Reference[], taken: Node[]): Reference[] {
+  const modules = new Map(references.filter(item => item.kind === "import" && item.imported_name === "*" && item.alias && !item.reexport).map(item => [item.alias!, item]));
+  return taken.flatMap(node => {
+    const required = modules.get(text(node.childForFieldName("value")));
+    if (!required?.module) return [];
+    const module = required.module;
+    const record = (imported: string, alias: string) => makeReference("import", node, { name: module, reference: module, module, imported_name: imported, alias });
+    return (node.childForFieldName("name")?.namedChildren ?? []).flatMap(item => {
+      if (item.type === "shorthand_property_identifier_pattern") return [record(text(item), text(item))];
+      if (item.type === "pair_pattern") return [record(text(item.childForFieldName("key")), text(item.childForFieldName("value")))];
+      return [];
+    });
+  });
+}
+
+/** The references stage of the one walk: what each node calls, imports, binds, returns, extends or reads, in walk order. */
+export function referenceVisitor(language: string): Visitor & { finish(index: SyntaxIndex): Reference[] } {
+  const references: Reference[] = [], taken: Node[] = [];
+  const enter = (node: Node): void => {
+  if (isComment(node)) return;
+  if (COMMONJS.has(language) && node.type === "variable_declarator" && child(node, "name")?.type === "object_pattern" && child(node, "value")?.type === "identifier") taken.push(node);
+  // A class's bases: where a method or a field it does not define itself is found.
+  const bases = basesOf(node);
+  if (bases.length) {
+    const name = text(child(node, 'name'));
+    for (const base of bases) references.push(makeReference('extends', node, { name, reference: base }));
+  }
+  const binding = bindingOf(node, language) ?? parameterOf(node);
+  if (binding) references.push(makeReference('bind', node, { name: binding.name, reference: binding.name, held: binding.held }));
+  // Declared first, so it is what a function returns ahead of anything its body says.
+  const declared = declaredReturn(node, language);
+  if (declared) references.push({ ...makeReference('returns', node, { name: 'return', reference: 'return', held: { type: declared } }), source: `function:${node.startIndex}` });
+  const returned = returnOf(node, language);
+  if (returned) {
+    const value = valueOf(returned, language);
+    // Owned by the function returning it: an arrow's body and a block's tail belong to the function they are the body of.
+    const owner = node.type === 'arrow_function' ? node : node.type === 'block' ? node.parent! : null;
+    if (value) references.push({ ...makeReference('returns', returned, { name: 'return', reference: 'return', held: value }),
+      ...(owner ? { source: `function:${owner.startIndex}` } : {}) });
+  }
+  if (IMPORT_TYPES.has(node.type) || (language === "kotlin" && node.type === "import_header")) {
+    if (language !== "kotlin") references.push(...importReferences(node, language));
+    const binding = language === "java" || language === "kotlin" ? jvmImportReference(node, language) : null;
+    if (binding) references.push(binding);
+  } else if (language === 'groovy' && node.type === 'func') {
+    const unit = node.parent, block = unit?.parent;
+    // A declaration's signature also contains a func node; only uses are calls.
+    if (block?.type === 'block' && block.namedChildren[0]?.id === unit?.id && callableName(block)) return;
+    const name = validReference(text(node.namedChildren[0]));
+    references.push(makeReference('call', node, { name, reference: name }));
+  } else if (COMMONJS.has(language) && node.type === "export_statement" && node.childForFieldName("source")) {
+    references.push(...reexportReferences(node));
+  } else if (node.type === 'using_declaration') {
+    // `using namespace ledger;` and `using ledger::Money;`: recorded among the imports, the namespace or the name as the
+    // module, for calls that name it without its namespace.
+    const named = node.namedChildren.find(item => item.type === 'identifier' || item.type === 'namespace_identifier' || item.type === 'qualified_identifier');
+    const whole = node.children.some(item => item.type === 'namespace');
+    if (named) references.push(makeReference('import', node, { name: named.text, reference: named.text, module: named.text, imported_name: whole ? '<namespace>' : '<using>' }));
+  } else if (node.type === 'declaration' && (language === 'cpp') && cppConstructed(node)) {
+    // `Transaction sale("invoice 1041");` and `Cart cart{3};` construct: a call to the class, which the graph takes to its
+    // constructor. The declaration's binding is read above.
+    const kind = cppConstructed(node)!;
+    references.push(makeReference('call', node, { name: kind, reference: kind }));
+  } else if (node.type === 'new_expression' || node.type === 'object_creation_expression') {
+    // `new Ledger()` runs Ledger's constructor: a call to the class, which the graph takes to its constructor.
+    const kind = bareType(child(node, 'constructor', 'type'));
+    if (kind) references.push(makeReference('call', node, { name: kind, reference: kind }));
+  } else if (CALL_TYPES.has(node.type) && isRequire(node, language)) {
+    references.push(...requireReferences(node));
+  } else if (CALL_TYPES.has(node.type) && referenceBase(node)?.type === "import") {
+    // `import("./foo")` names a module, as a dynamic import or in a type position; it calls nothing named import.
+    const module = stripModule(text(child(node, "arguments")?.namedChildren[0] ?? null));
+    references.push(makeReference("import", node, { name: module || "<unknown-module>", reference: module || "<unknown-module>", module: module || null }));
+  } else if (CALL_TYPES.has(node.type)) {
+    references.push(callReferenceRecord(node, language));
+  } else if (language === "rust" && node.type === "token_tree") {
+    references.push(...rustMacroCalls(node));
+  } else if (node.type === "method_reference" || node.type === "callable_reference") {
+    // `builder::build`, `Money::plus`, `Account::new` in Java, `::render` and `Shop::open` in Kotlin: a method handed on by name.
+    const name = methodReferenceName(node);
+    if (name) references.push(makeReference("value", node, { name, reference: name }));
+  } else if (IDENTIFIER_TYPES.has(node.type) && isPassedAsValue(node) && validReference(text(node, 128))) {
+    references.push(valueReference(node));
+  } else if (isMemberRead(node)) {
+    const name = validReference(text(node, 128));
+    if (name !== "<dynamic>") references.push(makeReference("read", node, { name, reference: name }));
+  }
+
+  };
+  return {
+    enter,
+    finish: index => {
+      references.push(...destructuredRequires(references, taken));
+      if (language === 'cpp' || language === 'c') unaliased(index, references);
+      return references;
+    },
+  };
+}
+
+/** The references of a tree on its own, outside an analysis that walks it for everything else too. */
+export function collectReferences(root: Node, language: string): Reference[] {
+  const visitor = referenceVisitor(language);
+  return visitor.finish(walk(root, [visitor]));
 }

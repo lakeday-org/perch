@@ -88,8 +88,10 @@ export function check(question, at, noun = 'question') {
   const full = expand(question);
   const type = full.type ?? 'noul';
   if (!SHAPES.includes(type)) throw new Error(`${where}: type is ${SHAPES.join(', ')}, not ${type}`);
-  if (!full.where) throw new Error(`${where}: needs where to say what it applies to`);
   if (full.each && !EACH.includes(full.each)) throw new Error(`${where}: each is ${EACH.join(', ')}, not ${full.each}`);
+  // A rule about tests covers every test the parser finds, in whatever file and language; where only narrows it. Anything else
+  // has to say what it is about.
+  if (!full.where && full.each !== 'test') throw new Error(`${where}: needs where to say what it applies to`);
   // Every language named has to be one perch parses. A misspelt one matches no method, so the question would never be asked and
   // nothing would say so.
   const languages = [full.language ?? []].flat();
@@ -139,8 +141,9 @@ export function parseQuestions(text, at, noun = 'question') {
   // An empty file has no questions in it. A file with something in it that reads as nothing is a file someone wrote wrong, and
   // answering that with an empty list asks none of their rules and never says so.
   const doc = text.trim() ? parse(text) : [];
-  // A map that only says what to ignore or which types to ask has no rules yet, which is not the same as being written wrong.
-  const list = Array.isArray(doc) ? doc : doc?.rules ?? (doc && typeof doc === 'object' && ('ignore' in doc || 'scan_types' in doc) ? [] : undefined);
+  // A map that only says what to ignore, which types to ask, or where the test reports are has no rules yet, which is not the
+  // same as being written wrong.
+  const list = Array.isArray(doc) ? doc : doc?.rules ?? (doc && typeof doc === 'object' && ('ignore' in doc || 'scan_types' in doc || 'coverage_reports' in doc) ? [] : undefined);
   if (!Array.isArray(list)) throw new Error(`${at}: expected a list of ${noun}s, or a map with rules: under it`);
   return list.map((question, index) => check(question, `${at} ${noun} ${index + 1}`, noun));
 }

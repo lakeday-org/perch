@@ -1,6 +1,6 @@
 ---
 name: perch
-description: Semantic linting with perch. Use it to verify code changes in flight. Scan a branch or a diff. Check one method right after editing it. Confirm a fix landed before opening a pull request. Use it to lint behavior a compiler cannot check: bugs, vulnerabilities, swallowed errors, and a method that does not do what its name says. Use it to act on what a scan found. Use it to write rules that turn a repeated mistake into verifiable behavior.
+description: Semantic linting with perch. Use it to verify code changes in flight. Scan a branch or a diff. Check one method right after editing it. Confirm a fix landed before opening a pull request. Use it to lint behavior a compiler cannot check: bugs, vulnerabilities, swallowed errors, and a method that does not do what its name says. Use it to act on what a scan found. Use it to check which changed lines the tests ran, and which tests are worth keeping. Use it to write rules that turn a repeated mistake into verifiable behavior.
 ---
 
 # perch
@@ -121,6 +121,41 @@ method later is still reported. `--kind too_big` closes one kind and leaves the 
 open.
 
 Always give a reason. That is what the next person reads instead of reopening it.
+
+## Check the tests a change needs
+
+Run the tests with a JUnit reporter and a coverage report, then point perch at both.
+
+```console
+$ perch coverage --since main --junit reports/vitest/junit.xml --lcov reports/vitest/lcov.info
+Changed since main  Untested lines  Patch coverage
+src/main.ts                      1              0%
+All changed source               1             50%
+
+src/cart.ts
+  ID        Line  Problem    Confidence  Test or method  Note
+  d0bee7da    12  edge_case        100%  applyDiscount   Untested case: applyDiscount at the edge…
+
+test/cart.test.ts
+  ID        Line  Problem    Confidence  Test or method        Note
+  427fce7a    22  redundant         99%  applyDiscount > tak…  Same checks and calls as applyDisc…
+Dropping 7 redundant or smelly tests saves 4ms of 6ms and leaves every method reached.
+Whole repository: 4 of 4 methods reached, 100% of lines ran, 9 problems in code this branch did not change
+.perch/coverage/index.html
+6 requests  6k tokens in / 1k out  $0.0003
+```
+
+Untested lines counts the changed lines of code no test ran, in each file where there
+are any. Under the table are the problems
+in what the branch changed: a method no test runs, a branch no test takes, and a test
+that repeats another, checks nothing, or touches the disk or network unmocked. It exits
+`3` when there are any.
+
+Without report files it still runs, and marks what it estimated `est.`. List the
+files under `coverage_reports` in `perch.yaml` to stop naming them each time.
+
+`--json` gives every problem with its file, line and evidence. Fix each one, or close
+it with `perch close <id> --reason "..."` when the test is right as it is.
 
 ## Write a rule when a mistake repeats
 

@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="77" failures="0" errors="0" time="1.213">
+  <testsuite name="formatMoney" errors="0" failures="0" skipped="1" timestamp="2026-10-01T18:40:58" time="0.874" tests="10">
+    <testcase classname="formatMoney" name="writes the symbol and groups thousands" time="0.002" file="test/format.test.ts">
+    </testcase>
+    <testcase classname="formatMoney" name="writes the code instead of the symbol when asked" time="0" file="test/format.test.ts">
+    </testcase>
+    <testcase classname="formatMoney" name="uses the separators it is given" time="0" file="test/format.test.ts">
+    </testcase>
+    <testcase classname="formatMoney" name="puts the sign before the symbol" time="0" file="test/format.test.ts">
+    </testcase>
+    <testcase classname="formatMoney" name="drops trailing zeros down to minimumDigits" time="0.001" file="test/format.test.ts">
+    </testcase>
+    <testcase classname="formatMoney" name="groups digits the way the locale does" time="0" file="test/format.test.ts">
+      <skipped/>
+    </testcase>
+    <testcase classname="groupDigits" name="groups 1 as 1" time="0" file="test/format.test.ts">
+    </testcase>
+    <testcase classname="groupDigits" name="groups 1234 as 1,234" time="0" file="test/format.test.ts">
+    </testcase>
+    <testcase classname="groupDigits" name="groups 123456 as 123,456" time="0" file="test/format.test.ts">
+    </testcase>
+    <testcase classname="groupDigits" name="groups 1234567 as 1,234,567" time="0" file="test/format.test.ts">
+    </testcase>
+  </testsuite>
+  <testsuite name="Converter" errors="0" failures="0" skipped="0" timestamp="2026-10-01T18:40:58" time="0.878" tests="5">
+    <testcase classname="Converter" name="converts with the rates it fetched" time="0.003" file="test/converter.test.ts">
+    </testcase>
+    <testcase classname="Converter" name="fetches the rates for a base currency once" time="0" file="test/converter.test.ts">
+    </testcase>
+    <testcase classname="Converter" name="fetches again once the rates are older than maxAgeMs" time="0.001" file="test/converter.test.ts">
+    </testcase>
+    <testcase classname="Converter" name="forgets a failed fetch" time="0.001" file="test/converter.test.ts">
+    </testcase>
+    <testcase classname="Converter" name="converts offline with fixed rates" time="0" file="test/converter.test.ts">
+    </testcase>
+  </testsuite>
+  <testsuite name="Currency" errors="0" failures="0" skipped="0" timestamp="2026-10-01T18:40:58" time="0.874" tests="6">
+    <testcase classname="Currency" name="looks up an ISO 4217 currency in any case" time="0.002" file="test/currency.test.ts">
+    </testcase>
+    <testcase classname="Currency" name="returns the same instance for the same code" time="0" file="test/currency.test.ts">
+    </testcase>
+    <testcase classname="Currency" name="throws on a code it does not know" time="0.001" file="test/currency.test.ts">
+    </testcase>
+    <testcase classname="Currency" name="registers a currency of its own" time="0" file="test/currency.test.ts">
+    </testcase>
+    <testcase classname="Currency" name="will not replace an ISO currency" time="0.001" file="test/currency.test.ts">
+    </testcase>
+    <testcase classname="Currency" name="rejects a malformed code" time="0" file="test/currency.test.ts">
+    </testcase>
+  </testsuite>
+  <testsuite name="RateTable" errors="0" failures="0" skipped="0" timestamp="2026-10-01T18:40:58" time="0.877" tests="6">
+    <testcase classname="RateTable" name="reads its date from the JSON" time="0.003" file="test/rates.test.ts">
+    </testcase>
+    <testcase classname="RateTable" name="gives a rate through the base currency" time="0" file="test/rates.test.ts">
+    </testcase>
+    <testcase classname="RateTable" name="converts an amount and rounds it to the target currency" time="0.001" file="test/rates.test.ts">
+    </testcase>
+    <testcase classname="RateTable" name="returns the same amount for its own currency" time="0" file="test/rates.test.ts">
+    </testcase>
+    <testcase classname="RateTable" name="throws on a currency it has no rate for" time="0.001" file="test/rates.test.ts">
+    </testcase>
+    <testcase classname="RateTable" name="rejects a rate that is not positive" time="0.001" file="test/rates.test.ts">
+    </testcase>
+  </testsuite>
+  <testsuite name="parseMoney" errors="0" failures="0" skipped="0" timestamp="2026-10-01T18:40:58" time="0.881" tests="10">
+    <testcase classname="parseMoney" name="reads $1,234.56" time="0.003" file="test/parse.test.ts">
+    </testcase>
+    <testcase classname="parseMoney" name="reads -¥500" time="0" file="test/parse.test.ts">
+    </testcase>
+    <testcase classname="parseMoney" name="reads 1.234,56 EUR" time="0" file="test/parse.test.ts">
+    </testcase>
+    <testcase classname="parseMoney" name="reads CA$ 9.99" time="0" file="test/parse.test.ts">
+    </testcase>
+    <testcase classname="parseMoney" name="reads (£12.00)" time="0" file="test/parse.test.ts">
+    </testcase>
+    <testcase classname="parseMoney" name="reads a bare number in the fallback currency" time="0" file="test/parse.test.ts">
+    </testcase>
+    <testcase classname="parseMoney" name="needs a currency from somewhere" time="0.002" file="test/parse.test.ts">
+    </testcase>
+    <testcase classname="parseMoney" name="rejects a currency code it does not know" time="0" file="test/parse.test.ts">
+    </testcase>
+    <testcase classname="normalizeSeparators" name="treats a lone comma before three digits as grouping" time="0" file="test/parse.test.ts">
+    </testcase>
+    <testcase classname="normalizeSeparators" name="treats the last separator before fewer digits as the decimal point" time="0" file="test/parse.test.ts">
+    </testcase>
+  </testsuite>
+  <testsuite name="divide" errors="0" failures="0" skipped="0" timestamp="2026-10-01T18:40:58" time="0.88" tests="14">
+    <testcase classname="divide" name="rounds half-even: 25n / 10 is 2n" time="0.002" file="test/rounding.test.ts">
+    </testcase>
+    <testcase classname="divide" name="rounds half-even: 35n / 10 is 4n" time="0.001" file="test/rounding.test.ts">
+    </testcase>
+    <testcase classname="divide" name="rounds half-up: 25n / 10 is 3n" time="0" file="test/rounding.test.ts">
+    </testcase>
+    <testcase classname="divide" name="rounds half-down: 25n / 10 is 2n" time="0" file="test/rounding.test.ts">
+    </testcase>
+    <testcase classname="divide" name="rounds up: 21n / 10 is 3n" time="0" file="test/rounding.test.ts">
+    </testcase>
+    <testcase classname="divide" name="rounds down: 29n / 10 is 2n" time="0" file="test/rounding.test.ts">
+    </testcase>
+    <testcase classname="divide" name="rounds ceiling: -21n / 10 is -2n" time="0" file="test/rounding.test.ts">
+    </testcase>
+    <testcase classname="divide" name="rounds floor: -21n / 10 is -3n" time="0" file="test/rounding.test.ts">
+    </testcase>
+    <testcase classname="divide" name="rejects a denominator that is not positive" time="0.002" file="test/rounding.test.ts">
+    </testcase>
+    <testcase classname="toFraction" name="reads 0.1 exactly" time="0" file="test/rounding.test.ts">
+    </testcase>
+    <testcase classname="toFraction" name="reads -2.5 exactly" time="0" file="test/rounding.test.ts">
+    </testcase>
+    <testcase classname="toFraction" name="reads 1.5e-7 exactly" time="0.001" file="test/rounding.test.ts">
+    </testcase>
+    <testcase classname="toFraction" name="reads 3e+21 exactly" time="0" file="test/rounding.test.ts">
+    </testcase>
+    <testcase classname="toFraction" name="rejects infinity" time="0" file="test/rounding.test.ts">
+    </testcase>
+  </testsuite>
+  <testsuite name="Money in USD" errors="0" failures="0" skipped="0" timestamp="2026-10-01T18:40:58" time="0.882" tests="22">
+    <testcase classname="Money in USD" name="reads an amount into minor units" time="0.002" file="test/money.test.ts">
+    </testcase>
+    <testcase classname="Money in USD" name="writes the amount back with its own number of places" time="0.001" file="test/money.test.ts">
+    </testcase>
+    <testcase classname="Money in USD" name="adds two amounts" time="0" file="test/money.test.ts">
+    </testcase>
+    <testcase classname="Money in USD" name="subtracts down to zero" time="0" file="test/money.test.ts">
+    </testcase>
+    <testcase classname="Money in JPY" name="reads an amount into minor units" time="0" file="test/money.test.ts">
+    </testcase>
+    <testcase classname="Money in JPY" name="writes the amount back with its own number of places" time="0" file="test/money.test.ts">
+    </testcase>
+    <testcase classname="Money in JPY" name="adds two amounts" time="0" file="test/money.test.ts">
+    </testcase>
+    <testcase classname="Money in JPY" name="subtracts down to zero" time="0" file="test/money.test.ts">
+    </testcase>
+    <testcase classname="Money in BHD" name="reads an amount into minor units" time="0" file="test/money.test.ts">
+    </testcase>
+    <testcase classname="Money in BHD" name="writes the amount back with its own number of places" time="0" file="test/money.test.ts">
+    </testcase>
+    <testcase classname="Money in BHD" name="adds two amounts" time="0" file="test/money.test.ts">
+    </testcase>
+    <testcase classname="Money in BHD" name="subtracts down to zero" time="0" file="test/money.test.ts">
+    </testcase>
+    <testcase classname="Money" name="reads a number by its decimal digits" time="0" file="test/money.test.ts">
+    </testcase>
+    <testcase classname="Money" name="builds from minor units" time="0" file="test/money.test.ts">
+    </testcase>
+    <testcase classname="Money" name="rejects minor units that are not safe integers" time="0.001" file="test/money.test.ts">
+    </testcase>
+    <testcase classname="Money" name="refuses more places than the currency has unless told how to round" time="0.001" file="test/money.test.ts">
+    </testcase>
+    <testcase classname="Money" name="refuses to add two currencies" time="0" file="test/money.test.ts">
+    </testcase>
+    <testcase classname="Money" name="multiplies with banker&apos;s rounding unless told otherwise" time="0" file="test/money.test.ts">
+    </testcase>
+    <testcase classname="Money" name="splits an amount without losing a cent" time="0" file="test/money.test.ts">
+    </testcase>
+    <testcase classname="Money" name="compares two amounts" time="0" file="test/money.test.ts">
+    </testcase>
+    <testcase classname="Money" name="sums a list of amounts" time="0" file="test/money.test.ts">
+    </testcase>
+    <testcase classname="Money" name="serializes to JSON as a decimal string" time="0" file="test/money.test.ts">
+    </testcase>
+  </testsuite>
+  <testsuite name="allocateMinor" errors="0" failures="0" skipped="0" timestamp="2026-10-01T18:40:58" time="0.879" tests="4">
+    <testcase classname="allocateMinor" name="gives the remainder to the earliest of equal shares" time="0.002" file="test/allocate.test.ts">
+    </testcase>
+    <testcase classname="allocateMinor" name="splits by uneven ratios" time="0" file="test/allocate.test.ts">
+    </testcase>
+    <testcase classname="allocateMinor" name="splits a negative total" time="0" file="test/allocate.test.ts">
+    </testcase>
+    <testcase classname="allocateMinor" name="rejects ratios that are all zero" time="0.002" file="test/allocate.test.ts">
+    </testcase>
+  </testsuite>
+</testsuites>

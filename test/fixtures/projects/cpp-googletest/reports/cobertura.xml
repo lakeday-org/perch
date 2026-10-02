@@ -1,0 +1,1688 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!DOCTYPE coverage SYSTEM 'http://cobertura.sourceforge.net/xml/coverage-04.dtd'>
+<coverage line-rate="0.8636363636363636" branch-rate="0.5297157622739018" lines-covered="247" lines-valid="286" branches-covered="205" branches-valid="387" complexity="0.0" timestamp="1790879584" version="gcovr 8.6">
+  <sources>
+    <source>.</source>
+  </sources>
+  <packages>
+    <package name="include.ledger" line-rate="0.9743589743589743" branch-rate="0.7777777777777778" complexity="0.0">
+      <classes>
+        <class name="account_hpp" filename="include/ledger/account.hpp" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+          <methods>
+            <method name="ledger::Account::~Account" signature="()" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="ledger::Account::kind" signature="() const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="21" hits="3" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Account::balance" signature="() const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="22" hits="6" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="21" hits="3" branch="false"/>
+            <line number="22" hits="6" branch="false"/>
+          </lines>
+        </class>
+        <class name="ledger_hpp" filename="include/ledger/ledger.hpp" line-rate="0.5" branch-rate="1.0" complexity="0.0">
+          <methods>
+            <method name="ledger::Ledger::~Ledger" signature="()" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="ledger::Ledger::posted" signature="() const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="34" hits="2" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Ledger::accounts" signature="() const" line-rate="0.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="35" hits="0" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="34" hits="2" branch="false"/>
+            <line number="35" hits="0" branch="false"/>
+          </lines>
+        </class>
+        <class name="money_hpp" filename="include/ledger/money.hpp" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+          <methods>
+            <method name="ledger::Money::minor" signature="() const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="18" hits="29" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Money::currency" signature="() const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="19" hits="64" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Money::is_zero" signature="() const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="20" hits="21" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="18" hits="29" branch="false"/>
+            <line number="19" hits="64" branch="false"/>
+            <line number="20" hits="21" branch="false"/>
+          </lines>
+        </class>
+        <class name="parse_hpp" filename="include/ledger/parse.hpp" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+          <methods/>
+          <lines/>
+        </class>
+        <class name="stats_hpp" filename="include/ledger/stats.hpp" line-rate="1.0" branch-rate="0.7777777777777778" complexity="0.0">
+          <methods>
+            <method name="ledger::RunningAverage&lt;int&gt;::RunningAverage" signature="()" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="11" hits="2" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::RunningAverage&lt;long&gt;::RunningAverage" signature="()" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="ledger::RunningAverage&lt;long&gt;::add" signature="(long)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="13" hits="3" branch="false"/>
+                <line number="14" hits="3" branch="true" condition-coverage="100% (4/4)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="15" hits="2" branch="false"/>
+                <line number="16" hits="2" branch="false"/>
+                <line number="17" hits="3" branch="false"/>
+                <line number="18" hits="3" branch="false"/>
+                <line number="19" hits="3" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::RunningAverage&lt;long&gt;::count" signature="() const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="21" hits="1" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::RunningAverage&lt;int&gt;::mean" signature="() const" line-rate="1.0" branch-rate="0.5" complexity="0.0">
+              <lines>
+                <line number="23" hits="2" branch="false"/>
+                <line number="24" hits="2" branch="true" condition-coverage="50% (2/4)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="25" hits="1" branch="false"/>
+                <line number="27" hits="1" branch="false"/>
+                <line number="28" hits="2" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::RunningAverage&lt;long&gt;::mean" signature="() const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="ledger::RunningAverage&lt;int&gt;::max" signature="() const" line-rate="1.0" branch-rate="0.5" complexity="0.0">
+              <lines>
+                <line number="30" hits="2" branch="false"/>
+                <line number="31" hits="2" branch="true" condition-coverage="50% (2/4)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="32" hits="1" branch="false"/>
+                <line number="34" hits="1" branch="false"/>
+                <line number="35" hits="2" branch="false"/>
+                <line number="38" hits="2" branch="false"/>
+                <line number="39" hits="2" branch="false"/>
+                <line number="40" hits="2" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::RunningAverage&lt;long&gt;::max" signature="() const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="decltype(&amp;(*std::begin(fp))) ledger::largest_by&lt;std::__1::vector&lt;std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;, std::__1::allocator&lt;std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;&gt;&gt;, LargestBy_FindsTheFirstOfTheLargest_Test::TestBody()::$_0&gt;" signature="(std::__1::vector&lt;std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;, std::__1::allocator&lt;std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;&gt;&gt; const&amp;, LargestBy_FindsTheFirstOfTheLargest_Test::TestBody()::$_0)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="45" hits="1" branch="false"/>
+                <line number="46" hits="1" branch="false"/>
+                <line number="47" hits="5" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="48" hits="4" branch="true" condition-coverage="100% (4/4)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="49" hits="2" branch="false"/>
+                <line number="50" hits="2" branch="false"/>
+                <line number="52" hits="1" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="11" hits="2" branch="false"/>
+            <line number="13" hits="3" branch="false"/>
+            <line number="14" hits="3" branch="true" condition-coverage="100% (4/4)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="15" hits="2" branch="false"/>
+            <line number="16" hits="2" branch="false"/>
+            <line number="17" hits="3" branch="false"/>
+            <line number="18" hits="3" branch="false"/>
+            <line number="19" hits="3" branch="false"/>
+            <line number="21" hits="1" branch="false"/>
+            <line number="23" hits="2" branch="false"/>
+            <line number="24" hits="2" branch="true" condition-coverage="50% (2/4)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="25" hits="1" branch="false"/>
+            <line number="27" hits="1" branch="false"/>
+            <line number="28" hits="2" branch="false"/>
+            <line number="30" hits="2" branch="false"/>
+            <line number="31" hits="2" branch="true" condition-coverage="50% (2/4)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="32" hits="1" branch="false"/>
+            <line number="34" hits="1" branch="false"/>
+            <line number="35" hits="2" branch="false"/>
+            <line number="38" hits="2" branch="false"/>
+            <line number="39" hits="2" branch="false"/>
+            <line number="40" hits="2" branch="false"/>
+            <line number="45" hits="1" branch="false"/>
+            <line number="46" hits="1" branch="false"/>
+            <line number="47" hits="5" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="48" hits="4" branch="true" condition-coverage="100% (4/4)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="49" hits="2" branch="false"/>
+            <line number="50" hits="2" branch="false"/>
+            <line number="52" hits="1" branch="false"/>
+          </lines>
+        </class>
+        <class name="transaction_hpp" filename="include/ledger/transaction.hpp" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+          <methods>
+            <method name="ledger::Entry::Entry" signature="(ledger::Entry const&amp;)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="ledger::Entry::~Entry" signature="()" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="ledger::Transaction::Transaction" signature="(ledger::Transaction const&amp;)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="ledger::Transaction::Transaction" signature="(ledger::Transaction&amp;&amp;)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="ledger::Transaction::~Transaction" signature="()" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="18" hits="3" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Transaction::memo" signature="() const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="25" hits="1" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Transaction::entries" signature="() const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="26" hits="7" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="18" hits="3" branch="false"/>
+            <line number="25" hits="1" branch="false"/>
+            <line number="26" hits="7" branch="false"/>
+          </lines>
+        </class>
+      </classes>
+    </package>
+    <package name="src" line-rate="0.8461538461538461" branch-rate="0.5176151761517616" complexity="0.0">
+      <classes>
+        <class name="account_cpp" filename="src/account.cpp" line-rate="0.75" branch-rate="0.5714285714285714" complexity="0.0">
+          <methods>
+            <method name="ledger::normal_side" signature="(ledger::AccountKind)" line-rate="0.8333333333333334" branch-rate="0.6666666666666666" complexity="0.0">
+              <lines>
+                <line number="7" hits="12" branch="false"/>
+                <line number="8" hits="12" branch="true" condition-coverage="66% (2/3)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="66%"/>
+                  </conditions>
+                </line>
+                <line number="11" hits="6" branch="false"/>
+                <line number="15" hits="6" branch="false"/>
+                <line number="17" hits="0" branch="false"/>
+                <line number="18" hits="12" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Account::Account" signature="(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;, ledger::AccountKind, ledger::Currency)" line-rate="1.0" branch-rate="0.5" complexity="0.0">
+              <lines>
+                <line number="20" hits="36" branch="false"/>
+                <line number="21" hits="36" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+              </lines>
+            </method>
+            <method name="ledger::Account::apply" signature="(ledger::Side, ledger::Money const&amp;)" line-rate="0.8333333333333334" branch-rate="0.5" complexity="0.0">
+              <lines>
+                <line number="23" hits="6" branch="false"/>
+                <line number="24" hits="6" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="25" hits="6" branch="false"/>
+                <line number="26" hits="6" branch="false"/>
+                <line number="27" hits="0" branch="false"/>
+                <line number="29" hits="6" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Account::is_contra" signature="() const" line-rate="0.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="31" hits="0" branch="false"/>
+                <line number="32" hits="0" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="7" hits="12" branch="false"/>
+            <line number="8" hits="12" branch="true" condition-coverage="66% (2/3)">
+              <conditions>
+                <condition number="0" type="jump" coverage="66%"/>
+              </conditions>
+            </line>
+            <line number="11" hits="6" branch="false"/>
+            <line number="15" hits="6" branch="false"/>
+            <line number="17" hits="0" branch="false"/>
+            <line number="18" hits="12" branch="false"/>
+            <line number="20" hits="36" branch="false"/>
+            <line number="21" hits="36" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="23" hits="6" branch="false"/>
+            <line number="24" hits="6" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="25" hits="6" branch="false"/>
+            <line number="26" hits="6" branch="false"/>
+            <line number="27" hits="0" branch="false"/>
+            <line number="29" hits="6" branch="false"/>
+            <line number="31" hits="0" branch="false"/>
+            <line number="32" hits="0" branch="false"/>
+          </lines>
+        </class>
+        <class name="currency_cpp" filename="src/currency.cpp" line-rate="0.9047619047619048" branch-rate="0.75" complexity="0.0">
+          <methods>
+            <method name="ledger::currency_code" signature="(ledger::Currency)" line-rate="0.875" branch-rate="0.8" complexity="0.0">
+              <lines>
+                <line number="5" hits="6" branch="false"/>
+                <line number="6" hits="6" branch="true" condition-coverage="80% (4/5)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="80%"/>
+                  </conditions>
+                </line>
+                <line number="8" hits="2" branch="false"/>
+                <line number="10" hits="1" branch="false"/>
+                <line number="12" hits="2" branch="false"/>
+                <line number="14" hits="1" branch="false"/>
+                <line number="16" hits="0" branch="false"/>
+                <line number="17" hits="6" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::minor_units" signature="(ledger::Currency)" line-rate="0.8333333333333334" branch-rate="0.6666666666666666" complexity="0.0">
+              <lines>
+                <line number="19" hits="6" branch="false"/>
+                <line number="20" hits="6" branch="true" condition-coverage="66% (2/3)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="66%"/>
+                  </conditions>
+                </line>
+                <line number="22" hits="2" branch="false"/>
+                <line number="26" hits="4" branch="false"/>
+                <line number="28" hits="0" branch="false"/>
+                <line number="29" hits="6" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::parse_currency" signature="(std::__1::basic_string_view&lt;char, std::__1::char_traits&lt;char&gt;&gt;)" line-rate="1.0" branch-rate="0.75" complexity="0.0">
+              <lines>
+                <line number="31" hits="5" branch="false"/>
+                <line number="32" hits="5" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="33" hits="4" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="34" hits="4" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="35" hits="3" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="36" hits="3" branch="false"/>
+                <line number="37" hits="5" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="5" hits="6" branch="false"/>
+            <line number="6" hits="6" branch="true" condition-coverage="80% (4/5)">
+              <conditions>
+                <condition number="0" type="jump" coverage="80%"/>
+              </conditions>
+            </line>
+            <line number="8" hits="2" branch="false"/>
+            <line number="10" hits="1" branch="false"/>
+            <line number="12" hits="2" branch="false"/>
+            <line number="14" hits="1" branch="false"/>
+            <line number="16" hits="0" branch="false"/>
+            <line number="17" hits="6" branch="false"/>
+            <line number="19" hits="6" branch="false"/>
+            <line number="20" hits="6" branch="true" condition-coverage="66% (2/3)">
+              <conditions>
+                <condition number="0" type="jump" coverage="66%"/>
+              </conditions>
+            </line>
+            <line number="22" hits="2" branch="false"/>
+            <line number="26" hits="4" branch="false"/>
+            <line number="28" hits="0" branch="false"/>
+            <line number="29" hits="6" branch="false"/>
+            <line number="31" hits="5" branch="false"/>
+            <line number="32" hits="5" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="33" hits="4" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="34" hits="4" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="35" hits="3" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="36" hits="3" branch="false"/>
+            <line number="37" hits="5" branch="false"/>
+          </lines>
+        </class>
+        <class name="ledger_cpp" filename="src/ledger.cpp" line-rate="0.9736842105263158" branch-rate="0.5" complexity="0.0">
+          <methods>
+            <method name="ledger::Ledger::Ledger" signature="(ledger::Currency)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="5" hits="12" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Ledger::open" signature="(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt; const&amp;, ledger::AccountKind)" line-rate="1.0" branch-rate="0.5833333333333334" complexity="0.0">
+              <lines>
+                <line number="7" hits="19" branch="false"/>
+                <line number="8" hits="19" branch="false"/>
+                <line number="9" hits="19" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="10" hits="1" branch="true" condition-coverage="50% (5/10)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="12" hits="18" branch="false"/>
+                <line number="13" hits="1" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Ledger::has_account" signature="(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt; const&amp;) const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="15" hits="8" branch="false"/>
+                <line number="16" hits="8" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Ledger::post" signature="(ledger::Transaction const&amp;)" line-rate="0.9166666666666666" branch-rate="0.40476190476190477" complexity="0.0">
+              <lines>
+                <line number="19" hits="5" branch="false"/>
+                <line number="20" hits="5" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="21" hits="2" branch="true" condition-coverage="50% (5/10)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="23" hits="11" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="24" hits="8" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="25" hits="0" branch="true" condition-coverage="0% (0/16)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="0%"/>
+                  </conditions>
+                </line>
+                <line number="27" hits="8" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="28" hits="1" branch="true" condition-coverage="50% (3/6)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="31" hits="9" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="32" hits="6" branch="false"/>
+                <line number="34" hits="3" branch="false"/>
+                <line number="35" hits="5" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Ledger::balance" signature="(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt; const&amp;) const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="37" hits="4" branch="false"/>
+                <line number="38" hits="4" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Ledger::trial_balance" signature="() const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="41" hits="1" branch="false"/>
+                <line number="42" hits="1" branch="false"/>
+                <line number="43" hits="1" branch="false"/>
+                <line number="44" hits="4" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="45" hits="3" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="46" hits="1" branch="false"/>
+                <line number="47" hits="1" branch="false"/>
+                <line number="48" hits="2" branch="false"/>
+                <line number="51" hits="1" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Ledger::find" signature="(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt; const&amp;) const" line-rate="1.0" branch-rate="0.6" complexity="0.0">
+              <lines>
+                <line number="54" hits="4" branch="false"/>
+                <line number="55" hits="4" branch="false"/>
+                <line number="56" hits="4" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="57" hits="1" branch="true" condition-coverage="50% (4/8)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="59" hits="3" branch="false"/>
+                <line number="60" hits="1" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="5" hits="12" branch="false"/>
+            <line number="7" hits="19" branch="false"/>
+            <line number="8" hits="19" branch="false"/>
+            <line number="9" hits="19" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="10" hits="1" branch="true" condition-coverage="50% (5/10)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="12" hits="18" branch="false"/>
+            <line number="13" hits="1" branch="false"/>
+            <line number="15" hits="8" branch="false"/>
+            <line number="16" hits="8" branch="false"/>
+            <line number="19" hits="5" branch="false"/>
+            <line number="20" hits="5" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="21" hits="2" branch="true" condition-coverage="50% (5/10)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="23" hits="11" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="24" hits="8" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="25" hits="0" branch="true" condition-coverage="0% (0/16)">
+              <conditions>
+                <condition number="0" type="jump" coverage="0%"/>
+              </conditions>
+            </line>
+            <line number="27" hits="8" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="28" hits="1" branch="true" condition-coverage="50% (3/6)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="31" hits="9" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="32" hits="6" branch="false"/>
+            <line number="34" hits="3" branch="false"/>
+            <line number="35" hits="5" branch="false"/>
+            <line number="37" hits="4" branch="false"/>
+            <line number="38" hits="4" branch="false"/>
+            <line number="41" hits="1" branch="false"/>
+            <line number="42" hits="1" branch="false"/>
+            <line number="43" hits="1" branch="false"/>
+            <line number="44" hits="4" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="45" hits="3" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="46" hits="1" branch="false"/>
+            <line number="47" hits="1" branch="false"/>
+            <line number="48" hits="2" branch="false"/>
+            <line number="51" hits="1" branch="false"/>
+            <line number="54" hits="4" branch="false"/>
+            <line number="55" hits="4" branch="false"/>
+            <line number="56" hits="4" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="57" hits="1" branch="true" condition-coverage="50% (4/8)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="59" hits="3" branch="false"/>
+            <line number="60" hits="1" branch="false"/>
+          </lines>
+        </class>
+        <class name="money_cpp" filename="src/money.cpp" line-rate="0.9285714285714286" branch-rate="0.6166666666666667" complexity="0.0">
+          <methods>
+            <method name="ledger::Money::Money" signature="(long long, ledger::Currency)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="8" hits="202" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Money::zero" signature="(ledger::Currency)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="10" hits="34" branch="false"/>
+                <line number="11" hits="34" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Money::is_negative" signature="() const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="14" hits="19" branch="false"/>
+                <line number="15" hits="19" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Money::operator+" signature="(ledger::Money const&amp;) const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="18" hits="26" branch="false"/>
+                <line number="19" hits="26" branch="false"/>
+                <line number="20" hits="26" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Money::operator-" signature="(ledger::Money const&amp;) const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="23" hits="1" branch="false"/>
+                <line number="24" hits="1" branch="false"/>
+                <line number="25" hits="1" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Money::negated" signature="() const" line-rate="0.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="28" hits="0" branch="false"/>
+                <line number="29" hits="0" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Money::allocate" signature="(int) const" line-rate="1.0" branch-rate="0.75" complexity="0.0">
+              <lines>
+                <line number="32" hits="3" branch="false"/>
+                <line number="33" hits="3" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="34" hits="1" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="36" hits="2" branch="false"/>
+                <line number="37" hits="2" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="38" hits="2" branch="false"/>
+                <line number="39" hits="2" branch="false"/>
+                <line number="40" hits="7" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="41" hits="5" branch="false"/>
+                <line number="42" hits="5" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="43" hits="1" branch="false"/>
+                <line number="44" hits="1" branch="false"/>
+                <line number="45" hits="5" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="46" hits="1" branch="false"/>
+                <line number="47" hits="1" branch="false"/>
+                <line number="48" hits="1" branch="false"/>
+                <line number="49" hits="5" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="50" hits="5" branch="false"/>
+                <line number="51" hits="2" branch="false"/>
+                <line number="52" hits="2" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+              </lines>
+            </method>
+            <method name="ledger::Money::to_string" signature="() const" line-rate="1.0" branch-rate="0.5833333333333334" complexity="0.0">
+              <lines>
+                <line number="54" hits="3" branch="false"/>
+                <line number="55" hits="3" branch="false"/>
+                <line number="56" hits="3" branch="false"/>
+                <line number="57" hits="3" branch="false"/>
+                <line number="58" hits="3" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="59" hits="1" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="60" hits="1" branch="false"/>
+                <line number="61" hits="2" branch="false"/>
+                <line number="62" hits="6" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="63" hits="2" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="64" hits="2" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="65" hits="2" branch="true" condition-coverage="50% (3/6)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="66" hits="2" branch="false"/>
+                <line number="67" hits="3" branch="true" condition-coverage="50% (4/8)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="68" hits="3" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Money::require_same_currency" signature="(ledger::Money const&amp;) const" line-rate="1.0" branch-rate="0.5555555555555556" complexity="0.0">
+              <lines>
+                <line number="70" hits="27" branch="false"/>
+                <line number="71" hits="27" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="72" hits="1" branch="true" condition-coverage="50% (8/16)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="74" hits="27" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::operator==" signature="(ledger::Money const&amp;, ledger::Money const&amp;)" line-rate="1.0" branch-rate="0.5" complexity="0.0">
+              <lines>
+                <line number="76" hits="12" branch="false"/>
+                <line number="77" hits="12" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+              </lines>
+            </method>
+            <method name="ledger::operator!=" signature="(ledger::Money const&amp;, ledger::Money const&amp;)" line-rate="0.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="80" hits="0" branch="false"/>
+                <line number="81" hits="0" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="8" hits="202" branch="false"/>
+            <line number="10" hits="34" branch="false"/>
+            <line number="11" hits="34" branch="false"/>
+            <line number="14" hits="19" branch="false"/>
+            <line number="15" hits="19" branch="false"/>
+            <line number="18" hits="26" branch="false"/>
+            <line number="19" hits="26" branch="false"/>
+            <line number="20" hits="26" branch="false"/>
+            <line number="23" hits="1" branch="false"/>
+            <line number="24" hits="1" branch="false"/>
+            <line number="25" hits="1" branch="false"/>
+            <line number="28" hits="0" branch="false"/>
+            <line number="29" hits="0" branch="false"/>
+            <line number="32" hits="3" branch="false"/>
+            <line number="33" hits="3" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="34" hits="1" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="36" hits="2" branch="false"/>
+            <line number="37" hits="2" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="38" hits="2" branch="false"/>
+            <line number="39" hits="2" branch="false"/>
+            <line number="40" hits="7" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="41" hits="5" branch="false"/>
+            <line number="42" hits="5" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="43" hits="1" branch="false"/>
+            <line number="44" hits="1" branch="false"/>
+            <line number="45" hits="5" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="46" hits="1" branch="false"/>
+            <line number="47" hits="1" branch="false"/>
+            <line number="48" hits="1" branch="false"/>
+            <line number="49" hits="5" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="50" hits="5" branch="false"/>
+            <line number="51" hits="2" branch="false"/>
+            <line number="52" hits="2" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="54" hits="3" branch="false"/>
+            <line number="55" hits="3" branch="false"/>
+            <line number="56" hits="3" branch="false"/>
+            <line number="57" hits="3" branch="false"/>
+            <line number="58" hits="3" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="59" hits="1" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="60" hits="1" branch="false"/>
+            <line number="61" hits="2" branch="false"/>
+            <line number="62" hits="6" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="63" hits="2" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="64" hits="2" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="65" hits="2" branch="true" condition-coverage="50% (3/6)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="66" hits="2" branch="false"/>
+            <line number="67" hits="3" branch="true" condition-coverage="50% (4/8)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="68" hits="3" branch="false"/>
+            <line number="70" hits="27" branch="false"/>
+            <line number="71" hits="27" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="72" hits="1" branch="true" condition-coverage="50% (8/16)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="74" hits="27" branch="false"/>
+            <line number="76" hits="12" branch="false"/>
+            <line number="77" hits="12" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="80" hits="0" branch="false"/>
+            <line number="81" hits="0" branch="false"/>
+          </lines>
+        </class>
+        <class name="parse_cpp" filename="src/parse.cpp" line-rate="0.984375" branch-rate="0.6461538461538462" complexity="0.0">
+          <methods>
+            <method name="ledger::parse_amount" signature="(std::__1::basic_string_view&lt;char, std::__1::char_traits&lt;char&gt;&gt;, int)" line-rate="1.0" branch-rate="0.7" complexity="0.0">
+              <lines>
+                <line number="7" hits="11" branch="false"/>
+                <line number="8" hits="11" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="9" hits="5" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="11" hits="10" branch="false"/>
+                <line number="12" hits="10" branch="false"/>
+                <line number="13" hits="10" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="14" hits="2" branch="false"/>
+                <line number="15" hits="2" branch="false"/>
+                <line number="16" hits="2" branch="false"/>
+                <line number="17" hits="10" branch="false"/>
+                <line number="18" hits="10" branch="false"/>
+                <line number="19" hits="10" branch="false"/>
+                <line number="20" hits="10" branch="false"/>
+                <line number="21" hits="44" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="22" hits="37" branch="false"/>
+                <line number="23" hits="37" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="24" hits="7" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="25" hits="1" branch="true" condition-coverage="50% (5/10)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="27" hits="6" branch="false"/>
+                <line number="28" hits="6" branch="false"/>
+                <line number="30" hits="30" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="31" hits="1" branch="true" condition-coverage="50% (4/8)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="33" hits="29" branch="false"/>
+                <line number="34" hits="29" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="35" hits="18" branch="false"/>
+                <line number="36" hits="18" branch="false"/>
+                <line number="37" hits="11" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="38" hits="1" branch="true" condition-coverage="50% (4/8)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="40" hits="10" branch="false"/>
+                <line number="42" hits="28" branch="false"/>
+                <line number="43" hits="7" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="44" hits="1" branch="true" condition-coverage="50% (4/8)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="46" hits="9" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="47" hits="6" branch="false"/>
+                <line number="48" hits="16" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="49" hits="6" branch="false"/>
+                <line number="50" hits="6" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="51" hits="4" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::split_fields" signature="(std::__1::basic_string_view&lt;char, std::__1::char_traits&lt;char&gt;&gt;)" line-rate="1.0" branch-rate="0.8636363636363636" complexity="0.0">
+              <lines>
+                <line number="53" hits="4" branch="false"/>
+                <line number="54" hits="4" branch="false"/>
+                <line number="55" hits="4" branch="false"/>
+                <line number="56" hits="23" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="57" hits="60" branch="true" condition-coverage="100% (6/6)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="58" hits="19" branch="false"/>
+                <line number="59" hits="108" branch="true" condition-coverage="100% (6/6)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="60" hits="19" branch="true" condition-coverage="66% (4/6)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="66%"/>
+                  </conditions>
+                </line>
+                <line number="62" hits="4" branch="false"/>
+                <line number="63" hits="4" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+              </lines>
+            </method>
+            <method name="ledger::parse_posting" signature="(std::__1::basic_string_view&lt;char, std::__1::char_traits&lt;char&gt;&gt;)" line-rate="0.9375" branch-rate="0.4791666666666667" complexity="0.0">
+              <lines>
+                <line number="65" hits="3" branch="false"/>
+                <line number="66" hits="3" branch="false"/>
+                <line number="67" hits="3" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="68" hits="0" branch="true" condition-coverage="0% (0/8)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="0%"/>
+                  </conditions>
+                </line>
+                <line number="71" hits="3" branch="true" condition-coverage="75% (3/4)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="75%"/>
+                  </conditions>
+                </line>
+                <line number="72" hits="1" branch="false"/>
+                <line number="73" hits="3" branch="true" condition-coverage="75% (3/4)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="75%"/>
+                  </conditions>
+                </line>
+                <line number="74" hits="1" branch="false"/>
+                <line number="75" hits="1" branch="false"/>
+                <line number="76" hits="1" branch="true" condition-coverage="50% (4/8)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="78" hits="2" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="79" hits="2" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="80" hits="1" branch="true" condition-coverage="50% (4/8)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="82" hits="1" branch="true" condition-coverage="50% (3/6)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="83" hits="1" branch="true" condition-coverage="50% (2/4)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="84" hits="5" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="7" hits="11" branch="false"/>
+            <line number="8" hits="11" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="9" hits="5" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="11" hits="10" branch="false"/>
+            <line number="12" hits="10" branch="false"/>
+            <line number="13" hits="10" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="14" hits="2" branch="false"/>
+            <line number="15" hits="2" branch="false"/>
+            <line number="16" hits="2" branch="false"/>
+            <line number="17" hits="10" branch="false"/>
+            <line number="18" hits="10" branch="false"/>
+            <line number="19" hits="10" branch="false"/>
+            <line number="20" hits="10" branch="false"/>
+            <line number="21" hits="44" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="22" hits="37" branch="false"/>
+            <line number="23" hits="37" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="24" hits="7" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="25" hits="1" branch="true" condition-coverage="50% (5/10)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="27" hits="6" branch="false"/>
+            <line number="28" hits="6" branch="false"/>
+            <line number="30" hits="30" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="31" hits="1" branch="true" condition-coverage="50% (4/8)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="33" hits="29" branch="false"/>
+            <line number="34" hits="29" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="35" hits="18" branch="false"/>
+            <line number="36" hits="18" branch="false"/>
+            <line number="37" hits="11" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="38" hits="1" branch="true" condition-coverage="50% (4/8)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="40" hits="10" branch="false"/>
+            <line number="42" hits="28" branch="false"/>
+            <line number="43" hits="7" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="44" hits="1" branch="true" condition-coverage="50% (4/8)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="46" hits="9" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="47" hits="6" branch="false"/>
+            <line number="48" hits="16" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="49" hits="6" branch="false"/>
+            <line number="50" hits="6" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="51" hits="4" branch="false"/>
+            <line number="53" hits="4" branch="false"/>
+            <line number="54" hits="4" branch="false"/>
+            <line number="55" hits="4" branch="false"/>
+            <line number="56" hits="23" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="57" hits="60" branch="true" condition-coverage="100% (6/6)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="58" hits="19" branch="false"/>
+            <line number="59" hits="108" branch="true" condition-coverage="100% (6/6)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="60" hits="19" branch="true" condition-coverage="66% (4/6)">
+              <conditions>
+                <condition number="0" type="jump" coverage="66%"/>
+              </conditions>
+            </line>
+            <line number="62" hits="4" branch="false"/>
+            <line number="63" hits="4" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="65" hits="3" branch="false"/>
+            <line number="66" hits="3" branch="false"/>
+            <line number="67" hits="3" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="68" hits="0" branch="true" condition-coverage="0% (0/8)">
+              <conditions>
+                <condition number="0" type="jump" coverage="0%"/>
+              </conditions>
+            </line>
+            <line number="71" hits="3" branch="true" condition-coverage="75% (3/4)">
+              <conditions>
+                <condition number="0" type="jump" coverage="75%"/>
+              </conditions>
+            </line>
+            <line number="72" hits="1" branch="false"/>
+            <line number="73" hits="3" branch="true" condition-coverage="75% (3/4)">
+              <conditions>
+                <condition number="0" type="jump" coverage="75%"/>
+              </conditions>
+            </line>
+            <line number="74" hits="1" branch="false"/>
+            <line number="75" hits="1" branch="false"/>
+            <line number="76" hits="1" branch="true" condition-coverage="50% (4/8)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="78" hits="2" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="79" hits="2" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="80" hits="1" branch="true" condition-coverage="50% (4/8)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="82" hits="1" branch="true" condition-coverage="50% (3/6)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="83" hits="1" branch="true" condition-coverage="50% (2/4)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="84" hits="5" branch="false"/>
+          </lines>
+        </class>
+        <class name="report_cpp" filename="src/report.cpp" line-rate="0.0" branch-rate="0.0" complexity="0.0">
+          <methods>
+            <method name="ledger::(anonymous namespace)::kind_label" signature="(ledger::AccountKind)" line-rate="0.0" branch-rate="0.0" complexity="0.0">
+              <lines>
+                <line number="9" hits="0" branch="false"/>
+                <line number="10" hits="0" branch="true" condition-coverage="0% (0/6)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="0%"/>
+                  </conditions>
+                </line>
+                <line number="12" hits="0" branch="false"/>
+                <line number="14" hits="0" branch="false"/>
+                <line number="16" hits="0" branch="false"/>
+                <line number="18" hits="0" branch="false"/>
+                <line number="20" hits="0" branch="false"/>
+                <line number="22" hits="0" branch="false"/>
+                <line number="23" hits="0" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::pad_right" signature="(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;, unsigned long)" line-rate="0.0" branch-rate="0.0" complexity="0.0">
+              <lines>
+                <line number="27" hits="0" branch="false"/>
+                <line number="28" hits="0" branch="true" condition-coverage="0% (0/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="0%"/>
+                  </conditions>
+                </line>
+                <line number="29" hits="0" branch="false"/>
+                <line number="30" hits="0" branch="false"/>
+                <line number="31" hits="0" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::render_trial_balance" signature="(ledger::Ledger const&amp;)" line-rate="0.0" branch-rate="0.0" complexity="0.0">
+              <lines>
+                <line number="34" hits="0" branch="false"/>
+                <line number="35" hits="0" branch="false"/>
+                <line number="36" hits="0" branch="true" condition-coverage="0% (0/10)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="0%"/>
+                  </conditions>
+                </line>
+                <line number="37" hits="0" branch="true" condition-coverage="0% (0/22)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="0%"/>
+                  </conditions>
+                </line>
+                <line number="38" hits="0" branch="true" condition-coverage="0% (0/4)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="0%"/>
+                  </conditions>
+                </line>
+                <line number="39" hits="0" branch="true" condition-coverage="0% (0/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="0%"/>
+                  </conditions>
+                </line>
+                <line number="40" hits="0" branch="false"/>
+                <line number="41" hits="0" branch="true" condition-coverage="0% (0/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="0%"/>
+                  </conditions>
+                </line>
+                <line number="43" hits="0" branch="true" condition-coverage="0% (0/14)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="0%"/>
+                  </conditions>
+                </line>
+                <line number="44" hits="0" branch="true" condition-coverage="0% (0/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="0%"/>
+                  </conditions>
+                </line>
+                <line number="45" hits="0" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="9" hits="0" branch="false"/>
+            <line number="10" hits="0" branch="true" condition-coverage="0% (0/6)">
+              <conditions>
+                <condition number="0" type="jump" coverage="0%"/>
+              </conditions>
+            </line>
+            <line number="12" hits="0" branch="false"/>
+            <line number="14" hits="0" branch="false"/>
+            <line number="16" hits="0" branch="false"/>
+            <line number="18" hits="0" branch="false"/>
+            <line number="20" hits="0" branch="false"/>
+            <line number="22" hits="0" branch="false"/>
+            <line number="23" hits="0" branch="false"/>
+            <line number="27" hits="0" branch="false"/>
+            <line number="28" hits="0" branch="true" condition-coverage="0% (0/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="0%"/>
+              </conditions>
+            </line>
+            <line number="29" hits="0" branch="false"/>
+            <line number="30" hits="0" branch="false"/>
+            <line number="31" hits="0" branch="false"/>
+            <line number="34" hits="0" branch="false"/>
+            <line number="35" hits="0" branch="false"/>
+            <line number="36" hits="0" branch="true" condition-coverage="0% (0/10)">
+              <conditions>
+                <condition number="0" type="jump" coverage="0%"/>
+              </conditions>
+            </line>
+            <line number="37" hits="0" branch="true" condition-coverage="0% (0/22)">
+              <conditions>
+                <condition number="0" type="jump" coverage="0%"/>
+              </conditions>
+            </line>
+            <line number="38" hits="0" branch="true" condition-coverage="0% (0/4)">
+              <conditions>
+                <condition number="0" type="jump" coverage="0%"/>
+              </conditions>
+            </line>
+            <line number="39" hits="0" branch="true" condition-coverage="0% (0/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="0%"/>
+              </conditions>
+            </line>
+            <line number="40" hits="0" branch="false"/>
+            <line number="41" hits="0" branch="true" condition-coverage="0% (0/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="0%"/>
+              </conditions>
+            </line>
+            <line number="43" hits="0" branch="true" condition-coverage="0% (0/14)">
+              <conditions>
+                <condition number="0" type="jump" coverage="0%"/>
+              </conditions>
+            </line>
+            <line number="44" hits="0" branch="true" condition-coverage="0% (0/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="0%"/>
+              </conditions>
+            </line>
+            <line number="45" hits="0" branch="false"/>
+          </lines>
+        </class>
+        <class name="transaction_cpp" filename="src/transaction.cpp" line-rate="0.9629629629629629" branch-rate="0.8333333333333334" complexity="0.0">
+          <methods>
+            <method name="ledger::Transaction::Transaction" signature="(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="8" hits="20" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Transaction::debit" signature="(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;, ledger::Money)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="10" hits="11" branch="false"/>
+                <line number="11" hits="11" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="12" hits="1" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Transaction::credit" signature="(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;, ledger::Money)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="14" hits="8" branch="false"/>
+                <line number="15" hits="8" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="16" hits="1" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Transaction::add" signature="(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;, ledger::Side, ledger::Money)" line-rate="0.875" branch-rate="0.75" complexity="0.0">
+              <lines>
+                <line number="18" hits="20" branch="false"/>
+                <line number="19" hits="20" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="20" hits="1" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="22" hits="19" branch="true" condition-coverage="100% (4/4)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="23" hits="1" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="25" hits="18" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="26" hits="18" branch="false"/>
+                <line number="27" hits="0" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Transaction::is_balanced" signature="() const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="29" hits="7" branch="false"/>
+                <line number="30" hits="7" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="31" hits="1" branch="false"/>
+                <line number="33" hits="6" branch="false"/>
+                <line number="34" hits="7" branch="false"/>
+              </lines>
+            </method>
+            <method name="ledger::Transaction::total" signature="(ledger::Side) const" line-rate="1.0" branch-rate="0.8333333333333334" complexity="0.0">
+              <lines>
+                <line number="36" hits="14" branch="false"/>
+                <line number="37" hits="14" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="38" hits="44" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="39" hits="30" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="40" hits="15" branch="false"/>
+                <line number="41" hits="15" branch="false"/>
+                <line number="43" hits="14" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="8" hits="20" branch="false"/>
+            <line number="10" hits="11" branch="false"/>
+            <line number="11" hits="11" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="12" hits="1" branch="false"/>
+            <line number="14" hits="8" branch="false"/>
+            <line number="15" hits="8" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="16" hits="1" branch="false"/>
+            <line number="18" hits="20" branch="false"/>
+            <line number="19" hits="20" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="20" hits="1" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="22" hits="19" branch="true" condition-coverage="100% (4/4)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="23" hits="1" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="25" hits="18" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="26" hits="18" branch="false"/>
+            <line number="27" hits="0" branch="false"/>
+            <line number="29" hits="7" branch="false"/>
+            <line number="30" hits="7" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="31" hits="1" branch="false"/>
+            <line number="33" hits="6" branch="false"/>
+            <line number="34" hits="7" branch="false"/>
+            <line number="36" hits="14" branch="false"/>
+            <line number="37" hits="14" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="38" hits="44" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="39" hits="30" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="40" hits="15" branch="false"/>
+            <line number="41" hits="15" branch="false"/>
+            <line number="43" hits="14" branch="false"/>
+          </lines>
+        </class>
+      </classes>
+    </package>
+  </packages>
+</coverage>

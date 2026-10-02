@@ -1,0 +1,323 @@
+{
+  "language": "java",
+  "framework": "JUnit 4",
+  "reports": {
+    "junit": [
+      "reports/junit/TEST-com.northwind.warehouse.model.LocationTest.xml",
+      "reports/junit/TEST-com.northwind.warehouse.model.SkuTest.xml",
+      "reports/junit/TEST-com.northwind.warehouse.model.StockLevelTest.xml",
+      "reports/junit/TEST-com.northwind.warehouse.notify.LowStockAlerterTest.xml",
+      "reports/junit/TEST-com.northwind.warehouse.picking.PickPlannerTest.xml",
+      "reports/junit/TEST-com.northwind.warehouse.replenish.ReorderPolicyTest.xml",
+      "reports/junit/TEST-com.northwind.warehouse.stock.StockServiceTest.xml"
+    ],
+    "jacoco": [
+      "reports/jacoco.xml"
+    ]
+  },
+  "left_out": [
+    "tools/load-generator/src/main/java/com/northwind/warehouse/load/LoadGenerator.java"
+  ],
+  "tests": [
+    {
+      "file": "src/test/java/com/northwind/warehouse/model/SkuTest.java",
+      "name": "parsesCategoryAndNumber",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/model/Sku.java::Sku.parse",
+        "src/main/java/com/northwind/warehouse/model/Sku.java::Sku.Sku",
+        "src/main/java/com/northwind/warehouse/model/Sku.java::Sku.category",
+        "src/main/java/com/northwind/warehouse/model/Sku.java::Sku.number"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/model/SkuTest.java",
+      "name": "rejectsALowercaseCategory",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/model/Sku.java::Sku.parse"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/model/SkuTest.java",
+      "name": "rejectsAShortNumber",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/model/Sku.java::Sku.parse"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/model/SkuTest.java",
+      "name": "printsTheNumberZeroPadded",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/model/Sku.java::Sku.parse",
+        "src/main/java/com/northwind/warehouse/model/Sku.java::Sku.toString"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/model/SkuTest.java",
+      "name": "sortsByCategoryThenNumber",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/model/Sku.java::Sku.parse",
+        "src/main/java/com/northwind/warehouse/model/Sku.java::Sku.compareTo"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/model/LocationTest.java",
+      "name": "parsesAisleShelfAndBin",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/model/Location.java::Location.Location",
+        "src/main/java/com/northwind/warehouse/model/Location.java::Location.parse"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/model/LocationTest.java",
+      "name": "rejectsALocationWithoutAShelf",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/model/Location.java::Location.parse"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/model/LocationTest.java",
+      "name": "walksAlongTheSameAisle",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/model/Location.java::Location.parse",
+        "src/main/java/com/northwind/warehouse/model/Location.java::Location.distanceTo"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/model/LocationTest.java",
+      "name": "goesRoundTheRackEndToChangeAisle",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/model/Location.java::Location.parse",
+        "src/main/java/com/northwind/warehouse/model/Location.java::Location.distanceTo"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/model/StockLevelTest.java",
+      "name": "reservingReducesWhatIsAvailable",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/model/StockLevel.java::StockLevel.reserve",
+        "src/main/java/com/northwind/warehouse/model/StockLevel.java::StockLevel.available",
+        "src/main/java/com/northwind/warehouse/model/StockLevel.java::StockLevel.onHand"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/model/StockLevelTest.java",
+      "name": "cannotReserveMoreThanIsAvailable",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/model/StockLevel.java::StockLevel.reserve",
+        "src/main/java/com/northwind/warehouse/model/StockLevel.java::StockLevel.available"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/model/StockLevelTest.java",
+      "name": "shippingTakesUnitsOffTheShelf",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/model/StockLevel.java::StockLevel.reserve",
+        "src/main/java/com/northwind/warehouse/model/StockLevel.java::StockLevel.ship",
+        "src/main/java/com/northwind/warehouse/model/StockLevel.java::StockLevel.onHand",
+        "src/main/java/com/northwind/warehouse/model/StockLevel.java::StockLevel.reserved"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/model/StockLevelTest.java",
+      "name": "releasingMoreThanIsReservedIsRefused",
+      "status": "failed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/model/StockLevel.java::StockLevel.reserve",
+        "src/main/java/com/northwind/warehouse/model/StockLevel.java::StockLevel.release"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/stock/StockServiceTest.java",
+      "name": "addsUpWhatEveryLocationHasAvailable",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/stock/StockService.java::StockService.available"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/stock/StockServiceTest.java",
+      "name": "reservesFromTheFirstLocationThatHasEnough",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/stock/StockService.java::StockService.reserve",
+        "src/main/java/com/northwind/warehouse/stock/StockService.java::StockService.available"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/stock/StockServiceTest.java",
+      "name": "spreadsAReservationAcrossLocations",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/stock/StockService.java::StockService.reserve",
+        "src/main/java/com/northwind/warehouse/stock/StockService.java::StockService.available"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/stock/StockServiceTest.java",
+      "name": "refusesWhenEveryLocationTogetherIsShort",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/stock/StockService.java::StockService.reserve",
+        "src/main/java/com/northwind/warehouse/stock/InsufficientStockException.java::InsufficientStockException.InsufficientStockException"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/stock/StockServiceTest.java",
+      "name": "reservesNothingWhenItRefuses",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/stock/StockService.java::StockService.reserve",
+        "src/main/java/com/northwind/warehouse/stock/StockService.java::StockService.available",
+        "src/main/java/com/northwind/warehouse/stock/InsufficientStockException.java::InsufficientStockException.shortBy"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/stock/StockServiceTest.java",
+      "name": "releasingAReservationMakesItAvailableAgain",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/stock/StockService.java::StockService.reserve",
+        "src/main/java/com/northwind/warehouse/stock/StockService.java::StockService.release",
+        "src/main/java/com/northwind/warehouse/stock/StockService.java::StockService.available"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/stock/StockServiceTest.java",
+      "name": "twoReservationsAtOnceNeverOversell",
+      "status": "skipped",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/stock/StockService.java::StockService.reserve",
+        "src/main/java/com/northwind/warehouse/stock/StockService.java::StockService.available"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/picking/PickPlannerTest.java",
+      "name": "walksInLocationOrder",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/picking/PickPlanner.java::PickPlanner.plan",
+        "src/main/java/com/northwind/warehouse/order/Order.java::Order.Order",
+        "src/main/java/com/northwind/warehouse/order/Order.java::Order.line",
+        "src/main/java/com/northwind/warehouse/stock/StockService.java::StockService.reserve",
+        "src/main/java/com/northwind/warehouse/picking/PickStrategy.java::PickStrategy.comparator",
+        "src/main/java/com/northwind/warehouse/picking/PickList.java::PickList.lines"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/picking/PickPlannerTest.java",
+      "name": "putsTheBiggestPickFirst",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/picking/PickPlanner.java::PickPlanner.plan",
+        "src/main/java/com/northwind/warehouse/picking/PickList.java::PickList.lines"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/picking/PickPlannerTest.java",
+      "name": "goesToTheNearestLineNext",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/picking/PickPlanner.java::PickPlanner.plan",
+        "src/main/java/com/northwind/warehouse/picking/PickPlanner.java::PickPlanner.nearestNext",
+        "src/main/java/com/northwind/warehouse/picking/PickStrategy.java::PickStrategy.isGreedy",
+        "src/main/java/com/northwind/warehouse/picking/PickList.java::PickList.units"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/picking/PickPlannerTest.java",
+      "name": "measuresTheWalkThereAndBack",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/picking/PickPlanner.java::PickPlanner.plan",
+        "src/main/java/com/northwind/warehouse/picking/PickList.java::PickList.walkingDistance",
+        "src/main/java/com/northwind/warehouse/model/Location.java::Location.distanceTo"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/picking/PickPlannerTest.java",
+      "name": "failsAnOrderTheWarehouseCannotFill",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/picking/PickPlanner.java::PickPlanner.plan",
+        "src/main/java/com/northwind/warehouse/stock/StockService.java::StockService.reserve",
+        "src/main/java/com/northwind/warehouse/stock/InsufficientStockException.java::InsufficientStockException.InsufficientStockException"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/picking/PickPlannerTest.java",
+      "name": "picksAStrategyByHowManyUnits",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/picking/PickStrategy.java::PickStrategy.forUnits"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/replenish/ReorderPolicyTest.java",
+      "name": "computesTheReorderPoint",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/replenish/ReorderPolicy.java::ReorderPolicy.reorderPoint"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/replenish/ReorderPolicyTest.java",
+      "name": "ordersWholeCasesToCoverTheReviewPeriod",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/replenish/ReorderPolicy.java::ReorderPolicy.orderQuantity",
+        "src/main/java/com/northwind/warehouse/replenish/ReorderPolicy.java::ReorderPolicy.shouldReorder",
+        "src/main/java/com/northwind/warehouse/replenish/ReorderPolicy.java::ReorderPolicy.reorderPoint"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/notify/LowStockAlerterTest.java",
+      "name": "staysQuietAtOrAboveTheThreshold",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/notify/LowStockAlerter.java::LowStockAlerter.check"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/notify/LowStockAlerterTest.java",
+      "name": "tellsPurchasingWhenStockRunsLow",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/notify/LowStockAlerter.java::LowStockAlerter.check"
+      ]
+    },
+    {
+      "file": "src/test/java/com/northwind/warehouse/notify/LowStockAlerterTest.java",
+      "name": "alertsOncePerSkuPerDay",
+      "status": "passed",
+      "reaches": [
+        "src/main/java/com/northwind/warehouse/notify/LowStockAlerter.java::LowStockAlerter.check",
+        "src/main/java/com/northwind/warehouse/model/Sku.java::Sku.parse"
+      ]
+    }
+  ],
+  "untested": [
+    "src/main/java/com/northwind/warehouse/export/CsvExporter.java::CsvExporter.CsvExporter",
+    "src/main/java/com/northwind/warehouse/export/CsvExporter.java::CsvExporter.escape",
+    "src/main/java/com/northwind/warehouse/export/CsvExporter.java::CsvExporter.write",
+    "src/main/java/com/northwind/warehouse/model/Location.java::Location.aisle",
+    "src/main/java/com/northwind/warehouse/order/Order.java::Order.number",
+    "src/main/java/com/northwind/warehouse/order/Order.java::Order.priority",
+    "src/main/java/com/northwind/warehouse/order/Order.java::Order.units",
+    "src/main/java/com/northwind/warehouse/picking/PickLine.java::PickLine.sku",
+    "src/main/java/com/northwind/warehouse/picking/PickLine.java::PickLine.toString",
+    "src/main/java/com/northwind/warehouse/stock/InsufficientStockException.java::InsufficientStockException.sku",
+    "src/main/java/com/northwind/warehouse/stock/StockService.java::StockService.receive"
+  ]
+}
