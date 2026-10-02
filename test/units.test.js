@@ -344,6 +344,30 @@ describe('the units a rule is asked about', () => {
     ]);
   });
 
+  it('reads two tests with the same name as two tests', async () => {
+    const repo = await repoWith('- name: asserts\n  where: "test/*.js"\n  each: test\n  ensure: The test asserts behavior.\n');
+    await writeFile(join(repo.root, 'test', 'same.test.js'), [
+      "describe('lookup', () => {",
+      "  it('returns null', () => { expect(find('a')).toBeNull(); });",
+      '});',
+      "describe('parse', () => {",
+      "  it('returns null', () => { parse(''); });",
+      '});',
+      "it('doesn\\'t throw on a', () => { expect(() => run('a')).not.toThrow(); });",
+      "it('doesn\\'t throw on b', () => { run('b'); });",
+    ].join('\n'));
+    await commitAll(repo.root, 'tests that share a name');
+    const calls = [];
+    // A test that calls expect asserts something; the two that do not are the ones that break the rule.
+    const systemOne = { ...answering(0.9), async ask(state, questions) {
+      calls.push({ state, questions });
+      return { model: 'scripted-jev', answers: { asserts: { type: 'noul', noul: state.source.includes('expect') ? 0.95 : 0.05 } } };
+    } };
+    const run = await scanRepository({ ...repo, revision: await revision(repo.root), analyzer, systemOne, paths: ['test/same.test.js'] });
+    expect(calls.filter(call => call.questions.asserts).map(call => call.state.line).sort()).toEqual([2, 5, 7, 8]);
+    expect(run.broken.map(finding => [finding.line, finding.name]).sort()).toEqual([[5, 'returns null'], [8, 'doesn\'t throw on b']]);
+  });
+
   it('asks the likeliest unit first, so a search that finds its answer stops there', () => {
     const rule = { name: 'r', kind: 'ensure_present', text: 'A test that closes an issue with a reason' };
     const units = [{ path: 'test/graph.test.js', name: 'graph' }, { path: 'test/cli.test.js', name: 'closes an issue' }, { path: 'test/scan.test.js', name: 'scan' }];
