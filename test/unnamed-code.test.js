@@ -73,6 +73,22 @@ describe('code no function holds', () => {
     expect(units.candidates).toEqual(['example/Inventory.java::Inventory.has']);
   });
 
+  it('includes the statement that ends a Python block around a function, since nothing closes one', async () => {
+    const source = 'class Config:\n    def load(self):\n        return self.DEFAULT\n    DEFAULT = 5\n\n\nif __name__ == "__main__":\n    def run():\n        return Config().load()\n    main()\n';
+    const units = await unitsOf('config.py', source);
+    const top = named(units.file, '<top-level>');
+    expect(top?.lines.map(line => units.lines[line - 1])).toEqual(expect.arrayContaining(['    DEFAULT = 5', '    main()']));
+    expect(units.file.calls).toContainEqual(expect.objectContaining({ name: 'main', from: 'config.py::<top-level>' }));
+  });
+
+  it.each([
+    ['tests.js', "describe('cart', () => {\n  function total(items) { return items.length; }\n  // keep it short\n}); // cart\n"],
+    ['inventory.rb', 'module Shop\n  class Inventory\n    def has(sku)\n      true\n    end\n  end\nend\n'],
+  ])('still leaves out a line in %s that only closes what is around a function', async (path, source) => {
+    const units = await unitsOf(path, source);
+    expect(units.candidates.filter(id => id.endsWith('<top-level>'))).toEqual([]);
+  });
+
   it('leaves a function\'s leading comment with the function it describes', async () => {
     const units = await unitsOf('double.js', 'const LIMIT = 3;\n\n/** Twice x. */\nexport function double(x) { return x * 2; }\n\nrun(LIMIT);\n');
     const node = { ...named(units.file, '<top-level>'), path: 'double.js' };
