@@ -374,6 +374,19 @@ describe('the units a rule is asked about', () => {
     expect(rank(rule, units)[0].name).toBe('closes an issue');
   });
 
+  it('decides a search by the rule\'s own floor, the way a check of the same unit does', async () => {
+    const repo = await repoWith('- name: no-todo\n  where: "**/*.md"\n  min: 80\n  ensure_absent: A TODO left in the text.\n'
+      + '- name: says-what\n  where: "**/*.md"\n  ensure_present: A sentence saying what the project is.\n');
+    // Every unit answers 60%: likelier than not, and short of the 80 the absent rule asks for.
+    const run = await scanRepository({ ...repo, analyzer, systemOne: answering(0.6) });
+    const checked = await checkTarget({ target: 'README.md', root: repo.root, out: repo.out, analyzer, systemOne: answering(0.6), revision: repo.revision, only: ['no-todo'] });
+    expect(checked.broken).toEqual([]);
+    expect(run.broken.map(finding => finding.rule)).toEqual([]);
+    // --min 0 shows everything, so a unit 40% likely to lack the thing does not settle that the codebase has it.
+    const everything = await scanRepository({ ...repo, analyzer, systemOne: answering(0.6), min: 0 });
+    expect(everything.broken.map(finding => finding.rule).sort()).toEqual(['no-todo', 'says-what']);
+  });
+
   it('asks a method rule inside that method\'s own reading, and a file rule on its own', async () => {
     const repo = await repoWith('- name: comment-says-why\n  where: "src/*.js"\n  each: method\n  ensure: "The comment says why."\n'
       + '- name: prose\n  where: "**/*.md"\n  ensure: "A person wrote this."\n');
