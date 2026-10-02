@@ -278,12 +278,10 @@ describe('perch hunt', () => {
     // calls between them.
     const first = systemOne.calls.find(call => call.method === 'src/a.js::f');
     expect(Object.keys(first.state)).toEqual(['method', 'graph']);
-    expect(first.state.method).toEqual({ path: 'src/a.js', name: 'f', source: expect.stringMatching(/^export function f\(x\) \{\n/) });
+    expect(first.state.method).toEqual({ path: 'src/a.js', name: 'f', metrics: expect.any(Object), source: expect.stringMatching(/^export function f\(x\) \{\n/) });
+    expect(first.state.method.metrics.risk_score).toBeTypeOf('number');
     expect(first.state.graph.nodes.map(node => node.id).sort()).toEqual(['src/a.js::g', 'src/b.js::h', 'test/a.test.js::<top-level>']);
     expect(first.state.graph.edges).toEqual(expect.arrayContaining(['src/a.js::f -> src/a.js::g', 'src/a.js::f -> src/b.js::h', 'src/b.js::h -> src/b.js::k', 'test/a.test.js::<top-level> -> src/a.js::f']));
-    // The numbers the refactor question names are handed to that question, so no other question's answer depends on them.
-    expect(first.questions.refactor.instructions.metrics.risk_score).toBeTypeOf('number');
-    expect(first.questions.has_bug.instructions).toBeTypeOf('string');
     expect(first.questions.misuse_0.instructions.callee).toBe(first.state.graph.nodes[0].id);
     expect(first.questions.kind.type).toBe('choice');
     expect(Object.keys(first.questions.kind.criteria)).toHaveLength(9);

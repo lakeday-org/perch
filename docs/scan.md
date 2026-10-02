@@ -94,8 +94,8 @@ The IDs follow the [supported language list](#1-tree-sitter): `c`, `cpp`,
 `rust`, `javascript`, `typescript`, `tsx`, `c_sharp`, and so on.
 
 A request carries the method and its call graph. The method is its source under
-the comment above it. The graph is up to 8 callees and up to 8 callers, each
-shown the same way, and the calls between them. A long caller is cut to the
+the comment above it, with its metrics. The graph is up to 8 callees and up to
+8 callers, each shown with its comment and source, and the calls between them. A long caller is cut to the
 lines around its call. When they do not fit, each neighbour is shortened, then
 fewer are shown, down to none, before the method is given up on.
 

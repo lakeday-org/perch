@@ -47,7 +47,7 @@ describe('the state a method is asked over', () => {
   it('is the method and its call graph, each under the comment above it, with no line numbers', () => {
     const { state } = methodStep(placed());
     expect(state).toEqual({
-      method: { path: 'a.js', name: 'small', source: '// Clamps x to LIMIT after halving it.\nfunction small(x) {\n  return Math.min(half(x), LIMIT);\n}' },
+      method: { path: 'a.js', name: 'small', metrics: { risk_score: 12 }, source: '// Clamps x to LIMIT after halving it.\nfunction small(x) {\n  return Math.min(half(x), LIMIT);\n}' },
       graph: {
         nodes: [
           { id: 'a.js::half', path: 'a.js', source: '/** Halves x, rounding down. */\nfunction half(x) {\n  return Math.floor(x / 2);\n}' },
@@ -91,17 +91,6 @@ describe('the state a method is asked over', () => {
     const [step] = methodSteps({ node, lines });
     expect(step.state.method.source).toBe('const LIMIT = 3;\n\n... (read on its own)\n\nrun(LIMIT);');
     expect(step.covers).toMatchObject({ line: 1, end_line: 7 });
-  });
-
-  it('hands metrics to the question that names them and to no other', () => {
-    const asked = [
-      { name: 'shape', type: 'choice', ask: 'Judging from `method` and its `metrics`, what does it need?', options: { split: 'Split it', none: 'Nothing' } },
-      { name: 'wrong', type: 'noul', ask: 'Is `method` wrong?', true: 'Yes', false: 'No' },
-    ];
-    const { state, questions } = methodStep({ ...placed(), asked });
-    expect(JSON.stringify(state)).not.toContain('risk_score');
-    expect(questions.shape.instructions).toEqual({ metrics: { risk_score: 12 }, question: asked[0].ask });
-    expect(questions.wrong.instructions).toBe(asked[1].ask);
   });
 });
 

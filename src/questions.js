@@ -264,9 +264,10 @@ const HANDED_ON = 'does not call the method here: it passes it on to be called l
 /**
  * The state and questions for one method.
  *
- * The state is the method and its call graph, and nothing else: the method's source under the comment above it, each caller and
- * callee shown the same way, and the edges between them. So it changes when the method or a neighbour does, and an answer
- * already given about it is still the answer after code elsewhere in the file moves it down a line.
+ * The state is the method and its call graph, and nothing else: the method's source under the comment above it and the metrics
+ * measured from that source, each caller and callee shown the same way, and the edges between them. So it changes when the
+ * method or a neighbour does, and an answer already given about it is still the answer after code elsewhere in the file moves
+ * it down a line.
  *
  * `node` is the graph node and `lines` its file's lines. `callees` and `callers` are [{ node, lines, site, handover }] with the
  * neighbor's file lines and, for a caller, the calling line, which is where its excerpt is centered. `edges` are [from, to]
@@ -289,7 +290,7 @@ export function methodStep({ node, lines, callees, callers, edges = [], budget =
     // An edge is drawn from code in view, so the edges go when the neighbourhood does, and one from a method not shown is left
     // out: it would change the state when code nothing here shows changed.
     const drawn = nodes.size ? edges.filter(([from]) => from === id || nodes.has(from)).map(([from, to]) => `${from} -> ${to}`) : [];
-    return { state: { method: { path: node.path, name: node.qualified_name, source }, graph: { nodes: [...nodes.values()], edges: drawn } }, calls: calls.map(named), calledBy: calledBy.map(named) };
+    return { state: { method: { path: node.path, name: node.qualified_name, metrics: node.metrics ?? null, source }, graph: { nodes: [...nodes.values()], edges: drawn } }, calls: calls.map(named), calledBy: calledBy.map(named) };
   };
   const over = () => estimateTokens(built.state) > budget;
   let built = build(limits[0] === Infinity ? Infinity : 80);
@@ -311,10 +312,6 @@ export function methodStep({ node, lines, callees, callers, edges = [], budget =
     follow: { type: 'choice', instructions: 'Which related method most likely holds or reveals a defect connected to `method`, and is worth examining next?',
       criteria: { ...Object.fromEntries(neighbors.map(item => [item.id, `${item.name} in ${item.path}`])), none: 'No related method is worth following' } },
   };
-  // A question that names `metrics` is handed them as part of itself. In the state they were part of every question's cache
-  // key, though one question reads them.
-  if (node.metrics) for (const question of asked)
-    if (String(question.ask).includes('`metrics`')) questions[question.name] = { ...questions[question.name], instructions: { metrics: node.metrics, question: question.ask } };
   for (const [index, call] of calls.entries())
     questions[`misuse_${index}`] = { type: 'noul', instructions: { callee: call.id, question: 'Does `method` call `callee` in a way that violates the contract evident from the callee\'s source: wrong argument order, type, or shape, an unchecked result, or an ignored error?' },
       criteria: { true: 'At least one call from method to callee breaks what the callee visibly expects or returns', false: 'Every call matches what the callee expects and handles what it returns' } };
