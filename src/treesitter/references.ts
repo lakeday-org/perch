@@ -198,6 +198,26 @@ function rustUseNames(node: Node, prefix = ""): Array<{ name: string; alias: str
   return path ? [{ name: path, alias: path.split("::").at(-1) ?? null }] : [];
 }
 
+/**
+ * The names a Python import binds. `from m import x` names x with the same dotted_name node that names a module, so the walk
+ * the other languages use takes neither for a binding. Each name in `import a.b, c as d` is a module bound whole, and an
+ * unaliased `import a.b` binds a, which a call then reaches through as `a.b.f()`.
+ */
+function pythonImportNames(node: Node, module: string): Array<{ node: Node; module: string; name: string; alias: string; reference: string }> {
+  const from = child(node, "module_name");
+  const names = [];
+  for (const item of node.namedChildren) {
+    const aliased = item.type === "aliased_import";
+    if ((!aliased && item.type !== "dotted_name") || item.startIndex === from?.startIndex) continue;
+    const path = text(aliased ? child(item, "name") : item);
+    const alias = aliased ? text(child(item, "alias")) : "";
+    if (!path) continue;
+    if (node.type === "import_statement") names.push({ node: item, module: path, name: "*", alias: alias || (path.split(".")[0] ?? path), reference: path });
+    else names.push({ node: item, module, name: path, alias: alias || path, reference: !module || module.endsWith(".") ? `${module}${path}` : `${module}.${path}` });
+  }
+  return names;
+}
+
 function importReferences(node: Node, language: string): Reference[] {
   const module = importModule(node, language);
   const references: Reference[] = [];
@@ -223,6 +243,21 @@ function importReferences(node: Node, language: string): Reference[] {
           }),
         );
       }
+    }
+    return references;
+  }
+
+  if (language === "python") {
+    for (const item of pythonImportNames(node, module)) {
+      references.push(
+        makeReference("import", item.node, {
+          name: item.name,
+          reference: item.reference,
+          module: item.module || null,
+          imported_name: item.name,
+          alias: item.alias,
+        }),
+      );
     }
     return references;
   }
