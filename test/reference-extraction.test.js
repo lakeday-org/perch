@@ -1,3 +1,6 @@
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
 import { createAnalyzer } from '../src/treesitter/index.ts';
 import { analyzeFiles } from '../src/analysis.js';
@@ -32,4 +35,47 @@ it('records import(...) as an import of its module, in a type position or as a d
   const dynamic = await analyzer.analyzeSource('export async function load() { const m = await import("./foo"); return m; }\n', 'javascript');
   expect(calls(dynamic)).toEqual([]);
   expect(imports(dynamic)).toContainEqual({ module: './foo', imported_name: null, alias: null });
+});
+
+it('links Python calls through `import module` and `from module import name`', async () => {
+  const root = fileURLToPath(new URL('./fixtures/order-service/', import.meta.url));
+  const paths = (await readdir(root)).filter(path => path.endsWith('.py'));
+  const scan = await analyzeFiles(paths.map(path => ({ path, sha: path })), { analyzer, readSource: file => readFile(join(root, file.path), 'utf8') });
+  const graph = buildGraph(scan.files);
+  expect(graph.callees('main.py::<top-level>')).toContain('checkout.py::can_fulfil');
+  expect(graph.callees('checkout.py::place_order')).toEqual(expect.arrayContaining(['cart.py::subtotal', 'cart.py::apply_discount', 'inventory.py::reserve']));
+});
+
+it('reads each name in a Python import statement as its own binding', async () => {
+  const result = await analyzer.analyzeSource('import a.b, c as d\nfrom .e import f, g as h\nfrom . import i\n', 'python');
+  expect(imports(result).filter(item => item.imported_name)).toEqual([
+    { module: 'a.b', imported_name: '*', alias: 'a' },
+    { module: 'c', imported_name: '*', alias: 'd' },
+    { module: '.e', imported_name: 'f', alias: 'f' },
+    { module: '.e', imported_name: 'g', alias: 'h' },
+    { module: '.', imported_name: 'i', alias: 'i' },
+  ]);
+});
+
+it('looks a Python name imported from a package up as the submodule it names', async () => {
+  const sources = {
+    'pkg/__init__.py': 'def helper():\n    return 0\n',
+    'pkg/utils.py': 'def helper():\n    return 1\n',
+    'pkg/relative.py': 'from . import utils\n\ndef run():\n    return utils.helper()\n',
+    'absolute.py': 'from pkg import utils\n\ndef run():\n    return utils.helper()\n',
+  };
+  const scan = await analyzeFiles(Object.keys(sources).map(path => ({ path, sha: path })), { analyzer, readSource: async file => sources[file.path] });
+  const graph = buildGraph(scan.files);
+  expect(graph.callees('pkg/relative.py::run')).toEqual(['pkg/utils.py::helper']);
+  expect(graph.callees('absolute.py::run')).toEqual(['pkg/utils.py::helper']);
+});
+
+it('looks a Rust module brought in by `use` up as that module', async () => {
+  const sources = {
+    'src/lib.rs': 'mod app;\nmod net;\n',
+    'src/net.rs': 'pub fn connect() {}\n',
+    'src/app.rs': 'use crate::net;\n\npub fn start() { net::connect(); }\n',
+  };
+  const scan = await analyzeFiles(Object.keys(sources).map(path => ({ path, sha: path })), { analyzer, readSource: async file => sources[file.path] });
+  expect(buildGraph(scan.files).callees('src/app.rs::start')).toEqual(['src/net.rs::connect']);
 });
