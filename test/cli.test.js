@@ -264,6 +264,14 @@ describe('cli', () => {
     expect(filtered).toBe(count(out.at(-1)));
   });
 
+  it('refuses a --paths entry outside the repository instead of reading nothing and calling it clean', async () => {
+    const { err, io } = capture();
+    for (const outside of ['../elsewhere', '/etc', 'src/../../elsewhere']) {
+      expect(await main(['scan', '--paths', outside], io)).toBe(2);
+      expect(err.join('\n')).toContain(`--paths takes paths inside the repository; ${outside} is outside it`);
+    }
+  });
+
   it('answers a bad filter with the real values, under the old command name too, without crashing', async () => {
     const { out, err, io } = capture();
     // `findings` is another name for `issues`; a usage error on it must reach that command's help, not an undefined one.
