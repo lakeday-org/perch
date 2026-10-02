@@ -7,6 +7,8 @@ const IMPORT_TYPES = new Set([
   "import_statement",
   "import_from_statement",
   "import_declaration",
+  // Go's import_declaration holds one import_spec or a parenthesised list of them, and each spec imports a path of its own.
+  "import_spec",
   "use_declaration",
   "using_directive",
   "namespace_use_declaration",
@@ -171,7 +173,12 @@ function bindingName(node: Node): { name: string; alias: string | null } | null 
     const local = text(node.namedChildren.find((item) => item.type === "identifier") ?? node.namedChildren.at(-1));
     return local ? { name: "*", alias: local } : null;
   }
-  const imported = child(node, "name", "path");
+  // A Go import_spec's name is the alias, written before the path; without one, the package goes by the path's last element.
+  if (node.type === "import_spec") {
+    const path = stripModule(text(child(node, "path")));
+    return path ? { name: path, alias: text(child(node, "name")) || path.split("/").at(-1) || path } : null;
+  }
+  const imported = child(node, "name");
   const alias = child(node, "alias");
   if (imported || alias) {
     const name = text(imported);
@@ -224,6 +231,8 @@ function pythonImportNames(node: Node, module: string): Array<{ node: Node; modu
 }
 
 function importReferences(node: Node, language: string): Reference[] {
+  // A declaration that only holds Go import_specs imports nothing itself; the walk reaches each spec and reads it.
+  if (node.namedChildren.some((item) => item.type === "import_spec" || item.type === "import_spec_list")) return [];
   const module = importModule(node, language);
   const references: Reference[] = [];
   references.push(
@@ -267,8 +276,9 @@ function importReferences(node: Node, language: string): Reference[] {
     return references;
   }
 
+  // The import itself can be its binding: a Go import_spec names both the path and the name it goes by.
   for (const item of walkNodes(node)) {
-    if (item === node || !IMPORT_BINDING_TYPES.has(item.type)) continue;
+    if (!IMPORT_BINDING_TYPES.has(item.type)) continue;
     const binding = bindingName(item);
     if (!binding) continue;
     references.push(

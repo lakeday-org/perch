@@ -39,6 +39,19 @@ it('reads a TypeScript import-equals declaration as the module and its local bin
   expect(buildGraph(scan.files).callees('a.ts::f')).toEqual(['foo.ts::bar']);
 });
 
+it('reads each Go import as its unquoted path, bound to its alias or else to the last element of the path', async () => {
+  const source = 'package main\n\nimport f "fmt"\nimport "os"\nimport (\n\t"strings"\n\ts "sort"\n\t"github.com/acme/tool/log"\n)\n';
+  const result = await analyzer.analyzeSource(source, 'go');
+  expect(imports(result).filter(item => item.imported_name)).toEqual([
+    { module: 'fmt', imported_name: 'fmt', alias: 'f' },
+    { module: 'os', imported_name: 'os', alias: 'os' },
+    { module: 'strings', imported_name: 'strings', alias: 'strings' },
+    { module: 'sort', imported_name: 'sort', alias: 's' },
+    { module: 'github.com/acme/tool/log', imported_name: 'github.com/acme/tool/log', alias: 'log' },
+  ]);
+  expect(new Set(imports(result).map(item => item.module))).toEqual(new Set(['fmt', 'os', 'strings', 'sort', 'github.com/acme/tool/log']));
+});
+
 it('records import(...) as an import of its module, in a type position or as a dynamic import, never as a call', async () => {
   const typed = await analyzer.analyzeSource('type T = import("./foo").Foo;\nexport function f(x: T) { return x; }\n', 'typescript');
   expect(calls(typed)).toEqual([]);
