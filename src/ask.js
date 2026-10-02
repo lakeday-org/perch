@@ -1,5 +1,6 @@
 
 
+
 /**
  * The question grammar. Every question perch puts to System One — the ones it ships with and the rules you write — is a record in
  * a YAML file with the same seven-odd keys, and this module reads them, checks them, turns them into typed questions, and reads
