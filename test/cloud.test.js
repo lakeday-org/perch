@@ -58,6 +58,36 @@ describe('Perch Cloud', () => {
     expect(sent).toEqual(['gone']);
   });
 
+  it('names the Cloud scan on each question asked once one is started, waiting for it while it starts', async () => {
+    const question = { a: { type: 'noul', criteria: { true: 'yes', false: 'no' } } };
+    const named = [];
+    let release;
+    const held = new Promise(resolve => { release = resolve; });
+    const client = start => createCloudClient({
+      origin: 'https://example.com', getToken: async () => 'token', organizationId: 'org', repositoryId: 'repo', reports: true,
+      fetchImpl: async (url, options) => {
+        if (url.endsWith('/v1/scans/start')) { await held; return start(); }
+        named.push(options.headers['x-perch-scan']);
+        return response({ model: 'jev-latest', answers: { a: { noul: 0.9 } }, usage: null });
+      },
+    });
+    const started = client(() => response({ id: 'scan-1' }));
+    await started.ask({ code: 'a' }, question);
+    const starting = started.startScan({ scope: 'full' });
+    const asked = started.ask({ code: 'b' }, question);
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(named).toEqual([undefined]);
+    release();
+    await starting; await asked;
+    await started.ask({ code: 'c' }, question);
+    expect(named).toEqual([undefined, 'scan-1', 'scan-1']);
+
+    named.length = 0;
+    const refused = client(() => new Response('{"error":"no"}', { status: 500 }));
+    await expect(refused.startScan({ scope: 'full' })).rejects.toThrow('no');
+    await refused.ask({ code: 'a' }, question);
+    expect(named).toEqual([undefined]);
+  });
   it('asks the Cloud to skip its cached answers only when forced', async () => {
     const bodies = [];
     const client = force => createCloudClient({
@@ -265,6 +295,50 @@ describe('Perch Cloud', () => {
     expect(seen.map(r => r.auth)).toEqual(Array(5).fill('Bearer oidc-1'));
     expect(seen[0].body.repositoryId).toBeUndefined();
     expect(seen.slice(1).map(r => r.url)).toEqual(['start', 'append', 'progress', 'finish'].map(path => `https://dash.perchscan.com/v1/scans/${path}`));
+  });
+  it('names the command, release and run on every request to the Cloud, and on none to GitHub', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'perch-run-headers-'));
+    try {
+      await git(['init', '-q'], root);
+      await git(['remote', 'add', 'origin', 'git@github.com:lakeday-org/perch.git'], root);
+      await mkdir(join(root, '.perch'));
+      await writeFile(join(root, '.perch', 'cloud.json'), JSON.stringify({
+        kind: 'perch', origin: 'https://dash.perchscan.com', organizationId: 'org', accessToken: 'expired', refreshToken: 'refresh', expiresAt: 0,
+      }));
+      const sent = [];
+      const fetchImpl = async (url, options = {}) => {
+        const href = String(url);
+        const named = Object.fromEntries(Object.entries(options.headers ?? {}).filter(([name]) => name.startsWith('x-perch-')));
+        sent.push({ path: new URL(href).pathname, named });
+        if (href.startsWith('https://actions.example/')) return response({ value: 'oidc' });
+        if (href.endsWith('/auth/device/refresh')) return response({ access_token: 'perch_cli_new', refresh_token: 'rotated', expires_at: Date.now() + 900000 });
+        if (href.endsWith('/api/repositories')) return response({ id: 'repo' });
+        if (href.endsWith('/api/config')) return response({ model: 'jev-latest', epoch: '1' });
+        if (href.includes('/v1/scans/')) return response({ id: 'scan' });
+        return response({ model: 'jev-latest', answers: { a: { noul: 0.9 } }, usage: null });
+      };
+      const question = { a: { type: 'noul', criteria: { true: 'yes', false: 'no' } } };
+
+      const saved = await configuredSystemOne({ env: { HOME: root }, root, command: 'scan', version: '1.2.3', fetchImpl });
+      await saved.ask({ code: 'a' }, question);
+      await saved.startScan({ scope: 'full' });
+      expect(sent.map(request => request.path)).toEqual(['/auth/device/refresh', '/api/repositories', '/api/config', '/v1/systemone', '/v1/scans/start']);
+      const run = sent[0].named['x-perch-run'];
+      expect(run).toMatch(/^[0-9a-f-]{36}$/);
+      for (const request of sent) expect(request.named).toEqual({ 'x-perch-command': 'scan', 'x-perch-version': '1.2.3', 'x-perch-run': run });
+
+      sent.length = 0;
+      const actions = await configuredSystemOne({ env: {
+        GITHUB_ACTIONS: 'true', ACTIONS_ID_TOKEN_REQUEST_URL: 'https://actions.example/token', ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runtime', HOME: '/nonexistent',
+      }, root, command: 'check', version: 'DEVELOPMENT (abc1234)', fetchImpl });
+      await actions.ask({ code: 'a' }, question);
+      expect(sent.map(request => request.path)).toEqual(['/api/config', '/token', '/v1/systemone']);
+      expect(sent[1].named).toEqual({});
+      // Another invocation is another run.
+      expect(sent[2].named).toEqual({ 'x-perch-command': 'check', 'x-perch-version': 'DEVELOPMENT (abc1234)', 'x-perch-run': expect.not.stringMatching(run) });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
   it('says to sign in when there is no login, key or Actions token, before sending anything', async () => {
     await expect(configuredSystemOne({ env: { HOME: '/nonexistent' }, root: process.cwd(), fetchImpl: async () => { throw new Error('unexpected request'); } }))
