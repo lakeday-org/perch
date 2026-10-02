@@ -18,6 +18,17 @@ it('records a call to a function named outside ASCII and links it in the graph',
   expect(buildGraph(scan.files).callees('app.js::outer')).toEqual(['app.js::café']);
 });
 
+it('names Ruby and Swift calls by their receiver and method, and links them in the graph', async () => {
+  const ruby = 'class Greeter\n  def helper(value)\n    value\n  end\n\n  def run\n    helper(1)\n    self.helper(2)\n    other&.helper(3)\n    Foo::Bar.baz\n  end\nend\n';
+  const swift = 'struct Greeter {\n  func helper(_ value: Int) -> Int { value }\n  func run() {\n    helper(1)\n    self.helper(2)\n    other?.helper(3)\n    Foo.Bar.baz()\n  }\n}\n';
+  expect(calls(await analyzer.analyzeSource(ruby, 'ruby'))).toEqual(['helper', 'self.helper', 'other.helper', 'Foo::Bar.baz']);
+  expect(calls(await analyzer.analyzeSource(swift, 'swift'))).toEqual(['helper', 'self.helper', 'other.helper', 'Foo.Bar.baz']);
+  const scan = await analyzeFiles([{ path: 'app.rb', sha: 'a' }, { path: 'App.swift', sha: 'b' }], { analyzer, readSource: async file => (file.path === 'app.rb' ? ruby : swift) });
+  const graph = buildGraph(scan.files);
+  expect(graph.callees('app.rb::run')).toEqual(['app.rb::helper']);
+  expect(graph.callees('App.swift::Greeter.run')).toEqual(['App.swift::Greeter.helper']);
+});
+
 it('reads a TypeScript import-equals declaration as the module and its local binding, and resolves calls through it', async () => {
   const a = 'import Foo = require("./foo");\nexport function f() { return Foo.bar(); }\n';
   const foo = 'export function bar() { return 1; }\n';
