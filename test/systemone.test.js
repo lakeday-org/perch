@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createSystemOne } from '../src/systemone.js';
 import { createMeter } from '../src/meter.js';
+import { configuredSystemOne, FIRST_QUESTIONS } from '../src/cloud-client.js';
 
 const reply = (status, body, headers = {}) => ({ status, ok: status < 400, headers: { get: name => headers[name] }, json: async () => body, text: async () => JSON.stringify(body) });
 const answers = { has_bug: { type: 'noul', noul: 0.7 } };
@@ -88,5 +89,58 @@ describe('system one client', () => {
     const meter = createMeter();
     meter.add('d1:free', { input_tokens: 145000, output_tokens: 0 }, { requests: 21 });
     expect(meter.cost('d1:free')).toBe(0);
+  });
+  describe('a model that takes fewer questions than a method asks', () => {
+    const noul = { type: 'noul', instructions: 'q', criteria: { true: 'y', false: 'n' } };
+    const asking = (count, prefix = 'q') => Object.fromEntries(Array.from({ length: count }, (_, at) => [`${prefix}${at}`, noul]));
+    /** Beam's models: 32 questions a request, said in `_meta` on every answer, and a refusal for anything over. */
+    const beam = (reports = true) => {
+      const sizes = [];
+      const fetchImpl = async (url, init) => {
+        const { questions } = JSON.parse(init.body), count = Object.keys(questions).length;
+        sizes.push(count);
+        if (count > 32) return reply(422, { detail: `${count} questions; this model takes at most 32 per request` });
+        const answers = Object.fromEntries(Object.keys(questions).map(id => [id, { type: 'noul', noul: 0.5 }]));
+        return reply(200, { model: 'jev/diffusiongemma', answers, usage: { input_tokens: 1, output_tokens: 0 }, ...(reports ? { _meta: { max_questions: 32, max_options: 128 } } : {}) });
+      };
+      return { sizes, fetchImpl };
+    };
+
+    it('reads a method of 36 questions without one refused request, learning the limit from the first answer', async () => {
+      const { sizes, fetchImpl } = beam();
+      const client = createSystemOne({ apiKey: 'k', fetchImpl, firstQuestions: FIRST_QUESTIONS });
+      const response = await client.ask({ method: 'x' }, asking(36));
+      expect(Object.keys(response.answers)).toHaveLength(36);
+      expect(sizes[0]).toBeLessThanOrEqual(FIRST_QUESTIONS);
+      expect(Math.max(...sizes)).toBeLessThanOrEqual(32);
+      expect(client.limits.questions).toBe(32);
+    });
+
+    it('holds every concurrent method until the first answer has said how many questions fit', async () => {
+      // A scan sends 32 methods at once. Each one split its questions before anything had come back, so all but the first went
+      // out sized for Jev and were refused.
+      const { sizes, fetchImpl } = beam();
+      const client = createSystemOne({ apiKey: 'k', fetchImpl, firstQuestions: FIRST_QUESTIONS });
+      const readings = await Promise.all(['a', 'b', 'c', 'd'].map(prefix => client.ask({ method: prefix }, asking(36, prefix))));
+      expect(readings.every(reading => Object.keys(reading.answers).length === 36)).toBe(true);
+      expect(Math.max(...sizes)).toBeLessThanOrEqual(32);
+    });
+
+    it('takes the limit from PERCH_MAX_QUESTIONS when the model does not say', async () => {
+      const { sizes, fetchImpl } = beam(false);
+      const client = await configuredSystemOne({ env: { PERCH_BASE_URL: 'https://app.beam.cloud/v1/models/jev/semif/invoke', PERCH_API_KEY: 'k',
+        PERCH_MODEL_ID: 'jev/semif', PERCH_MAX_QUESTIONS: '10' }, fetchImpl });
+      await client.ask({ method: 'x' }, asking(36));
+      expect(sizes).toEqual([10, 10, 10, 6]);
+      await expect(configuredSystemOne({ env: { PERCH_BASE_URL: 'https://example.test', PERCH_API_KEY: 'k', PERCH_MAX_QUESTIONS: 'lots' }, fetchImpl }))
+        .rejects.toThrow('PERCH_MAX_QUESTIONS must be a whole number');
+    });
+
+    it('refuses a choice with more options than the model takes', async () => {
+      const { fetchImpl } = beam();
+      const client = createSystemOne({ apiKey: 'k', fetchImpl, limits: { options: 16 } });
+      const wide = { type: 'choice', instructions: 'which', criteria: Object.fromEntries(Array.from({ length: 17 }, (_, at) => [`o${at}`, `option ${at}`])) };
+      await expect(client.ask({ method: 'x' }, { kind: wide })).rejects.toThrow('more than 16 choices');
+    });
   });
 });
