@@ -154,6 +154,26 @@ rules:
     await expect(removeRule(root, 'prose')).rejects.toThrow('no question called prose');
   });
 
+  it('takes the last rule out and puts the next one in the way it would have been written by hand', async () => {
+    const { root, read, rules } = await withRules(STARTING);
+    await removeRule(root, 'prose');
+    // The comment over the rules is not one of them, and an empty list is still a file a scan reads.
+    expect(await read()).toBe('# Rules perch asks alongside its own.\n\n[]\n');
+    expect(await rules()).toEqual([]);
+    // `[]` parses to a flow sequence, and a rule added to one was written as `[ { name: r1, ... } ]` from then on.
+    await addRule(root, { name: 'r1', where: '**/*', ensure: 'A sentence.' });
+    expect(await read()).toBe('# Rules perch asks alongside its own.\n\n- name: r1\n  where: "**/*"\n  ensure: A sentence.\n');
+
+    // The same under a key, where everything else the map holds is left as it was typed.
+    const settings = 'ignore: [test/fixtures/**, dist/**]\n\n# What this repository asks.\nrules:';
+    const keyed = await withRules(`${settings}\n  - name: prose\n    where: "**/*.md"\n    ensure: A person wrote this.\nscan_types: [defect]\n`);
+    await removeRule(keyed.root, 'prose');
+    expect(await keyed.read()).toBe(`${settings} []\nscan_types: [defect]\n`);
+    expect(await keyed.rules()).toEqual([]);
+    await addRule(keyed.root, { name: 'r1', where: '**/*', ensure: 'A sentence.' });
+    expect(await keyed.read()).toBe(`${settings}\n  - name: r1\n    where: "**/*"\n    ensure: A sentence.\nscan_types: [defect]\n`);
+  });
+
   it('turns off a question perch ships, and turns it back on', async () => {
     const { root, read, rules } = await withRules(STARTING);
     // A shipped question is not in your file to delete, so stopping it is a line saying so rather than a silence.

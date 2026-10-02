@@ -7,7 +7,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
-import { Document, isMap, Pair, parseDocument, Scalar } from 'yaml';
+import { Document, isMap, isSeq, Pair, parseDocument, Scalar } from 'yaml';
 import { BUILTIN, check, ENSURES, SCAN_YAML, SHAPES, parseQuestions } from './ask.js';
 import { RULES_DIR, RULES_FILE, readRuleFiles } from './units.js';
 import { revision } from './git.js';
@@ -30,7 +30,8 @@ const NESTED = new Set(['options', 'levels', 'issue']);
  *
  * A file that is not there reads as an empty one and not as `[]`, which parses to a flow sequence and would write the first rule
  * as `[ { name: r1, ... } ]`. Every later edit reparses that and keeps the style, so one missing file at the start meant a rule
- * file nobody could read from then on.
+ * file nobody could read from then on. A list the last rule was taken out of is the same `[]` arrived at from the other end, so
+ * an empty list is never read as a flow one either.
  */
 async function open(root, file = RULES_FILE) {
   const path = join(root, file);
@@ -38,16 +39,27 @@ async function open(root, file = RULES_FILE) {
   const doc = parseDocument(text);
   const empty = !doc.contents;
   if (!doc.contents || !doc.contents.items) doc.contents = doc.createNode([]);
-  const keyless = isMap(doc.contents) && !doc.contents.flow && !doc.has('rules');
+  // Where the list of rules is in the text: after the colon of rules: in a map, and the list itself otherwise. Found before the
+  // list is, since a rules: with nothing under it is given a list there that has no place in the text.
+  const key = isMap(doc.contents) ? doc.contents.items.find(pair => pair.key?.value === 'rules') : undefined;
+  const span = key ? key.key.range && key.value?.range && [text.indexOf(':', key.key.range[1]) + 1, key.value.range[2]]
+    : isSeq(doc.contents) ? doc.contents.range : undefined;
+  // What a list with nothing in it is written as, and where. Leaving nothing instead would leave a file a scan refuses to read.
+  const none = span && { from: span[0], to: lineEnd(text, span.at(-1)), text: key ? ' []\n' : '[]\n' };
   const rules = rulesOf(doc);
+  if (!rules.items.length) rules.flow = false;
   const origin = new Map();
   const before = place(text, rules, origin);
-  // A new rule goes after the last one there. A file with none takes it at the end: as it comes when the file holds nothing but
-  // comments, and under a rules: key when the file is a map that has not got one yet.
-  const end = empty ? { to: text.length, dash: 0 } : keyless ? { to: text.length, dash: 2, under: 'rules:\n' } : before.at(-1)?.at;
+  // A new rule goes after the last one there. A file with none takes it where the empty list is, or at the end: as it comes
+  // when the file holds nothing but comments, and under a rules: key when the file is a map that has not got one yet.
+  const last = before.at(-1)?.at;
+  const end = before.length ? last && { from: last.to, to: last.to, dash: last.dash }
+    : empty ? { from: text.length, to: text.length, dash: 0 }
+    : isMap(doc.contents) && !doc.contents.flow && !key ? { from: text.length, to: text.length, dash: 2, under: 'rules:\n' }
+    : none && { from: none.from, to: none.to, dash: key ? 2 : 0 };
   // The text it was parsed from goes back with it, because the write is made against that text and has to know it is putting
   // it down over the one it picked up.
-  return { path, file, doc, rules, text, before, origin, end };
+  return { path, file, doc, rules, text, before, origin, end, none };
 }
 
 /**
@@ -107,6 +119,9 @@ async function save(page) {
 /** What a node holds, as text two of them can be compared by. */
 const plain = node => JSON.stringify(node);
 
+/** The end of the line a value ends on. One with nothing in it ends before its line does. */
+const lineEnd = (text, at) => (text[at - 1] === '\n' ? at : at + /^[ \t]*(?:\r?\n)?/.exec(text.slice(at))[0].length);
+
 /** Lines moved right or left by a number of columns. A blank line stays blank, and nothing moved by nothing is not touched. */
 const shift = (text, by) => (by > 0 ? text.replace(/^(?=.)/gm, ' '.repeat(by)) : by < 0 ? text.replace(new RegExp(`^ {0,${-by}}`, 'gm'), '') : text);
 
@@ -121,8 +136,6 @@ const shift = (text, by) => (by > 0 ? text.replace(/^(?=.)/gm, ' '.repeat(by)) :
  */
 function place(text, rules, origin) {
   const lineOf = at => text.lastIndexOf('\n', at - 1) + 1;
-  // A value with nothing in it ends before its line does.
-  const lineEnd = at => (text[at - 1] === '\n' ? at : at + /^[ \t]*(?:\r?\n)?/.exec(text.slice(at))[0].length);
   return rules.items.map(item => {
     const was = plain(item);
     if (!isMap(item) || !item.range || item.items.some(pair => !pair.key?.range || !pair.value?.range)) return { item, was };
@@ -130,14 +143,14 @@ function place(text, rules, origin) {
     const lead = text.slice(from, item.range[0]);
     if (!/^ *- +$/.test(lead)) return { item, was };
     const column = lead.length;
-    const at = { from, to: lineEnd(item.range[2]), dash: lead.indexOf('-'), column };
+    const at = { from, to: lineEnd(text, item.range[2]), dash: lead.indexOf('-'), column };
     if (item.flow || !item.items.length) return { item, was, at };
     const keys = [];
     at.to = from;
     for (const pair of item.items) {
       const start = pair === item.items[0] ? from : lineOf(pair.key.range[0]);
       if (start < at.to || (start > from && text.slice(start, pair.key.range[0]) !== ' '.repeat(column))) return { item, was };
-      const end = lineEnd(pair.value.range[2]);
+      const end = lineEnd(text, pair.value.range[2]);
       const own = (start === from ? ' '.repeat(column) : '') + text.slice(start === from ? item.range[0] : start, end);
       keys.push([pair, { gap: text.slice(at.to, start), own: own.endsWith('\n') ? own : `${own}\n`, column, was: plain(pair.value) }]);
       at.to = end;
@@ -166,13 +179,14 @@ function written(item, dash, column, origin) {
 
 /**
  * The file with the edit in it and every line the edit did not touch as it was. A rule that changed has its own lines replaced,
- * one that went is cut out with the comment over it, and a new one goes after the last.
+ * one that went is cut out with the comment over it, and a new one goes after the last. The last rule out leaves an empty list
+ * where the rules were, and the first one in takes its place.
  *
  * What comes out is read back before it is trusted, since a file that parses to something other than the rules that were meant
  * is worse than one that was rewrapped. Where the text cannot be worked on, or does not read back, the whole document is written
- * the way it always was: a file left with no rules in it, or a list of them written in brackets.
+ * the way it always was: a list of rules written in brackets, say.
  */
-function rewrite({ doc, rules, text, before, origin, end }) {
+function rewrite({ doc, rules, text, before, origin, end, none }) {
   const whole = () => String(doc);
   const edits = [];
   for (const [index, { item, was, at }] of before.entries()) {
@@ -180,6 +194,7 @@ function rewrite({ doc, rules, text, before, origin, end }) {
     if (!gone && plain(item) === was) continue;
     if (!at) return whole();
     if (!gone) edits.push([at.from, at.to, written(item, at.dash, at.column, origin)]);
+    else if (!rules.items.length && before.length === 1 && none) edits.push([none.from, at.to, none.text]);
     // The comment over a rule is about that rule, so it goes too. The first has nothing over it and takes the gap under it.
     else if (index) edits.push([before[index - 1].at?.to ?? at.from, at.to, '']);
     else edits.push([at.from, at.to + /^(?:[ \t\r]*\n)*/.exec(text.slice(at.to))[0].length, '']);
@@ -188,9 +203,8 @@ function rewrite({ doc, rules, text, before, origin, end }) {
   if (added.length) {
     if (!end || !added.every(isMap)) return whole();
     const lines = added.map(item => written(item, end.dash, end.dash + 2, origin)).join('');
-    edits.push([end.to, end.to, (end.to && text[end.to - 1] !== '\n' ? '\n' : '') + (end.under ?? '') + lines]);
+    edits.push([end.from, end.to, (end.from && text[end.from - 1] !== '\n' ? '\n' : '') + (end.under ?? '') + lines]);
   }
-  if (!rules.items.length) return whole();
   // New lines end the way the file's lines do.
   const ending = lines => (text.includes('\r\n') ? lines.replace(/\r?\n/g, '\r\n') : lines);
   const next = edits.sort(([a], [b]) => b - a).reduce((out, [from, to, lines]) => out.slice(0, from) + ending(lines) + out.slice(to), text);
