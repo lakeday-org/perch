@@ -70,3 +70,15 @@ it('finds Groovy typed and def methods with class scope without mistaking calls 
   const size = result.declarations.find(item => item.name === 'size')!;
   expect(result.references).toContainEqual(expect.objectContaining({ kind: 'call', reference: 'helper', source: size.id }));
 });
+
+it.each([
+  ['go', 'package main\nfunc (s *Stack[T]) Push(v T) {}\nfunc (q *Queue[T]) Push(v T) {}\nfunc (m Map[K, V]) Get(k K) V { var v V; return v }\nfunc (s Plain) Len() int { return 0 }\n',
+    ['Stack.Push', 'Queue.Push', 'Map.Get', 'Plain.Len']],
+  ['kotlin', 'fun <T> List<T>.second(): T = this[1]\nfun Map<String, Int>.total(): Int = 0\nfun String.shout(): String = this\n', ['List.second', 'Map.total', 'String.shout']],
+  ['rust', 'impl<T> Stack<T> {\n    fn push(&mut self) {}\n}\nimpl<T: Clone> Clone for Stack<T> {\n    fn clone(&self) -> Self { todo!() }\n}\nimpl Plain {\n    fn len(&self) -> usize { 0 }\n}\n',
+    ['Stack.push', 'Stack.clone', 'Plain.len']],
+])('names a method of a generic %s type after the type, not its type arguments', async (language, source, names) => {
+  const result = await createAnalyzer().analyzeSource(source, language);
+  expect(result.parser_status).toBe('parsed');
+  expect(result.declarations.map(item => item.qualified_name)).toEqual(names);
+});
