@@ -474,6 +474,23 @@ describe('perch hunt', () => {
     expect(Object.keys(securities(merged)).filter(name => name.startsWith('cwe_'))).toEqual([]);
   });
 
+  it('keeps what an earlier run said about a long method when a filtered run reads it in passes', async () => {
+    const repo = await fixture();
+    await writeFile(join(repo.root, 'src/long.js'), `export function tally(items) {\n  let total = 0;\n${
+      Array.from({ length: 120 }, (_, index) => `  total += weigh(items[${index}], ${index});`).join('\n')}\n  return total;\n}\n`);
+    await commitAll(repo.root, 'a long method');
+    const systemOne = { ...scriptedSystemOne({ 'src/long.js::tally': { has_bug: 0.9, bug_edge_case: 0.8 } }), limits: { state: 1200 } };
+    const options = { systemOne, paths: ['src/long.js'] };
+    await scanRepository(await withRevision(repo, options));
+    // A security filter asks no defect question, so whatever the passes said, nothing they said is about has_bug.
+    const run = await scanRepository(await withRevision(repo, { ...options, filters: [{ key: 'type', value: 'security' }] }));
+    const [reading] = run.visited;
+    expect(reading.passes).toBeGreaterThan(1);
+    expect(systemOne.calls.at(-1).questions).not.toHaveProperty('has_bug');
+    const { latest } = await openStore(repo.out).indexes();
+    expect(latest.get('src/long.js::tally')).toMatchObject({ has_bug: 0.9, bug_edge_case: 0.8 });
+  });
+
   it('reads everything in scope and never questions test methods', async () => {
     const repo = await fixture();
     const systemOne = scriptedSystemOne();
