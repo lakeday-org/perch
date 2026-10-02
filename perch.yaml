@@ -305,3 +305,32 @@ rules:
     # where the rule cannot tell them apart.
     min: 70
     except: [docs/scan.md, docs/issues.md]
+
+  # The two defect questions as scan.yaml ships them, pinned here for their floor. The pull request scan runs a released perch,
+  # and one that still floors them at 50 fails a branch on readings of 51 to 56 that a scan from this checkout leaves out.
+  - name: has_bug
+    each: method
+    where: "**/*"
+    ask: Does `method` contain a concrete behavioral defect that a caller can reach?
+    "true": >
+      For some input a caller can pass, the method returns a wrong result, leaves wrong state, throws
+      when it should not, or fails to throw when it should
+    "false": >
+      The method behaves correctly for every input its callers can pass; style, performance, and
+      hypothetical misuse do not count. A helper is judged by what its shown callers pass it
+    issue:
+      type: defect
+      label: kind
+      pick: strongest
+    min: 60
+  - name: bug_edge_case
+    each: method
+    where: "**/*"
+    ask: Does `method` produce a wrong result for a valid empty, zero, first, last, or missing input?
+    "true": One of these inputs produces an incorrect result or failure, and a shown caller can pass it or it arrives from outside the program.
+    "false": These inputs produce the intended results and errors, or no shown caller can pass them.
+    issue:
+      type: defect
+      label: kind
+      pick: strongest
+    min: 60
