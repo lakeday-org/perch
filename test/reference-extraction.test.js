@@ -103,3 +103,13 @@ it('looks a Rust module brought in by `use` up as that module', async () => {
   const scan = await analyzeFiles(Object.keys(sources).map(path => ({ path, sha: path })), { analyzer, readSource: async file => sources[file.path] });
   expect(buildGraph(scan.files).callees('src/app.rs::start')).toEqual(['src/net.rs::connect']);
 });
+
+it('hands over what a Go assignment assigns, never the names it assigns to', async () => {
+  const source = 'package app\n\ntype User struct{}\n\nfunc (u *User) label() string { return "user" }\n\nfunc process() {}\n\nfunc run() bool {\n\tlabel := "x"\n\tlabel = "y"\n\tfor _, label = range []string{"a"} {\n\t}\n\tcallback := process\n\tcallback()\n\treturn label == ""\n}\n';
+  const result = await analyzer.analyzeSource(source, 'go');
+  expect(result.references.filter(ref => ref.kind === 'value').map(ref => ref.reference)).toEqual(['process']);
+  const scan = await analyzeFiles([{ path: 'app.go', sha: 'fixture' }], { analyzer, readSource: async () => source });
+  const graph = buildGraph(scan.files);
+  expect(graph.callees('app.go::run')).toEqual(['app.go::process']);
+  expect(graph.isDynamic('app.go::run', 'app.go::process')).toBe(true);
+});
