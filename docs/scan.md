@@ -174,8 +174,8 @@ only with `--filter type=security` or `security` in `scan_types`.
 ### The floor
 
 An issue is listed only when its score exceeds both the question's floor and
-the run's `--min`. Both bug checks use the default **50%** floor. Most security checks
-use 70%; XSS, SQL injection, and out-of-bounds reads use 60%.
+the run's `--min`. Both bug checks use a **60%** floor. Most security checks use 70%;
+XSS, SQL injection, and out-of-bounds reads use 60%.
 These scores rank answers but are not calibrated probabilities that a reported
 issue is real. Higher floors produce fewer alerts and miss more issues.
 
