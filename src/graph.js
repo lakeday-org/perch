@@ -15,18 +15,35 @@ const resolvePython = (fromPath, module, paths) => {
   if (dots && !starts[0]) return null;
   return firstExisting(paths, starts.flatMap(start => rest ? [`${start}/${rest}.py`, `${start}/${rest}/__init__.py`] : [`${start}/__init__.py`]));
 };
+/**
+ * mod.rs, lib.rs and main.rs are the module of the directory they sit in. Any other foo.rs is module foo, and its children live
+ * in foo/, so `super` from it is the module of its own directory rather than the one above.
+ */
+const directoryModules = new Set(['mod.rs', 'lib.rs', 'main.rs']);
+const childrenOf = path => (directoryModules.has(posix.basename(path)) ? dirname(path) : path.replace(/\.rs$/, ''));
 const resolveRust = (fromPath, module, paths) => {
-  const has = path => paths.has(normalize(path)), dir = dirname(fromPath), parts = module.split('::');
-  if (parts[0] === 'self') return fromPath;
-  if (parts[0] === 'super') { const parent = parentDir(dir) ?? '.'; return firstExisting(paths, [`${parent}/${parts.slice(1).join('/')}.rs`, `${parent}/${parts.slice(1).join('/')}/mod.rs`, `${parent}.rs`]); }
+  const has = path => paths.has(normalize(path)), parts = module.split('::');
+  let dir = childrenOf(fromPath), file = null, names = parts;
   if (parts[0] === 'crate') {
     const dirs = ancestors(fromPath), root = dirs.find(dir => has(`${dir}/src/lib.rs`) || has(`${dir}/src/main.rs`)) ?? ((dir => dir && parentDir(dir))(dirs.find(dir => dir.endsWith('/src') || dir === 'src')));
     if (!root) return null;
-    const rest = parts.slice(1).join('/');
-    return firstExisting(paths, [`${root}/src/${rest}.rs`, `${root}/src/${rest}/mod.rs`, `${root}/${rest}.rs`, `${root}/${rest}/mod.rs`]);
+    [dir, file, names] = [`${root}/src`, firstExisting(paths, [`${root}/src/lib.rs`, `${root}/src/main.rs`]), parts.slice(1)];
+  } else if (parts[0] === 'self' || parts[0] === 'super') {
+    [file, names] = [fromPath, parts[0] === 'self' ? parts.slice(1) : parts];
+    for (; names[0] === 'super'; names = names.slice(1)) {
+      dir = parentDir(dir);
+      if (!dir) return null;
+      file = firstExisting(paths, [`${dir}.rs`, `${dir}/mod.rs`, `${dir}/lib.rs`, `${dir}/main.rs`]);
+    }
   }
-  const rest = parts.join('/');
-  return firstExisting(paths, [`${dir}/${rest}.rs`, `${dir}/${rest}/mod.rs`]);
+  // Each name is a child module with a file of its own until one is not. The rest is inline in the last file reached, or, for a
+  // path that starts nowhere in this crate, like std::collections, nothing here.
+  for (const name of names) {
+    const child = firstExisting(paths, [`${dir}/${name}.rs`, `${dir}/${name}/mod.rs`]);
+    if (!child) break;
+    [dir, file] = [`${dir}/${name}`, child];
+  }
+  return file;
 };
 /** Resolve a module specifier from a scanned file to the first existing normalized path, or null. Relative imports use the containing directory; unsupported or invalid specifiers return null without mutating paths. */
 export function resolveModule(fromPath, module, language, paths) {
