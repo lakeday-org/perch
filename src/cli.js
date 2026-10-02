@@ -105,17 +105,18 @@ Configuration: ~/.perch/config.toml (environment variables take precedence)
 Environment:
 ${column([['PERCH_API_KEY', 'a Perch Cloud CI token, or the key for PERCH_BASE_URL'], ['PERCH_BASE_URL', 'scan, check: another endpoint instead of Perch Cloud, the exact URL to POST to'], ['PERCH_MODEL_ID', 'scan, check: model ID (default: the one Perch Cloud serves, or jev-latest elsewhere)'], ['PERCH_MAX_QUESTIONS', 'scan, check: most questions per request, for a PERCH_BASE_URL model that does not report it'], ['PERCH_MAX_OPTIONS', 'scan, check: most options in one choice, likewise'], ['PERCH_ORGANIZATION', 'Perch Cloud organization, when a login has several'], ['PERCH_REPOSITORY', 'Perch Cloud repository ID, instead of the one the git remote names']])}`;
 
+/** A command that takes no options, login and logout, says so by leaving them out rather than printing an empty heading. */
 function usageFor(name) {
   const help = commandHelp[name];
   const own = Object.values(options).filter(([, , verbs]) => verbs.includes(name));
   return `perch ${name}: ${help.summary}
 
-Usage: perch ${name} ${help.args ? `${help.args} ` : ''}[options]
+Usage: perch ${[name, help.args, own.length ? '[options]' : ''].filter(Boolean).join(' ')}
 
-${wrap(help.detail)}
+${wrap(help.detail)}${own.length ? `
 
 Options:
-${column(own.map(([flag, text]) => [flag, text]))}`;
+${column(own.map(([flag, text]) => [flag, text]))}` : ''}`;
 }
 
 /**
@@ -251,7 +252,8 @@ function liveCounter(io, doing) {
 function liveCounters(io, ...doing) {
   const line = liveCounter(io, ''), counts = new Map();
   const draw = () => {
-    const going = [...counts].filter(([, [done, total]]) => !total || done < total);
+    // A phase with nothing to do is told 0 of 0, and is finished rather than going.
+    const going = [...counts].filter(([, [done, total]]) => total == null || done < total);
     const text = (going.length ? going : [...counts].slice(-1)).map(([label, [done, total]]) => total ? `${label} ${done} of ${total}` : `${label} ${done}`).join(', ');
     if (text) line.say(text);
   };
@@ -420,7 +422,8 @@ const commands = {
     // On the counter and in the log both. On the counter because a retry is the wait that looks like a hang, and in the log
     // because the counter is gone by the time anyone asks what the run was doing.
     const retrying = message => { methods.say(message); note(message); };
-    const systemOne = metered(await configuredSystemOne({ env: io.env, root: resolved.root, log: retrying, force: Boolean(io.flags.force) }), meter);
+    const systemOne = metered(await configuredSystemOne({ env: io.env, root: resolved.root, log: retrying, command: 'scan', version: VERSION,
+      force: Boolean(io.flags.force) }), meter);
     const revision = await gitRevision(resolved.root);
     const started = Date.now();
     const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD'], resolved.root).then(out => out.trim(), () => null);
@@ -553,7 +556,8 @@ const commands = {
     if (!io.argument) throw new UsageError('perch check needs a path, a path::method, or an issue id');
     const meter = createMeter();
     const root = await repoRoot(process.cwd());
-    const systemOne = metered(await configuredSystemOne({ env: io.env, root, log: io.debug, force: Boolean(io.flags.force) }), meter);
+    const systemOne = metered(await configuredSystemOne({ env: io.env, root, log: io.debug, command: 'check', version: VERSION,
+      force: Boolean(io.flags.force) }), meter);
     const only = io.flags.rules ? io.flags.rules.split(',').map(name => name.trim()).filter(Boolean) : [];
     const checked = await checkTarget({ target: io.argument, root, out: await resolveOut(io.flags.out), analyzer: createSourceAnalyzer(),
       systemOne, revision: await gitRevision(root), only, debug: io.debug });

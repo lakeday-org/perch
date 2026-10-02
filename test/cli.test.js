@@ -50,6 +50,10 @@ describe('cli', () => {
     expect(out.at(-1)).toContain('perch check: Ask about one piece of code, uncommitted');
     expect(out.at(-1)).toContain('--rules');
     expect(out.at(-1)).toContain('PERCH_BASE_URL');
+    // login takes no options, so its help offers none.
+    expect(await main(['login', '-h'], io)).toBe(0);
+    expect(out.at(-1)).toContain('Usage: perch login [organization-id]\n');
+    expect(out.at(-1)).not.toContain('Options:');
     expect(await main(['scan', '-h'], io)).toBe(0);
     expect(out.at(-1)).toContain('perch scan: Find issues');
     expect(out.at(-1)).toContain('PERCH_BASE_URL');
@@ -217,6 +221,56 @@ describe('cli', () => {
         expect(JSON.parse(init.body)).toMatchObject({ model: env.PERCH_MODEL_ID ?? 'jev-latest', questions: { 'endpoint-rule': { type: 'noul' } } });
       }
     }
+  });
+
+  it('drops a phase with nothing to do from the progress line', async () => {
+    const repo = await realpath(await makeFixture());
+    cleanups.push(repo);
+    await writeFile(join(repo, 'notes.md'), '# Notes\n');
+    await writeFile(join(repo, 'perch.yaml'), 'rules:\n  - name: notes-rule\n    where: notes.md\n    ensure: The file has a heading.\n');
+    await commitAll(repo, 'add notes');
+    vi.spyOn(process, 'cwd').mockReturnValue(repo);
+    const service = scriptedSystemOne({ project: { 'notes-rule': 0.99 } });
+    vi.stubGlobal('fetch', async (url, init) => {
+      const { state, questions } = JSON.parse(init.body);
+      return new Response(JSON.stringify(await service.ask(state, questions)));
+    });
+    const drawn = [], tty = process.stderr.isTTY;
+    vi.spyOn(process.stderr, 'write').mockImplementation(text => { drawn.push(String(text)); return true; });
+    const { err, io } = capture();
+    io.env = { HOME: repo, PERCH_API_KEY: 'key', PERCH_BASE_URL: 'https://api.typesafe.ai/v1/systemone' };
+    process.stderr.isTTY = true;
+    // No method is in scope, so the methods are 0 of 0 from the start. Read as still going, they held the line at
+    // "scanning method 0" and the file rule's count never showed.
+    try { expect([0, 3], err.join('\n')).toContain(await main(['scan', repo, '--paths', 'notes.md', '--out', join(repo, '.perch')], io)); }
+    finally { process.stderr.isTTY = tty; }
+    expect(drawn.join('').split('\r\x1b[K').map(line => line.slice(2))).toContain('checking file 1 of 1');
+  });
+
+  it.each(['scan', 'check'])('%s names itself, its release, its run and its scan on each request to Perch Cloud', async command => {
+    const repo = await realpath(await makeFixture());
+    cleanups.push(repo);
+    vi.spyOn(process, 'cwd').mockReturnValue(repo);
+    const service = scriptedSystemOne({});
+    const named = [], scans = [];
+    vi.stubGlobal('fetch', async (url, init = {}) => {
+      named.push([init.headers?.['x-perch-command'], init.headers?.['x-perch-version'], init.headers?.['x-perch-run']]);
+      if (url.endsWith('/v1/systemone')) scans.push(init.headers['x-perch-scan']);
+      if (url.endsWith('/api/config')) return new Response(JSON.stringify({ model: 'jev-latest' }));
+      if (url.includes('/v1/scans/')) return new Response(JSON.stringify({ id: 'scan' }));
+      const { state, questions } = JSON.parse(init.body);
+      return new Response(JSON.stringify(await service.ask(state, questions)));
+    });
+    const { err, io } = capture();
+    io.env = { HOME: repo, PERCH_API_KEY: 'perch_ci_test' };
+    const args = command === 'scan' ? ['scan', repo] : ['check', 'src/clamp.js::clamp'];
+    expect([0, 3], err.join('\n')).toContain(await main([...args, '--json', '--out', join(repo, '.perch')], io));
+    expect(named.length).toBeGreaterThan(1);
+    expect(named[0][2]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(new Set(named.map(values => values.join(' ')))).toEqual(new Set([`${command} ${VERSION} ${named[0][2]}`]));
+    // A scan's questions name the Cloud scan they belong to. A check starts none.
+    expect(scans.length).toBeGreaterThan(0);
+    expect(new Set(scans)).toEqual(new Set([command === 'scan' ? 'scan' : undefined]));
   });
 
   it.each([
