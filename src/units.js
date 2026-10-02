@@ -235,11 +235,20 @@ export function testBlocks(text, path) {
   const lines = text.split('\n');
   const found = [];
   for (const [index, line] of lines.entries()) {
-    const match = /^\s*(?:it|test)(?:\.\w+)*(?:\([^)]*\))?\(\s*(['"`])(.+?)\1/.exec(line);
-    if (match) found.push({ line: index + 1, name: match[2] });
+    // The name runs to the first quote that is not escaped, so `'doesn\'t'` is the whole name rather than `doesn\`.
+    const match = /^\s*(?:it|test)(?:\.\w+)*(?:\([^)]*\))?\(\s*(['"`])((?:\\.|(?!\1).)+)\1/.exec(line);
+    if (match) found.push({ line: index + 1, name: match[2].replace(/\\(['"`\\])/g, '$1') });
   }
-  return found.map((item, index) => ({ id: `${path}::${item.name}`, path, name: item.name, line: item.line,
-    end_line: (found[index + 1]?.line ?? lines.length + 1) - 1, part: true }));
+  // Two tests can share a name, in different describe blocks or the same one. A unit is told apart by its id, so the second is
+  // numbered the way a second method of the same name is; under one id it was never read and the first was reported twice.
+  const seen = new Map();
+  return found.map((item, index) => {
+    const base = `${path}::${item.name}`;
+    const count = (seen.get(base) ?? 0) + 1;
+    seen.set(base, count);
+    return { id: count > 1 ? `${base}#${count}` : base, path, name: item.name, line: item.line,
+      end_line: (found[index + 1]?.line ?? lines.length + 1) - 1, part: true };
+  });
 }
 
 /** Units most likely to hold what a search is looking for, first. Shared words between the rule and the unit's name and path. */
@@ -534,7 +543,11 @@ export async function searchUnits({ rules, scan, graph, files, tree, revision, s
     const steps = prepare(systemOne.limits?.state);
     debug(`${rule.name}: ${unit.name}`);
     const { answers } = await askUnitSteps({ systemOne, steps, prepare, rules: [rule] });
-    return readLint(rule, answers).here > min;
+    // The rule's own floor decides, the one perch check reads this unit by. The run's alone called a min: 80 rule broken on a
+    // unit answering 60%, and under --min 0 took any answer as found, so a present rule could never fail. A present rule is read
+    // the way a check reads it: this unit lacks the thing when its lacking it clears the floor.
+    const { here } = readLint(rule, answers), floor = floorFor(rule, min);
+    return rule.kind === 'ensure_present' ? 1 - here <= floor : here > floor;
   };
 
   await Promise.all(plans.map(async ({ rule, units, id }) => {

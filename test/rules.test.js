@@ -195,6 +195,17 @@ rules:
     expect(back.true).toContain('part of the SQL it runs');
   });
 
+  it('turns off a question perch ships that your file had changed, rather than handing it back', async () => {
+    const { root, read, rules } = await withRules(STARTING);
+    await editRule(root, 'cwe_89', { ensure: 'Queries are parameterized.' });
+    expect(await removeRule(root, 'cwe_89')).toEqual({ name: 'cwe_89', file: RULES_FILE, turnedOff: true });
+    // The changed copy is gone and a line saying it is off stands where it was.
+    expect(await read()).not.toContain('parameterized');
+    expect((await rules()).find(rule => rule.name === 'cwe_89')).toMatchObject({ disabled: true });
+    installQuestions(merge(BUILTIN, await rules()));
+    expect(questionSet().some(question => question.name === 'cwe_89')).toBe(false);
+  });
+
   it('changes a question perch ships by copying it into your file, not by editing the package', async () => {
     const { root, read, rules } = await withRules(STARTING);
     await editRule(root, 'has_bug', { ask: 'Is there a bug a caller can reach?' });

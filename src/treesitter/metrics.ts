@@ -463,9 +463,22 @@ function readFunctionName(node: Node): string {
   return text(name) || "<anonymous>";
 }
 
+/**
+ * A type's arguments are not part of its name: a method of `Stack[T]` or `Stack<T>` belongs to Stack. Named after T, the methods
+ * of two generic types shared one id, told apart only by the order they were declared in, and `perch check` could not find
+ * either by its type.
+ */
+const insideTypeArguments = (node: Node, within: Node): boolean => {
+  for (let parent = node.parent; parent && parent.id !== within.id; parent = parent.parent) if (parent.type === "type_arguments") return true;
+  return false;
+};
+
 function scopeName(node: Node): string | null {
   let name = extraScopeName(node) ?? node.childForFieldName("name");
-  if (!name && node.type === "impl_item") name = node.childForFieldName("type");
+  if (!name && node.type === "impl_item") {
+    name = node.childForFieldName("type");
+    if (name?.type === "generic_type") name = name.childForFieldName("type");
+  }
   if (!name) name = node.namedChildren.find((child) => NAME_TYPES.has(child.type)) ?? null;
   return text(name) || null;
 }
@@ -475,7 +488,7 @@ function receiverName(node: Node): string | null {
   if (!receiver) return null;
   const nodes = [...walkNodes(receiver)].reverse();
   const name = nodes.find((item) =>
-    new Set(["type_identifier", "identifier", "simple_identifier"]).has(item.type),
+    new Set(["type_identifier", "identifier", "simple_identifier"]).has(item.type) && !insideTypeArguments(item, receiver),
   );
   return text(name) || null;
 }
