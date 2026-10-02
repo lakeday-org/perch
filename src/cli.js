@@ -1,5 +1,5 @@
 /** perch command line: scan, issues, check, close, rules, doctor. */
-import { join } from 'node:path';
+import { join, posix } from 'node:path';
 import { git, repoRoot, revision as gitRevision } from './git.js';
 import { resolveTarget } from './target.js';
 import { loginCloud, logoutCloud } from './cloud-auth.js';
@@ -103,7 +103,7 @@ ${column([...Object.values(options).filter(([, , verbs]) => verbs.length === Obj
 Configuration: ~/.perch/config.toml (environment variables take precedence)
 
 Environment:
-${column([['PERCH_API_KEY', 'a Perch Cloud CI token, or the key for PERCH_BASE_URL'], ['PERCH_BASE_URL', 'scan, check: another endpoint instead of Perch Cloud, the exact URL to POST to'], ['PERCH_MODEL_ID', 'scan, check: model ID (default: the one Perch Cloud serves, or jev-latest elsewhere)'], ['PERCH_ORGANIZATION', 'Perch Cloud organization, when a login has several'], ['PERCH_REPOSITORY', 'Perch Cloud repository ID, instead of the one the git remote names']])}`;
+${column([['PERCH_API_KEY', 'a Perch Cloud CI token, or the key for PERCH_BASE_URL'], ['PERCH_BASE_URL', 'scan, check: another endpoint instead of Perch Cloud, the exact URL to POST to'], ['PERCH_MODEL_ID', 'scan, check: model ID (default: the one Perch Cloud serves, or jev-latest elsewhere)'], ['PERCH_MAX_QUESTIONS', 'scan, check: most questions per request, for a PERCH_BASE_URL model that does not report it'], ['PERCH_MAX_OPTIONS', 'scan, check: most options in one choice, likewise'], ['PERCH_ORGANIZATION', 'Perch Cloud organization, when a login has several'], ['PERCH_REPOSITORY', 'Perch Cloud repository ID, instead of the one the git remote names']])}`;
 
 function usageFor(name) {
   const help = commandHelp[name];
@@ -161,7 +161,15 @@ function checkFlags(flags, commandName) {
   }
 }
 
-const parsePaths = flags => flags.paths ? flags.paths.split(',').map(path => path.trim()).filter(Boolean) : [];
+/**
+ * `--paths a,b` as paths under the repository root, the way git names them. One that leaves the repository names nothing perch
+ * reads, and a run that read nothing reported itself clean, so it is refused. `./src` and `src/` are `src`.
+ */
+const parsePaths = flags => (flags.paths ? flags.paths.split(',').map(path => path.trim()).filter(Boolean) : []).map(path => {
+  const normal = posix.normalize(path.replaceAll('\\', '/')).replace(/\/$/, '');
+  if (posix.isAbsolute(normal) || normal === '..' || normal.startsWith('../')) throw new UsageError(`--paths takes paths inside the repository; ${path} is outside it`);
+  return normal;
+}).filter(path => path !== '.');
 const storeFrom = async flags => openStore(await resolveOut(flags.out));
 /**
  * Put this repository's own questions in force. Anything that names a kind, or reads one back off a finding, has to know what
