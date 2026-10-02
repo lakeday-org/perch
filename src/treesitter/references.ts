@@ -7,6 +7,8 @@ const IMPORT_TYPES = new Set([
   "import_statement",
   "import_from_statement",
   "import_declaration",
+  // Go's import_declaration holds one import_spec or a parenthesised list of them, and each spec imports a path of its own.
+  "import_spec",
   "use_declaration",
   "using_directive",
   "namespace_use_declaration",
@@ -88,9 +90,14 @@ function sourceRef(node: Node): string {
   return ownerId(node);
 }
 
-function referenceBase(node: Node, language: string): Node | null {
-  if (language === 'kotlin' && node.type === 'call_expression') return node.namedChildren.find(node => !isComment(node)) ?? null;
-  return child(node, "function", "callee", "name");
+function referenceBase(node: Node): Node | null {
+  // Kotlin's and Swift's call_expression give the callee no field: it is the first child, ahead of the arguments.
+  return child(node, "function", "callee", "name") ?? node.namedChildren.find((item) => !isComment(item)) ?? null;
+}
+
+/** A safe call, `a?.b()` or Ruby's `a&.b`, calls the same method `a.b()` does whenever it calls anything. */
+function safeNavigation(value: string): string {
+  return value.replace(/[?&]\./gu, ".");
 }
 
 /** What every language here lets an identifier be: a letter in any script, then letters, marks, digits and joiners. */
@@ -145,17 +152,9 @@ function importModule(node: Node, language: string): string {
     const imported = node.namedChildren[0] ?? null;
     return stripModule(text(imported?.childForFieldName("name") ?? imported));
   }
-  if (language === "python" && node.type === "import_from_statement") {
-    const relative = child(node, "relative_import");
-    const module = child(node, "module_name");
-    return `${text(relative)}${text(module)}`;
-  }
   if (node.type === "preproc_include") {
     const include = node.namedChildren.find((item) => item.type.includes("string"));
     return stripModule(text(include));
-  }
-  if (node.type === "import_declaration") {
-    return stripModule(text(node.namedChildren[0] ?? null));
   }
   return stripModule(text(node.namedChildren[0] ?? null));
 }
@@ -166,7 +165,12 @@ function bindingName(node: Node): { name: string; alias: string | null } | null 
     const local = text(node.namedChildren.find((item) => item.type === "identifier") ?? node.namedChildren.at(-1));
     return local ? { name: "*", alias: local } : null;
   }
-  const imported = child(node, "name", "path");
+  // A Go import_spec's name is the alias, written before the path; without one, the package goes by the path's last element.
+  if (node.type === "import_spec") {
+    const path = stripModule(text(child(node, "path")));
+    return path ? { name: path, alias: text(child(node, "name")) || path.split("/").at(-1) || path } : null;
+  }
+  const imported = child(node, "name");
   const alias = child(node, "alias");
   if (imported || alias) {
     const name = text(imported);
@@ -198,7 +202,29 @@ function rustUseNames(node: Node, prefix = ""): Array<{ name: string; alias: str
   return path ? [{ name: path, alias: path.split("::").at(-1) ?? null }] : [];
 }
 
+/**
+ * The names a Python import binds. `from m import x` names x with the same dotted_name node that names a module, so the walk
+ * the other languages use takes neither for a binding. Each name in `import a.b, c as d` is a module bound whole, and an
+ * unaliased `import a.b` binds a, which a call then reaches through as `a.b.f()`.
+ */
+function pythonImportNames(node: Node, module: string): Array<{ node: Node; module: string; name: string; alias: string; reference: string }> {
+  const from = child(node, "module_name");
+  const names = [];
+  for (const item of node.namedChildren) {
+    const aliased = item.type === "aliased_import";
+    if ((!aliased && item.type !== "dotted_name") || item.startIndex === from?.startIndex) continue;
+    const path = text(aliased ? child(item, "name") : item);
+    const alias = aliased ? text(child(item, "alias")) : "";
+    if (!path) continue;
+    if (node.type === "import_statement") names.push({ node: item, module: path, name: "*", alias: alias || (path.split(".")[0] ?? path), reference: path });
+    else names.push({ node: item, module, name: path, alias: alias || path, reference: !module || module.endsWith(".") ? `${module}${path}` : `${module}.${path}` });
+  }
+  return names;
+}
+
 function importReferences(node: Node, language: string): Reference[] {
+  // A declaration that only holds Go import_specs imports nothing itself; the walk reaches each spec and reads it.
+  if (node.namedChildren.some((item) => item.type === "import_spec" || item.type === "import_spec_list")) return [];
   const module = importModule(node, language);
   const references: Reference[] = [];
   references.push(
@@ -227,8 +253,24 @@ function importReferences(node: Node, language: string): Reference[] {
     return references;
   }
 
+  if (language === "python") {
+    for (const item of pythonImportNames(node, module)) {
+      references.push(
+        makeReference("import", item.node, {
+          name: item.name,
+          reference: item.reference,
+          module: item.module || null,
+          imported_name: item.name,
+          alias: item.alias,
+        }),
+      );
+    }
+    return references;
+  }
+
+  // The import itself can be its binding: a Go import_spec names both the path and the name it goes by.
   for (const item of walkNodes(node)) {
-    if (item === node || !IMPORT_BINDING_TYPES.has(item.type)) continue;
+    if (!IMPORT_BINDING_TYPES.has(item.type)) continue;
     const binding = bindingName(item);
     if (!binding) continue;
     references.push(
@@ -259,18 +301,16 @@ function importReferences(node: Node, language: string): Reference[] {
   return references;
 }
 
-function callReference(node: Node, language: string): string {
-  if (node.type === "method_invocation") {
-    const object = text(child(node, "object"));
-    const name = text(child(node, "name"));
-    return validReference(object ? `${object}.${name}` : name);
-  }
-  const callee = referenceBase(node, language);
-  return validReference(language === 'kotlin' ? text(callee).replaceAll('?.', '.') : text(callee));
+function callReference(node: Node): string {
+  // Java's method_invocation and Ruby's call hold the receiver apart from the method, where other grammars hold one callee.
+  const receiver = child(node, "object", "receiver");
+  const method = node.type === "method_invocation" ? child(node, "name") : child(node, "method");
+  if (receiver || method) return validReference(safeNavigation(receiver ? `${text(receiver)}.${text(method)}` : text(method)));
+  return validReference(safeNavigation(text(referenceBase(node))));
 }
 
-function callReferenceRecord(node: Node, language: string): Reference {
-  const reference = callReference(node, language);
+function callReferenceRecord(node: Node): Reference {
+  const reference = callReference(node);
   return makeReference("call", node, {
     name: reference,
     reference,
@@ -294,7 +334,12 @@ const IDENTIFIER_TYPES = new Set([
 function isPassedAsValue(node: Node): boolean {
   const parent = node.parent;
   if (!parent) return false;
-  if (parent.type === "arguments" || parent.type === "argument_list" || parent.type === "expression_list") return true;
+  if (parent.type === "arguments" || parent.type === "argument_list") return true;
+  // Go writes both sides of `:=`, `=` and `range` as an expression_list; the one on the left names what is assigned to.
+  if (parent.type === "expression_list") {
+    const left = parent.parent?.childForFieldName("left");
+    return !(left && left.startIndex === parent.startIndex && left.endIndex === parent.endIndex);
+  }
   for (const field of ["value", "right"]) {
     const held = parent.childForFieldName(field);
     if (held && held.startIndex === node.startIndex && held.endIndex === node.endIndex) return true;
@@ -319,12 +364,12 @@ export function collectReferences(root: Node, language: string): Reference[] {
       if (block?.type === 'block' && block.namedChildren[0]?.id === unit?.id && callableName(block)) continue;
       const name = validReference(text(node.namedChildren[0]));
       references.push(makeReference('call', node, { name, reference: name }));
-    } else if (CALL_TYPES.has(node.type) && referenceBase(node, language)?.type === "import") {
+    } else if (CALL_TYPES.has(node.type) && referenceBase(node)?.type === "import") {
       // `import("./foo")` names a module, as a dynamic import or in a type position; it calls nothing named import.
       const module = stripModule(text(child(node, "arguments")?.namedChildren[0] ?? null));
       references.push(makeReference("import", node, { name: module || "<unknown-module>", reference: module || "<unknown-module>", module: module || null }));
     } else if (CALL_TYPES.has(node.type)) {
-      references.push(callReferenceRecord(node, language));
+      references.push(callReferenceRecord(node));
     } else if (IDENTIFIER_TYPES.has(node.type) && isPassedAsValue(node) && validReference(text(node, 128))) {
       references.push(valueReference(node));
     }

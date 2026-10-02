@@ -195,6 +195,10 @@ function isElseIf(node: Node): boolean {
   return alternative?.id === node.id;
 }
 
+/**
+ * The arm taken when no other matches is not a decision of its own. Besides `default`, that is an arm matching only the
+ * wildcard, Rust's `_ =>` and Python's `case _:`, and Java's `case null, default`. A wildcard arm with a guard still decides.
+ */
 function isDefaultArm(node: Node): boolean {
   if (node.type === "default_case" || node.type === "switch_default") return true;
   const text = nodeText(node).replace(/^\s+/u, "");
@@ -202,6 +206,11 @@ function isDefaultArm(node: Node): boolean {
     const pattern = node.childForFieldName("pattern");
     return nodeText(pattern).split("=>", 1)[0].trim() === "_";
   }
+  if (node.type === "case_clause" && !node.childForFieldName("guard")) {
+    const patterns = node.namedChildren.filter((child) => child.type === "case_pattern");
+    return patterns.length === 1 && nodeText(patterns[0]) === "_";
+  }
+  if (node.type === "switch_label" && nodeText(node.child(node.childCount - 1)) === "default") return true;
   return text.startsWith("default");
 }
 

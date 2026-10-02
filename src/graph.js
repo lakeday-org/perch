@@ -55,6 +55,14 @@ export function resolveModule(fromPath, module, language, paths) {
   return firstExisting(paths, [base, ...extensions.map(ext => `${stem}.${ext}`), ...extensions.map(ext => `${base}/index.${ext}`)]);
 }
 
+/** The specifier of the module an import would name if what it imports is itself a module, or null where a name never is one. */
+const submodule = ({ module, name }, language) => {
+  if (typeof module !== 'string' || name === '*') return null;
+  if (language === 'python') return module.endsWith('.') ? `${module}${name}` : `${module}.${name}`;
+  if (language === 'rust') return `${module}::${name}`;
+  return null;
+};
+
 export function buildGraph(files) {
   const nodes = new Map(), byPath = new Map(), paths = new Set(files.map(file => file.path));
   for (const file of files) {
@@ -90,6 +98,9 @@ export function buildGraph(files) {
   const viaImport = (file, alias, tail) => {
     const imported = file.imports.find(item => item.alias === alias);
     if (!imported) return null;
+    // `from . import utils` then `utils.helper()`: the name imported is a module of its own, and helper is in it, not the package.
+    const inner = tail === null ? null : resolveModule(file.path, submodule(imported, file.language), file.language, paths);
+    if (inner) return lookup(inner, tail);
     const target = resolveModule(file.path, imported.module, file.language, paths);
     if (!target) return null;
     return tail === null ? lookup(target, imported.name) : lookup(target, `${imported.name}.${tail}`) ?? lookup(target, tail);

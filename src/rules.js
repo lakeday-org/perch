@@ -214,8 +214,15 @@ export async function removeRule(root, name, { file: inFile } = {}) {
     const shipped = BUILTIN.find(question => question.name === name);
     if (at < 0 && !shipped) throw new Error(`no question called ${name}; perch rules list shows them`);
     if (at < 0) rules.items.push(doc.createNode({ name, disabled: true }));
+    // Your copy of a question perch ships is what kept the shipped one out. Taking the copy out asked the original again, so it
+    // is emptied down to the line turning it off instead, in the same place.
+    else if (shipped) {
+      const node = rules.items[at];
+      for (const key of FIELDS) if (key !== 'name') node.delete(key);
+      node.set('disabled', true);
+    }
     else rules.items.splice(at, 1);
     await save(path, file, doc, text);
-    return { name, file, turnedOff: at < 0 };
+    return { name, file, turnedOff: Boolean(shipped) };
   });
 }

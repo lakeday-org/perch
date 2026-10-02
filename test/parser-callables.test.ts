@@ -70,3 +70,36 @@ it('finds Groovy typed and def methods with class scope without mistaking calls 
   const size = result.declarations.find(item => item.name === 'size')!;
   expect(result.references).toContainEqual(expect.objectContaining({ kind: 'call', reference: 'helper', source: size.id }));
 });
+
+it.each([
+  ['go', 'package main\nfunc (s *Stack[T]) Push(v T) {}\nfunc (q *Queue[T]) Push(v T) {}\nfunc (m Map[K, V]) Get(k K) V { var v V; return v }\nfunc (s Plain) Len() int { return 0 }\n',
+    ['Stack.Push', 'Queue.Push', 'Map.Get', 'Plain.Len']],
+  ['kotlin', 'fun <T> List<T>.second(): T = this[1]\nfun Map<String, Int>.total(): Int = 0\nfun String.shout(): String = this\n', ['List.second', 'Map.total', 'String.shout']],
+  ['rust', 'impl<T> Stack<T> {\n    fn push(&mut self) {}\n}\nimpl<T: Clone> Clone for Stack<T> {\n    fn clone(&self) -> Self { todo!() }\n}\nimpl Plain {\n    fn len(&self) -> usize { 0 }\n}\n',
+    ['Stack.push', 'Stack.clone', 'Plain.len']],
+])('names a method of a generic %s type after the type, not its type arguments', async (language, source, names) => {
+  const result = await createAnalyzer().analyzeSource(source, language);
+  expect(result.parser_status).toBe('parsed');
+  expect(result.declarations.map(item => item.qualified_name)).toEqual(names);
+});
+
+it('reads a Groovy call with a trailing closure as a call, not a declaration', async () => {
+  const source = [
+    "def sourcesJar = tasks.register('sourcesJar', Jar) { from sourceSets.main.allSource }",
+    'def build() {',
+    "    def result = retry(3) { sh 'make' }",
+    '    println qux(1) { it }',
+    '}',
+    "private List<String> names(int a, String b = 'x') { return [] }",
+    'static main(args) { build() }',
+    'java.util.List all() { [] }',
+  ].join('\n');
+  const result = await createAnalyzer().analyzeSource(source, 'groovy');
+  expect(result.parser_status).toBe('parsed');
+  expect(result.declarations.map(item => item.qualified_name)).toEqual(['build', 'names', 'main', 'all']);
+  const build = result.declarations.find(item => item.name === 'build')!;
+  const calls = result.references.filter(ref => ref.kind === 'call');
+  expect(calls).toContainEqual(expect.objectContaining({ reference: 'register', line: 1 }));
+  expect(calls).toContainEqual(expect.objectContaining({ reference: 'retry', source: build.id }));
+  expect(calls).toContainEqual(expect.objectContaining({ reference: 'qux', source: build.id }));
+});

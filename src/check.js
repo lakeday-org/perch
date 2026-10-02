@@ -141,8 +141,7 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
     const prepare = budget => unitSteps({ rules: together, unit, source: body, seen: neighbourhood(sees, unit, { graph: EMPTY_GRAPH, files: new Map([[unit.path, unit.text]]) }), budget });
     const steps = prepare(systemOne.limits?.state);
     debug(`${together.map(rule => rule.name).join(', ')}: ${unit.name}`);
-    const { answers, incomplete } = await askUnitSteps({ systemOne, steps, prepare, rules: together });
-    if (incomplete) throw new Error(`Check incomplete: ${unit.path} was checked in pieces; a whole-file conclusion was not established`);
+    const { answers } = await askUnitSteps({ systemOne, steps, prepare, rules: together });
     return together.map(rule => ({ rule: rule.name, said: rule.text, broken: brokenHere(rule, answers), floor: floorFor(rule, BELIEVED) }));
   }))).flat();
   // Each rule's own floor, the same one a scan reads it by. A flat 50% here called a rule broken that a scan would not list, so

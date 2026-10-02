@@ -344,10 +344,47 @@ describe('the units a rule is asked about', () => {
     ]);
   });
 
+  it('reads two tests with the same name as two tests', async () => {
+    const repo = await repoWith('- name: asserts\n  where: "test/*.js"\n  each: test\n  ensure: The test asserts behavior.\n');
+    await writeFile(join(repo.root, 'test', 'same.test.js'), [
+      "describe('lookup', () => {",
+      "  it('returns null', () => { expect(find('a')).toBeNull(); });",
+      '});',
+      "describe('parse', () => {",
+      "  it('returns null', () => { parse(''); });",
+      '});',
+      "it('doesn\\'t throw on a', () => { expect(() => run('a')).not.toThrow(); });",
+      "it('doesn\\'t throw on b', () => { run('b'); });",
+    ].join('\n'));
+    await commitAll(repo.root, 'tests that share a name');
+    const calls = [];
+    // A test that calls expect asserts something; the two that do not are the ones that break the rule.
+    const systemOne = { ...answering(0.9), async ask(state, questions) {
+      calls.push({ state, questions });
+      return { model: 'scripted-jev', answers: { asserts: { type: 'noul', noul: state.source.includes('expect') ? 0.95 : 0.05 } } };
+    } };
+    const run = await scanRepository({ ...repo, revision: await revision(repo.root), analyzer, systemOne, paths: ['test/same.test.js'] });
+    expect(calls.filter(call => call.questions.asserts).map(call => call.state.line).sort()).toEqual([2, 5, 7, 8]);
+    expect(run.broken.map(finding => [finding.line, finding.name]).sort()).toEqual([[5, 'returns null'], [8, 'doesn\'t throw on b']]);
+  });
+
   it('asks the likeliest unit first, so a search that finds its answer stops there', () => {
     const rule = { name: 'r', kind: 'ensure_present', text: 'A test that closes an issue with a reason' };
     const units = [{ path: 'test/graph.test.js', name: 'graph' }, { path: 'test/cli.test.js', name: 'closes an issue' }, { path: 'test/scan.test.js', name: 'scan' }];
     expect(rank(rule, units)[0].name).toBe('closes an issue');
+  });
+
+  it('decides a search by the rule\'s own floor, the way a check of the same unit does', async () => {
+    const repo = await repoWith('- name: no-todo\n  where: "**/*.md"\n  min: 80\n  ensure_absent: A TODO left in the text.\n'
+      + '- name: says-what\n  where: "**/*.md"\n  ensure_present: A sentence saying what the project is.\n');
+    // Every unit answers 60%: likelier than not, and short of the 80 the absent rule asks for.
+    const run = await scanRepository({ ...repo, analyzer, systemOne: answering(0.6) });
+    const checked = await checkTarget({ target: 'README.md', root: repo.root, out: repo.out, analyzer, systemOne: answering(0.6), revision: repo.revision, only: ['no-todo'] });
+    expect(checked.broken).toEqual([]);
+    expect(run.broken.map(finding => finding.rule)).toEqual([]);
+    // --min 0 shows everything, so a unit 40% likely to lack the thing does not settle that the codebase has it.
+    const everything = await scanRepository({ ...repo, analyzer, systemOne: answering(0.6), min: 0 });
+    expect(everything.broken.map(finding => finding.rule).sort()).toEqual(['no-todo', 'says-what']);
   });
 
   it('asks a method rule inside that method\'s own reading, and a file rule on its own', async () => {
