@@ -310,7 +310,9 @@ async function setAside(io, verb) {
 const scanPaths = async (io, root, scope = null) => {
   const asked = io.flags.since ? await changedPaths(root, io.flags.since) : parsePaths(io.flags);
   if (!scope) return asked;
-  if (!asked.length) return [scope];
+  // No --paths is the whole target. --since finding no changes is not that: it is a run with nothing to read, and widening it to
+  // the target scanned every method under it.
+  if (!io.flags.since && !asked.length) return [scope];
   // Both were given, so the run is what they agree on: the asked-for paths that lie inside the target.
   return asked.filter(path => path === scope || path.startsWith(scope.replace(/\/$/, '') + '/'));
 };
