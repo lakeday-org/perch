@@ -316,7 +316,8 @@ describe('the units a rule is asked about', () => {
     const rule = check({ name: 'r', where: '**/*', ensure: 'The comment says why.' }, 'test');
     const step = unitStep({ rules: [rule], unit: { path: 'src/a.js', name: 'f', line: 3, part: true }, source: 'function f() {}' });
     expect(step.questions.r.type).toBe('noul');
-    expect(step.state).toMatchObject({ path: 'src/a.js', name: 'f', line: 3 });
+    // What is asked about is the unit's text. Where it sits in its file is not part of the question.
+    expect(step.state).toEqual({ path: 'src/a.js', name: 'f', source: 'function f() {}' });
     expect(readLint(rule, { r: { noul: 0.2 } }).broken).toBeCloseTo(0.8);
 
     // A search asks whether the thing is here. Wanting it and not wanting it read the same answer opposite ways.
@@ -364,7 +365,11 @@ describe('the units a rule is asked about', () => {
       return { model: 'scripted-jev', answers: { asserts: { type: 'noul', noul: state.source.includes('expect') ? 0.95 : 0.05 } } };
     } };
     const run = await scanRepository({ ...repo, revision: await revision(repo.root), analyzer, systemOne, paths: ['test/same.test.js'] });
-    expect(calls.filter(call => call.questions.asserts).map(call => call.state.line).sort()).toEqual([2, 5, 7, 8]);
+    // Four tests, four questions, each over its own text: the two that share a name are told apart by what they say.
+    const asked = calls.filter(call => call.questions.asserts).map(call => call.state.source);
+    expect(asked).toHaveLength(4);
+    expect(new Set(asked).size).toBe(4);
+    expect(asked.filter(source => source.includes("it('returns null'"))).toHaveLength(2);
     expect(run.broken.map(finding => [finding.line, finding.name]).sort()).toEqual([[5, 'returns null'], [8, 'doesn\'t throw on b']]);
   });
 

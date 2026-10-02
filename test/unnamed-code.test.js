@@ -92,7 +92,7 @@ describe('code no function holds', () => {
   it('leaves a function\'s leading comment with the function it describes', async () => {
     const units = await unitsOf('double.js', 'const LIMIT = 3;\n\n/** Twice x. */\nexport function double(x) { return x * 2; }\n\nrun(LIMIT);\n');
     const node = { ...named(units.file, '<top-level>'), path: 'double.js' };
-    const [step] = methodSteps({ node, lines: units.lines, methods: units.file.methods });
+    const [step] = methodSteps({ node, lines: units.lines });
     expect(step.state.method.source).toContain('run(LIMIT);');
     expect(step.state.method.source).not.toContain('Twice x');
   });
@@ -107,7 +107,7 @@ describe('code no function holds', () => {
   it('is shown to the model without the bodies of the functions it surrounds', async () => {
     const units = await unitsOf('cli.py');
     const node = { ...named(units.file, '<top-level>'), path: 'cli.py' };
-    const [step] = methodSteps({ node, lines: units.lines, methods: units.file.methods });
+    const [step] = methodSteps({ node, lines: units.lines });
     expect(step.state.method.source).toContain('sys.exit(main(sys.argv))');
     expect(step.state.method.source).toContain('LIMIT = 3');
     expect(step.state.method.source).not.toContain('return len(argv[:LIMIT])');

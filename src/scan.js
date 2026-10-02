@@ -10,6 +10,7 @@ import { analyzeTree } from './analyze.js';
 import { AuthenticationError } from './systemone.js';
 import { createFileSelector } from './exclusions.js';
 import { buildGraph } from './graph.js';
+import { methodNeighbours } from './context.js';
 import { appliesToLanguage, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES } from './ask.js';
 import { issuesOf, label as kindLabel, methodSteps, readAnswers } from './questions.js';
 import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL, unitHash } from './units.js';
@@ -234,15 +235,9 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
 
   const linesOf = createLineReader(root, graph), walk = createWalk(graph, candidates, inScope);
   const askedByMethod = new Map();
-  const byRisk = ids => [...ids].sort((a, b) => (graph.nodes.get(b)?.metrics?.risk_score ?? 0) - (graph.nodes.get(a)?.metrics?.risk_score ?? 0));
   const stepFor = async nodeId => {
     const node = graph.nodes.get(nodeId);
-    const calleeIds = byRisk(graph.callees(nodeId)), callerIds = byRisk(graph.callers(nodeId));
-    const callees = await Promise.all(calleeIds.map(async id => { const callee = graph.nodes.get(id); return { node: callee, lines: await linesOf(callee), calls: graph.callees(id) }; }));
-    const callers = await Promise.all(callerIds.map(async id => { const caller = graph.nodes.get(id); return { node: caller, lines: await linesOf(caller), site: graph.site(id, nodeId), handover: graph.isDynamic(id, nodeId) }; }));
-    const members = new Set([nodeId, ...calleeIds, ...callerIds, ...calleeIds.flatMap(id => graph.callees(id))]);
-    const edges = [...members].flatMap(member => graph.callees(member).filter(target => members.has(target)).map(target => `${member.split('::').at(-1)} -> ${target.split('::').at(-1)}`));
-    const file = graph.files.get(node.path).file;
+    const { calleeIds, callerIds, callees, callers, edges } = await methodNeighbours(graph, nodeId, linesOf);
     // Your rules about this method are asked in its request, beside perch's own. A method covered by five rules costs one reading,
     // not six.
     // A filter narrows what is asked, not just what is printed. Asking thirty questions about a method to print two is paying
@@ -252,7 +247,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const own = asked.filter(question => question.kind);
     if (!asked.length) return { node, calleeIds, callerIds, rules: own, skip: true };
     const lines = await linesOf(node);
-    const prepare = budget => methodSteps({ node, lines, imports: file.imports, methods: file.methods, callees, callers, edges, asked, budget });
+    const prepare = budget => methodSteps({ node, lines, callees, callers, edges, asked, budget });
     const steps = prepare(systemOne.limits?.state);
     return { node, calleeIds, callerIds, rules: own, steps, prepare };
   };
