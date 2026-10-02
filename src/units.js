@@ -12,7 +12,7 @@ import { createFileSelector } from './exclusions.js';
 import { sourceChunks } from './chunks.js';
 import { TOKEN_LIMITS, estimateTokens, textTokens, questionBatches, IncompleteCheckError, ContextLimitError, withTokenRetries } from './tokens.js';
 import { appliesToLanguage, BUILTIN, compile, floorFor, installQuestions, merge, parseIgnored, parseQuestions, parseScanTypes, SEARCHES } from './ask.js';
-import { shownSource, spanOf, tagged } from './questions.js';
+import { shownSource, spanOf } from './questions.js';
 import { findingId, sha256 } from './store.js';
 import { AuthenticationError } from './systemone.js';
 import { languageOf } from './analysis.js';
@@ -325,7 +325,7 @@ export function neighbourhood(sees, unit, { graph, files, max = MAX_SEEN }) {
  * so asking twelve together answers the same as asking them one at a time and pays for the state once instead of twelve times.
  */
 export function unitStep({ rules, unit, source, seen = {} }) {
-  const state = { path: unit.path, ...(unit.part ? { name: unit.name, line: unit.line } : { file: unit.path }), source, ...seen };
+  const state = { path: unit.path, ...(unit.part ? { name: unit.name } : { file: unit.path }), source, ...seen };
   return { state, questions: compile(rules) };
 }
 
@@ -363,7 +363,7 @@ export function unitSteps({ rules, unit, source, seen = {}, budget = TOKEN_LIMIT
     try {
       return chunks.map(chunk => {
         const step = unitStep({ rules, unit, source: chunk.source, seen });
-        if (chunks.length > 1) step.state.reading = { partial: true, line: unit.line + chunk.line - 1, start_byte: chunk.startByte, end_byte: chunk.endByte };
+        if (chunks.length > 1) step.state.reading = { partial: true, start_byte: chunk.startByte, end_byte: chunk.endByte };
         questionBatches(step.state, step.questions, { ...TOKEN_LIMITS, state: budget });
         return { ...step, chunk };
       });
@@ -404,7 +404,7 @@ export async function locateBreak({ systemOne, rule, unit, body }) {
     let chunks;
     for (;;) {
       chunks = sourceChunks(body, { path: unit.path, maxTokens });
-      if (chunks.every(chunk => estimateTokens({ rule: rule.text, path: unit.path, source: tagged(chunk.source.split('\n'), unit.line + chunk.line - 1) }) <= budget)) break;
+      if (chunks.every(chunk => estimateTokens({ rule: rule.text, path: unit.path, source: chunk.source }) <= budget)) break;
       if (maxTokens <= 128) throw new IncompleteCheckError(`${unit.path}: location metadata is too large`);
       maxTokens = Math.max(128, Math.floor(maxTokens / 2));
     }

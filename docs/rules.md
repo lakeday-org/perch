@@ -250,7 +250,7 @@ refactor       builtin  choice >60%  yes    **/*  Judging from `method`, its `me
                                                   are counts), and how its callers use it,
                                                   what does it most need?
 documented     builtin  noul >75%    yes    **/*  Could a caller learn what `method` promises
-                                                  from its `leading_comment`, or from the code
+                                                  from the comment above it, or from the code
                                                   itself where it is small enough to read?
 ```
 

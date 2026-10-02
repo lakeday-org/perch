@@ -159,12 +159,11 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
     if (!context && named.types.length) throw new Error(`no neighbourhood for ${unit.path}: ${note}. Run perch scan first, or name a rule from ${RULES_FILE} instead`);
     if (context) {
       const node = { ...context.node, line: unit.line, end_line: unit.end_line, lines: unit.own, metrics: unit.metrics ?? context.node.metrics };
-      const others = context.methods.filter(method => method.qualified_name !== unit.name);
       // The types a scan of this method would ask, or the ones --rules named. Asking everything perch ships reported a
       // vulnerability on a method whose scan never asks about security, so a check and a scan disagreed about the same code.
       const kinds = named.types.length ? new Set(named.types) : typesAsked(await readScanTypes(root, revision));
       const asked = methodQuestions(kinds, languageOf(unit.path), { topLevel: Boolean(unit.own) });
-      const prepare = budget => methodSteps({ node, lines: unit.lines, imports: context.imports, methods: [...others, node], callees: context.callees, callers: context.callers, asked, budget });
+      const prepare = budget => methodSteps({ node, lines: unit.lines, callees: context.callees, callers: context.callers, edges: context.edges, asked, budget });
       const steps = prepare(systemOne.limits?.state);
       const { answers } = await questionMethod({ systemOne, node, steps, prepare, debug });
       issues = issuesOf({ ...answers, metrics: node.metrics });

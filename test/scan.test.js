@@ -274,16 +274,17 @@ describe('perch hunt', () => {
     // The test calls f from inside a callback no function names, which is its file's top-level code.
     expect(f.callers).toEqual(['test/a.test.js::<top-level>']);
 
-    // The first request carried the method with tagged lines, its callees' source, and its callers' call sites.
+    // The first request carried the method and its call graph, and nothing else: its callees' source, its caller's, and the
+    // calls between them.
     const first = systemOne.calls.find(call => call.method === 'src/a.js::f');
-    expect(first.state.method.source).toContain('L0003| export function f(x) {');
-    expect(first.state.calls.map(call => call.id).sort()).toEqual(['src/a.js::g', 'src/b.js::h']);
-    expect(first.state.imports).toEqual(['h from ./b.js']);
-    expect(first.state.module_scope).toBeNull();
-    expect(first.state.calls.find(call => call.id === 'src/b.js::h').calls).toEqual(['k']);
-    expect(first.state.call_graph).toEqual(expect.arrayContaining(['f -> g', 'f -> h', 'h -> k']));
-    expect(first.state.method.metrics.risk_score).toBeTypeOf('number');
-    expect(first.questions.misuse_0.instructions.callee).toBe(first.state.calls[0].id);
+    expect(Object.keys(first.state)).toEqual(['method', 'graph']);
+    expect(first.state.method).toEqual({ path: 'src/a.js', name: 'f', source: expect.stringMatching(/^export function f\(x\) \{\n/) });
+    expect(first.state.graph.nodes.map(node => node.id).sort()).toEqual(['src/a.js::g', 'src/b.js::h', 'test/a.test.js::<top-level>']);
+    expect(first.state.graph.edges).toEqual(expect.arrayContaining(['src/a.js::f -> src/a.js::g', 'src/a.js::f -> src/b.js::h', 'src/b.js::h -> src/b.js::k', 'test/a.test.js::<top-level> -> src/a.js::f']));
+    // The numbers the refactor question names are handed to that question, so no other question's answer depends on them.
+    expect(first.questions.refactor.instructions.metrics.risk_score).toBeTypeOf('number');
+    expect(first.questions.has_bug.instructions).toBeTypeOf('string');
+    expect(first.questions.misuse_0.instructions.callee).toBe(first.state.graph.nodes[0].id);
     expect(first.questions.kind.type).toBe('choice');
     expect(Object.keys(first.questions.kind.criteria)).toHaveLength(9);
     expect(first.questions.severity.type).toBe('score');
@@ -292,7 +293,8 @@ describe('perch hunt', () => {
     // No question asks which line: a finding points at its method.
     expect(first.questions.where).toBeUndefined(); expect(first.questions.where_window).toBeUndefined();
     const h = systemOne.calls.find(call => call.method === 'src/b.js::h');
-    expect(h.state.called_by[0]).toMatchObject({ id: 'src/a.js::f', calls_method_at: 4 });
+    expect(h.state.graph.nodes.find(node => node.id === 'src/a.js::f').source).toContain('return g(x) + h(x);');
+    expect(h.state.graph.edges).toContain('src/a.js::f -> src/b.js::h');
     expect(h.questions.misused_by_0.instructions.caller).toBe('src/a.js::f');
 
     // Every hunted method is one line in the events log, and nothing touched the working tree.
@@ -459,7 +461,11 @@ describe('perch hunt', () => {
     expect(steps.at(-1).covers.end_line).toBe(3000);
     // Only the first pass carries the neighborhood: callers and callees are about the method, not about a slice of it.
     expect(Object.keys(steps[0].questions)).toContain('follow');
-    expect(steps[1].state.module_scope).toBeNull();
+    expect(Object.keys(steps[1].questions)).not.toContain('misuse_0');
+    expect(steps[1].state.graph).toEqual({ nodes: [], edges: [] });
+    // A pass says it holds part of the method, and where its part starts, counted from the method's own first line.
+    expect(steps[1].state.reading.partial).toBe(true);
+    expect(steps[1].state.method.source).toMatch(/^\.\.\. \(\d+ lines above\)\n/);
 
     // The worst defect anywhere in the method is the method's defect; the first pass still speaks for its shape.
     const whole = { has_bug: 0.2, kind: { choice: 'boundary' }, cwe_89: 0.1, cwe_416: 0.4, refactor: { choice: 'split' } };
