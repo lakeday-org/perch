@@ -91,6 +91,19 @@ describe("Tree-sitter analysis", () => {
     expect(result.diagnostics.some((diagnostic) => diagnostic.kind === "syntax")).toBe(true);
     expect(result.diagnostics[0]?.location?.start.line).toBeGreaterThan(0);
   });
+
+  it.each([
+    ["javascript", "function f(x) {\n  switch (x) {\n    case 1: return 1;\n    default: return 0;\n  }\n}\n", 2],
+    ["rust", "fn f(x: i32) -> i32 {\n    match x {\n        1 => 1,\n        _ => 0,\n    }\n}\n", 2],
+    ["python", "def f(x):\n    match x:\n        case 1:\n            return 1\n        case _:\n            return 0\n", 2],
+    ["java", "class A { int f(Object x) { return switch (x) { case 1 -> 1; case null, default -> 0; }; } }\n", 2],
+    ["rust", "fn f(x: i32, y: bool) -> i32 {\n    match x {\n        1 => 1,\n        _ if y => 2,\n        _ => 0,\n    }\n}\n", 4],
+    ["python", "def f(x, y):\n    match x:\n        case 1:\n            return 1\n        case _ if y:\n            return 2\n        case _:\n            return 0\n", 4],
+  ])("counts every arm of a %s switch or match but the default one", async (language, source, complexity) => {
+    const result = await realAnalyzer().analyzeSource(source, language);
+    expect(result.parser_status).toBe("parsed");
+    expect(result.declarations[0]?.metrics?.cyclomatic_complexity).toBe(complexity);
+  });
 });
 
 
