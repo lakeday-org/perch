@@ -35,7 +35,7 @@ perch scan
 ```
 
 Run `perch login` to sign in to [Perch Cloud](https://perchscan.com). The first $5 is free. Since decisions are cached,
-running perch again on unchanged code costs a tenth as much. Perch Cloud also scans pull requests in CI, without writing
+running perch again on unchanged code is free. Perch Cloud also scans pull requests in CI, without writing
 any workflows.
 
 ```console
@@ -96,9 +96,8 @@ export PERCH_MODEL_ID=jev-latest
 | [DiffusionGemma Jev](https://github.com/razorback16/openjev) on Beam | `https://app.beam.cloud/v1/models/jev/diffusiongemma/invoke` | `jev/diffusiongemma` |
 | [SemiF](https://github.com/TheoLeeCJ/SemIf) on Beam | `https://app.beam.cloud/v1/models/jev/semif/invoke` | `jev/semif` |
 
-Any endpoint that supports the System One format will work. Beam decision models only accept 32 questions per request,
-which is fewer than a security scan asks of one method. Until [#257](https://github.com/lakeday-org/perch/issues/257) is
-resolved, limit `scan_types` to `defect` and `lint` when using a Beam model. See the
+Any endpoint that supports the System One format will work. Each model gets as many questions per request as it says it
+takes. For a model that doesn't say, set `PERCH_MAX_QUESTIONS`. See the
 [benchmarks](https://huggingface.co/datasets/perchscan/benchmark-results) for a comparison.
 
 ## Documentation
