@@ -152,17 +152,9 @@ function importModule(node: Node, language: string): string {
     const imported = node.namedChildren[0] ?? null;
     return stripModule(text(imported?.childForFieldName("name") ?? imported));
   }
-  if (language === "python" && node.type === "import_from_statement") {
-    const relative = child(node, "relative_import");
-    const module = child(node, "module_name");
-    return `${text(relative)}${text(module)}`;
-  }
   if (node.type === "preproc_include") {
     const include = node.namedChildren.find((item) => item.type.includes("string"));
     return stripModule(text(include));
-  }
-  if (node.type === "import_declaration") {
-    return stripModule(text(node.namedChildren[0] ?? null));
   }
   return stripModule(text(node.namedChildren[0] ?? null));
 }
