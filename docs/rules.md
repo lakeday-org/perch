@@ -238,11 +238,20 @@ Fails column, and a custom rule is read no differently from perch's own:
 
 ```console
 $ perch rules list
-Question                     From        Asks            Fails  Over
-has_bug                      builtin     noul >50%       yes    **/*
-bug_edge_case                builtin     noul >50%       yes    **/*
-refactor                     builtin     choice >60%     yes    **/*
-documented                   builtin     noul >75%       yes    **/*
+Question       From     Asks         Fails  Over  Description
+has_bug        builtin  noul >60%    yes    **/*  Does `method` contain a concrete behavioral
+                                                  defect that a caller can reach?
+bug_edge_case  builtin  noul >60%    yes    **/*  Does `method` produce a wrong result for a
+                                                  valid empty, zero, first, last, or missing
+                                                  input?
+refactor       builtin  choice >60%  yes    **/*  Judging from `method`, its `metrics`
+                                                  (risk_score and maintainability_index run
+                                                  0-100, cyclomatic_complexity and max_nesting
+                                                  are counts), and how its callers use it,
+                                                  what does it most need?
+documented     builtin  noul >75%    yes    **/*  Could a caller learn what `method` promises
+                                                  from its `leading_comment`, or from the code
+                                                  itself where it is small enough to read?
 ```
 
 There is no type that gets asked about and cannot fail. A run that reports
@@ -393,15 +402,13 @@ Every question carries a floor, in percent. Below it, an answer is not listed.
 | --- | --- |
 | 75% | `documented` |
 | 70% | Most security checks |
-| 60% | `refactor`, `cwe_79` (XSS), `cwe_89` (SQL injection), `cwe_125` (out-of-bounds read) |
-| 50% | `has_bug`, `bug_edge_case` |
+| 60% | `has_bug`, `bug_edge_case`, `refactor`, `cwe_79` (XSS), `cwe_89` (SQL injection), `cwe_125` (out-of-bounds read) |
 
-A score near 50% is a weak signal, not a calibrated probability of a bug. The
-default 50% floor for the bug checks limits the number of alerts. Raising it
-further also misses more bugs; use `--min` to choose a stricter floor for a run.
-XSS, SQL injection, and out-of-bounds reads have 60% floors; the other security
-checks use 70%. These are alert cutoffs, not calibrated probabilities that a
-vulnerability exists.
+A score near 50% is a weak signal, not a calibrated probability of a bug, so the
+bug checks list nothing at 60% or below. A higher floor misses more bugs; use
+`--min` to choose a stricter floor for a run. XSS, SQL injection, and
+out-of-bounds reads have 60% floors; the other security checks use 70%. These
+are alert cutoffs, not calibrated probabilities that a vulnerability exists.
 
 `--min` sets a floor for a whole run. Both apply and the higher wins. Asking for
 `--min 90` gets you nothing at 73%, whatever a question set for itself.
