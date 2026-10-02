@@ -213,6 +213,8 @@ it includes the end of `.perch/scan.log`.
 | `PERCH_API_KEY` | `scan`, `check`: bearer token for the System One endpoint. |
 | `PERCH_BASE_URL` | `scan`, `check`: complete System One request URL. |
 | `PERCH_MODEL_ID` | `scan`, `check`: model ID; defaults to `jev-latest`. Set it to the endpoint's model, such as `d1:free` on Liquid AI. |
+| `PERCH_MAX_QUESTIONS` | `scan`, `check`: most questions in one request to `PERCH_BASE_URL`, for a model that does not report it. |
+| `PERCH_MAX_OPTIONS` | `scan`, `check`: most options in one choice question, likewise. |
 
 `PERCH_BASE_URL` is the complete URL to POST to, including its path and any
 query string. perch uses it unchanged, including a trailing slash. To use
@@ -235,6 +237,11 @@ export PERCH_MODEL_ID=d1:free
 The endpoint must support the System One request and response format: typed
 questions over a state, answered with probabilities. An OpenAI-compatible chat
 endpoint alone does not provide that contract.
+
+Models take different numbers of questions in one request. A model that reports
+`max_questions` in its answers gets requests of that size: the first request is
+kept to eight questions, and the rest are split to fit once it answers. For a
+model that reports nothing, set `PERCH_MAX_QUESTIONS`.
 
 ## Exit codes
 

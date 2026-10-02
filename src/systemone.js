@@ -5,8 +5,8 @@ export const DEFAULT_SYSTEM_ONE_MODEL = 'jev-latest';
 
 /** Credentials apply to the whole run, so trying another file cannot repair their rejection. */
 export class AuthenticationError extends Error {
-  constructor(status, detail) {
-    super(`System One request failed with HTTP ${status}: ${detail.slice(0, 500)}`);
+  constructor(status, detail = '') {
+    super(`System One request failed with HTTP ${status}: ${String(detail).slice(0, 500)}`);
     this.name = 'AuthenticationError'; this.status = status; this.detail = detail;
   }
 }
@@ -20,9 +20,23 @@ export function createSystemOne({
   sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
   log = () => {},
   limits = TOKEN_LIMITS,
+  firstQuestions = Infinity,
 } = {}) {
   if (!apiKey) throw new Error('PERCH_API_KEY is not set. Export an API key before running perch scan or perch check.');
-  let authenticationFailure = null, firstRequest = null;
+  // A copy, so what this endpoint reports about itself changes this client and no other.
+  limits = { ...TOKEN_LIMITS, ...limits };
+  let authenticationFailure = null, answered = false, opening = null;
+
+  /**
+   * How many questions and options the model takes, as it reports them in `_meta`. Beam's models take 32 questions a request
+   * where Jev takes any number that fit; a model that says nothing keeps the limits it was given. A report only lowers them,
+   * so a smaller limit set on purpose stands.
+   */
+  function learn(meta) {
+    const most = [meta?.max_questions, meta?.max_batch_questions].filter(value => Number.isSafeInteger(value) && value > 0);
+    if (most.length) limits.questions = Math.min(limits.questions, ...most);
+    if (Number.isSafeInteger(meta?.max_options) && meta.max_options > 1) limits.options = Math.min(limits.options, meta.max_options);
+  }
 
   async function request(body, attempted, beforeRequest) {
     for (let attempt = 0; ; attempt++) {
@@ -60,17 +74,16 @@ export function createSystemOne({
         if (sizeError) throw new ContextLimitError('server rejected the request size; rebuild with fewer estimated tokens', Math.floor(estimateTokens(body.state) / 2));
         throw new Error(`System One request failed with HTTP ${response.status}: ${detail.slice(0, 500)}`);
       }
-      return response.json();
+      const answer = await response.json();
+      learn(answer?._meta);
+      answered = true;
+      return answer;
     }
   }
 
-  /** The first real request checks credentials before concurrent units can spend requests on the same bad key. */
-  async function sendRequest(body, attempted, beforeRequest) {
-    if (firstRequest) await firstRequest;
+  function sendRequest(body, attempted, beforeRequest) {
     if (authenticationFailure) throw new AuthenticationError(authenticationFailure.status, authenticationFailure.detail);
-    const pending = request(body, attempted, beforeRequest);
-    firstRequest ??= pending.then(() => {}, () => {});
-    return pending;
+    return request(body, attempted, beforeRequest);
   }
 
   /** A Choice with one option has one possible answer, so it is answered here rather than asked. Some endpoints, Liquid AI's
@@ -92,8 +105,8 @@ export function createSystemOne({
     async ask(state, allQuestions, { beforeRequest = () => {} } = {}) {
       const { settled, rest: questions } = settle(allQuestions);
       if (Object.keys(settled).length && !Object.keys(questions).length) return { model, answers: settled, usage: null, requests: 0 };
-      const answered = await askAll(state, questions, beforeRequest);
-      return Object.keys(settled).length ? { ...answered, answers: { ...answered.answers, ...settled } } : answered;
+      const reply = await askAll(state, questions, beforeRequest);
+      return Object.keys(settled).length ? { ...reply, answers: { ...reply.answers, ...settled } } : reply;
     },
   };
 
@@ -124,7 +137,25 @@ export function createSystemOne({
       if (missing.length) throw new Error(`System One response is missing answers for ${missing.join(', ')}`);
       responses.push(response);
     };
-    try { for (const batch of questionBatches(state, questions, limits)) await send(batch); }
+    try {
+      // Until the endpoint has answered once, one request is out at a time and every other ask waits for it. That answer
+      // checks the key before concurrent units spend requests on a bad one, and says how many questions the model takes, so
+      // nothing is split for it until it has. The first request is kept to `firstQuestions` while that is unknown.
+      for (;;) {
+        // Checked and claimed in the same tick, so of the asks woken by one answer that did not come, only one sends next.
+        if (answered) break;
+        if (opening) { await opening; continue; }
+        let open;
+        opening = new Promise(resolve => { open = resolve; });
+        try {
+          const [first] = questionBatches(state, questions, { ...limits, questions: Math.min(limits.questions, firstQuestions) });
+          await send(first);
+          questions = Object.fromEntries(Object.entries(questions).filter(([id]) => !(id in first)));
+        } finally { opening = null; open(); }
+        break;
+      }
+      if (Object.keys(questions).length) for (const batch of questionBatches(state, questions, limits)) await send(batch);
+    }
     catch (error) {
       error.usage = usage(); error.requests = requests; error.model = responses.at(-1)?.model ?? model;
       throw error;
