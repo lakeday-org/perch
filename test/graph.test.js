@@ -39,6 +39,30 @@ describe('method graph', () => {
     expect(resolveModule('crate/src/net/mod.rs', 'super::util', 'rust', paths)).toBe('crate/src/util.rs');
   });
 
+  it('resolves Rust paths by the module a file is, not the directory it sits in', () => {
+    const paths = new Set(['src/lib.rs', 'src/util.rs', 'src/net/mod.rs', 'src/net/client.rs', 'src/net/util.rs', 'src/net/client/retry.rs', 'src/net/client/retry/backoff.rs']);
+    expect(resolveModule('src/net/client.rs', 'super', 'rust', paths)).toBe('src/net/mod.rs');
+    expect(resolveModule('src/net/mod.rs', 'super', 'rust', paths)).toBe('src/lib.rs');
+    expect(resolveModule('src/net/client.rs', 'super::util', 'rust', paths)).toBe('src/net/util.rs');
+    expect(resolveModule('src/net/client.rs', 'super::super', 'rust', paths)).toBe('src/lib.rs');
+    expect(resolveModule('src/net/client/retry.rs', 'super', 'rust', paths)).toBe('src/net/client.rs');
+    expect(resolveModule('src/net/client/retry/backoff.rs', 'super::super', 'rust', paths)).toBe('src/net/client.rs');
+    expect(resolveModule('src/net/client.rs', 'self::retry', 'rust', paths)).toBe('src/net/client/retry.rs');
+    expect(resolveModule('src/net/client.rs', 'retry::backoff', 'rust', paths)).toBe('src/net/client/retry/backoff.rs');
+    expect(resolveModule('src/net/client.rs', 'self', 'rust', paths)).toBe('src/net/client.rs');
+    expect(resolveModule('src/net/client.rs', 'super::Kind', 'rust', paths)).toBe('src/net/mod.rs');
+    expect(resolveModule('src/net/client.rs', 'crate', 'rust', paths)).toBe('src/lib.rs');
+    expect(resolveModule('src/lib.rs', 'super', 'rust', paths)).toBeNull();
+    expect(resolveModule('src/net/client.rs', 'std::collections', 'rust', paths)).toBeNull();
+
+    const file = (path, names, calls, imports) => ({ path, language: 'rust', methods: names.map((name, i) => method(path, name, i + 1)), calls, values: [], imports });
+    const graph = buildGraph([
+      file('src/net/mod.rs', ['helper'], [], []),
+      file('src/net/client.rs', ['connect'], [{ from: 'src/net/client.rs::connect', name: 'helper', line: 2 }], [{ module: 'super', name: 'helper', alias: 'helper' }]),
+    ]);
+    expect(graph.callees('src/net/client.rs::connect')).toEqual(['src/net/mod.rs::helper']);
+  });
+
   it('links calls through same-file names, imports, classes, and Go packages', () => {
     const files = [
       { path: 'src/a.js', language: 'javascript', test: false, methods: [method('src/a.js', 'f', 1, 50), method('src/a.js', 'g', 10, 20), method('src/a.js', 'K.m', 20, 30)],

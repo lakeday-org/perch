@@ -139,6 +139,25 @@ export async function credentialSource(env) {
 }
 
 /**
+ * What a model takes in one request, when it does not say. PERCH_MAX_QUESTIONS and PERCH_MAX_OPTIONS set the limits for an
+ * endpoint that reports nothing in `_meta`; one that does report can only lower them. A value that is not a whole number above
+ * zero is an error rather than no limit, since a scan sent in batches the model refuses reads nothing.
+ */
+function limitsFrom(env) {
+  const limits = {};
+  for (const [name, key, least] of [['PERCH_MAX_QUESTIONS', 'questions', 1], ['PERCH_MAX_OPTIONS', 'options', 2]]) {
+    if (env[name] === undefined || env[name] === '') continue;
+    const value = Number(env[name]);
+    if (!Number.isSafeInteger(value) || value < least) throw new Error(`${name} must be a whole number of at least ${least}, not ${env[name]}`);
+    limits[key] = value;
+  }
+  return limits;
+}
+
+/** The first request to an endpoint that has not said what it takes. Small enough for any model we know of; its answer says the rest. */
+export const FIRST_QUESTIONS = 8;
+
+/**
  * Every request to the Cloud says which command sent it, from which release, and which run it belongs to. The run is a new id
  * each time perch is invoked and the same on every request that invocation makes, so the Cloud can put a run's requests together.
  */
@@ -151,7 +170,9 @@ export async function configuredSystemOne({ env, root, log, command, version, fo
   const source = await credentialSource(env);
   if (source.kind === 'none') throw new Error('Not signed in to Perch Cloud. Run perch login, or set PERCH_API_KEY to a CI token from the dashboard.');
   if (source.kind === 'direct') {
-    return createSystemOne({ apiKey: env.PERCH_API_KEY || env.TYPESAFE_API_KEY, baseUrl: env.PERCH_BASE_URL, model: env.PERCH_MODEL_ID, log, fetchImpl });
+    const limits = limitsFrom(env);
+    return createSystemOne({ apiKey: env.PERCH_API_KEY || env.TYPESAFE_API_KEY, baseUrl: env.PERCH_BASE_URL, model: env.PERCH_MODEL_ID, log, fetchImpl,
+      limits, firstQuestions: limits.questions ?? FIRST_QUESTIONS });
   }
   const cloudFetch = sendingAs(fetchImpl, command, version);
   // An Actions job asks GitHub for its token, which is not a request to the Cloud.
