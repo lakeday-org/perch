@@ -224,23 +224,6 @@ export const MAX_CALLEES = 8, MAX_CALLERS = 8, STATE_BUDGET = TOKEN_LIMITS.state
  * saying so.
  */
 export const shownLines = lines => lines.flatMap((text, index) => (text !== null ? [text] : lines[index - 1] !== null ? ['... (read on its own)'] : [])).join('\n');
-/**
- * Lines with their numbers, for a question that names a line in its answer: which branch of a method no test takes. Consecutive
- * null lines are one line saying which numbers were left out. A scan's states carry no numbers, so code moving does not change
- * them; coverage's branch question has to point at a line.
- */
-export const lineId = line => `L${String(line).padStart(4, '0')}`;
-export const tagged = (lines, start) => {
-  const out = [];
-  for (let index = 0; index < lines.length; index++) {
-    if (lines[index] !== null) { out.push(`${lineId(start + index)}| ${lines[index]}`); continue; }
-    let last = index;
-    while (lines[last + 1] === null) last++;
-    out.push(`... (lines ${start + index}-${start + last} are read on their own)`);
-    index = last;
-  }
-  return out.join('\n');
-};
 /** Returns a unit's lines from first to last. For a top-level unit, lines that belong to methods are null. */
 export const spanOf = (node, lines) => {
   const own = node.lines && new Set(node.lines);

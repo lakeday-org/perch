@@ -22,7 +22,7 @@ import { TOP_LEVEL } from './analysis.js';
 import { buildGraph } from './graph.js';
 import { AuthenticationError } from './systemone.js';
 import { compile, parseQuestions, readAnswer } from './ask.js';
-import { excerpt, lineId, spanOf, tagged } from './questions.js';
+import { excerpt, leadingComment, shownLines, spanOf } from './questions.js';
 import { identity, openStore, readJson, sha256 } from './store.js';
 import { estimateTokens, IncompleteCheckError, TOKEN_LIMITS, withTokenRetries } from './tokens.js';
 import { matches, readCoverageReports, readIgnored } from './units.js';
@@ -51,16 +51,39 @@ export const coverageQuestions = () => ({ test: QUESTIONS.filter(question => que
 const questionNamed = name => QUESTIONS.find(question => question.name === name);
 /** Whether a method is untested: measured, none of its lines ran, whatever reaches it; unmeasured, no test reaches it. */
 const isUntested = method => (method.measured ? method.measured.lines.hit === 0 : !method.tests.length);
+/** What a node in a test's request is, when it is not code the test reaches: a helper of its own, or the test it may repeat. */
+const HELPER = "the test's own helper, which it calls through to the code under test";
+const EARLIER = 'the earlier test this one may repeat';
 /** Asked of a method only once the call graph or the report has found no test runs it, and never with the branch questions. */
 const NEEDS_TEST = 'needs_test';
 
+/**
+ * A branch line as gap_line names it: its place within the method, `line_3` for the method's third line. A file line number
+ * changed whenever code above the method moved, and with it the question, so a method nobody touched was asked again.
+ */
+const branchKey = (node, line) => `line_${line - node.line + 1}`;
+/** The file line a gap_line answer names, or null for `none`. */
+const branchLine = (node, choice) => { const match = /^line_(\d+)$/.exec(choice ?? ''); return match ? node.line + Number(match[1]) - 1 : null; };
+
 /** The typed questions for one method, gap_line offering that method's branch lines, each shown with the line's own text. */
-export function methodQuestions(branches, lines) {
+export function methodQuestions(node, branches, lines) {
   const typed = compile(coverageQuestions().method.filter(question => question.name !== NEEDS_TEST));
   const gap = questionNamed('gap_line');
-  typed.gap_line = { ...typed.gap_line, criteria: { ...Object.fromEntries(branches.map(line => [lineId(line), (lines[line - 1] ?? '').trim()])), ...gap.options } };
+  typed.gap_line = { ...typed.gap_line, criteria: { ...Object.fromEntries(branches.map(line => [branchKey(node, line), (lines[line - 1] ?? '').trim()])), ...gap.options } };
   return typed;
 }
+
+/**
+ * A unit's text as a request shows it: the comment above it, which is its contract, then its lines, with no line numbers. The
+ * answer is cached under the request, so a number in it made code below an inserted line a request nobody had asked.
+ */
+const sourceOf = (node, lines) => [leadingComment(lines, node.line), shownLines(spanOf(node, lines))].filter(Boolean).join('\n');
+
+/** The calls between the units a request shows: the edges drawn from code in view, to code in view. */
+const edgesAmong = (graph, ids) => {
+  const shown = new Set(ids);
+  return [...shown].flatMap(from => graph.callees(from).filter(to => shown.has(to)).sort().map(to => `${from} -> ${to}`));
+};
 
 /**
  * Calls and reads that leave the process, by language and by kind. A read is member access nothing calls, `process.env.KEY` or
@@ -754,16 +777,19 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, min = 0
     const lines = await linesOf(node);
     const reached = await Promise.all(test.reach.slice(0, MAX_SHOWN).map(async item => ({ ...item, ...(await neighbourSource(item)) })));
     const helpers = await Promise.all((test.helpers ?? []).slice(0, MAX_SHOWN).map(id => neighbourSource({ id })));
-    const mocks = test.mocks.map(describeMock);
-    const build = budget => fitState((limit, shown) => ({
-      test: { path: node.path, name: node.qualified_name, framework: node.case.framework, source: tagged(spanOf(node, lines), node.line) },
-      ...(helpers.length ? { helpers: helpers.slice(0, shown).map(item => ({ name: item.node.qualified_name, path: item.node.path, source: excerpt(item.node, item.lines, limit) })) } : {}),
-      mocks,
-      reaches: reached.slice(0, shown).map(item => ({ id: item.id, name: item.node.qualified_name, path: item.node.path, depth: item.depth,
-        source: excerpt(item.node, item.lines, limit) })),
-      ...(test.reach.length > shown ? { reaches_not_shown: test.reach.length - shown } : {}),
-      touches: test.touches,
-    }), budget, `test ${node.qualified_name}`);
+    const mocks = test.mocks.map(describeMock), source = sourceOf(node, lines);
+    // The test, then the code it reaches and the helpers it calls through as the nodes of its call graph, nearest first, as a
+    // scan shows a method.
+    const build = budget => fitState((limit, shown) => {
+      const nodes = [
+        ...helpers.slice(0, shown).map(item => ({ id: item.node.id, path: item.node.path, source: excerpt(item.node, item.lines, limit), note: HELPER }) ),
+        ...reached.slice(0, shown).map(item => ({ id: item.id, path: item.node.path, source: excerpt(item.node, item.lines, limit) })),
+      ];
+      return {
+        test: { path: node.path, name: node.qualified_name, framework: node.case.framework, source, mocks, touches: test.touches },
+        graph: { nodes, edges: edgesAmong(graph, [node.id, ...nodes.map(item => item.id)]) },
+      };
+    }, budget, `test ${node.qualified_name}`);
     // A test the JUnit report timed is not asked what it costs: the report says, in seconds. Whether it tests anything here is
     // asked only of a test the call graph found calling nothing in the repository.
     const skip = new Set(['repeats', ...(typeof test.run?.time === 'number' ? ['cost'] : []), ...(test.unresolved ? [] : ['tests_nothing_here'])]);
@@ -779,13 +805,12 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, min = 0
     const earlier = testById.get(candidates.redundantWith.get(test.id)).node, { node } = test;
     const [lines, earlierLines] = [await linesOf(node), await linesOf(earlier)];
     const build = budget => fitState(() => ({
-      test: { path: node.path, name: node.qualified_name, source: tagged(spanOf(node, lines), node.line) },
-      earlier: { path: earlier.path, name: earlier.qualified_name, source: tagged(spanOf(earlier, earlierLines), earlier.line) },
+      test: { path: node.path, name: node.qualified_name, source: sourceOf(node, lines) },
+      graph: { nodes: [{ id: earlier.id, path: earlier.path, source: sourceOf(earlier, earlierLines), note: EARLIER }], edges: [] },
     }), budget, `test ${node.qualified_name}`);
     return answer({ subject: 'test', node, build, typed: () => compile(repeatsAsked), questions: repeatsAsked });
   }, repeats, testProgress);
   const { useful } = judgeTests(coverage.tests, tests, min, repeats);
-  const decided = id => tests.get(id).answers.decides.choice;
   // A measured method is asked only which untaken branch matters, and only when it ran and the report shows a branch line with a
   // side no test took: what share of its branches the tests take is what the report measured. An unmeasured one is asked as
   // before, when it has branches and a useful test reaches it.
@@ -797,14 +822,17 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, min = 0
     const lines = await linesOf(node);
     const reaching = await Promise.all(method.tests.filter(item => useful.has(item.id)).slice(0, MAX_SHOWN).map(async item => ({ ...item, ...(await neighbourSource(item)) })));
     const offered = measured ? method.untaken : branches;
-    const typed = methodQuestions(offered, lines);
+    const typed = methodQuestions(node, offered, lines);
     if (measured) delete typed.exercised;
-    const build = budget => fitState((limit, shown) => ({
-      method: { path: node.path, name: node.qualified_name, source: tagged(spanOf(node, lines), node.line),
-        ...(measured ? { untaken_branches: offered.map(lineId) } : { branches: branches.map(lineId) }) },
-      tests: reaching.slice(0, shown).map(item => ({ id: item.id, name: item.node.qualified_name, path: item.node.path, depth: item.depth, decides: decided(item.id),
-        source: excerpt(item.node, item.lines, limit) })),
-    }), budget, `method ${node.qualified_name}`);
+    // Branch lines by their text: the same branch reads the same wherever the method has moved to.
+    const named = offered.map(line => (lines[line - 1] ?? '').trim());
+    const build = budget => fitState((limit, shown) => {
+      const nodes = reaching.slice(0, shown).map(item => ({ id: item.id, path: item.node.path, source: excerpt(item.node, item.lines, limit) }));
+      return {
+        method: { path: node.path, name: node.qualified_name, source: sourceOf(node, lines), ...(measured ? { untaken_branches: named } : { branches: named }) },
+        graph: { nodes, edges: edgesAmong(graph, [node.id, ...nodes.map(item => item.id)]) },
+      };
+    }, budget, `method ${node.qualified_name}`);
     // A line the method was not offered is not a line of this method, and reading it as one would put a finding somewhere else.
     const check = answers => { if (!Object.hasOwn(typed.gap_line.criteria, answers.gap_line.choice)) throw new Error(`gap_line picked ${answers.gap_line.choice}, which was not offered`); };
     return answer({ subject: 'method', node, build, typed: () => typed, questions: measured ? gapAsked : methodAsked, check });
@@ -817,7 +845,7 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, min = 0
     const lines = await linesOf(node);
     const how = method.measured ? 'The coverage report shows none of its lines ran.' : `No test reaches it within ${coverage.depth} calls.`;
     const build = budget => fitState(() => ({
-      method: { path: node.path, name: node.qualified_name, source: tagged(spanOf(node, lines), node.line) }, untested: how,
+      method: { path: node.path, name: node.qualified_name, source: sourceOf(node, lines), note: how }, graph: { nodes: [], edges: [] },
     }), budget, `method ${node.qualified_name}`);
     return answer({ subject: 'method', node, build, typed: () => compile(needsAsked), questions: needsAsked });
   }, needs, methodProgress);
@@ -903,7 +931,7 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     else if (!method.tests.length) [exercised, basis] = [0, 'static'];
     else if (!usefulTests.length) [exercised, basis] = method.tests.some(item => failedUnits.has(item.id)) ? [null, null] : [0, 'estimated'];
     else [exercised, basis] = !method.branches.length ? [1, 'estimated'] : [null, null];
-    const gapLine = said && /^L\d+$/.test(said.gap_line.choice) ? Number(said.gap_line.choice.slice(1)) : null;
+    const gapLine = said ? branchLine(node, said.gap_line.choice) : null;
     const gap = gapLine === null ? null : { line: gapLine, text: (lines.get(node.path)?.[gapLine - 1] ?? '').trim(), kind: said.gap_kind.choice, probability: said.gap_line.probability };
     // Measured, a method is untested when none of its lines ran, whatever the call graph says reaches it; and one the call graph
     // misses is tested when the report shows it ran. Unmeasured, it is untested when no test reaches it.

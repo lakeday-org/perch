@@ -167,7 +167,7 @@ const TESTS = {
 /** What a test answers to the yes-or-no questions when its script does not say. */
 const NOUL_DEFAULTS = { infra: 0.05, tests_nothing_here: 0.8, repeats: 0.8 };
 const METHODS = {
-  apply_discount: { exercised: { 2: 0.2, 3: 0.8 }, gap_line: ['L0007', 0.7], gap_kind: ['boundary', 0.6] },
+  apply_discount: { exercised: { 2: 0.2, 3: 0.8 }, gap_line: ['line_4', 0.7], gap_kind: ['boundary', 0.6] },
   total: { exercised: { 4: 1 }, gap_line: ['none', 0.9], gap_kind: ['boundary', 0.4] },
   restock: { exercised: { 3: 1 }, gap_line: ['none', 0.8], gap_kind: ['boundary', 0.4] },
 };
@@ -280,7 +280,7 @@ describe('perch coverage', () => {
     // it needs a test.
     // test_discount_20 is asked a second time, beside test_discount_10, whether it checks a case that one does not.
     expect(systemOne.calls.map(call => call.name).sort()).toEqual([...Object.keys(TESTS).filter(name => name !== 'test_restock'), 'test_discount_20', 'apply_discount', 'total', 'restock'].sort());
-    expect(systemOne.calls.find(call => call.state.earlier)).toMatchObject({ name: 'test_discount_20', state: { earlier: { name: 'test_discount_10' } } });
+    expect(systemOne.calls.find(call => call.questions.repeats)).toMatchObject({ name: 'test_discount_20', state: { graph: { nodes: [{ id: 'tests/test_cart.py::test_discount_10' }] } } });
     expect(Object.keys(systemOne.calls.find(call => call.name === 'restock').questions)).toEqual(['needs_test']);
 
     const tests = byId(report.tests);
@@ -413,6 +413,20 @@ describe('perch coverage', () => {
     expect(again.calls).toEqual([]);
     expect(second.findings).toEqual(first.findings);
     expect(second.methods).toEqual(first.methods);
+  });
+
+  it('reuses answers when code above a method moves it down', async () => {
+    const repo = await repository();
+    await run(repo, scripted());
+    // Three lines above every method in cart.py: each one's text and its neighbours' are what they were, only the lines move.
+    await writeFile(join(repo.root, 'cart.py'), FILES['cart.py'].replace('import pricing\n', 'import pricing\n\n# Prices are in cents.\nCURRENCY = "USD"\n'));
+    await commitAll(repo.root, 'a constant above the methods');
+    const again = scripted();
+    const second = await run({ ...repo, revision: await revision(repo.root) }, again);
+    expect(again.calls).toEqual([]);
+    // A gap still points at its own line, which moved with it.
+    const discount = second.methods.find(method => method.id === 'cart.py::apply_discount');
+    expect(discount.gap).toMatchObject({ line: 10, text: 'if percent > 100:' });
   });
 
   it('records units it could not ask about', async () => {
@@ -654,8 +668,8 @@ const MEASURED_TESTS = { test_discount_negative: { decides: ['happy_path', 0.85]
 /** save only writes what it is given to a file, and is said not to need a test of its own. */
 const MEASURED_NEEDS = { save: 0.2 };
 const MEASURED_METHODS = {
-  total: { gap_line: ['L0006', 0.8], gap_kind: ['error_path', 0.7] },
-  restock: { gap_line: ['L0018', 0.65], gap_kind: ['invalid_input', 0.6] },
+  total: { gap_line: ['line_4', 0.8], gap_kind: ['error_path', 0.7] },
+  restock: { gap_line: ['line_3', 0.65], gap_kind: ['invalid_input', 0.6] },
 };
 
 /**
@@ -782,13 +796,13 @@ describe('perch coverage with test reports', () => {
     // The three that never ran are asked only whether they need a test, told how perch knows.
     const needCalls = systemOne.calls.filter(call => call.questions.needs_test);
     expect(needCalls.map(call => call.name).sort()).toEqual(['checkout', 'item_count', 'save']);
-    for (const call of needCalls) expect(call.state.untested).toBe('The coverage report shows none of its lines ran.');
+    for (const call of needCalls) expect(call.state.method.note).toBe('The coverage report shows none of its lines ran.');
     for (const call of methodCalls) expect(Object.keys(call.questions).sort()).toEqual(['gap_kind', 'gap_line']);
     const offered = name => Object.keys(methodCalls.find(call => call.name === name).questions.gap_line.criteria).sort();
-    expect(offered('apply_discount')).toEqual(['L0007', 'none']);
-    expect(offered('restock')).toEqual(['L0018', 'none']);
+    expect(offered('apply_discount')).toEqual(['line_4', 'none']);
+    expect(offered('restock')).toEqual(['line_3', 'none']);
     // total's branch lines are 5 and 6; the report shows both sides of 5 taken.
-    expect(offered('total')).toEqual(['L0006', 'none']);
+    expect(offered('total')).toEqual(['line_4', 'none']);
     const asksCost = Object.fromEntries(systemOne.calls.filter(call => call.state.test).map(call => [call.name, 'cost' in call.questions]));
     expect(asksCost).toEqual({ test_discount_10: false, test_discount_20: false, test_discount_negative: false, test_count_mocked: false, test_rate: false,
       test_rate_mocked: true, 'cart > adds prices': false, 'cart > rejects a negative price': false, 'cart > checks out': true, 'saves an order': true });

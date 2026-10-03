@@ -1,8 +1,11 @@
 # Questions `perch coverage` asks. Same grammar as scan.yaml.
-# A test is asked with its own numbered source, the helpers in its own test code it calls through (`helpers`), what it mocks, the
-# methods it reaches (`reaches`, direct first) and the kinds of I/O perch found on calls along that reach (`touches`). A method is asked with its numbered source, its branch lines, and
-# the useful tests that reach it with the behavior each one decides.
-# gap_line's options are the method's own branch lines, added when it is asked; `none` is the only option written here.
+# Every request is shaped as a scan's is: the unit asked about, `test` or `method`, with its source under the comment above it and
+# no line numbers, then `graph`, the code around it as nodes and the calls between them as edges. A test's graph holds the code it
+# reaches, nearest first, and the helpers of its own it calls through; the test also carries its `mocks` and the kinds of I/O
+# perch found along its reach (`touches`). A method's graph holds the useful tests that reach it, and the method carries its
+# branch lines by their text.
+# gap_line's options are the method's own branch lines, named by their place in the method and added when it is asked; `none`
+# is the only option written here.
 # tests_nothing_here, repeats and needs_test are asked only of a unit the call graph or the coverage report already flagged,
 # and decide whether that problem is listed.
 
@@ -11,7 +14,7 @@
   each: test
   where: "**/*"
   ask: >
-    Which behavior of the methods in `reaches` does `test` decide? Read its assertions: what would have to change in the
+    Which behavior of the code in `graph` does `test` decide? Read its assertions: what would have to change in the
     code under test for this test to fail?
   options:
     happy_path: It checks the ordinary result for ordinary input
@@ -27,7 +30,7 @@
   type: choice
   each: test
   where: "**/*"
-  ask: What is most wrong with `test` as a test of the methods in `reaches`, if anything?
+  ask: What is most wrong with `test` as a test of the code in `graph`, if anything?
   options:
     none: Nothing; it drives the code under test and asserts on what that code produced
     asserts_mock: It asserts on a value it stubbed or mocked itself, so the code under test is not what is checked
@@ -42,7 +45,7 @@
   each: test
   where: "**/*"
   ask: >
-    Through what `test` runs and what it reaches without a mock in `mocks` cutting it off, does it open a socket, a database
+    Through what `test` runs and the code in `graph`, without a mock in its `mocks` cutting it off, does it open a socket, a database
     connection, a file or a subprocess, or read a credential or setting from the environment?
   "true": Running it touches the network, a database, the filesystem, a process or the environment
   "false": Everything it runs stays in memory, or whatever would leave it is mocked
@@ -60,16 +63,17 @@
   each: test
   where: "**/*"
   ask: >
-    `test` calls the same code as `earlier`, and both decide the same kind of behavior. Does `test` check a case `earlier` already
-    checks, with the same kind of input and the same expected result, so deleting `test` leaves no case unchecked?
-  "true": It checks a case `earlier` already checks, and deleting it loses nothing
-  "false": It checks a case `earlier` does not, such as other input, another boundary or another expected result
+    `test` calls the same code as the earlier test in `graph`, and both decide the same kind of behavior. Does `test` check a case
+    the earlier one already checks, with the same kind of input and the same expected result, so deleting `test` leaves no case
+    unchecked?
+  "true": It checks a case the earlier test already checks, and deleting it loses nothing
+  "false": It checks a case the earlier test does not, such as other input, another boundary or another expected result
 
 - name: cost
   type: score
   each: test
   where: "**/*"
-  ask: How expensive is `test` to run, from what it and the code in `reaches` do?
+  ask: How expensive is `test` to run, from what it and the code in `graph` do?
   levels:
     - In memory only
     - Builds large fixtures, or loops over many cases
@@ -81,7 +85,7 @@
   each: method
   where: "**/*"
   ask: >
-    Of the branches of `method` (its `branches` lines), how many do the tests in `tests` take between them, judging from the
+    Of the branches of `method` (its `branches` lines), how many do the tests in `graph` take between them, judging from the
     inputs each test passes?
   levels:
     - None of them
@@ -95,7 +99,7 @@
   each: method
   where: "**/*"
   ask: >
-    Which branch line of `method` does no test in `tests` take? Pick the one whose untaken side matters most to a caller.
+    Which branch line of `method` does no test in `graph` take? Pick the one whose untaken side matters most to a caller.
   options:
     none: Every branch line is taken by at least one shown test
 
@@ -103,7 +107,7 @@
   type: choice
   each: method
   where: "**/*"
-  ask: What kind of input would a test need to take the branch no test in `tests` takes?
+  ask: What kind of input would a test need to take the branch no test in `graph` takes?
   options:
     boundary: A value at or next to the edge of a range, a limit or a threshold
     empty_or_absent_input: Empty, null, missing or zero input
@@ -116,7 +120,7 @@
   each: method
   where: "**/*"
   ask: >
-    No test runs `method` (`untested` says how perch knows). Would a mistake in it reach a caller or a user, so that it needs
+    No test runs `method` (its `note` says how perch knows). Would a mistake in it reach a caller or a user, so that it needs
     a unit test?
   "true": A mistake in it would reach a caller or a user, and a unit test would catch it
   "false": It is trivial glue, an entry or build script, or code a test would only restate
