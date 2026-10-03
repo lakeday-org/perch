@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { actionsToken, loginCloud, logoutCloud } from '../src/cloud-auth.js';
+import { actionsToken, loginCloud, logoutCloud, openInBrowser } from '../src/cloud-auth.js';
 import { createCloudClient, configuredSystemOne, remoteRepositoryName } from '../src/cloud-client.js';
 import { git } from '../src/git.js';
 import { main } from '../src/cli.js';
@@ -200,7 +200,11 @@ describe('Perch Cloud', () => {
         if (url.endsWith('/auth/device/token')) return response({ access_token: 'private-access', refresh_token: 'private-refresh', expires_at: Date.now() + 900000 });
         return response({ organizations: [{ id: 'org', name: 'Team' }] });
       };
-      await loginCloud({ env: { HOME: root }, stdout: line => output.push(line), fetchImpl, sleep: async () => {} });
+      const opened = [];
+      await loginCloud({ env: { HOME: root }, stdout: line => output.push(line), fetchImpl, sleep: async () => {}, open: url => { opened.push(url); return true; } });
+      // The browser opens on the confirmation page with the code filled in, and the terminal still shows the address and the code.
+      expect(opened).toEqual(['https://dash.perchscan.com/device?code=ABCD-EFGH']);
+      expect(output.join('\n')).toContain('Opening https://dash.perchscan.com/device?code=ABCD-EFGH');
       const file = join(root, '.perch', 'cloud.json');
       expect((await stat(file)).mode & 0o777).toBe(0o600);
       expect(JSON.parse(await readFile(file, 'utf8')).organizationId).toBe('org');
@@ -212,6 +216,29 @@ describe('Perch Cloud', () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+  it('login opens the browser with the operating system opener and says so only when it could', async () => {
+    const calls = [];
+    const child = { on() {}, unref() {} };
+    const spawnImpl = (command, args, options) => { calls.push({ command, args, options }); return child; };
+    expect(openInBrowser('https://dash.perchscan.com/device?code=ABCD-EFGH', { platform: 'darwin', spawnImpl })).toBe(true);
+    expect(openInBrowser('https://dash.perchscan.com/device?code=ABCD-EFGH', { platform: 'linux', spawnImpl })).toBe(true);
+    expect(openInBrowser('https://dash.perchscan.com/device?code=ABCD-EFGH', { platform: 'win32', spawnImpl })).toBe(true);
+    expect(calls.map(call => [call.command, ...call.args])).toEqual([
+      ['open', 'https://dash.perchscan.com/device?code=ABCD-EFGH'],
+      ['xdg-open', 'https://dash.perchscan.com/device?code=ABCD-EFGH'],
+      ['cmd', '/c', 'start', '', 'https://dash.perchscan.com/device?code=ABCD-EFGH'],
+    ]);
+    expect(calls.every(call => call.options.detached && call.options.stdio === 'ignore')).toBe(true);
+    expect(openInBrowser('https://dash.perchscan.com/device', { platform: 'linux', spawnImpl: () => { throw new Error('ENOENT'); } })).toBe(false);
+    const output = [];
+    const fetchImpl = async url => {
+      if (url.endsWith('/auth/device/start')) return response({ device_code: 'd', user_code: 'ABCD-EFGH', verification_uri: 'https://dash.perchscan.com/device', expires_in: 300, interval: 5 });
+      throw new Error('stop');
+    };
+    await expect(loginCloud({ env: {}, stdout: text => output.push(text), fetchImpl, sleep: async () => {}, open: () => false })).rejects.toThrow('stop');
+    expect(output.join('\n')).toContain('Open https://dash.perchscan.com/device?code=ABCD-EFGH');
+    expect(output.join('\n')).not.toContain('Opening');
   });
   it('doctor reports a corrupt saved login and logout can remove it', async () => {
     const root = await mkdtemp(join(tmpdir(), 'perch-corrupt-login-'));
