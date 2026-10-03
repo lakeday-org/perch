@@ -47,8 +47,9 @@
   where: src/coverage.js
   each: method
   ensure: >-
-    Find each catch block and each .catch() callback in this method; if it has
-    none, this rule holds, whatever else the method does. One that catches an
+    Find each catch block and each .catch() callback in this method's own body,
+    not in the callers and callees shown with it; if it has none, this rule
+    holds, whatever else the method does. One that catches an
     error while parsing, resolving or asking about a test or a method records
     that unit as failed, and the report says so. Dropping the unit, counting
     it as covered, or treating an unanswered test as useful breaks this rule.

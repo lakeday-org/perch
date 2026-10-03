@@ -94,8 +94,9 @@ rules:
     each: method
     min: 80
     ensure: >-
-      Find each catch block and each .catch() callback in this method; if it
-      has none, this rule holds, whatever else the method does. Each one
+      Find each catch block and each .catch() callback in this method's own
+      body, not in the callers and callees shown with it; if it has none, this
+      rule holds, whatever else the method does. Each one
       rethrows the error, returns it to the caller, or reports it. An empty
       catch, or one that returns a stand-in value such as null, [] or '' so
       the method carries on as if the step had worked, breaks this rule. A
