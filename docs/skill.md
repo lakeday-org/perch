@@ -24,7 +24,19 @@ Wrote .claude/skills/perch/SKILL.md for Claude Code.
 | `pi` | `.pi/skills/perch/SKILL.md` |
 | `cursor` | `.cursor/rules/perch.mdc` |
 
-Commit the file. It is part of how the repository is worked on, the same as
+It also adds the perch MCP server, which lets the assistant read what Perch
+Cloud's CI scans found on a pull request:
+
+| | |
+| --- | --- |
+| `claude-code` | `.mcp.json` |
+| `cursor` | `.cursor/mcp.json` |
+| `codex` | Prints `codex mcp add perch -- perch mcp` to run. |
+
+The server is `perch mcp`. It signs in with `perch login`, or with `PERCH_API_KEY`
+set to a CI token.
+
+Commit the files. They are part of how the repository is worked on, the same as
 `perch.yaml`.
 
 ## The instructions
