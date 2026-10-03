@@ -12,7 +12,7 @@
  * a useful test or as a covered method, since a report that quietly fills in what it could not find out reads as complete.
  */
 import { readFileSync } from 'node:fs';
-import { appendFile, copyFile, glob, mkdir, readdir, readFile, stat } from 'node:fs/promises';
+import { copyFile, glob, readdir, readFile, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { changedLines, listTree, readBlob, revision as commitOf } from './git.js';
 import { readCobertura, readCoverageJson, readJacoco, readJunit, readLcov, repoPath } from './test-reports.js';
@@ -1146,7 +1146,7 @@ function appendCoverageAnswers(out) {
   const write = () => {
     const batch = waiting;
     waiting = [];
-    writing = writing.then(async () => { await mkdir(dir, { recursive: true }); await appendFile(answers, batch.map(row => JSON.stringify(row) + '\n').join('')); });
+    writing = writing.then(() => openStore(dir).appendLines(answers, batch));
     return writing;
   };
   return { add: row => { waiting.push(row); return waiting.length >= 1000 ? write() : undefined; }, flush: () => (waiting.length ? write() : writing) };

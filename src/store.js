@@ -255,6 +255,11 @@ export function openStore(out) {
       } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
       return rows;
     },
+    /** Rows added to the end of a .jsonl file, as a run that keeps what each answer cost while it goes writes them. */
+    async appendLines(path, rows) {
+      await mkdir(dirname(path), { recursive: true });
+      await appendFile(path, rows.map(row => JSON.stringify(row) + '\n').join(''));
+    },
     async writeLines(path, rows) {
       // Written beside and moved into place, the way writeJson does. A crash partway through a direct write leaves the file every
       // command reads truncated at whatever line it reached, which reads as a scan that found less rather than as a broken file.
