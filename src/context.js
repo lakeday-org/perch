@@ -2,7 +2,7 @@
  * What perch knows about one method beyond its own source: what it calls and what calls it, with the source of each. A question
  * about a method that cannot see its callers is a question about a fragment.
  */
-import { git } from './git.js';
+import { openBlobReader } from './git.js';
 import { analyzeTree } from './analyze.js';
 import { buildGraph } from './graph.js';
 
@@ -27,6 +27,24 @@ export async function methodNeighbours(graph, nodeId, linesOf) {
 }
 
 /**
+ * Each file's lines at the graph's revision, all through one git process, and read once however many methods ask for it at once.
+ * Keeping only what a read returned let every method that asked while it ran start its own, so a method called from a few hundred
+ * places in one file read that file a few hundred times at once. A read that fails is not kept. Close it when done.
+ */
+export function createLineReader(root, graph) {
+  const blobs = openBlobReader(root), sources = new Map();
+  const linesOf = node => {
+    if (!sources.has(node.path)) {
+      const blob = graph.files.get(node.path)?.file?.blob;
+      if (!blob) return Promise.reject(new Error(`No source blob for ${node.id}`));
+      sources.set(node.path, blobs.read(blob).then(text => text.split('\n'), error => { sources.delete(node.path); throw error; }));
+    }
+    return sources.get(node.path);
+  };
+  return Object.assign(linesOf, { close: blobs.close });
+}
+
+/**
  * The finding's method at `revision`, the checkout's HEAD by default, with the neighborhood the scan read it in: what it calls
  * and what calls it. Every neighbor's source comes with it, since a question about a method that cannot see its callers is a
  * question about a fragment.
@@ -36,10 +54,11 @@ export async function methodContext({ finding, root, out, analyzer, revision = f
   const graph = buildGraph(scan.files);
   const node = graph.nodes.get(finding.method);
   if (!node) throw new Error(`${finding.method} no longer exists at ${revision.slice(0, 12)}; scan again`);
-  const sources = new Map();
-  const linesOf = member => { if (!sources.has(member.path)) sources.set(member.path, git(['show', `${revision}:${member.path}`], root).then(text => text.split('\n'))); return sources.get(member.path); };
-  const { callees, callers, edges } = await methodNeighbours(graph, node.id, linesOf);
-  return { node, callees, callers, edges };
+  const linesOf = createLineReader(root, graph);
+  try {
+    const { callees, callers, edges } = await methodNeighbours(graph, node.id, linesOf);
+    return { node, callees, callers, edges };
+  } finally { linesOf.close(); }
 }
 
 /**

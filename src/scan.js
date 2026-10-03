@@ -10,7 +10,7 @@ import { analyzeTree } from './analyze.js';
 import { AuthenticationError } from './systemone.js';
 import { createFileSelector } from './exclusions.js';
 import { buildGraph } from './graph.js';
-import { methodNeighbours } from './context.js';
+import { createLineReader, methodNeighbours } from './context.js';
 import { appliesToLanguage, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES } from './ask.js';
 import { issuesOf, label as kindLabel, methodSteps, readAnswers } from './questions.js';
 import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL, unitHash } from './units.js';
@@ -116,18 +116,6 @@ const createWalk = (graph, candidates, inScope = () => true) => {
     return null;
   };
   return { visited, enqueue, next, remaining: () => ranked.filter(id => !visited.has(id)).length };
-};
-
-const createLineReader = (root, graph) => {
-  const sources = new Map();
-  return async node => {
-    if (!sources.has(node.path)) {
-      const file = graph.files.get(node.path)?.file;
-      if (!file?.blob) throw new Error(`No source blob for ${node.id}`);
-      sources.set(node.path, (await readBlob(root, file.blob)).split('\n'));
-    }
-    return sources.get(node.path);
-  };
 };
 
 /**
@@ -435,4 +423,5 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     run.remaining = walk.remaining(); run.status = run.incomplete.length ? 'incomplete' : 'complete'; run.completed_at = new Date().toISOString();
     await saveRun(true); await store.prune('runs', id).catch(error => log(`Could not remove earlier runs: ${error.message}`)); return run;
   } catch (error) { halted ??= error; await landing.catch(() => {}); run.status = 'failed'; run.error = error.message; await saveRun(true).catch(() => {}); await store.prune('runs', id).catch(prune => log(`Could not remove earlier runs: ${prune.message}`)); throw error; }
+  finally { linesOf.close(); }
 }
