@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/lakeday-org/perch/compare/v0.4.1...v0.4.2) (2026-10-03)
+
+
+### Bug Fixes
+
+* perch scan ran out of open files reading callers ([#314](https://github.com/lakeday-org/perch/issues/314)) ([b966805](https://github.com/lakeday-org/perch/commit/b966805c2f5baefd6029278af74fcbbbb2bfd7f1)), closes [#305](https://github.com/lakeday-org/perch/issues/305) [#313](https://github.com/lakeday-org/perch/issues/313)
+
 ## [0.4.1](https://github.com/lakeday-org/perch/compare/v0.4.0...v0.4.1) (2026-10-02)
 
 
