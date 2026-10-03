@@ -163,8 +163,9 @@ export function parseArgs(argv) {
     if (valued.has(key)) {
       // `--min=` is as empty as `--min` with nothing after it, and an empty string reads as zero further down, which would make
       // it a floor of none rather than a mistake to correct.
+      // So is `--min --all`: the next flag is not a value, and taking it as one dropped the flag it was.
       const value = eq < 0 ? argv[++i] : arg.slice(eq + 1);
-      if (value === undefined || value === '') throw new Error(`--${key} requires a value`);
+      if (value === undefined || value === '' || (eq < 0 && /^--[a-z]/.test(value))) throw new Error(`--${key} requires a value`);
       flags[key] = value;
     } else if (switches.has(key)) flags[key] = true;
     else throw new Error(`unknown option --${key}`);
@@ -637,6 +638,7 @@ const commands = {
     const versions = { perch: VERSION, node: process.version, platform: `${process.platform} ${process.arch}` };
     // Whether perch can run here, worked out before anything that assumes it can. A machine where nothing works still gets an
     // answer, which is the whole reason this command has this name.
+    // Outside a repository doctor still runs, from here; its repository check is the one that says so.
     const root = await repoRoot(process.cwd()).catch(() => process.cwd());
     let env = io.env, configError = null, loginError = null, source = null;
     try { env = await configuredEnvironment(io.env); }
@@ -646,7 +648,9 @@ const commands = {
     const checks = await runChecks({ root, out: store.out, env, versions, credential: source?.kind });
     if (configError) checks.unshift({ name: 'config', ok: false, found: configError.message, fix: 'fix ~/.perch/config.toml' });
     if (loginError) checks.unshift({ name: 'login', ok: false, found: loginError.message, fix: 'run perch logout, then perch login' });
-    const [scan, run] = [await store.latestScan().catch(() => null), await store.latestRun().catch(() => null)];
+    // A saved scan or run that cannot be read is something doctor exists to say, so it is a failed check rather than nothing.
+    const saved = (name, read) => read().catch(error => { checks.push({ name, ok: false, found: error.message, fix: `remove ${store.out} and run perch scan again` }); return null; });
+    const [scan, run] = [await saved('last scan', () => store.latestScan()), await saved('last run', () => store.latestRun())];
     // The end of the log, on a run that did not finish cleanly. On one that did, the path to it is enough.
     const log = run && run.status !== 'complete' ? await store.tail(20) : [];
     print(io, { versions, out: store.out, checks, scan, run, log }, formatDoctor({ versions, scan, run, out: store.out, checks, log }));

@@ -41,8 +41,12 @@ export const MAX_SEEN = 8;
  */
 /** The globs `perch.yaml` says not to read, from the file on disk or the one in the commit. */
 export async function readIgnored(root, revision) {
-  const text = await readFile(join(root, RULES_FILE), 'utf8')
-    .catch(() => git(['show', `${revision}:${RULES_FILE}`], root).catch(() => null));
+  // The working tree's perch.yaml, or the commit's when the tree has none, or nothing when neither has one. Any other failure
+  // to read it is an error: a report list that silently read as absent ran coverage without the reports it names.
+  const text = await readFile(join(root, RULES_FILE), 'utf8').catch(error => {
+    if (error.code !== 'ENOENT') throw error;
+    return git(['show', `${revision}:${RULES_FILE}`], root).catch(missing => { if (/does not exist|exists on disk, but not in/.test(missing.message)) return null; throw missing; });
+  });
   return text === null ? [] : parseIgnored(text, RULES_FILE);
 }
 

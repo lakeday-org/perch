@@ -31,7 +31,8 @@ export function crateOf(path, text) {
 async function cratesOf(root, revision, tree) {
   const crates = [];
   for (const item of tree.filter(entry => entry.type === 'blob' && /(^|\/)Cargo\.toml$/.test(entry.path))) {
-    const crate = crateOf(item.path, await git(['show', `${revision}:${item.path}`], root).catch(() => ''));
+    // The tree lists it at this revision, so a failure to show it is git failing, not a crate that is not there.
+    const crate = crateOf(item.path, await git(['show', `${revision}:${item.path}`], root));
     if (crate) crates.push(crate);
   }
   return crates;

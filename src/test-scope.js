@@ -112,6 +112,11 @@ export async function markTestSupport({ root, paths, files }) {
 /** Directories a project keeps code no test of its suite covers in: tools, benchmarks, examples, scripts, docs. */
 const NOT_BUILT = /^(?:.*\/)?(?:tools?|bench(?:es|marks?)?|examples?|samples?|scripts|docs?)\//;
 
+/**
+ * A file the git tree lists, read from the working tree. One the working tree has since lost is empty, as a file with nothing in
+ * it is to the settings read from it; any other failure to read it is an error, not an empty file.
+ */
+const readListed = (root, path) => readFile(join(root, path), 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
 const toPosix = path => path.split(sep).join('/');
 const inside = (root, path) => { const rel = relative(root, path); return rel && !rel.startsWith('..') && !isAbsolute(rel) ? toPosix(rel) : null; };
 const dirOf = path => (path.includes('/') ? posix.dirname(path) : '');
@@ -217,16 +222,16 @@ async function javascriptFrameworks({ root, paths: all, node, ignored, debug }) 
   const jest = paths.filter(path => /(^|\/)jest\.config\.[cm]?[jt]s(on)?$/.test(path)).sort(byDepth);
   // A package.json with a "jest" key is a config too, as is a vite.config with a test block.
   for (const path of paths.filter(path => /(^|\/)package\.json$/.test(path))) {
-    const text = await readFile(join(root, path), 'utf8').catch(() => '');
+    const text = await readListed(root, path);
     if (/"jest"\s*:\s*\{/.test(text) && !jest.some(config => dirOf(config) === dirOf(path))) jest.push(path);
   }
   for (const path of paths.filter(path => /(^|\/)vite\.config\.[cm]?[jt]s$/.test(path))) {
-    const text = await readFile(join(root, path), 'utf8').catch(() => '');
+    const text = await readListed(root, path);
     if (/\btest\s*:/.test(text) && !vitest.some(config => dirOf(config) === dirOf(path))) vitest.push(path);
   }
   // A package that depends on Vitest or Jest without a config runs it with its defaults, from the package's directory.
   for (const path of paths.filter(path => /(^|\/)package\.json$/.test(path))) {
-    const text = await readFile(join(root, path), 'utf8').catch(() => '');
+    const text = await readListed(root, path);
     // A config anywhere in the package, such as scripts/jest/jest.config.js, is the one its test script names.
     const dir = dirOf(path), within = config => under(dir, config);
     if (vitest.some(within) || jest.some(within)) continue;
@@ -273,7 +278,7 @@ function setting(text, sections, key) {
 /** pytest's and coverage.py's settings from whichever of their files the repository has, read as they read them. */
 async function pythonFramework({ root, paths }) {
   const files = ['pytest.ini', 'pyproject.toml', 'tox.ini', 'setup.cfg', '.coveragerc'].filter(name => paths.includes(name));
-  const read = Object.fromEntries(await Promise.all(files.map(async name => [name, await readFile(join(root, name), 'utf8').catch(() => '')])));
+  const read = Object.fromEntries(await Promise.all(files.map(async name => [name, await readListed(root, name)])));
   const find = (key, places) => { for (const [name, sections] of places) if (read[name]) { const found = setting(read[name], sections, key); if (found) return found; } return null; };
   const pytest = [['pytest.ini', ['pytest']], ['pyproject.toml', ['tool.pytest.ini_options']], ['tox.ini', ['pytest']], ['setup.cfg', ['tool:pytest']]];
   const coverage = [['.coveragerc', ['run']], ['pyproject.toml', ['tool.coverage.run']], ['setup.cfg', ['coverage:run']], ['tox.ini', ['coverage:run']]];

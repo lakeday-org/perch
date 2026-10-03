@@ -217,7 +217,7 @@ export function openStore(out) {
       const path = join(out, '.gitignore');
       const rules = out === join(root, '.perch') ? '!rules/\n' : '';
       const wanted = '# Written by perch. Rules and closures are committed; scan output is not.\n/*\n!closed.jsonl\n' + rules;
-      if (await readFile(path, 'utf8').catch(() => null) === wanted) return;
+      if (await readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return null; throw error; }) === wanted) return;
       await mkdir(out, { recursive: true });
       await writeFile(path, wanted);
     },
@@ -234,11 +234,17 @@ export function openStore(out) {
     async startLog() {
       await mkdir(out, { recursive: true });
       await writeFile(store.logPath, `${new Date().toISOString()} perch\n`);
-      return line => appendFile(store.logPath, `${new Date().toISOString()} ${line}\n`).catch(() => {});
+      // A line the log could not take must not end the run it describes, so it is said once on stderr and the run goes on.
+      let warned = false;
+      return line => appendFile(store.logPath, `${new Date().toISOString()} ${line}\n`).catch(error => {
+        if (!warned) process.stderr.write(`perch: could not write ${store.logPath}: ${error.message}; the run goes on without its log\n`);
+        warned = true;
+      });
     },
     /** Enough of the end to show what a run was doing when it stopped, which is what doctor prints when one did not finish. */
     async tail(count = 20) {
-      const text = await readFile(store.logPath, 'utf8').catch(() => '');
+      // No log is a run that never started one; one that is there and unreadable is an error doctor has to show.
+      const text = await readFile(store.logPath, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
       return text.split('\n').filter(Boolean).slice(-count);
     },
     // Read and written a line at a time: a large repository's coverage answers are longer than any one string Node can build.

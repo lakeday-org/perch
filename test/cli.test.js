@@ -38,6 +38,8 @@ describe('cli', () => {
     expect(() => parseArgs(['scan', '--bogus'])).toThrow('unknown option --bogus');
     expect(() => parseArgs(['scan', '--candidates', '2'])).toThrow('unknown option --candidates');
     expect(() => parseArgs(['lint', 'add', 'x', '--ensure'])).toThrow('--ensure requires a value');
+    expect(() => parseArgs(['scan', '--min', '--all'])).toThrow('--min requires a value');
+    expect(parseArgs(['rules', 'add', 'x', '--ensure', '-- a dash first']).flags.ensure).toBe('-- a dash first');
   });
 
   it('lists its commands and prints their usage', async () => {

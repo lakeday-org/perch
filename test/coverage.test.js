@@ -711,7 +711,13 @@ describe('perch coverage from the command line', () => {
       const code = await main(['coverage', '--junit', 'reports/junit.xml', '--lcov', 'reports/{lcov,missing}.info,reports/lcov.info', '--html', 'out/index.html'], io);
       expect(err.join('\n')).not.toContain('perch:');
       expect(code).toBe(3);
-      expect(out.join('\n')).toContain('Source files');
+      // Read off reports/lcov.info by hand: src/cart.ts has 8 DA lines, 5 of them hit, and 4 BRDA arms, 3 of them taken; checkout's
+      // lines 13-15 never ran, so one of its two methods is tested. src/db.ts's one line never ran.
+      // The source table's rows, before the problem blocks below it name the same files as headings.
+      const table = out.join('\n').split('\n\n')[0].split('\n').map(line => line.trim().split(/\s{2,}/));
+      const rows = Object.fromEntries(table.map(([path, ...cells]) => [path, cells]));
+      expect(rows['src/cart.ts']).toEqual(['1 of 2', '63%', '75%', '1']);
+      expect(rows['src/db.ts']).toEqual(['0 of 1', '0%', '0%', '0']);
       const page = await readFile(join(repo.root, 'out', 'index.html'), 'utf8');
       expect(page).toMatch(/^<!doctype html>/);
       expect(page).toContain('Run details');

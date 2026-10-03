@@ -24,10 +24,10 @@ src/inventory.ts          1 of 1   100%       75%                  1
 All source                4 of 4   100%       70%                  3
 
 Test files                    Quality  Duplicates  Weak  Unmocked I/O  Time
-test/cart.test.ts        14% (1 of 7)           4     2             1   4ms
+test/cart.test.ts        71% (5 of 7)           0     2             1   4ms
 test/checkout.test.ts   100% (1 of 1)           0     0             0   1ms
 test/inventory.test.ts   75% (3 of 4)           0     1             0   1ms
-All tests               42% (5 of 12)           4     3             1   6ms
+All tests               75% (9 of 12)           0     3             1   6ms
 
 src/cart.ts
   ID        Line  Problem    Confidence  Test or method  Note
@@ -37,23 +37,23 @@ src/checkout.ts
   ID        Line  Problem    Confidence  Test or method  Note
   7087f25c     6  edge_case        100%  placeOrder      Untested case: placeOrder failing.
 
+src/inventory.ts
+  ID        Line  Problem    Confidence  Test or method  Note
+  49b7e108     6  edge_case         83%  canFulfil       Untested case: canFulfil with input in a…
+
 test/cart.test.ts
   ID        Line  Problem        Confidence  Test or method       Note
-  d0eacd17    10  redundant            100%  applyDiscount > ta…  Same checks and calls as applyD…
-  7ff46fdf    14  redundant            100%  applyDiscount > ta…  Same checks and calls as applyD…
-  3055e1ad    18  redundant            100%  applyDiscount > ta…  Same checks and calls as applyD…
-  427fce7a    22  redundant            100%  applyDiscount > ta…  Same checks and calls as applyD…
   f5aebe0a    28  no_assertion         100%  subtotal > adds up…  Asserts nothing.
+  12d6d00b    32  mystery_guest         99%  subtotal > matches…  Uses a file, record or service …
   472ae559    32  infra                 97%  subtotal > matches…  Touches the network and environ…
-  12d6d00b    32  mystery_guest         96%  subtotal > matches…  Uses a file, record or service …
 
 test/inventory.test.ts
   ID        Line  Problem       Confidence  Test or method       Note
-  3ca3cd17    23  asserts_mock         94%  canFulfil > return…  Checks a value its own mock retu…
-Dropping 7 duplicate or weak tests saves 4ms of 6ms and leaves every method reached.
-10 of 11 problems listed, --all for the rest
+  3ca3cd17    23  asserts_mock         98%  canFulfil > return…  Checks a value its own mock retu…
+Dropping 3 duplicate or weak tests saves 4ms of 6ms and leaves every method reached.
+Tests are the ones Vitest 2.1.9 (its defaults) runs; 0 files no test framework covers are left out
 .perch/coverage/index.html
-15 requests  17k tokens in / 3k out  $0.0007
+19 requests  0 tokens in  $0.0000
 ```
 
 The call graph and the coverage report find each problem. The percentage is how
@@ -158,14 +158,10 @@ All changed source               1             50%
 src/cart.ts
   ID        Line  Problem    Confidence  Test or method  Note
   d0bee7da    12  edge_case        100%  applyDiscount   Untested case: applyDiscount at the edge…
-
-test/cart.test.ts
-  ID        Line  Problem    Confidence  Test or method        Note
-  427fce7a    22  redundant         99%  applyDiscount > tak…  Same checks and calls as applyDisc…
-Dropping 7 duplicate or weak tests saves 4ms of 6ms and leaves every method reached.
-Whole repository: 4 of 4 methods reached, 100% of lines ran, 9 problems in code this branch did not change
+Dropping 3 duplicate or weak tests saves 4ms of 6ms and leaves every method reached.
+Tests are the ones Vitest 2.1.9 (its defaults) runs; 0 files no test framework covers are left out
+Whole repository: 4 of 4 methods reached, 100% of lines ran, 6 problems in code this branch did not change
 .perch/coverage/index.html
-6 requests  6k tokens in / 1k out  $0.0003
 ```
 
 Changed comments and blank lines are not counted. A file no coverage report
