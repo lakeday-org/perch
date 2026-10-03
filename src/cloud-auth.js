@@ -1,4 +1,5 @@
 /** Credentials for Perch Cloud. Nothing in this file reads or writes the scanned repository. */
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -8,6 +9,25 @@ import { dirname, join } from 'node:path';
 export const CLOUD_ORIGIN = 'https://dash.perchscan.com';
 /** A pause, passed in to login so tests do not wait out the polling interval. */
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Opens a URL in the default browser with the operating system's opener, and says whether that was possible. Nothing is
+ * awaited: the opener is detached, and a machine without a browser, such as a CI runner or an SSH session, just keeps the URL
+ * that was printed. The URL is passed as one argument, never through a shell.
+ */
+export function openInBrowser(url, { platform = process.platform, spawnImpl = spawn } = {}) {
+  const [command, args] = platform === 'darwin' ? ['open', [url]]
+    : platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
+      : ['xdg-open', [url]];
+  try {
+    const child = spawnImpl(command, args, { detached: true, stdio: 'ignore' });
+    child.on('error', () => {});
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * One request to the Cloud, returning the parsed body. A failure carries the server's own error text and status, which
@@ -89,7 +109,7 @@ async function waitForDeviceToken({ device, fetchImpl, sleep }) {
  * scoped to one Cloud and one organization; with several organizations and none named, it lists them rather than guessing.
  * The device code and the tokens are never printed, only the code the user types.
  */
-export async function loginCloud({ env, organization, stdout, fetchImpl = globalThis.fetch, sleep = wait }) {
+export async function loginCloud({ env, organization, stdout, fetchImpl = globalThis.fetch, sleep = wait, open = openInBrowser }) {
   const device = await cloudRequest(fetchImpl, `${CLOUD_ORIGIN}/auth/device/start`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
   if (typeof device.device_code !== 'string' || !device.device_code || typeof device.user_code !== 'string' || !device.user_code
     || device.verification_uri !== `${CLOUD_ORIGIN}/device`
@@ -97,7 +117,11 @@ export async function loginCloud({ env, organization, stdout, fetchImpl = global
     || (device.interval !== undefined && (!Number.isFinite(device.interval) || device.interval <= 0))) {
     throw new Error('Perch Cloud sign-in returned an invalid device code. Run perch login again.');
   }
-  stdout(`Open ${device.verification_uri}?code=${encodeURIComponent(device.user_code)}\nConfirm code: ${device.user_code}`);
+  // The browser opens on the confirmation page with the code filled in; the URL stays in the terminal for a machine without one.
+  const confirmUrl = `${device.verification_uri}?code=${encodeURIComponent(device.user_code)}`;
+  const opened = open(confirmUrl);
+  stdout(opened ? `Opening ${confirmUrl} in your browser.\nIf it does not open, visit that address.\nConfirm code: ${device.user_code}`
+    : `Open ${confirmUrl}\nConfirm code: ${device.user_code}`);
   const session = await waitForDeviceToken({ device, fetchImpl, sleep });
   if (typeof session.access_token !== 'string' || !session.access_token
     || typeof session.refresh_token !== 'string' || !session.refresh_token || !Number.isFinite(session.expires_at)) {
