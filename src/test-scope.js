@@ -260,7 +260,7 @@ async function javascriptFrameworks({ root, paths: all, node, ignored, debug }) 
 /** One value from an ini section or a TOML table, as a list: `testpaths = tests docs` or `testpaths = ["tests", "docs"]`. */
 function setting(text, sections, key) {
   for (const section of sections) {
-    const at = text.search(new RegExp(`^\\[${section.replace(/[.[\]]/g, '\\$&')}\\]\\s*$`, 'm'));
+    const at = text.search(new RegExp(`^\\[${section.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]\\s*$`, 'm'));
     if (at === -1) continue;
     const body = text.slice(at).split('\n').slice(1);
     const end = body.findIndex(line => /^\[/.test(line));

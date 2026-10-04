@@ -143,6 +143,9 @@ function under(html, path, line) {
   return section.slice(from, to === -1 ? undefined : to);
 }
 
+/** A script tag a browser would run, in any case: <SCRIPT> runs as readily as <script>. A JSON data block does not run. */
+const RUNNABLE_SCRIPT = /<script\b(?![^>]*\btype="application\/json")/gi;
+
 describe('coverage HTML report', () => {
   const html = renderCoverageHtml(sampleReport());
   const estimated = renderCoverageHtml(sampleReport({ measured: false }));
@@ -200,7 +203,7 @@ describe('coverage HTML report', () => {
   it('escapes source text and names', () => {
     expect(html).not.toContain('<script>alert(1)</script>');
     expect(under(html, 'src/cart.py', 8)).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
-    expect(html.match(/<script>/g)).toHaveLength(1);
+    expect(html.match(RUNNABLE_SCRIPT)).toHaveLength(1);
     const hostile = sampleReport();
     hostile.tests[0].name = '<img src=x onerror=alert(1)>';
     hostile.unmatched_runs[0].name = '<img src=y onerror=alert(2)>';
@@ -444,7 +447,7 @@ describe('coverage HTML report', () => {
     const hostile = sampleReport();
     hostile.findings[0].note = '</script><script>alert(1)</script>';
     expect(data(renderCoverageHtml(hostile)).steps[edge.id]).toBeDefined();
-    expect(renderCoverageHtml(hostile).match(/<script>/g)).toHaveLength(1);
+    expect(renderCoverageHtml(hostile).match(RUNNABLE_SCRIPT)).toHaveLength(1);
   });
 
   it('lists unmatched runs and paths', () => {
@@ -502,12 +505,12 @@ describe('coverage HTML report', () => {
     expect(index).not.toContain('<section class="file"');
     const cart = pages.find(page => page.name.startsWith('files/src_cart.py-'));
     expect(index).toContain(`href="${cart.name}#file=src%2Fcart.py&amp;line=6"`);
-    expect(index.match(/<link\b[^>]*>|<script\b[^>]*>/g)).toEqual(['<link rel="icon" href="data:,">', '<link rel="stylesheet" href="report.css">', '<script type="application/json" id="perch-fixes">', '<script src="report.js">']);
+    expect(index.match(/<link\b[^>]*>|<script\b[^>]*>/gi)).toEqual(['<link rel="icon" href="data:,">', '<link rel="stylesheet" href="report.css">', '<script type="application/json" id="perch-fixes">', '<script src="report.js">']);
     // A file's page shows that file, goes back to the index, and carries the prompts for its own problems only.
     expect(cart.html).toContain('<section class="file" data-path="src/cart.py">');
     expect(cart.html).toContain('href="../index.html#view=sources"');
     expect(cart.html).toContain('<script src="../report.js">');
-    const steps = Object.keys(JSON.parse(cart.html.match(/id="perch-fixes">(.*?)<\/script>/)[1]).steps);
+    const steps = Object.keys(JSON.parse(cart.html.match(/id="perch-fixes">(.*?)<\/script\s*>/is)[1]).steps);
     expect(steps.sort()).toEqual(sampleReport().findings.filter(finding => finding.path === 'src/cart.py').map(finding => finding.id).sort());
     // One page as before when the source fits.
     expect(renderCoverageSite(sampleReport()).index.join('')).toBe(renderCoverageHtml(sampleReport()));
