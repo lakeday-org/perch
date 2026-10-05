@@ -144,12 +144,24 @@ can leave out more files and directories with the `ignore:` option in
 | --- | --- |
 | Python | pytest, unittest |
 | JavaScript, TypeScript, TSX | Vitest, Jest, Mocha, node:test |
+| Go | testing, testify |
 | Rust | libtest, nextest |
-| Java | JUnit 5, JUnit 4, TestNG |
+| Java, Kotlin | JUnit 5, JUnit 4, TestNG |
+| Scala | ScalaTest, munit, specs2 |
+| C# | xUnit, NUnit, MSTest |
+| Swift | XCTest, Swift Testing |
+| C | Check, cmocka, Criterion, Unity |
 | C++ | GoogleTest, Catch2 v3, doctest |
+| Ruby | Minitest, RSpec, test-unit |
+| PHP | PHPUnit, Pest |
+| Lua | busted, luaunit |
+| Zig | `test` blocks |
+| Solidity | Foundry (forge-std) |
 
-Perch doesn't support other languages yet. If you write a test in a framework
-perch doesn't recognize, perch won't find it.
+Groovy and Bash parse, but their grammars give perch nothing to hang a test on:
+the Groovy grammar has no function node at all, and a bats `@test` block has no
+node that spans its body. A test in a framework perch doesn't recognize isn't
+found.
 
 ## Checking a branch
 
