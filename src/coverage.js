@@ -609,7 +609,7 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
   const drop = { count: tests.filter(test => dropped.has(test.id)).length,
     unreached: methods.filter(method => method.tests.length && method.tests.every(item => dropped.has(item.id))).map(method => method.id) };
   const totals = { ...totalsOf(methods, tests), drop };
-  return { version: 2, revision, root, target: label, github, created_at: createdAt, model, depth: coverage.depth, min,
+  return { version: REPORT_VERSION, revision, root, target: label, github, created_at: createdAt, model, depth: coverage.depth, min,
     totals, files, methods, tests, findings, failed: answers.failed, closed: closedFindings, baseline: null, diff: null, usage };
 }
 
@@ -654,6 +654,12 @@ export function diffReports(before, after) {
     findings: { fixed: before.findings.filter(finding => !findingsAfter.has(finding.id)), new: after.findings.filter(finding => !findingsBefore.has(finding.id)) },
   };
 }
+
+/**
+ * The shape of a saved report. A report saved by a perch that wrote another shape is not compared with: its methods count
+ * different things, and a diff between the two would be a diff between vocabularies.
+ */
+const REPORT_VERSION = 3;
 
 /** Where a coverage run keeps what it saves, under --out. */
 export const coveragePaths = out => {
@@ -712,7 +718,7 @@ async function newestReport(out, named, wanted) {
   for (const name of names) {
     if (!named(name.replace(/\.jsonl?$/, '').slice(-7))) continue;
     const report = await readReport(join(reports, name));
-    if (report && wanted(report)) return report;
+    if (report && report.version === REPORT_VERSION && wanted(report)) return report;
   }
   return null;
 }
