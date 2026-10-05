@@ -33,21 +33,21 @@ writes, and its numbers are measured:
 
 ```console
 $ perch coverage --junit reports/vitest/junit.xml --lcov reports/vitest/lcov.info
-Source files      Methods tested  Lines  Branches  Untested branches
-src/cart.ts               2 of 2   100%       75%                  1
-src/checkout.ts           1 of 1   100%       50%                  1
-src/inventory.ts          1 of 1   100%       75%                  1
-All source                4 of 4   100%       70%                  3
+Source files      Methods tested  Lines  Branches  Effective lines  Effective branches  Untested branches
+src/cart.ts               2 of 2   100%       75%        100% est.            75% est.                  1
+src/checkout.ts           1 of 1   100%       50%        100% est.            50% est.                  1
+src/inventory.ts          1 of 1   100%       75%        100% est.            75% est.                  1
+All source                4 of 4   100%       70%        100% est.            70% est.                  3
 
-Test files                    Quality  Duplicates  Weak  Unmocked I/O  Time
-test/cart.test.ts        71% (5 of 7)           0     2             1   4ms
-test/checkout.test.ts   100% (1 of 1)           0     0             0   1ms
-test/inventory.test.ts   75% (3 of 4)           0     1             0   1ms
-All tests               75% (9 of 12)           0     3             1   6ms
+Test files                    Quality  Duplicates  Weak  Unmocked I/O  Time  Time saved
+test/cart.test.ts        71% (5 of 7)           0     2             1   4ms         4ms
+test/checkout.test.ts   100% (1 of 1)           0     0             0   1ms           -
+test/inventory.test.ts   75% (3 of 4)           0     1             0   1ms         1ms
+All tests               75% (9 of 12)           0     3             1   6ms         4ms
 
 src/cart.ts
   ID        Line  Problem    Confidence  Test or method  Note
-  d0bee7da    12  edge_case        100%  applyDiscount   Untested case: applyDiscount at the edge…
+  d0bee7da    12  edge_case        100%  applyDiscount   Untested case: applyDiscount at the edge of its range.
 
 src/checkout.ts
   ID        Line  Problem    Confidence  Test or method  Note
@@ -55,29 +55,30 @@ src/checkout.ts
 
 src/inventory.ts
   ID        Line  Problem    Confidence  Test or method  Note
-  49b7e108     6  edge_case         83%  canFulfil       Untested case: canFulfil with input in a…
+  49b7e108     6  edge_case         83%  canFulfil       Untested case: canFulfil with input in another order.
 
 test/cart.test.ts
-  ID        Line  Problem        Confidence  Test or method       Note
-  f5aebe0a    28  no_assertion         100%  subtotal > adds up…  Asserts nothing.
-  12d6d00b    32  mystery_guest         99%  subtotal > matches…  Uses a file, record or service …
-  472ae559    32  infra                 97%  subtotal > matches…  Touches the network and environ…
+  ID        Line  Problem        Confidence  Test or method            Note
+  f5aebe0a    28  no_assertion         100%  subtotal > adds up the …  Asserts nothing.
+  12d6d00b    32  mystery_guest         99%  subtotal > matches the …  Uses a file, record or service it does not…
+  472ae559    32  infra                 97%  subtotal > matches the …  Touches the network and environment variab…
 
 test/inventory.test.ts
-  ID        Line  Problem       Confidence  Test or method       Note
-  3ca3cd17    23  asserts_mock         98%  canFulfil > return…  Checks a value its own mock retu…
-Dropping 3 duplicate or weak tests saves 4ms of 6ms and leaves every method reached.
-Tests are the ones Vitest 2.1.9 (its defaults) runs; 0 files no test framework covers are left out
-.perch/coverage/index.html
+  ID        Line  Problem       Confidence  Test or method             Note
+  3ca3cd17    23  asserts_mock         98%  canFulfil > returns what…  Checks a value its own mock returns.
+shop at commit 1c9c71a: 4 methods, 12 tests, 7 problems
+Report: .perch/coverage/index.html
 19 requests  0 tokens in  $0.0000
 ```
 
-The call graph and the coverage report find each problem. The percentage is how
-sure the model is that it needs fixing. A problem with `-` belongs to a test or
-method the model could not be asked about. `--all` lists every row. The HTML
-report shows the source with each problem under its line. It is one file, unless
-the repository has more than 8 MB of source. Then each file gets its own page
-under `files/`, next to `index.html`.
+Lines and Branches are what the coverage report counts. Effective lines and
+Effective branches leave out what only duplicate and weak tests ran. Time saved
+is how long those tests took. The call graph and the coverage report find each
+problem. The confidence is how sure the model is that it needs fixing. A problem
+with `-` belongs to a test or method the model could not be asked about. `--all`
+lists every row. The HTML report shows the source with each problem under its
+line. It is one file, unless the repository has more than 8 MB of source. Then
+each file gets its own page under `files/`, next to `index.html`.
 
 ## How it differs from a coverage report
 
@@ -100,6 +101,23 @@ tooling that can’t be covered by tests. When run on a branch, Perch will tell
 you how many of the lines that were changed on the branch were run by tests, and
 highlight which problems were found in code that was changed on the branch.
 
+## Effective coverage
+
+A test that asserts nothing still turns the lines it runs green. Effective
+coverage is the share of lines and branches that tests worth keeping ran. It
+leaves out what only duplicate and weak tests ran.
+
+When the coverage report says which lines each test ran, the figure is
+measured. coverage.py writes that with `--cov-context=test`. LCOV writes it when
+each test has its own `TN:` record. LCOV also says which side of each branch
+each test took. coverage.py's contexts say lines but not sides, so a side counts
+unless only dropped tests ran its line.
+
+Without per-test records, the figure is estimated from the call graph and marked
+`est.` A method counts in full unless every test that reaches it is duplicate or
+weak. Vitest and Jest write no per-test records, so their figures are always
+estimated.
+
 ## What it reads
 
 `perch coverage` reads the code your test frameworks run and measure, and
@@ -120,16 +138,16 @@ leaves out the rest: release scripts, examples, docs tooling, CI actions.
   module, and all code outside of `tools/`, `bench/`, `examples/`, `samples/`,
   `scripts/`, or `docs/` in any other project.
 
-The last lines of the output say which frameworks decided it:
+`--verbose` says which frameworks decided it:
 
 ```
-$ perch coverage --paths lib/helpers/combineURLs.js
+$ perch coverage --verbose
 ...
-Tests are the ones Vitest 4.1.11 (vitest.config.js), Vitest 4.1.11 (tests/module/esm/vitest.config.js), Vitest 4.1.11 (tests/smoke/esm/vitest.config.js) run; 70 files no test framework covers are left out
+[perch] Vitest 2.1.9 (package.json) runs 3 test files
 ```
 
-A config that cannot load is named with the error, and perch reads every test
-it finds instead. `ignore:` in `perch.yaml` leaves out more on top.
+A config that cannot load is named on the last line, and perch reads every test
+it finds instead. `--verbose` gives the error. `ignore:` in `perch.yaml` leaves out more on top.
 
 ## Reading your CI's reports
 
@@ -150,8 +168,8 @@ coverage_reports:
 | `--jacoco` | JaCoCo XML | Line and branch hits |
 | `--contexts` | coverage.py JSON from `coverage json --show-contexts` | Line and branch hits, and the lines each test ran |
 
-A run perch cannot match to a test is listed as unmatched and counted on stderr.
-It is never guessed.
+A run perch cannot match to a test is never guessed. `--verbose` lists each one,
+and `--json` has them under `unmatched_runs`.
 
 ## Supported languages and frameworks
 
@@ -190,11 +208,10 @@ All changed source               1             50%
 
 src/cart.ts
   ID        Line  Problem    Confidence  Test or method  Note
-  d0bee7da    12  edge_case        100%  applyDiscount   Untested case: applyDiscount at the edge…
-Dropping 3 duplicate or weak tests saves 4ms of 6ms and leaves every method reached.
-Tests are the ones Vitest 2.1.9 (its defaults) runs; 0 files no test framework covers are left out
-Whole repository: 4 of 4 methods reached, 100% of lines ran, 6 problems in code this branch did not change
-.perch/coverage/index.html
+  d0bee7da    12  edge_case        100%  applyDiscount   Untested case: applyDiscount at the edge of its range.
+shop at commit 8c0998b: 4 methods, 12 tests, 1 problem in changed code, 6 elsewhere
+Report: .perch/coverage/index.html
+7 requests  0 tokens in  $0.0000
 ```
 
 Changed comments and blank lines are not counted. A file no coverage report
@@ -215,8 +232,8 @@ that command and hides the problem on the page.
 
 ## Comparing runs
 
-Each run is saved under `.perch/coverage`. The next run at another commit says
-what changed. `--diff REF` compares with the run saved at that commit and prints
+Each run is saved under `.perch/coverage`. The report from the next run at
+another commit shows what changed. `--diff REF` compares with the run saved at that commit and prints
 the change in each file.
 
 `perch coverage` exits 3 when it lists a problem and 1 when it could not run.

@@ -716,8 +716,9 @@ describe('perch coverage from the command line', () => {
       // The source table's rows, before the problem blocks below it name the same files as headings.
       const table = out.join('\n').split('\n\n')[0].split('\n').map(line => line.trim().split(/\s{2,}/));
       const rows = Object.fromEntries(table.map(([path, ...cells]) => [path, cells]));
-      expect(rows['src/cart.ts']).toEqual(['1 of 2', '63%', '75%', '1']);
-      expect(rows['src/db.ts']).toEqual(['0 of 1', '0%', '0%', '0']);
+      // Vitest's LCOV has no per-test records, so what tests worth keeping ran is estimated from the call graph.
+      expect(rows['src/cart.ts']).toEqual(['1 of 2', '63%', '75%', '63% est.', '75% est.', '1']);
+      expect(rows['src/db.ts']).toEqual(['0 of 1', '0%', '0%', '0% est.', '-', '0']);
       const page = await readFile(join(repo.root, 'out', 'index.html'), 'utf8');
       expect(page).toMatch(/^<!doctype html>/);
       expect(page).toContain('Run details');
@@ -843,6 +844,71 @@ describe('perch coverage with test reports', () => {
     // Dropped: test_count_mocked for its smell, saves an order for checking nothing, and the two redundant tests. All but saves an
     // order were timed.
     expect(report.totals.drop).toMatchObject({ count: 4, seconds: 0.6875, timed: 3 });
+  });
+
+  it('counts what the tests worth keeping ran', async () => {
+    const { report } = await measuredRun();
+    const methods = byId(report.methods);
+    // coverage.py's contexts say which lines each test ran. test_count_mocked, dropped for its smell, is the only test that ran
+    // restock, so none of it counts; its branches are estimated, since contexts say lines and not sides.
+    expect(methods.get('cart.py::restock').effective).toEqual({ lines: { hit: 0, total: 4, basis: 'measured' }, branches: { hit: 0, total: 4, basis: 'estimated' } });
+    // test_discount_10 and test_discount_negative are kept and ran lines 5, 6, 7 and 9 between them, the branch lines 5 and 7 among them.
+    expect(methods.get('cart.py::apply_discount').effective).toEqual({ lines: { hit: 4, total: 5, basis: 'measured' }, branches: { hit: 3, total: 4, basis: 'estimated' } });
+    // Vitest's LCOV has no per-test records. A kept test reaches total, so all of it counts; only saves an order, which checks
+    // nothing, reaches save, so none of it would.
+    expect(methods.get('src/cart.ts::total').effective).toEqual({ lines: { hit: 5, total: 5, basis: 'estimated' }, branches: { hit: 3, total: 4, basis: 'estimated' } });
+    expect(methods.get('src/db.ts::save').effective.lines).toEqual({ hit: 0, total: 1, basis: 'estimated' });
+    expect(report.files.find(file => file.path === 'cart.py').totals.effective).toEqual({ lines: { hit: 4, total: 10, basis: 'measured' }, branches: { hit: 3, total: 8, basis: 'estimated' } });
+    expect(report.totals.effective).toEqual({ lines: { hit: 11, total: 21, basis: 'estimated' }, branches: { hit: 6, total: 12, basis: 'estimated' } });
+  });
+
+  it('counts the branch sides each kept test took, from LCOV records per test', async () => {
+    // One TN: record per test, named by the test's id, after a record under no test name: checkout ran, under no test the report
+    // names. The weak test is the only one that took the throwing side of line 6 and the empty-loop side of line 5.
+    const lcov = `TN:
+SF:src/cart.ts
+DA:13,1
+DA:14,1
+DA:15,1
+end_of_record
+TN:test/cart.test.ts::cart > adds prices
+SF:src/cart.ts
+DA:4,1
+DA:5,1
+DA:6,2
+DA:7,2
+DA:9,1
+DA:13,0
+DA:14,0
+DA:15,0
+BRDA:5,0,0,2
+BRDA:5,0,1,0
+BRDA:6,1,0,0
+BRDA:6,1,1,2
+end_of_record
+TN:test/cart.test.ts::cart > rejects a negative price
+SF:src/cart.ts
+DA:4,1
+DA:5,1
+DA:6,1
+DA:7,0
+DA:9,0
+BRDA:5,0,0,1
+BRDA:5,0,1,1
+BRDA:6,1,0,1
+BRDA:6,1,1,0
+end_of_record
+`;
+    const repo = await repository();
+    await write(repo.root, { ...REPORTS, 'reports/lcov.info': lcov });
+    const tests = { ...MEASURED_TESTS, 'cart > rejects a negative price': { decides: ['happy_path', 0.75], smell: ['asserts_mock', 0.9] } };
+    const report = await run(repo, scripted({ tests, methods: MEASURED_METHODS, needs: MEASURED_NEEDS }),
+      { reportFlags: { junit: ['reports/junit.xml'], lcov: ['reports/lcov.info'] }, cwd: repo.root });
+    const total = byId(report.methods).get('src/cart.ts::total');
+    expect(total.measured).toEqual({ lines: { hit: 5, total: 5 }, branches: { hit: 4, total: 4 } });
+    expect(total.effective).toEqual({ lines: { hit: 5, total: 5, basis: 'measured' }, branches: { hit: 2, total: 4, basis: 'measured' } });
+    // No dropped test ran checkout, so all of it stays.
+    expect(byId(report.methods).get('src/cart.ts::checkout').effective.lines).toEqual({ hit: 3, total: 3, basis: 'measured' });
   });
 
   it('compares measured totals with the last run', async () => {

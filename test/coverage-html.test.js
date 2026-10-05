@@ -51,10 +51,12 @@ function sampleReport({ diff = true, measured = true } = {}) {
       untested: 1, edge_cases: 1, cost: { 0: on(1, 2), 1: 0, 2: 0, 3: 0 },
       drop: { count: 1, cost: { 0: on(0, 1), 1: 0, 2: 0, 3: 0 }, seconds: on(41.2), timed: on(1, 0) },
       measured: on({ lines: { hit: 6, total: 11 }, branches: { hit: 3, total: 6 } }),
+      effective: on({ lines: { hit: 4, total: 11, basis: 'measured' }, branches: { hit: 2, total: 6, basis: 'estimated' } }),
       suite: on({ seconds: 190.4, runs: 4, failed: 1, skipped: 0 }) },
     files: [
       { path: 'src/cart.py', kind: 'source', language: 'python', lines: cartLines, methods: ['src/cart.py::apply_discount', 'src/cart.py::total'], tests: [],
-        totals: { methods: 2, reached: 1, useful_reached: 1, exercised: 0.25, exercised_basis: on('measured', 'estimated'), tests: 0, useful: 0, redundant: 0, smelly: 0, infra: 0 } },
+        totals: { methods: 2, reached: 1, useful_reached: 1, exercised: 0.25, exercised_basis: on('measured', 'estimated'), tests: 0, useful: 0, redundant: 0, smelly: 0, infra: 0,
+          effective: on({ lines: { hit: 4, total: 11, basis: 'measured' }, branches: { hit: 2, total: 6, basis: 'estimated' } }) } },
       { path: 'src/util.py', kind: 'source', language: 'python', lines: utilLines, methods: ['src/util.py::round_money'], tests: [],
         totals: { methods: 1, reached: 1, useful_reached: 1, exercised: 1, exercised_basis: 'estimated', tests: 0, useful: 0, redundant: 0, smelly: 0, infra: 0 } },
       { path: 'tests/test_cart.py', kind: 'test', language: 'python', lines: testLines, methods: [],
@@ -65,7 +67,8 @@ function sampleReport({ diff = true, measured = true } = {}) {
       { id: 'src/cart.py::apply_discount', path: 'src/cart.py', name: 'apply_discount', line: 3, end_line: 11, risk: 12, branches: [4, 6, 9],
         tests: [{ id: 'tests/test_cart.py::test_discount_10', depth: 1 }, { id: 'tests/test_cart.py::test_discount_20', depth: 1 }],
         useful: ['tests/test_cart.py::test_discount_10'], exercised: 0.5, gap: { line: 6, text: '    if percent > 100:', kind: 'boundary', probability: 0.82 }, findings: [edge.id],
-        measured: on({ lines: { hit: 6, total: 9 }, branches: { hit: 3, total: 6 } }), executed: on(true), exercised_basis: on('measured', 'estimated') },
+        measured: on({ lines: { hit: 6, total: 9 }, branches: { hit: 3, total: 6 } }), executed: on(true), exercised_basis: on('measured', 'estimated'),
+        effective: on({ lines: { hit: 4, total: 9, basis: 'measured' }, branches: { hit: 2, total: 6, basis: 'estimated' } }) },
       { id: 'src/cart.py::total', path: 'src/cart.py', name: 'total', line: 14, end_line: 15, risk: 2, branches: [], tests: [], useful: [], exercised: 0, gap: null, findings: [untested.id],
         measured: on({ lines: { hit: 0, total: 2 }, branches: { hit: 0, total: 0 } }), executed: on(false), exercised_basis: on('measured', 'static') },
       { id: 'src/util.py::round_money', path: 'src/util.py', name: 'round_money', line: 1, end_line: 2, risk: 1, branches: [],
@@ -247,7 +250,7 @@ describe('coverage HTML report', () => {
   it('labels measured numbers with their source', () => {
     // Four tiles, each linking to the view that breaks it down.
     const tiles = html.slice(html.indexOf('<section class="cards">'), html.indexOf('</section>', html.indexOf('<section class="cards">')));
-    expect(tiles.match(/<a class="card" href="#view=/g)).toHaveLength(4);
+    expect(tiles.match(/<a class="card" href="#view=/g)).toHaveLength(6);
     expect(html).not.toContain('class="counters"');
     const lines = card(html, 'Lines run');
     expect(lines).toContain('55%');
@@ -256,6 +259,15 @@ describe('coverage HTML report', () => {
     expect(branches).toContain('50%');
     expect(branches).toContain('3 of 6 <span class="msr"');
     expect(branches).not.toContain('estimated');
+    // What tests worth keeping ran: lines from per-test records, branches estimated from them.
+    expect(card(html, 'Effective lines')).toContain('36%');
+    expect(card(html, 'Effective lines')).toContain('4 of 11 <span class="msr"');
+    expect(card(html, 'Effective branches')).toContain('2 of 6 <span class="est"');
+    const cartRow = viewOf(html, 'sources').match(/<tr data-path="src\/cart.py">.*?<\/tr>/s)[0];
+    expect(cartRow).toContain('4/11');
+    expect(cartRow).toContain('2/6 <span class="est"');
+    // A method whose kept tests ran less of it than ran says how much.
+    expect(html).toContain('; tests worth keeping ran 4/9 lines, 2/6 branches <span class="est"');
     // The tests tile is how many tests could go and what cutting them saves, from the JUnit times.
     const tests = card(html, 'Redundant tests');
     // Every calculated number says how it is counted, on hover.
@@ -472,7 +484,7 @@ describe('coverage HTML report', () => {
   it('breaks each test file down by why tests are not worth keeping, and each source file by untested branches', () => {
     const heads = view => [...viewOf(html, view).matchAll(/<th data-sort="[a-z]+"[^>]*>([^<]+)</g)].map(match => match[1]);
     expect(heads('tests')).toEqual(['File', 'Quality', 'Duplicates', 'Weak', 'Unmocked I/O', 'Time', 'Time saved']);
-    expect(heads('sources')).toEqual(['File', 'Methods tested', 'Lines run', 'Branches taken', 'Untested branches']);
+    expect(heads('sources')).toEqual(['File', 'Methods tested', 'Lines run', 'Branches taken', 'Effective lines', 'Effective branches', 'Untested branches']);
     // test_cart.py: one duplicate, test_discount_20.
     const row = viewOf(html, 'tests').match(/<tr data-path="tests\/test_cart.py">.*?<\/tr>/s)[0];
     expect(row).toContain('<td class="num" data-v="1">1</td><td class="num zero" data-v="0">0</td><td class="num zero" data-v="0">0</td>');

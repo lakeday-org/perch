@@ -43,6 +43,12 @@ function seconds(value) {
 /** The report kinds line and branch hits are read from: LCOV, Cobertura, JaCoCo or coverage.py JSON. */
 const COVERAGE_KINDS = ['lcov', 'cobertura', 'jacoco', 'contexts'];
 
+/** Where an effective figure came from: what each test ran, as the reports recorded it, or the call graph's guess at it. */
+const effectiveTag = basis => (basis === 'estimated'
+  ? '<span class="est" title="The coverage report did not say what each test ran here. A method counts not at all when only weak or duplicate tests reach it or ran its line, and in full otherwise.">est.</span>'
+  : '<span class="msr" title="Read from the lines and branches each test ran, as the coverage report recorded them.">measured</span>');
+const EFFECTIVE_HINT = 'Run by tests worth keeping: what the coverage report counts, less what only weak and duplicate tests ran.';
+
 /** The report files of the given kinds that the report says it read. */
 const inputsOf = (report, kinds) => (report.inputs ?? []).filter(input => kinds.includes(input.kind));
 
@@ -189,6 +195,14 @@ function headline(report) {
   } else {
     tiles.push(tile('sources', 'Branches taken', share(totals.exercised), '<span class="est">estimated by Jev</span>',
       changed([moving('exercised', '', { points: true })]) + bar(totals.exercised), 'With no coverage report, Jev\'s estimate of how much of each method\'s branching its tests take, averaged over the methods.'));
+  }
+  // What the tests worth keeping ran: the figure a coverage report gives, less what only weak and duplicate tests ran.
+  const effective = totals.effective ?? null;
+  for (const [part, title, metric] of [['lines', 'Effective lines', 'effective_lines'], ['branches', 'Effective branches', 'effective_branches']]) {
+    if (!effective?.[part].total) continue;
+    const kept = ratio(effective[part].hit, effective[part].total);
+    tiles.push(tile('sources', title, share(kept), `${escape(effective[part].hit)} of ${escape(effective[part].total)} ${effectiveTag(effective[part].basis)}`,
+      changed([moving(metric, '', { points: true })]) + bar(kept), EFFECTIVE_HINT));
   }
   const drop = totals.drop ?? { count: 0 };
   const suite = totals.suite ?? null;
@@ -389,6 +403,10 @@ const measuredCell = part => (part?.total ? cell(part.hit / part.total, { count:
  */
 const branchesCell = totals => (totals.measured?.branches?.total
   ? measuredCell(totals.measured.branches) : cell(totals.exercised, { count: basisTag(totals.exercised_basis) }));
+/** Lines or branches the tests worth keeping ran, as a bar cell, tagged est. when the call graph stood in for per-test records. */
+const effectiveCell = part => (part?.total
+  ? cell(part.hit / part.total, { count: `${escape(part.hit)}/${escape(part.total)}${part.basis === 'estimated' ? ` ${effectiveTag('estimated')}` : ''}` }) : cell(null));
+const effectiveValue = part => (part?.total ? part.hit / part.total : -1);
 /** The number the branches column sorts by: the same share the cell above shows, measured or estimated as the run was. */
 const branchesValue = totals => (totals.measured?.branches?.total ? totals.measured.branches.hit / totals.measured.branches.total : totals.exercised);
 
@@ -405,15 +423,20 @@ function sourceTable(report, index) {
       + `<td class="bars" data-v="${reached ?? -1}">${cell(reached, { inner: ratio(totals.useful_reached, totals.methods), count: `${escape(totals.reached)}/${escape(totals.methods)}` })}</td>`
       + `<td class="bars" data-v="${totals.measured?.lines?.total ? totals.measured.lines.hit / totals.measured.lines.total : -1}">${measuredCell(totals.measured?.lines)}</td>`
       + `<td class="bars" data-v="${branchesValue(totals) ?? -1}">${branchesCell(totals)}</td>`
+      + `<td class="bars" data-v="${effectiveValue(totals.effective?.lines)}">${effectiveCell(totals.effective?.lines)}</td>`
+      + `<td class="bars" data-v="${effectiveValue(totals.effective?.branches)}">${effectiveCell(totals.effective?.branches)}</td>`
       + `<td class="num${branches ? '' : ' zero'}" data-v="${branches}">${branches}</td></tr>`;
   }).join('');
   const totals = report.totals, reached = ratio(totals.reached, totals.methods);
   const foot = `<tr><td>All source files</td>`
     + `<td class="bars">${cell(reached, { inner: ratio(totals.useful_reached, totals.methods), count: `${escape(totals.reached)}/${escape(totals.methods)}` })}</td>`
-    + `<td class="bars">${measuredCell(totals.measured?.lines)}</td><td class="bars">${branchesCell(totals)}</td><td class="num">${escape(totals.edge_cases)}</td></tr>`;
+    + `<td class="bars">${measuredCell(totals.measured?.lines)}</td><td class="bars">${branchesCell(totals)}</td>`
+    + `<td class="bars">${effectiveCell(totals.effective?.lines)}</td><td class="bars">${effectiveCell(totals.effective?.branches)}</td><td class="num">${escape(totals.edge_cases)}</td></tr>`;
   const heads = th('File', false) + th('Methods tested', true, true, `Methods a test calls within ${report.depth} calls, or that the coverage report shows ran. The darker part is methods a test worth keeping reaches.`)
     + th('Lines run', true, true, 'Lines the coverage report shows ran, out of the lines it counted.')
     + th('Branches taken', true, true, 'Sides of branches the coverage report shows were taken. Without a report, Jev\'s estimate from the tests that reach each method.')
+    + th('Effective lines', true, true, `Lines run by tests worth keeping. ${EFFECTIVE_HINT}`)
+    + th('Effective branches', true, true, `Sides of branches taken by tests worth keeping. ${EFFECTIVE_HINT}`)
     + th('Untested branches', true, false, 'Branches whose other side no test takes, listed under All problems.');
   return view('sources', 'Source files', '',
     `<div class="filter"><input type="search" class="filter-files" placeholder="Filter files" aria-label="Filter files"></div>`
@@ -569,10 +592,17 @@ function reachedBy(method, index) {
     + (rest > 0 ? `<li class="muted">${escape(rest)} more ${rest === 1 ? 'test' : 'tests'}</li>` : '');
 }
 
+/** What of a method that ran the tests worth keeping ran, when that is less than all of what ran. */
+const keptRan = method => {
+  const kept = method.effective;
+  if (!kept || (kept.lines.hit === method.measured.lines.hit && kept.branches.hit === method.measured.branches.hit)) return '';
+  return `; tests worth keeping ran ${hits(kept.lines)} lines${kept.branches.total ? `, ${hits(kept.branches)} branches` : ''} ${effectiveTag(kept.lines.basis === 'estimated' || kept.branches.basis === 'estimated' ? 'estimated' : 'measured')}`;
+};
+
 /** The line above a method: its name, whether it ran and how much of it, and how many tests reach it, with the tests one click away. */
 function methodBar(method, index) {
   const ran = method.measured
-    ? (method.executed ? `<span class="ran">Ran</span> ${hits(method.measured.lines)} lines${method.measured.branches.total ? `, ${hits(method.measured.branches)} branches` : ''}` : '<span class="unran">Never ran</span>')
+    ? (method.executed ? `<span class="ran">Ran</span> ${hits(method.measured.lines)} lines${method.measured.branches.total ? `, ${hits(method.measured.branches)} branches` : ''}${keptRan(method)}` : '<span class="unran">Never ran</span>')
     : method.exercised === null || method.exercised === undefined ? '' : `About ${percent(method.exercised)} of its branches tested <span class="est">estimate</span>`;
   const count = method.tests.length;
   const tests = count
@@ -665,7 +695,13 @@ function fileStats(file) {
   return stat('methods tested', `<span class="${band(reached)}-text">${percent(reached)}</span> <small>${escape(totals.reached)}/${escape(totals.methods)}</small>`,
     'Methods a test calls, or that the coverage report shows ran, of all the file\'s methods.')
     + (lines === null ? '' : stat('lines run', `<span class="${band(lines)}-text">${percent(lines)}</span>`, 'Lines the coverage report shows ran, of the lines it counts.'))
-    + stat(`branches taken ${branchTag}`, `<span class="${band(branches)}-text">${percent(branches)}</span>`, 'Sides of branches taken, of all sides of every branch in the file.');
+    + stat(`branches taken ${branchTag}`, `<span class="${band(branches)}-text">${percent(branches)}</span>`, 'Sides of branches taken, of all sides of every branch in the file.')
+    + ['lines', 'branches'].map(part => {
+      const kept = totals.effective?.[part];
+      if (!kept?.total) return '';
+      const share = kept.hit / kept.total;
+      return stat(`effective ${part} ${effectiveTag(kept.basis)}`, `<span class="${band(share)}-text">${percent(share)}</span>`, EFFECTIVE_HINT);
+    }).join('');
 }
 
 /** A file's problems at the top of its page, each linking to its line, so they are read without scrolling the source. */

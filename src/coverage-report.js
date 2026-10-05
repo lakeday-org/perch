@@ -10,13 +10,6 @@ import { bold, COLOR, dim, keepEnd, keepStart, percent, relative, sureness, tabl
 export const COVERAGE_KINDS = ['untested', 'edge_case', 'redundant', 'asserts_mock', 'no_assertion', 'tautology',
   'assertion_roulette', 'mystery_guest', 'eager', 'dead_setup', 'checks_nothing', 'infra', 'unresolved'];
 
-/**
- * The `cost` question's levels in coverage.yaml, weakest first, as the drop line says them. Singular and plural, since "1 run in
- * memory" is the kind of sentence nobody reads twice without wincing. They follow the levels there, and change when those do.
- */
-const COST_TIERS = [['runs in memory', 'run in memory'], ['builds large fixtures', 'build large fixtures'],
-  ['touches disk, a process or the clock', 'touch disk, a process or the clock'], ['touches the network or a database', 'touch the network or a database']];
-
 const plural = (count, noun, many = `${noun}s`) => `${count} ${count === 1 ? noun : many}`;
 /** A 0..1 value as a whole percentage; null is a value nobody answered, which is a dash and not a zero. */
 const ratio = value => (value === null || value === undefined ? '-' : percent(value));
@@ -30,7 +23,8 @@ const change = (before, after) => (before === null || after === null || before =
 const short = revision => String(revision ?? '?').slice(0, 7);
 /** A measured part of a whole, `{ hit, total }`, as a percentage, or a dash when nothing was measured. */
 const measuredShare = part => (part?.total ? percent(part.hit / part.total) : '-');
-/** A branch share, marked `est.` when any of it is System One's estimate rather than the coverage report's measure. */
+/** Lines or branches the tests kept ran, marked `est.` when any of it is from the call graph rather than per-test records. */
+const effectiveShare = part => (part?.total ? `${percent(part.hit / part.total)}${part.basis === 'estimated' ? ' est.' : ''}` : '-');
 /**
  * Branches as a coverage tool counts them, taken over all, when a report measured them; the same figure the HTML page shows.
  * Otherwise the average of each method's share, marked est. when any of it is Jev's estimate.
@@ -113,15 +107,16 @@ function sourceTable(report, onList, { width, color }) {
   const files = (report.files ?? []).filter(file => file.kind === 'source' && file.totals?.methods)
     .sort((a, b) => a.path.localeCompare(b.path));
   if (!files.length) return '';
-  const header = ['Source files', 'Methods tested', 'Lines', 'Branches', 'Untested branches'];
+  const header = ['Source files', 'Methods tested', 'Lines', 'Branches', 'Effective lines', 'Effective branches', 'Untested branches'];
   // Counted from the problems listed under the table, at the same floor, so the two agree.
   const gaps = onList.filter(finding => finding.kind === 'edge_case');
   const gapsIn = Map.groupBy(gaps, finding => finding.path);
   const untested = path => (path === null ? gaps.length : gapsIn.get(path)?.length ?? 0);
-  const row = (name, totals, path) => [name, `${totals.reached} of ${totals.methods}`, measuredShare(totals.measured?.lines), branchCell(totals), untested(path)];
+  const row = (name, totals, path) => [name, `${totals.reached} of ${totals.methods}`, measuredShare(totals.measured?.lines), branchCell(totals),
+    effectiveShare(totals.effective?.lines), effectiveShare(totals.effective?.branches), untested(path)];
   const rows = files.map(file => row(relative(file.path), file.totals, file.path));
   rows.push(row('All source', report.totals ?? {}, null));
-  return painted(fitted(header, rows, ['left', 'right', 'right', 'right', 'right'], { width }), color, true).join('\n');
+  return painted(fitted(header, rows, ['left', 'right', 'right', 'right', 'right', 'right', 'right'], { width }), color, true).join('\n');
 }
 
 function testTable(report, { width, color }) {
@@ -129,11 +124,13 @@ function testTable(report, { width, color }) {
     .sort((a, b) => a.path.localeCompare(b.path));
   if (!files.length) return '';
   // Quality is the tests worth keeping, of all of them; the next three are why the rest are not, or what they touch.
-  const header = ['Test files', 'Quality', 'Duplicates', 'Weak', 'Unmocked I/O', 'Time'];
-  const row = (name, totals) => [name, `${percent(totals.useful / totals.tests)} (${totals.useful} of ${totals.tests})`, totals.redundant, totals.smelly, totals.infra, duration(totals.seconds)];
+  // Time saved is what the duplicate and weak tests took, the time dropping them gives back.
+  const header = ['Test files', 'Quality', 'Duplicates', 'Weak', 'Unmocked I/O', 'Time', 'Time saved'];
+  const row = (name, totals) => [name, `${percent(totals.useful / totals.tests)} (${totals.useful} of ${totals.tests})`, totals.redundant, totals.smelly, totals.infra,
+    duration(totals.seconds), duration(totals.dropped_seconds || null)];
   const rows = files.map(file => row(relative(file.path), file.totals));
   rows.push(row('All tests', report.totals ?? {}));
-  return painted(fitted(header, rows, ['left', 'right', 'right', 'right', 'right', 'right'], { width }), color, true).join('\n');
+  return painted(fitted(header, rows, ['left', 'right', 'right', 'right', 'right', 'right', 'right'], { width }), color, true).join('\n');
 }
 
 /**
@@ -237,74 +234,34 @@ export function formatCoverageDiff(report, { width = WIDTH(), color = COLOR() } 
 }
 
 /**
- * The lines for stderr, in the order a person reads them: what changed since the last run, what could be dropped, what could not
- * be read, and how much of the list is on the screen. Context for someone watching; a pipe reads the tables or the JSON.
+ * The one line for stderr, the shape `perch scan` ends with: what was read at which commit, and how many problems, with how many
+ * are on the screen and how to see the rest. On a branch, the problems are the ones in code it changed and the rest are counted
+ * apart.
  */
-export function coverageNotes(report, { min = BELIEVED, filters = [], all = false } = {}) {
-  const lines = [];
-  const diff = report.diff;
-  if (diff) {
-    const totals = diff.totals ?? {};
-    const reachedShare = side => (totals.methods?.[side] ? points((totals.reached?.[side] ?? 0) / totals.methods[side]) : null);
-    const branches = side => points(totals.exercised?.[side] ?? null);
-    const parts = [`methods reached ${reachedShare('after') === null ? '-' : `${reachedShare('after')}%`}${change(reachedShare('before'), reachedShare('after'))}`];
-    // Lines ran is only ever measured, so it is said only when this run or the last read a coverage report.
-    const ran = side => points(totals.measured_lines?.[side] ?? null);
-    if (ran('after') !== null || ran('before') !== null) parts.push(`lines ran ${ran('after') === null ? '-' : `${ran('after')}%`}${change(ran('before'), ran('after'))}`);
-    parts.push(`branches ${branches('after') === null ? '-' : `${branches('after')}%`}${change(branches('before'), branches('after'))}`);
-    const added = diff.tests?.added?.length ?? 0, removed = diff.tests?.removed?.length ?? 0;
-    if (added) parts.push(`${plural(added, 'test')} added`);
-    if (removed) parts.push(`${plural(removed, 'test')} removed`);
-    const fixed = diff.findings?.fixed?.length ?? 0, found = diff.findings?.new?.length ?? 0;
-    if (fixed || found) parts.push(`${plural(fixed, 'problem')} fixed, ${found} new`);
-    lines.push(`Since ${short(diff.from?.revision)}: ${parts.join(', ')}`);
-  }
-  const drop = report.totals?.drop;
-  if (drop?.count) {
-    const unreached = drop.unreached ?? [];
-    const names = unreached.slice(0, 3).map(id => report.methods?.find(method => method.id === id)?.name ?? id).join(', ');
-    const leaves = unreached.length ? `leaves ${plural(unreached.length, 'method')} unreached (${names}${unreached.length > 3 ? ', ...' : ''})` : 'leaves every method reached';
-    if (drop.seconds !== null && drop.seconds !== undefined) {
-      // Timed by the JUnit report: what dropping them saves is seconds, out of the whole suite's.
-      const suite = report.totals?.suite?.seconds;
-      const untimed = drop.count - (drop.timed ?? 0);
-      lines.push(`Dropping ${plural(drop.count, 'duplicate or weak test')} saves ${duration(drop.seconds)}${suite === null || suite === undefined ? '' : ` of ${duration(suite)}`}`
-        + `${untimed ? ` (${untimed} of them untimed)` : ''} and ${leaves}.`);
-    } else {
-      const tiers = COST_TIERS.map(([one, many], tier) => [drop.cost?.[tier] ?? 0, one, many]).filter(([count]) => count)
-        .map(([count, one, many]) => `${count} ${count === 1 ? one : many}`);
-      lines.push(`Dropping ${plural(drop.count, 'duplicate or weak test')} ${leaves}${tiers.length ? `: ${tiers.join(', ')} (estimated)` : ''}.`);
-    }
-  }
-  const scope = report.scope;
-  if (scope) {
-    // Which frameworks said what is in scope, and what they leave out: code no test of this suite can cover.
-    const named = scope.frameworks.filter(framework => !framework.error && framework.config)
-      .map(framework => `${framework.name}${framework.version ? ` ${framework.version}` : ''} (${framework.config.endsWith('package.json') ? 'its defaults' : framework.config})`);
-    if (named.length || scope.left_out) lines.push(`${named.length ? `Tests are the ones ${named.join(', ')} ${named.length === 1 ? 'runs' : 'run'}; ` : ''}${plural(scope.left_out, 'file')} no test framework covers ${scope.left_out === 1 ? 'is' : 'are'} left out`);
-    for (const framework of scope.frameworks.filter(item => item.error)) lines.push(`Could not load ${framework.config} (${framework.error}); read every test the parser found instead`);
-  }
-  const unmatchedRuns = report.unmatched_runs?.length ?? 0, unmatchedPaths = report.unmatched_paths?.length ?? 0;
-  if (unmatchedRuns) lines.push(`${plural(unmatchedRuns, 'test run')} in the reports matched no test perch found, or more than one; --json lists them`);
-  if (unmatchedPaths) lines.push(`${plural(unmatchedPaths, 'path')} in the coverage reports ${unmatchedPaths === 1 ? 'is' : 'are'} not a file in this repository; --json lists them`);
-  const closed = report.closed?.length ?? 0;
-  if (closed) lines.push(`${plural(closed, 'problem')} closed with perch close ${closed === 1 ? 'is' : 'are'} not listed; perch reopen <id> lists one again`);
-  const failed = report.failed ?? [];
-  if (failed.length) {
-    const tests = failed.filter(unit => unit.subject === 'test').length, methods = failed.length - tests;
-    const which = [tests ? plural(tests, 'test') : '', methods ? plural(methods, 'method') : ''].filter(Boolean).join(' and ');
-    lines.push(`${which} could not be asked about; --json lists why`);
-  }
+export function coverageCount(report, { min = BELIEVED, filters = [], all = false } = {}) {
+  const totals = report.totals ?? {};
   const listed = listedFindings(report, { min, filters }).length;
-  if (!all && !filters.length && listed > TOP) lines.push(`${TOP} of ${listed} problems listed, --all for the rest`);
+  const parts = [plural(totals.methods ?? 0, 'method'), plural(totals.tests ?? 0, 'test')];
   if (report.branch) {
-    // The branch is what stdout is about; the whole repository is one line, from the same totals the full run prints.
-    const totals = report.totals ?? {};
-    const parts = [`${totals.reached ?? 0} of ${plural(totals.methods ?? 0, 'method')} reached`];
-    if (totals.measured?.lines?.total) parts.push(`${measuredShare(totals.measured.lines)} of lines ran`);
     const others = listedFindings({ ...report, branch: null }, { min, filters }).length - listed;
-    if (others) parts.push(`${plural(others, 'problem')} in code this branch did not change`);
-    lines.push(`Whole repository: ${parts.join(', ')}`);
-  }
+    parts.push(`${plural(listed, 'problem')} in changed code${others ? `, ${others} elsewhere` : ''}`);
+  } else parts.push(plural(listed, 'problem'));
+  if (!all && !filters.length && listed > TOP) parts.push(`${TOP} shown, --all for the rest`);
+  const failed = report.failed?.length ?? 0;
+  if (failed) parts.push(`${failed} could not be asked (--json)`);
+  // A config that would not load means every test the parser found was read instead, which changes what is counted.
+  for (const framework of report.scope?.frameworks ?? []) if (framework.error) parts.push(`${framework.config} did not load (--verbose)`);
+  return `${relative(report.target ?? report.root ?? '.')} at commit ${report.revision?.slice(0, 7) ?? '?'}: ${parts.join(', ')}`;
+}
+
+/**
+ * What --verbose adds: how many files no framework covers, and what in the reports matched nothing here. Each is something to
+ * check when a number looks wrong, and nothing to read on an ordinary run.
+ */
+export function coverageDetails(report) {
+  const lines = [];
+  if (report.scope?.left_out) lines.push(`${plural(report.scope.left_out, 'file')} no test framework covers left out`);
+  for (const run of report.unmatched_runs ?? []) lines.push(`unmatched run in ${run.path}: ${run.classname ? `${run.classname} ` : ''}${run.name}`);
+  for (const item of report.unmatched_paths ?? []) lines.push(`unmatched path in ${item.path}: ${item.reported}`);
   return lines;
 }

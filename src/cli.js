@@ -22,7 +22,7 @@ import { installSkill, TARGET_NAMES, TARGETS } from './setup.js';
 import { createMeter, metered } from './meter.js';
 import { coverageFindings, coverageRepository, REPORT_KINDS, withoutSource } from './coverage.js';
 import { renderCoverageSite } from './coverage-html.js';
-import { COVERAGE_KINDS, coverageNotes, formatCoverage, formatCoverageDiff, listedFindings, parseCoverageFilters } from './coverage-report.js';
+import { COVERAGE_KINDS, coverageCount, coverageDetails, formatCoverage, formatCoverageDiff, listedFindings, parseCoverageFilters } from './coverage-report.js';
 import { formatDoctor, formatFilterKeys, gating, useColor, formatFinding, formatIssues, formatCheck, formatRules, formatScanReport, issueCount, relative, scanCount, scanTally, TOP, visibleFindings } from './report.js';
 
 /**
@@ -600,7 +600,8 @@ const commands = {
     const all = Boolean(io.flags.all);
     print(io, withoutSource(report), [formatCoverage(report, { min, filters, all }), io.flags.diff ? formatCoverageDiff(report) : ''].filter(Boolean).join('\n\n'));
     for (const unit of report.failed ?? []) io.debug(`could not ask about ${unit.subject} ${unit.name} (${unit.path}): ${unit.error}`);
-    io.note(...coverageNotes(report, { min, filters, all }), relative(html), ...meter.lines());
+    for (const line of coverageDetails(report)) io.debug(line);
+    io.note(coverageCount(report, { min, filters, all }), `Report: ${relative(html)}`, ...meter.lines());
     // Every problem listed is one the run stands behind, so any at all is a result; the top-ten cut only decides what fits.
     return listedFindings(report, { min, filters }).length ? EXIT.found : EXIT.clean;
   },

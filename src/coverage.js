@@ -385,11 +385,15 @@ export async function readReports({ root, files, paths }) {
   };
   // Each kind's own measurement of each file, before one kind is chosen per file.
   const byKind = { contexts: new Map(), lcov: new Map(), cobertura: new Map() };
-  const ranIn = (key, entry, path, lines) => {
-    if (!perTest.has(key)) perTest.set(key, { ...entry, files: new Map() });
-    const files = perTest.get(key).files;
-    if (!files.has(path)) files.set(path, new Set());
-    for (const line of lines) files.get(path).add(line);
+  // What one test ran: its lines by file, and, where the report says, the sides of branches it took, as `line\0arm`.
+  const ranIn = (key, entry, path, lines, arms = []) => {
+    if (!perTest.has(key)) perTest.set(key, { ...entry, files: new Map(), arms: new Map() });
+    const record = perTest.get(key);
+    if (!record.files.has(path)) record.files.set(path, new Set());
+    for (const line of lines) record.files.get(path).add(line);
+    if (!arms.length) return;
+    if (!record.arms.has(path)) record.arms.set(path, new Set());
+    for (const arm of arms) record.arms.get(path).add(arm);
   };
   for (const { kind, path } of files) {
     const report = shownPath(root, path);
@@ -416,7 +420,8 @@ export async function readReports({ root, files, paths }) {
         for (const [line, calls] of item.functions ?? []) file.functions.set(line, (file.functions.get(line) ?? 0) + calls);
         for (const [line, block, branch, taken] of item.branches) addArm(file, line, `${block}\0${branch}`, taken ?? 0);
         // A record under a test name is what that test ran; an unnamed one is the whole run's.
-        if (test.name) ranIn(`tn\0${test.name}`, { kind: 'lcov', report, classname: '', name: test.name }, at, item.lines.filter(([, hits]) => hits > 0).map(([line]) => line));
+        if (test.name) ranIn(`tn\0${test.name}`, { kind: 'lcov', report, classname: '', name: test.name }, at, item.lines.filter(([, hits]) => hits > 0).map(([line]) => line),
+          item.branches.filter(([, , , taken]) => taken > 0).map(([line, block, branch]) => `${line}\0${block}\0${branch}`));
       }
       input.files = named.size;
     } else if (kind === 'cobertura') {
@@ -567,7 +572,7 @@ function measure(coverage, graph, reports) {
     const [id] = found;
     casesOf.set(id, [...(casesOf.get(id) ?? []), run]);
   }
-  const executedBy = new Map();
+  const executedBy = new Map(), armsBy = new Map();
   for (const [key, entry] of reports.perTest) {
     const found = lookup(perTestNames(key, entry));
     if (found.size !== 1) {
@@ -582,6 +587,19 @@ function measure(coverage, graph, reports) {
       if (!into.has(path)) into.set(path, new Set());
       for (const line of lines) into.get(path).add(line);
     }
+    if (!armsBy.has(id)) armsBy.set(id, new Map());
+    const took = armsBy.get(id);
+    for (const [path, arms] of entry.arms) {
+      if (!took.has(path)) took.set(path, new Set());
+      for (const arm of arms) took.get(path).add(arm);
+    }
+  }
+  // A file measured by a kind of report that said what each test ran is one whose lines can be put down to the tests that ran
+  // them; LCOV says which sides of its branches each test took too, and coverage.py's contexts only which lines.
+  const perTestKinds = new Set([...reports.perTest.values()].map(entry => entry.kind));
+  for (const [path, file] of measured) {
+    file.per_test = perTestKinds.has(sourceOf.get(path));
+    file.per_test_arms = file.per_test && sourceOf.get(path) === 'lcov';
   }
   // Which methods a set of executed lines ran, by the methods' own lines.
   const methodsByPath = new Map();
@@ -596,6 +614,7 @@ function measure(coverage, graph, reports) {
     test.run = cases ? { time: timed.length ? timed.reduce((sum, run) => sum + run.time, 0) : null, status: worst(cases.map(run => run.status)), cases: cases.length } : null;
     const executed = executedBy.get(test.id) ?? null;
     test.executed = executed;
+    test.arms = armsBy.get(test.id) ?? null;
     test.executed_methods = executed ? [...executed].flatMap(([path, lines]) => (methodsByPath.get(path) ?? [])
       .filter(node => { const { from, to } = bodyLines(node); return [...lines].some(line => line >= from && line <= to); }).map(node => node.id)).sort() : null;
     // What the test ran of the code under test, which is what two tests are compared on: its own lines are not, since two
@@ -913,6 +932,56 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
   };
   const tiers = () => Object.fromEntries(Array.from({ length: costLevels }, (_, level) => [level, 0]));
   const measurement = coverage.measurement;
+  // The tests that could go: weak, checking nothing, or repeating another. One whose problem was closed is one someone chose to
+  // keep, and one that could not be asked about is not called weak.
+  const dropped = new Set(coverage.tests.filter(test => (judged.smelly.has(test.id) && !isClosed(answers.tests.get(test.id).answers.smell.choice, test.id))
+    || (judged.checksNothing.has(test.id) && !isClosed('checks_nothing', test.id)) || (judged.redundantWith.has(test.id) && !isClosed('redundant', test.id))).map(test => test.id));
+  // What the tests kept ran and what the dropped tests ran, file by file, from the reports' per-test records.
+  const kept = { lines: new Map(), arms: new Map() }, gone = { lines: new Map(), arms: new Map() };
+  const gather = (into, files) => {
+    for (const [path, items] of files ?? []) {
+      if (!into.has(path)) into.set(path, new Set());
+      for (const item of items) into.get(path).add(item);
+    }
+  };
+  for (const test of coverage.tests) {
+    const into = dropped.has(test.id) ? gone : kept;
+    gather(into.lines, test.executed);
+    gather(into.arms, test.arms);
+  }
+  // Ran only by tests that could go: a dropped test ran it and no kept test did. What ran outside any test, or under a run
+  // perch could not match, is no dropped test's doing and stays.
+  const onlyDropped = (part, path) => {
+    const theirs = gone[part].get(path), ours = kept[part].get(path);
+    return item => Boolean(theirs?.has(item)) && !ours?.has(item);
+  };
+  /**
+   * A measured method's lines and branches, less what only weak and duplicate tests ran. Where the report says what each test
+   * ran, that is the lines and branch sides only dropped tests ran, and is measured; coverage.py's contexts say lines but not
+   * sides, so a side goes when only dropped tests ran its line, an estimate. Without per-test records it is estimated from the
+   * call graph: none of the method counts when every test reaching it is dropped, and all of it otherwise.
+   */
+  const effectiveOf = method => {
+    const { measured, node } = method;
+    if (!measured) return null;
+    const file = measurement.files.get(node.path);
+    if (!file.per_test) {
+      const lost = method.tests.length > 0 && method.tests.every(item => dropped.has(item.id));
+      return { lines: { hit: lost ? 0 : measured.lines.hit, total: measured.lines.total, basis: 'estimated' },
+        branches: { hit: lost ? 0 : measured.branches.hit, total: measured.branches.total, basis: 'estimated' } };
+    }
+    const lineGone = onlyDropped('lines', node.path);
+    const { from, to } = bodyLines(node);
+    const lines = measured.lines.hit === 0 ? 0 : [...file.lines].filter(([line, hits]) => line >= from && line <= to && hits > 0 && !lineGone(line)).length;
+    const branchLines = [...file.branches.keys()].filter(line => line >= node.line && line <= node.end_line);
+    let branches;
+    if (file.per_test_arms) {
+      const armGone = onlyDropped('arms', node.path);
+      branches = branchLines.reduce((sum, line) => sum + [...(file.arms.get(line) ?? [])].filter(([arm, taken]) => taken > 0 && !armGone(`${line}\0${arm}`)).length, 0);
+    } else branches = branchLines.reduce((sum, line) => sum + (lineGone(line) ? 0 : file.branches.get(line).taken), 0);
+    return { lines: { hit: lines, total: measured.lines.total, basis: 'measured' },
+      branches: { hit: branches, total: measured.branches.total, basis: file.per_test_arms || !measured.branches.total ? 'measured' : 'estimated' } };
+  };
 
   const methods = coverage.methods.map(method => {
     const { node } = method;
@@ -945,7 +1014,7 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     if (gap) own.push(add({ kind: 'edge_case', subject: 'method', unit: method.id, path: node.path, line: gap.line, name: node.qualified_name, probability: gap.probability,
       note: GAP_CASES[gap.kind]?.(node.name ?? node.qualified_name) ?? `Untested case: the other side of line ${gap.line}.` }));
     return { id: method.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, risk: node.metrics?.risk_score ?? null,
-      branches: method.branches, tests: method.tests, useful: usefulTests, exercised, exercised_basis: basis, measured, executed,
+      branches: method.branches, tests: method.tests, useful: usefulTests, exercised, exercised_basis: basis, measured, effective: effectiveOf(method), executed,
       untaken: measured ? method.untaken : null, untested, gap, findings: own.filter(Boolean) };
   });
   const testById = new Map(coverage.tests.map(test => [test.id, test]));
@@ -1016,6 +1085,14 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     const sum = (part, key) => counted.reduce((total, method) => total + method.measured[part][key], 0);
     return { lines: { hit: sum('lines', 'hit'), total: sum('lines', 'total') }, branches: { hit: sum('branches', 'hit'), total: sum('branches', 'total') } };
   };
+  // Summed like the measured figures, and estimated when any method's part of it is.
+  const effectiveOfAll = list => {
+    const counted = list.filter(method => method.effective);
+    if (!counted.length) return null;
+    const part = name => ({ hit: counted.reduce((total, method) => total + method.effective[name].hit, 0), total: counted.reduce((total, method) => total + method.effective[name].total, 0),
+      basis: counted.some(method => method.effective[name].total && method.effective[name].basis === 'estimated') ? 'estimated' : 'measured' });
+    return { lines: part('lines'), branches: part('branches') };
+  };
   const timeOf = list => {
     const timed = list.filter(test => typeof test.run?.time === 'number');
     return { seconds: timed.length ? timed.reduce((total, test) => total + test.run.time, 0) : null, timed: timed.length };
@@ -1025,9 +1102,9 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     // Reached is what ran when the coverage report measured the method, and what the call graph reaches when it did not: the same
     // rule untested follows, so the two columns never disagree about one method.
     return { methods: methodList.length, reached: methodList.filter(method => !method.untested).length, useful_reached: methodList.filter(method => method.useful.length).length,
-      exercised: share(methodList), exercised_basis: basisOf(methodList), measured: measuredOf(methodList), tests: testList.length, useful: testList.filter(test => test.useful).length,
+      exercised: share(methodList), exercised_basis: basisOf(methodList), measured: measuredOf(methodList), effective: effectiveOfAll(methodList), tests: testList.length, useful: testList.filter(test => test.useful).length,
       redundant: testList.filter(test => test.redundant_with).length, smelly: testList.filter(test => judged.smelly.has(test.id) || judged.checksNothing.has(test.id)).length, infra: count(testIds, 'infra'),
-      ...timeOf(testList) };
+      ...timeOf(testList), dropped_seconds: timeOf(testList.filter(test => dropped.has(test.id))).seconds ?? 0 };
   };
   const methodsIn = Map.groupBy(methods, method => method.path), testsIn = Map.groupBy(tests, test => test.path);
   const files = coverage.files.map(file => {
@@ -1038,10 +1115,7 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
   });
   const cost = tiers(), drop = { count: 0, cost: tiers() };
   // What dropping them would cost in reach: the methods only dropped tests reach. Counted, since "nothing" is a claim.
-  // A test whose smell or repetition was closed is one someone chose to keep, so it is not counted among those that could go.
-  const droppedTests = tests.filter(test => (judged.smelly.has(test.id) && !isClosed(test.smell?.choice, test.id))
-    || (judged.checksNothing.has(test.id) && !isClosed('checks_nothing', test.id)) || (test.redundant_with && !isClosed('redundant', test.id)));
-  const dropped = new Set(droppedTests.map(test => test.id));
+  const droppedTests = tests.filter(test => dropped.has(test.id));
   for (const test of tests) {
     if (test.cost?.basis !== 'estimated') continue;
     cost[test.cost.tier]++;
@@ -1094,6 +1168,8 @@ const DIFF_TOTALS = ['methods', 'reached', 'exercised', 'tests', 'useful', 'redu
 const MEASURED_TOTALS = {
   measured_lines: totals => (totals.measured?.lines.total ? totals.measured.lines.hit / totals.measured.lines.total : null),
   measured_branches: totals => (totals.measured?.branches.total ? totals.measured.branches.hit / totals.measured.branches.total : null),
+  effective_lines: totals => (totals.effective?.lines.total ? totals.effective.lines.hit / totals.effective.lines.total : null),
+  effective_branches: totals => (totals.effective?.branches.total ? totals.effective.branches.hit / totals.effective.branches.total : null),
   suite_seconds: totals => totals.suite?.seconds ?? null,
 };
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
