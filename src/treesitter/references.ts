@@ -16,6 +16,7 @@ const IMPORT_TYPES = new Set([
   "namespace_use_declaration",
   "preproc_include",
   "package_import",
+  "import_directive",
 ]);
 
 const CALL_TYPES = new Set([
@@ -279,6 +280,13 @@ function importReferences(node: Node, language: string): Reference[] {
     return references;
   }
 
+  if (language === "solidity" && module) {
+    for (const item of solidityImportNames(node)) {
+      references.push(makeReference("import", node, { name: item.name, reference: item.name === "*" ? module : `${module}.${item.name}`, module, imported_name: item.name, alias: item.alias }));
+    }
+    return references;
+  }
+
   // The import itself can be its binding: a Go import_spec names both the path and the name it goes by.
   for (const item of walkNodes(node)) {
     if (!IMPORT_BINDING_TYPES.has(item.type)) continue;
@@ -310,6 +318,121 @@ function importReferences(node: Node, language: string): Reference[] {
     );
   }
   return references;
+}
+
+/**
+ * The names a Solidity import binds, read from its children in order. `import {Cart as C, Other} from "./Cart.sol"` binds each
+ * listed name, under its alias when it has one; `import * as P from` and `import "./Cart.sol" as B` bind the whole file to one
+ * name; `import "./Cart.sol";` brings every name the file declares in, which is a glob.
+ */
+function solidityImportNames(node: Node): Array<{ name: string; alias: string }> {
+  const names: Array<{ name: string; alias: string }> = [];
+  const children = node.children;
+  let pending: string | null = null;
+  for (const [at, item] of children.entries()) {
+    if (item.type !== "identifier") continue;
+    // The identifier after `as` is the alias of the name before it, or of the whole file when nothing is pending.
+    const before = children[at - 1];
+    if (before && !before.isNamed && before.text === "as") {
+      names.push({ name: pending ?? "*", alias: item.text });
+      pending = null;
+    } else {
+      if (pending) names.push({ name: pending, alias: pending });
+      pending = item.text;
+    }
+  }
+  if (pending) names.push({ name: pending, alias: pending });
+  return names.length ? names : [{ name: "*", alias: "*" }];
+}
+
+// ------------------------------------------------------------------------------------------------------------------- Zig
+
+/** Zig's builtin types, which name no struct a method could be found on. */
+const ZIG_PRIMITIVE = /^(?:[iu]\d+|f\d+|bool|void|type|anytype|anyopaque|anyerror|noreturn|usize|isize|comptime_int|comptime_float|c_\w+)$/;
+
+/** A Zig type as written, less what wraps it: `?*const Cart`, `!Cart` and `anyerror!Cart` name Cart; `Self` is the struct around it. */
+function zigBareType(node: Node | null): string | null {
+  if (!node) return null;
+  const written = text(node).replace(/^(?:\[[^\]]*\]|[?*!]|(?:const|volatile|allowzero)\s+|align\([^)]*\)\s*|[\w.]+!)+/, '').trim();
+  if (written === 'Self') return '$self';
+  return ZIG_PRIMITIVE.test(written) ? null : typeName(written);
+}
+
+/** Zig's suffix operators that hand on the value they are applied to: `.?` unwraps an optional, `.*` dereferences a pointer. */
+const ZIG_TRANSPARENT = new Set(['.?', '.*']);
+
+interface ZigCall { reference: string; at: Node; held: Held | null }
+
+/**
+ * A Zig SuffixExpr read left to right: a head, then field accesses, calls and indexes. `cart.discount(200, 10)` is one node, as
+ * is `Cart.init(a).add(line)`: the first call is named by the path before it, and each later one is a member of what the call
+ * before it returned. Returns each call, with what its receiver holds when the path cannot name it, and what the whole
+ * expression holds as a value: the last call's result, or a local named alone.
+ */
+function zigChain(node: Node): { calls: ZigCall[]; value: Held | null } {
+  const calls: ZigCall[] = [];
+  const parts = node.children.filter(child => !isComment(child));
+  const head = parts[0];
+  // The names since the last call, or null once the receiver is one the tree cannot name: a literal, a builtin's result, an element.
+  let path: string[] | null = head?.type === 'IDENTIFIER' ? [head.text] : null;
+  let held: Held | null = null;
+  const call = (member: string | null, at: Node) => {
+    if (path && (member || path.length)) {
+      const reference = validReference([...path, ...(member ? [member] : [])].join('.'));
+      if (reference === '<dynamic>') held = null;
+      else { calls.push({ reference, at, held: null }); held = { call: reference }; }
+    } else if (member && held) {
+      const reference = `$receiver.${member}`;
+      calls.push({ reference, at, held });
+      held = { call: reference, on: held };
+    } else held = null;
+    path = null;
+  };
+  for (const part of parts.slice(1)) {
+    if (part.type === 'FieldOrFnCall') {
+      const field = part.childForFieldName('field_access'), fn = part.childForFieldName('function_call');
+      // A field of a call's result is a value whose type the tree does not give.
+      if (field) { if (path) path.push(field.text); else held = null; }
+      else if (fn) call(fn.text, fn);
+    } else if (part.type === 'FnCallArguments') call(null, head);
+    else if (part.type === 'SuffixOp' && !ZIG_TRANSPARENT.has(part.text)) { path = null; held = null; }
+  }
+  return { calls, value: held ?? (path?.length === 1 ? { local: path[0] } : null) };
+}
+
+/**
+ * A Zig import is a declaration whose value is `@import("file")`, optionally reaching into it: `const cart = @import("cart.zig")`
+ * binds the module, `const Cart = @import("cart.zig").Cart` one name of it, and `const Cart = cart.Cart` one name of a module
+ * already bound. `@import("std")` names a package the build provides, which no file in the repository is.
+ */
+function zigImport(node: Node, imports: Reference[]): Reference | null {
+  const name = node.childForFieldName('variable_type_function');
+  const equals = node.children.findIndex(child => !child.isNamed && child.text === '=');
+  let value = equals >= 0 ? node.children[equals + 1] ?? null : null;
+  while (value && value.type === 'ErrorUnionExpr' && value.namedChildren.length === 1) value = value.namedChildren[0];
+  if (!name || value?.type !== 'SuffixExpr') return null;
+  const [head, ...rest] = value.children.filter(child => !isComment(child));
+  let module: string, bound: string[] = [];
+  if (head?.type === 'BUILTINIDENTIFIER' && head.text === '@import') {
+    const argument = rest[0]?.type === 'FnCallArguments' && rest[0].namedChildren.length === 1 ? rest[0].namedChildren[0] : null;
+    const string = argument ? [...walkNodes(argument)].find(item => item.type === 'STRINGLITERALSINGLE') : null;
+    if (!string) return null;
+    module = string.text.slice(1, -1);
+    rest.shift();
+  } else if (head?.type === 'IDENTIFIER' && rest.length) {
+    const through = imports.find(item => item.alias === head.text && item.module);
+    if (!through) return null;
+    module = through.module!;
+    if (through.imported_name && through.imported_name !== '*') bound = through.imported_name.split('.');
+  } else return null;
+  for (const part of rest) {
+    const field = part.type === 'FieldOrFnCall' ? part.childForFieldName('field_access') : null;
+    // A call or an index after the import is a value computed from it, not a name passed on.
+    if (!field) return null;
+    bound.push(field.text);
+  }
+  const imported = bound.length ? bound.join('.') : '*';
+  return makeReference('import', node, { name: imported, reference: imported === '*' ? module : `${module}.${imported}`, module, imported_name: imported, alias: text(name) });
 }
 
 /**
@@ -345,6 +468,10 @@ function callReference(node: Node, language: string): string {
   const receiver = child(node, "receiver"), method = child(node, "method");
   if (receiver || method) return validReference(safeNavigation(receiver ? `${text(receiver)}.${text(method)}` : text(method)));
   const callee = referenceBase(node);
+  if (language === 'solidity') {
+    const rebound = solidityCallee(callee);
+    if (rebound) return validReference(rebound);
+  }
   const named = validReference(pathText(callee, language));
   // `"x".size()`, `Thing::new().get()` or `Entry(day).debit()`: the receiver is no name, but the member is. `$` cannot begin a name
   // in these languages, so `$receiver` stands for one the tree cannot name without being mistaken for one.
@@ -353,6 +480,26 @@ function callReference(node: Node, language: string): string {
     if (split?.member) return `$receiver.${split.member}`;
   }
   return named;
+}
+
+/** A Solidity `expression` node holds one operand; the operand is what is meant. */
+const unwrapExpression = (node: Node | null): Node | null => (node?.type === 'expression' && node.namedChildren.length === 1 ? node.namedChildren[0] : node);
+
+/**
+ * tree-sitter-solidity binds `.` looser than `!` and the binary operators, so `!Sku.isValid(code)` parses as `(!Sku).isValid(code)`
+ * and `net + Pricing.tax(net)` as `(net + Pricing).tax(net)`. Solidity binds `.` tightest: the member belongs to the operand
+ * nearest it, the operator's argument or its right side. The callee rewritten that way, or null when the tree needs no rewriting.
+ */
+function solidityCallee(callee: Node | null): string | null {
+  const member = unwrapExpression(callee);
+  if (member?.type !== 'member_expression') return null;
+  let object = unwrapExpression(child(member, 'object'));
+  const written = object;
+  while (object && (object.type === 'unary_expression' || object.type === 'binary_expression')) {
+    object = unwrapExpression(object.type === 'unary_expression' ? child(object, 'argument') : child(object, 'right'));
+  }
+  if (!object || object === written) return null;
+  return `${text(object)}.${text(child(member, 'property'))}`;
 }
 
 /**
@@ -573,10 +720,12 @@ function memberObject(node: Node): Node | null {
 /** Whether `node` is the whole of a member chain and not the callee of a call: the part a read is recorded for. */
 function isMemberRead(node: Node): boolean {
   if (!MEMBER_TYPES.has(node.type)) return false;
-  const parent = node.parent;
+  // Solidity wraps the callee in an `expression` node between the call and the member access.
+  const parent = node.parent?.type === 'expression' && node.parent.namedChildren.length === 1 ? node.parent.parent : node.parent;
   if (!parent) return true;
   if (MEMBER_TYPES.has(parent.type) && memberObject(parent)?.id === node.id) return false;
-  return !(CALL_TYPES.has(parent.type) && referenceBase(parent)?.id === node.id);
+  const callee = CALL_TYPES.has(parent.type) ? referenceBase(parent) : null;
+  return !(callee && (callee.id === node.id || (callee.type === 'expression' && callee.namedChildren[0]?.id === node.id)));
 }
 
 const COMMONJS = new Set(["javascript", "typescript", "tsx"]);
@@ -669,6 +818,11 @@ const UNWRAPS = new Set(['unwrap', 'expect', 'unwrap_or_default', 'unwrap_or', '
 function valueOf(value: Node | null, language: string): Held | null {
   if (!value) return null;
   if (['parenthesized_expression', 'await_expression', 'try_expression', 'reference_expression'].includes(value.type)) return valueOf(value.namedChildren.at(-1) ?? null, language);
+  // Solidity wraps each operand in `expression`, Zig each in an ErrorUnionExpr: one node that adds nothing to what is inside it.
+  if (['expression', 'ErrorUnionExpr'].includes(value.type) && value.namedChildren.length === 1) return valueOf(value.namedChildren[0], language);
+  // Zig's `try f()` and `await f()` hold what f returns.
+  if (value.type === 'UnaryExpr' && ['try', 'await'].includes(child(value, 'operator')?.text ?? '')) return valueOf(child(value, 'left'), language);
+  if (value.type === 'SuffixExpr') return zigChain(value).value;
   // `return this` or `self`: a fluent method hands back an instance of its own class.
   if (['this', 'self'].includes(value.type) || (value.type === 'identifier' && text(value) === 'self')) return { type: '$self' };
   // A local handed on: `t` at the end of a Rust function, `return entry`, followed to what that local holds.
@@ -677,12 +831,15 @@ function valueOf(value: Node | null, language: string): Held | null {
   if (['subscript_expression', 'index_expression', 'subscript', 'element_reference'].includes(value.type)) return valueOf(child(value, 'object', 'value') ?? value.namedChildren[0] ?? null, language);
   if (CALL_TYPES.has(value.type)) {
     const callee = referenceBase(value);
+    // Solidity's `new Cart(3)` is a call whose callee is the construction.
+    const constructed = callee?.type === 'expression' ? callee.namedChildren[0] : callee;
+    if (constructed?.type === 'new_expression') return { type: bareType(child(constructed, 'constructor', 'type', 'name')) };
     const argument = child(value, 'arguments')?.namedChildren.find(item => !isComment(item)) ?? null;
     if (PASS_THROUGH.has(pathText(callee, language))) return valueOf(argument, language);
     const split = memberOf(callee, language);
     if (split && UNWRAPS.has(split.member)) return valueOf(split.receiver, language);
   }
-  if (value.type === 'new_expression') return { type: bareType(child(value, 'constructor', 'type')) };
+  if (value.type === 'new_expression') return { type: bareType(child(value, 'constructor', 'type', 'name')) };
   if (value.type === 'object_creation_expression') return { type: bareType(child(value, 'type')) };
   if (value.type === 'struct_expression') return { type: bareType(child(value, 'name')) };
   // Go: `Cart{}` and `&Cart{}` make a Cart, and `new(Cart)` a pointer to one, which is called through the same way.
@@ -704,7 +861,7 @@ function valueOf(value: Node | null, language: string): Held | null {
 
 /** `const ledger = new Ledger()`, `Ledger a(1);`, `let l: Ledger = make();`, `self.store = Store()`: a name and what it holds. */
 function bindingOf(node: Node, language: string): { name: string; held: Held } | null {
-  let name: Node | null, type: Node | null = null, value: Node | null = null;
+  let name: Node | null, type: Node | null = null, value: Node | null = null, constructed: string | null = null;
   if (node.type === 'variable_declarator') {
     name = child(node, 'name'); value = child(node, 'value');
     type = child(node, 'type') ?? (['local_variable_declaration', 'field_declaration'].includes(node.parent?.type ?? '') ? child(node.parent!, 'type') : null);
@@ -734,11 +891,22 @@ function bindingOf(node: Node, language: string): { name: string; held: Held } |
       : declarator && constructedInBody(declarator) ? child(declarator, 'declarator') : declarator;
     if (node.type === 'init_declarator') value = child(node, 'value');
     if (value?.type === 'argument_list' || value?.type === 'initializer_list') value = null;
+  } else if (node.type === 'VarDecl') {
+    // Zig's `const c = Cart.init(a);` and `var c: Cart = undefined;`: the type follows the colon and the value the equals sign.
+    name = child(node, 'variable_type_function');
+    const colon = node.children.findIndex(item => !item.isNamed && item.text === ':'), equals = node.children.findIndex(item => !item.isNamed && item.text === '=');
+    type = colon >= 0 ? node.children[colon + 1] ?? null : null;
+    value = equals >= 0 ? node.children[equals + 1] ?? null : null;
+    // `const line = Line{ .qty = 1 }`: the type's expression and then the initializer list, side by side in the declaration.
+    if (value && node.children[equals + 2]?.type === 'InitList') { constructed = typeName(text(value)); value = null; }
+  } else if (node.type === 'state_variable_declaration') {
+    // Solidity's `Cart internal cart;` in a contract body, which the contract's functions name bare.
+    name = child(node, 'name'); type = child(node, 'type'); value = child(node, 'value');
   } else return null;
   const written = text(name).replace(/^self\./, 'this.');
-  if (!written || !/^(this\.)?[\p{L}_$][\p{L}\p{N}_$]*$/u.test(written)) return null;
-  const held = valueOf(value, language);
-  const declared = bareType(type);
+  if (!written || written === '_' || !/^(this\.)?[\p{L}_$][\p{L}\p{N}_$]*$/u.test(written)) return null;
+  const held = valueOf(value, language) ?? (constructed ? { type: constructed } : null);
+  const declared = node.type === 'VarDecl' ? zigBareType(type) : bareType(type);
   if (!declared && !held) return null;
   return { name: written, held: declared ? { type: declared } : held! };
 }
@@ -781,7 +949,13 @@ function goResult(node: Node): Node | null {
 function basesOf(node: Node): string[] {
   const names: Node[] = [];
   if (node.type === 'class_definition') names.push(...(child(node, 'superclasses')?.namedChildren ?? []));
-  else if (node.type === 'class_declaration' || node.type === 'class' || node.type === 'class_specifier' || node.type === 'struct_specifier') {
+  // Solidity's `contract Inventory is Pausable, Ownable(owner)`: each inheritance specifier names a base.
+  else if (node.type === 'contract_declaration') {
+    for (const item of node.namedChildren.filter(item => item.type === 'inheritance_specifier')) {
+      const base = child(item, 'ancestor') ?? item.namedChildren[0];
+      if (base) names.push(base);
+    }
+  } else if (node.type === 'class_declaration' || node.type === 'class' || node.type === 'class_specifier' || node.type === 'struct_specifier') {
     const superclass = child(node, 'superclass');
     if (superclass) names.push(...superclass.namedChildren);
     for (const list of node.namedChildren.filter(item => ['class_heritage', 'super_interfaces', 'base_class_clause'].includes(item.type))) {
@@ -810,15 +984,23 @@ function parameterOf(node: Node): { name: string; held: Held } | null {
     let declarator = child(node, 'declarator');
     while (declarator && ['reference_declarator', 'pointer_declarator'].includes(declarator.type)) declarator = declarator.namedChildren.at(-1) ?? null;
     name = declarator;
-  } else return null;
+  }
+  // Zig's `self: *Cart` and `line: Line`.
+  else if (node.type === 'ParamDecl') { name = child(node, 'parameter'); type = node.namedChildren.find(item => item.type === 'ParamType') ?? null; }
+  else return null;
   const written = text(name).replace(/^mut\s+/, '');
-  const kind = bareType(type);
+  const kind = node.type === 'ParamDecl' ? zigBareType(type) : bareType(type);
   return kind && /^[\p{L}_$][\p{L}\p{N}_$]*$/u.test(written) ? { name: written, held: { type: kind } } : null;
 }
 
 /** A function's declared return type: Python's `-> Entry`, a TypeScript annotation, Java's method type, Rust's `-> Entry`. */
 function declaredReturn(node: Node, language: string): string | null {
   if (!isFunction(node)) return null;
+  // A Zig prototype ends with its return type, after the parameters and any alignment, calling convention or `!`.
+  if (language === 'zig') {
+    const last = node.namedChildren.find(item => item.type === 'FnProto')?.namedChildren.at(-1);
+    return last && !['IDENTIFIER', 'ParamDeclList'].includes(last.type) ? zigBareType(last) : null;
+  }
   const declared = child(node, 'return_type') ?? (['java', 'cpp', 'c', 'c_sharp', 'csharp'].includes(language) ? child(node, 'type') : language === 'go' ? goResult(node) : null);
   // `sort(): this` in TypeScript and `-> Self` in Rust: an instance of the class the method is in, whichever that is.
   if (declared && /^(?::|->)?\s*&?\s*(?:mut\s+)?(?:this|Self)$/.test(text(declared).trim())) return '$self';
@@ -937,9 +1119,19 @@ export function referenceVisitor(language: string): Visitor & { finish(index: Sy
     // constructor. The declaration's binding is read above.
     const kind = cppConstructed(node)!;
     references.push(makeReference('call', node, { name: kind, reference: kind }));
+  } else if (node.type === 'modifier_invocation') {
+    // `function restock() external whenNotPaused`: the modifier runs around the function, as a call to it by its bare name would.
+    const name = validReference(text(node.namedChildren.find(item => item.type === 'identifier')));
+    if (name !== '<dynamic>') references.push(makeReference('call', node, { name, reference: name }));
+  } else if (language === 'zig' && node.type === 'VarDecl') {
+    const imported = zigImport(node, references.filter(item => item.kind === 'import'));
+    if (imported) references.push(imported);
+  } else if (language === 'zig' && node.type === 'SuffixExpr') {
+    // `cart.discount(200, 10)`, `Cart.init(a).add(line)`: each call in the chain, which the grammar holds as one node.
+    for (const item of zigChain(node).calls) references.push(makeReference('call', item.at, { name: item.reference, reference: item.reference, ...(item.held ? { held: item.held } : {}) }));
   } else if (node.type === 'new_expression' || node.type === 'object_creation_expression') {
     // `new Ledger()` runs Ledger's constructor: a call to the class, which the graph takes to its constructor.
-    const kind = bareType(child(node, 'constructor', 'type'));
+    const kind = bareType(child(node, 'constructor', 'type', 'name'));
     if (kind) references.push(makeReference('call', node, { name: kind, reference: kind }));
   } else if (CALL_TYPES.has(node.type) && isRequire(node, language)) {
     references.push(...requireReferences(node));

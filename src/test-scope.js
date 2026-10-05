@@ -32,6 +32,11 @@ const MODULES = [
   { languages: ['csharp', 'fsharp'], files: [/\.sln$/, /\.[cf]sproj$/], nearest: false },
   { languages: ['ruby'], files: [/^Gemfile$/, /\.gemspec$/], nearest: false },
   { languages: ['php'], files: [/^composer\.json$/, /^phpunit\.xml(\.dist)?$/], nearest: false },
+  // Zig's tests sit in the source files they test, under src/ as `zig init` lays a package out; build.zig itself is not built.
+  { languages: ['zig'], files: [/^build\.zig$/, /^build\.zig\.zon$/], nearest: true, built: 'src/' },
+  // Foundry's defaults: src/ is compiled, test/ holds the tests, script/ the deploy scripts, and lib/ the dependencies forge
+  // installs, each a project of its own whose tests are not this one's.
+  { languages: ['solidity'], files: [/^foundry\.toml$/], nearest: true, built: 'src/', tests: /^test\//, dependencies: /^lib\// },
 ];
 
 /**
@@ -325,10 +330,12 @@ export async function frameworkScope({ root, tree, scan, graph, node = process.e
   // Everything else: the tests the parser found, covering the build module they sit in.
   const moduleRoots = new Map();
   for (const module of MODULES) {
-    const mine = found.filter(file => module.languages.includes(file.language));
-    if (!mine.length) continue;
     const manifests = paths.filter(path => module.files.some(pattern => pattern.test(path.split('/').at(-1)))).map(dirOf)
       .concat(paths.filter(path => /\.xcodeproj\/project\.pbxproj$/.test(path) && module.languages.includes('swift')).map(path => dirOf(dirOf(path))));
+    // A dependency the build fetched into a module, forge's lib/: its tests are not this suite's and its code is not this module's.
+    const dependency = path => Boolean(module.dependencies) && manifests.some(dir => under(dir, path) && module.dependencies.test(dir ? path.slice(dir.length + 1) : path));
+    const mine = found.filter(file => module.languages.includes(file.language) && !dependency(file.path));
+    if (!mine.length) continue;
     const roots = new Set();
     for (const file of mine) {
       tests.add(file.path);
@@ -338,7 +345,7 @@ export async function frameworkScope({ root, tree, scan, graph, node = process.e
     // A source file is the module's when its own nearest build file is one the tests are in: a separate tool's pom.xml, or a
     // Gradle module with no tests, has a nearest build file of its own.
     const ownRoot = path => { const holding = manifests.filter(dir => under(dir, path)).sort(byDepth); return (module.nearest ? holding.at(-1) : holding[0]) ?? ''; };
-    for (const language of module.languages) moduleRoots.set(language, { roots, ownRoot, built: module.built ?? null });
+    for (const language of module.languages) moduleRoots.set(language, { roots, ownRoot, built: module.built ?? null, dependency });
     frameworks.push({ name: `${module.languages[0]} tests`, config: null, tests: mine.map(file => file.path), roots: [...roots] });
   }
   if (!tests.size) return null;
@@ -381,8 +388,8 @@ export async function frameworkScope({ root, tree, scan, graph, node = process.e
       const kept = python.source ? python.source.some(dir => under(dir.replace(/\.$/, '').replace(/\/$/, ''), path) || under(dir.replaceAll('.', '/'), path) || under(`src/${dir.replaceAll('.', '/')}`, path)) : followedDirs.has(dirOf(path));
       if (kept && !python.omit.some(pattern => glob(pattern, path))) sources.add(path);
     } else if (moduleRoots.has(language)) {
-      const { roots, ownRoot, built } = moduleRoots.get(language), root = ownRoot(path);
-      if (!roots.has(root)) continue;
+      const { roots, ownRoot, built, dependency } = moduleRoots.get(language), root = ownRoot(path);
+      if (!roots.has(root) || dependency(path)) continue;
       const inside = root ? path.slice(root.length + 1) : path;
       // What the build compiles: Maven's and Gradle's src/main, Cargo's src, when the module is laid out that way. Without such a
       // convention, everything but the directories projects keep tools, benchmarks, examples and docs in.

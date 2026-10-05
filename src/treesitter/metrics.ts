@@ -162,6 +162,8 @@ export const FUNCTION_TYPES = new Set([
   "function_declaration_statement",
   "function_definition_statement",
   "function_def",
+  // A Solidity modifier runs around each function that names it: a callable with a body of its own.
+  "modifier_definition",
 ]);
 
 const EXCLUDED_FUNCTION_TYPES = new Set(["function_declarator"]);
@@ -211,6 +213,8 @@ const SCOPE_TYPES = new Set([
   "record_declaration",
   "enum_item",
   "module",
+  "contract_declaration",
+  "library_declaration",
 ]);
 
 const NAME_TYPES = new Set([

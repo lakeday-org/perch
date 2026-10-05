@@ -23,17 +23,26 @@ const PRIORITY = ['boundary', 'logic', 'condition', 'not', 'arithmetic', 'boolea
 // The node that holds a binary operator, by language. Where the grammar gives the operator no field, it is the unnamed child.
 // Bash's `[ a ] && [ b ]` is a `list` of two commands with the connective between them; a list is read only in Bash, since Python
 // names its list literal the same.
+// Zig's BinaryExpr holds its operator in a CompareOp, AdditionOp or MultiplyOp node, or as the bare `and`/`or` keyword.
 const BINARY = new Set(['binary_expression', 'binary_operator', 'boolean_operator', 'comparison_operator',
-  'comparison_expression', 'equality_expression', 'additive_expression', 'multiplicative_expression', 'conjunction_expression', 'disjunction_expression']);
+  'comparison_expression', 'equality_expression', 'additive_expression', 'multiplicative_expression', 'conjunction_expression', 'disjunction_expression', 'BinaryExpr']);
 // A condition a statement branches on: the field that holds it, and whether it is wrapped in parentheses the grammar keeps.
-const CONDITIONS = new Set(['if_statement', 'while_statement', 'if_expression', 'while_expression']);
+const CONDITIONS = new Set(['if_statement', 'while_statement', 'if_expression', 'while_expression', 'IfPrefix', 'WhilePrefix']);
+// Zig's IfPrefix and WhilePrefix give the condition no field: it is the first named child, between the keyword's parentheses.
+const PREFIXED = new Set(['IfPrefix', 'WhilePrefix']);
 const WRAPPED = new Set(['parenthesized_expression', 'condition_clause']);
-const NOT = new Set(['unary_expression', 'not_operator', 'negated_command']);
+const NOT = new Set(['unary_expression', 'not_operator', 'negated_command', 'UnaryExpr']);
 const BOOLEANS = new Set(['true', 'false', 'boolean_literal']);
 const RETURNS = new Set(['return_statement', 'return_expression']);
-const NUMBERS = new Set(['number', 'integer', 'float', 'integer_literal', 'float_literal', 'decimal_integer_literal', 'int_literal', 'number_literal']);
+const NUMBERS = new Set(['number', 'integer', 'float', 'integer_literal', 'float_literal', 'decimal_integer_literal', 'int_literal', 'number_literal', 'INTEGER', 'FLOAT']);
+// Nodes that hold one expression and add nothing to it: Solidity wraps every operand in `expression`, Zig every operand in an
+// ErrorUnionExpr around a SuffixExpr. A returned literal is read through them.
+const WRAPPERS = new Set(['expression', 'ErrorUnionExpr', 'SuffixExpr']);
 
 const operatorOf = node => node.childForFieldName('operator') ?? node.children.find(child => !child.isNamed && (child.text in COMPARISONS || child.text in ARITHMETIC || child.text in LOGIC)) ?? null;
+/** Zig has no return node: `return x;` is an AssignExpr whose first token is the keyword. */
+const isReturn = node => RETURNS.has(node.type) || (node.type === 'AssignExpr' && node.children[0]?.isNamed === false && node.children[0].text === 'return');
+const unwrapped = node => { while (WRAPPERS.has(node.type) && node.childCount === 1 && node.namedChildren.length === 1) node = node.namedChildren[0]; return node; };
 
 /** A Bash command's name and arguments: `return 1` is the command return with the argument 1. */
 const bashCommand = node => ({ name: node.childForFieldName('name')?.text, args: node.namedChildren.filter(child => child.type !== 'command_name') });
@@ -68,7 +77,7 @@ export function mutantsOf({ source, language, line, end_line }) {
         else if (text in ARITHMETIC) add('arithmetic', operator, ARITHMETIC[text]);
       }
       if (CONDITIONS.has(node.type)) {
-        const condition = node.childForFieldName('condition');
+        const condition = node.childForFieldName('condition') ?? (PREFIXED.has(node.type) ? node.namedChildren[0] : null);
         // `if let` binds a pattern rather than testing a value; there is no condition to negate.
         if (condition && !/^let/.test(condition.type)) {
           const inner = WRAPPED.has(condition.type) ? condition.namedChildren[0] : condition;
@@ -77,15 +86,16 @@ export function mutantsOf({ source, language, line, end_line }) {
       }
       if (NOT.has(node.type)) {
         const operator = node.childForFieldName('operator') ?? node.children.find(child => !child.isNamed);
-        const operand = node.childForFieldName('argument') ?? node.childForFieldName('operand') ?? node.namedChildren[0];
+        const operand = node.childForFieldName('argument') ?? node.childForFieldName('operand') ?? node.namedChildren.find(child => child !== operator);
         if (operand && (operator?.text === '!' || operator?.text === 'not')) add('not', node, operand.text);
       }
-      if (BOOLEANS.has(node.type)) add('boolean', node, node.text.toLowerCase() === 'true' ? (node.text[0] === 'T' ? 'False' : 'false') : (node.text[0] === 'F' ? 'True' : 'true'));
-      if (RETURNS.has(node.type)) {
-        // Go returns an expression_list; one number in it is the returned number.
-        const listed = node.namedChildren[0];
-        const value = listed?.type === 'expression_list' && listed.namedChildren.length === 1 ? listed.namedChildren[0] : listed;
-        if (value && node.namedChildren.length === 1 && NUMBERS.has(value.type)) add('return', value, /^0+(\.0+)?$/.test(value.text) ? '1' : '0');
+      // Solidity's boolean_literal holds a `true` node: one literal, read once.
+      if (BOOLEANS.has(node.type) && !BOOLEANS.has(node.parent?.type)) add('boolean', node, node.text.toLowerCase() === 'true' ? (node.text[0] === 'T' ? 'False' : 'false') : (node.text[0] === 'F' ? 'True' : 'true'));
+      if (isReturn(node)) {
+        // Go returns an expression_list; one number in it is the returned number. Zig and Solidity wrap the value in expression nodes.
+        const listed = node.namedChildren.length === 1 ? node.namedChildren[0] : null;
+        const value = listed ? unwrapped(listed.type === 'expression_list' && listed.namedChildren.length === 1 ? listed.namedChildren[0] : listed) : null;
+        if (value && NUMBERS.has(value.type)) add('return', value, /^0+(\.0+)?$/.test(value.text) ? '1' : '0');
       }
       // Bash's `return 0` is the command return with one number: success, or any other number for failure.
       if (normalized === 'bash' && node.type === 'command') {
