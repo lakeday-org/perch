@@ -225,6 +225,9 @@ function pythonImportNames(node: Node, module: string): Array<{ node: Node; modu
     if (node.type === "import_statement") names.push({ node: item, module: path, name: "*", alias: alias || (path.split(".")[0] ?? path), reference: path });
     else names.push({ node: item, module, name: path, alias: alias || path, reference: !module || module.endsWith(".") ? `${module}${path}` : `${module}.${path}` });
   }
+  // `from ._models import *` binds every name the module exports, which is how a package's __init__.py passes its modules on.
+  const wildcard = node.type === "import_from_statement" ? node.namedChildren.find((item) => item.type === "wildcard_import") : undefined;
+  if (wildcard) names.push({ node: wildcard, module, name: "*", alias: "*", reference: !module || module.endsWith(".") ? `${module}*` : `${module}.*` });
   return names;
 }
 
@@ -360,8 +363,14 @@ function pathText(callee: Node | null, language: string): string {
   // A safe call, `a?.b()` or Ruby's `a&.b`, calls the same method `a.b()` does whenever it calls anything.
   let written = safeNavigation(text(callee).replace(/\s*(\.|::|\?\.|&\.|->)\s*/g, '$1'));
   if (language === 'c' || language === 'cpp') written = written.replaceAll('->', '.');
+  // `run_tests<true>()` in C++ and `parse::<i32>()` in Rust call the function their name is before the type arguments.
+  if (TYPE_ARGUMENTS.has(language) && written.includes('<')) {
+    written = written.replaceAll('::<', '<');
+    for (let before = ''; before !== written;) [before, written] = [written, written.replace(/<[^<>]*>/g, '')];
+  }
   return written;
 }
+const TYPE_ARGUMENTS = new Set(['c', 'cpp', 'rust']);
 
 /** What a call calls: its callee, or for a Java invocation, the invocation itself, which holds the object and the name. */
 const calleeOf = (node: Node): Node | null => (node.type === 'method_invocation' ? node : referenceBase(node));
@@ -503,9 +512,18 @@ function rustMacroCalls(tree: Node): Reference[] {
   // What each call's result holds, by the index of its argument list: `Version::new(1, 4, 7).bump(..)` is a bump of what new
   // returns, and `.unwrap()` or `?` on it hands the same value on.
   const results = new Map<number, Held | null>();
-  for (let at = 0; at + 1 < tokens.length; at += 1) {
-    const next = tokens[at + 1];
-    if (tokens[at].type !== "identifier" || next.type !== "token_tree" || next.child(0)?.type !== "(") continue;
+  for (let after = 0; after + 1 < tokens.length; after += 1) {
+    const next = tokens[after + 1];
+    if (next.type !== "token_tree" || next.child(0)?.type !== "(") continue;
+    // `parse::<i32>(text)` calls parse: the name is the identifier before the turbofish.
+    let at = after;
+    if (tokens[after].type === ">") {
+      let depth = 0, open = after;
+      for (; open >= 0; open -= 1) { if (tokens[open].type === ">") depth += 1; else if (tokens[open].type === "<" && --depth === 0) break; }
+      if (open < 2 || tokens[open - 1].type !== "::") continue;
+      at = open - 2;
+    }
+    if (tokens[at].type !== "identifier") continue;
     const parts = [tokens[at].text];
     let start = at, broken = false;
     while (start >= 2 && ["::", "."].includes(tokens[start - 1].type)) {
@@ -518,9 +536,9 @@ function rustMacroCalls(tree: Node): Reference[] {
       const receiver = tokens[at - 2]?.type === "?" ? at - 3 : at - 2;
       if (!results.has(receiver)) continue;
       const held = results.get(receiver) ?? null;
-      if (UNWRAPS.has(tokens[at].text)) { results.set(at + 1, held); continue; }
+      if (UNWRAPS.has(tokens[at].text)) { results.set(after + 1, held); continue; }
       calls.push(makeReference("call", tokens[at], { name: `$receiver.${tokens[at].text}`, reference: `$receiver.${tokens[at].text}`, held }));
-      results.set(at + 1, held ? { call: `$receiver.${tokens[at].text}`, on: held } : null);
+      results.set(after + 1, held ? { call: `$receiver.${tokens[at].text}`, on: held } : null);
       continue;
     }
     if (broken || (start >= 1 && ["::", ".", "fn"].includes(tokens[start - 1].type))) continue;
@@ -528,7 +546,7 @@ function rustMacroCalls(tree: Node): Reference[] {
     if (name === "<dynamic>") continue;
     calls.push(makeReference("call", tokens[start], { name, reference: name }));
     const local = parts.length === 3 && parts[1] === "." ? parts[0] : null;
-    results.set(at + 1, local ? { call: `$receiver.${tokens[at].text}`, on: { local } } : { call: name });
+    results.set(after + 1, local ? { call: `$receiver.${tokens[at].text}`, on: { local } } : { call: name });
   }
   return calls;
 }

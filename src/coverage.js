@@ -19,7 +19,7 @@ import { readCobertura, readCoverageJson, readJacoco, readJunit, readLcov, repoP
 import { analyzeTree } from './analyze.js';
 import { frameworkScope } from './test-scope.js';
 import { TOP_LEVEL } from './analysis.js';
-import { buildGraph } from './graph.js';
+import { buildGraph, resolveModule } from './graph.js';
 import { AuthenticationError } from './systemone.js';
 import { compile, parseQuestions, readAnswer } from './ask.js';
 import { excerpt, leadingComment, shownLines, spanOf } from './questions.js';
@@ -53,6 +53,25 @@ const isUntested = method => (method.measured ? method.measured.lines.hit === 0 
 /** What a node in a test's request is, when it is not code the test reaches: a helper of its own, or the test it may repeat. */
 const HELPER = "the test's own helper, which it calls through to the code under test";
 const EARLIER = 'the earlier test this one may repeat';
+const MACRO = "a macro the test uses, which may hold its assertions";
+
+/**
+ * Where a C or C++ `#define NAME(...)` or a Rust `macro_rules! NAME` starts in a file's lines, and the lines it runs to: a #define
+ * to the first line not continued with a backslash, a macro_rules! to the brace that closes it.
+ */
+function macroIn(lines, name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const start = lines.findIndex(line => new RegExp(`^\\s*#\\s*define\\s+${escaped}\\s*\\(|^\\s*macro_rules!\\s*${escaped}\\b`).test(line));
+  if (start < 0) return null;
+  let end = start;
+  if (/^\s*#/.test(lines[start])) while (end < lines.length - 1 && /\\\s*$/.test(lines[end])) end++;
+  else for (let depth = 0, opened = false; end < lines.length; end++) {
+    for (const char of lines[end]) { if (char === '{') { depth++; opened = true; } else if (char === '}') depth--; }
+    if (opened && depth <= 0) break;
+  }
+  return { line: start + 1, text: lines.slice(start, end + 1).join('\n') };
+}
+const MACRO_LANGUAGES = new Set(['c', 'cpp', 'rust']);
 /** Asked of a method only once the call graph or the report has found no test runs it, and never with the branch questions. */
 const NEEDS_TEST = 'needs_test';
 
@@ -276,7 +295,7 @@ export function computeCoverage({ scan, graph, depth = DEFAULT_DEPTH, inScope = 
     // built itself reaches nothing, and that is exactly what the decides question is for. That its calls resolve to nothing is a
     // fact of the graph, and the report says so beside whatever the answers say, since the same fact also describes a test
     // whose target perch could not resolve.
-    if (!graph.callees(node.id).length) test.unresolved = [...new Set(graph.external(node.id).map(call => call.name))].sort();
+    if (!graph.callees(node.id).length && !graph.usesRepository(node.id)) test.unresolved = [...new Set(graph.external(node.id).map(call => call.name))].sort();
   }
   const reachedBy = new Map();
   for (const test of tests) for (const item of test.reach) {
@@ -796,10 +815,27 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, min = 0
     const shownIds = new Set(reached.slice(0, MAX_SHOWN).map(item => item.id));
     const holders = await Promise.all([...new Set(leaks.map(item => item.from))].filter(id => id !== node.id && !shownIds.has(id) && graph.nodes.get(id) && !graph.nodes.get(id).test)
       .slice(0, MAX_SHOWN / 2).map(id => neighbourSource({ id }).then(item => ({ id, ...item }))));
+    // A macro the test calls is no method, so the call graph does not reach it, and an EXPECT_EQ or an assert! inside one is the
+    // check the test makes. One defined in the test's file, or in a file it includes, is shown with it.
+    const macros = [];
+    if (MACRO_LANGUAGES.has(graph.files.get(node.path)?.file.language)) {
+      const testFile = graph.files.get(node.path).file;
+      const included = (testFile.imports ?? []).map(item => resolveModule(node.path, item.module, testFile.language, new Set(graph.files.keys()))).filter(Boolean);
+      const names = [...new Set(graph.external(node.id).map(call => String(call.name).replace(/!$/, '')).filter(name => /^\w+$/.test(name)))];
+      for (const path of [node.path, ...included]) {
+        const fileLines = await linesOf({ path });
+        for (const name of names) {
+          if (macros.some(item => item.name === name)) continue;
+          const found = macroIn(fileLines, name);
+          if (found) macros.push({ name, id: `${path}::${name}`, path, source: found.text });
+        }
+      }
+    }
     // The test, then the code it reaches and the helpers it calls through as the nodes of its call graph, nearest first, as a
     // scan shows a method.
     const build = budget => fitState((limit, shown) => {
       const nodes = [
+        ...macros.slice(0, shown).map(item => ({ id: item.id, path: item.path, source: item.source.split('\n').slice(0, limit).join('\n'), note: MACRO })),
         ...helpers.slice(0, shown).map(item => ({ id: item.node.id, path: item.node.path, source: excerpt(item.node, item.lines, limit), note: HELPER }) ),
         ...reached.slice(0, shown).map(item => ({ id: item.id, path: item.node.path, source: excerpt(item.node, item.lines, limit) })),
         ...holders.slice(0, Math.ceil(shown / 2)).map(item => ({ id: item.id, path: item.node.path, source: excerpt(item.node, item.lines, limit) })),

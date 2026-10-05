@@ -397,6 +397,19 @@ describe('perch coverage', () => {
     expect(reopened.closed).toEqual([]);
   });
 
+  it('shows the model a macro the test checks through', async () => {
+    const repo = await repository({
+      'src/add.cc': 'int add(int a, int b) {\n  return a + b;\n}\n',
+      'test/add_test.cc': '#include <gtest/gtest.h>\n\nint add(int a, int b);\n\n#define CHECK_SUM(a, b, sum) \\\n  EXPECT_EQ(add(a, b), sum)\n\nTEST(Add, Sums) {\n  CHECK_SUM(1, 2, 3);\n}\n',
+    });
+    const systemOne = scripted();
+    await run(repo, systemOne);
+    const { state } = systemOne.calls.find(call => call.state.test?.name === 'Add.Sums');
+    // The assertion is inside the macro, which no call graph reaches: without it the test reads as asserting nothing.
+    expect(state.graph.nodes).toContainEqual({ id: 'test/add_test.cc::CHECK_SUM', path: 'test/add_test.cc',
+      source: '#define CHECK_SUM(a, b, sum) \\\n  EXPECT_EQ(add(a, b), sum)', note: 'a macro the test uses, which may hold its assertions' });
+  });
+
   it('calls a test empty only above the floor', async () => {
     // saves an order is scripted as deciding nothing at 0.7; at 0.45 it is under the floor.
     const under = await run(await repository(), scripted({ tests: { 'saves an order': { decides: ['nothing', 0.45], infra: 0.1, cost: 2 } } }));
