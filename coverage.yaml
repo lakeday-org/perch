@@ -39,7 +39,6 @@
     assertion_roulette: Many unrelated assertions, so a failure does not say which behavior broke
     mystery_guest: It depends on a file, record or service that the test does not create
     eager: It drives several methods and asserts on only one of them
-    dead_setup: It builds data that no assertion reads
 
 - name: infra
   each: test

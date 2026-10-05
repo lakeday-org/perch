@@ -675,8 +675,20 @@ function readAll(questions, answers) {
 }
 
 /**
- * Which answered tests are worth keeping. A test is smelly when its smell answer is not `none` and the chance of some smell is at
- * the floor or over it. Among the tests left, two that were said to decide the same behavior are one test written twice when
+ * The smells that mean a test passes whatever the code under test does. One of these makes a test weak, and dropping it loses
+ * nothing it checked. The other smells make a test harder to read or keep up, and it still checks what it checks.
+ */
+export const VOID_SMELLS = new Set(['asserts_mock', 'no_assertion', 'tautology']);
+/** The chance an answer gives the smells `kinds` accepts, and the likeliest of them. */
+const smellShare = (smell, kinds) => {
+  const named = Object.entries(smell.probabilities).filter(([kind]) => kinds(kind)).sort(([, a], [, b]) => b - a);
+  return { probability: named.reduce((total, [, p]) => total + p, 0), kind: named[0]?.[0] ?? null };
+};
+const voidShare = smell => smellShare(smell, kind => VOID_SMELLS.has(kind));
+
+/**
+ * Which answered tests are worth keeping. A test is weak when the chance of a smell in VOID_SMELLS is at the floor or over it.
+ * Among the tests left, two that were said to decide the same behavior are one test written twice when
  * they run the same code: measured, when the coverage report says which lines each test ran and both ran exactly the same lines
  * of the code under test; otherwise, when either has no such record, when they call exactly the same methods. The first by
  * path and line is kept.
@@ -687,8 +699,7 @@ export function judgeTests(tests, answered, min, repeats = null) {
     const answers = answered.get(test.id)?.answers;
     if (!answers) continue;
     // A choice's distribution names every option it gave weight to; one it left out had none.
-    const somethingWrong = 1 - (answers.smell.probabilities.none ?? 0);
-    if (answers.smell.choice !== 'none' && somethingWrong >= min) { smelly.add(test.id); continue; }
+    if (voidShare(answers.smell).probability >= min) { smelly.add(test.id); continue; }
     // That no change to the code under test would make it fail is judged at the floor like any other answer: under it, the
     // test is not held to have checked nothing.
     if (answers.decides.choice === 'nothing' && (answers.decides.probabilities.nothing ?? 0) >= min) { checksNothing.add(test.id); continue; }
@@ -902,7 +913,6 @@ const SMELL_NOTES = {
   assertion_roulette: 'Makes many unrelated checks.',
   mystery_guest: 'Uses a file, record or service it does not create.',
   eager: 'Runs several methods and checks one.',
-  dead_setup: 'Builds data nothing checks.',
 };
 
 /** A score's expected level, as a share of its top level: 0 for the first level, 1 for the last. */
@@ -938,7 +948,7 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
   const measurement = coverage.measurement;
   // The tests that could go: weak, checking nothing, or repeating another. One whose problem was closed is one someone chose to
   // keep, and one that could not be asked about is not called weak.
-  const dropped = new Set(coverage.tests.filter(test => (judged.smelly.has(test.id) && !isClosed(answers.tests.get(test.id).answers.smell.choice, test.id))
+  const dropped = new Set(coverage.tests.filter(test => (judged.smelly.has(test.id) && !isClosed(voidShare(answers.tests.get(test.id).answers.smell).kind, test.id))
     || (judged.checksNothing.has(test.id) && !isClosed('checks_nothing', test.id)) || (judged.redundantWith.has(test.id) && !isClosed('redundant', test.id))).map(test => test.id));
   // What the tests kept ran and what the dropped tests ran, file by file, from the reports' per-test records.
   const kept = { lines: new Map(), arms: new Map() }, gone = { lines: new Map(), arms: new Map() };
@@ -1035,11 +1045,14 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
       own.push(add({ kind: 'redundant', subject: 'test', unit: test.id, path: node.path, line: node.line, name: node.qualified_name, probability: judged.pairProbability.get(test.id),
         note: `Same checks and ${redundantBasis === 'measured' ? 'lines' : 'calls'} as ${like}.` }));
     }
-    // A smell is as likely as the answer says some smell is, not as likely as the one it named: the same number that decides
-    // whether the test is worth keeping, so a test is never judged smelly while its smell sits unlisted under the floor. It is
-    // named by the likeliest smell, the way a scan names a defect by its likeliest kind.
-    if (said && said.smell.choice !== 'none') own.push(add({ kind: said.smell.choice, subject: 'test', unit: test.id, path: node.path, line: node.line, name: node.qualified_name,
-      probability: 1 - (said.smell.probabilities.none ?? 0), note: SMELL_NOTES[said.smell.choice] }));
+    // A weak test is listed as likely as the answer says it checks nothing, the same number that judged it weak, and named by the
+    // likeliest such smell. Otherwise the likeliest smell, if any, is listed as likely as the other smells together: the test
+    // stays kept, and the problem is one to fix rather than a reason to delete it.
+    if (said) {
+      const smell = judged.smelly.has(test.id) ? voidShare(said.smell) : smellShare(said.smell, kind => kind !== 'none' && !VOID_SMELLS.has(kind));
+      if (smell.kind && (judged.smelly.has(test.id) || said.smell.choice === smell.kind)) own.push(add({ kind: smell.kind, subject: 'test', unit: test.id, path: node.path, line: node.line,
+        name: node.qualified_name, probability: smell.probability, note: SMELL_NOTES[smell.kind] }));
+    }
     // Only one of the two is listed for a test, as it is judged: a smell first, since a smelly test is not asked what it checks.
     if (judged.checksNothing.has(test.id)) own.push(add({ kind: 'checks_nothing', subject: 'test', unit: test.id, path: node.path, line: node.line, name: node.qualified_name,
       probability: said.decides.probabilities.nothing, note: 'Passes whatever the code it calls does.' }));

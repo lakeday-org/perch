@@ -19,7 +19,7 @@ const words = label => String(label ?? '').replaceAll('_', ' ');
 const PROBLEM_NAMES = {
   untested: 'No test', edge_case: 'Untested branch', redundant: 'Duplicate test', checks_nothing: 'Checks nothing',
   asserts_mock: 'Checks its own mock', no_assertion: 'No assertion', tautology: 'Restates the code', assertion_roulette: 'Too many checks',
-  mystery_guest: 'Hidden dependency', eager: 'Checks one of many', dead_setup: 'Unused setup', infra: 'Live service', unresolved: 'Calls no repo code',
+  mystery_guest: 'Hidden dependency', eager: 'Checks one of many', infra: 'Live service', unresolved: 'Calls no repo code',
 };
 const problemName = kind => PROBLEM_NAMES[kind] ?? words(kind);
 /** A saved report's ISO timestamp, to the minute. Seconds and milliseconds only make two dates harder to compare by eye. */
@@ -263,7 +263,13 @@ function changes(report, index) {
 }
 
 /** The kinds of problem that say a test is not worth its keep, as the smell question names them. */
-const SMELLS = new Set(['asserts_mock', 'no_assertion', 'tautology', 'assertion_roulette', 'mystery_guest', 'eager', 'dead_setup', 'checks_nothing']);
+const SMELLS = new Set(['asserts_mock', 'no_assertion', 'tautology', 'assertion_roulette', 'mystery_guest', 'eager', 'checks_nothing']);
+/** What fixing a smell that leaves the test checking something takes: the test stays, written so it is easier to read. */
+const SMELL_FIXES = {
+  assertion_roulette: 'Split it into tests that each check one behavior, or give each assertion a message saying what it checks. Keep every check it makes.',
+  mystery_guest: 'Build what it reads in the test or its setup, so a reader sees the input next to the assertion. Keep every check it makes.',
+  eager: 'Split it so each method it drives has a test asserting on what that method returns. Keep every check it makes.',
+};
 
 /**
  * What a problem is about and what perch found, for the rows and notes that show it: the test or method it is on, and one fact.
@@ -444,10 +450,6 @@ function sourceTable(report, index) {
 function testTable(report, index) {
   const files = report.files.filter(file => file.kind === 'test');
   const notKept = file => file.totals.tests - file.totals.useful;
-  // The time the file's duplicate and smelly tests took: what cutting them saves.
-  const cuttable = new Set(['redundant', ...SMELLS]);
-  const saved = file => file.tests.map(id => index.tests.get(id)).filter(test => typeof test?.run?.time === 'number'
-    && (test.findings ?? []).some(id => cuttable.has(index.findings.get(id)?.kind))).reduce((sum, test) => sum + test.run.time, 0);
   const rows = [...files].sort((a, b) => notKept(b) - notKept(a) || a.path.localeCompare(b.path)).map(file => {
     const totals = file.totals;
     const kept = ratio(totals.useful, totals.tests);
@@ -456,7 +458,7 @@ function testTable(report, index) {
     const timed = typeof totals.seconds === 'number';
     return `<tr data-path="${escape(file.path)}"><td class="path" data-v="${escape(file.path)}"><a href="${index.href(file.path)}">${escape(file.path)}</a></td>`
       + `<td class="bars" data-v="${kept ?? -1}">${cell(kept, { count: `${escape(totals.useful)}/${escape(totals.tests)}` })}</td>`
-      + count(totals.redundant) + count(totals.smelly) + count(totals.infra) + time(timed ? totals.seconds : null) + time(timed ? saved(file) : null) + '</tr>';
+      + count(totals.redundant) + count(totals.smelly) + count(totals.infra) + time(timed ? totals.seconds : null) + time(timed ? totals.dropped_seconds ?? 0 : null) + '</tr>';
   }).join('');
   const heads = th('File', false) + th('Quality', true, true, 'Tests worth keeping, of all the file\'s tests: ones that check something and repeat no other test.')
     + th('Duplicates', true, false, 'Tests that check the same thing with the same code as an earlier test.')
@@ -755,6 +757,8 @@ function fixSteps(finding, index) {
       const kept = index.tests.get(test.redundant_with);
       lines.push(`The test ${name} ${test.redundant_basis === 'measured' ? 'runs the same lines' : 'calls the same code'} and checks the same thing as "${kept ? testName(kept) : test.redundant_with}"${kept ? ` (${at(kept)})` : ''}.`,
         'Compare the two. Delete this one if it asserts nothing the other does not; otherwise move what differs into the other and delete this one.');
+    } else if (SMELL_FIXES[finding.kind]) {
+      lines.push(`The test ${name} has a problem: ${finding.note}`, SMELL_FIXES[finding.kind]);
     } else if (SMELLS.has(finding.kind)) {
       lines.push(`The test ${name} has a problem: ${finding.note}`, 'Make it drive the code under test and assert on what that code returns. Delete it if nothing it checks is worth keeping.');
     } else if (finding.kind === 'infra') {
@@ -948,7 +952,7 @@ table.problems td:nth-child(3){white-space:normal;max-width:260px;overflow-wrap:
 /* Problem kinds, as pills. */
 .kind{display:inline-block;padding:1px 8px;border-radius:999px;font:500 11.5px/1.7 var(--mono);white-space:nowrap;background:var(--raised);color:var(--muted)}
 .k-untested,.k-edge_case{background:color-mix(in srgb,var(--low) 14%,transparent);color:var(--low-ink)}
-.k-redundant,.k-checks_nothing,.k-asserts_mock,.k-no_assertion,.k-tautology,.k-assertion_roulette,.k-mystery_guest,.k-eager,.k-dead_setup{background:color-mix(in srgb,var(--mid) 13%,transparent);color:var(--mid)}
+.k-redundant,.k-checks_nothing,.k-asserts_mock,.k-no_assertion,.k-tautology,.k-assertion_roulette,.k-mystery_guest,.k-eager{background:color-mix(in srgb,var(--mid) 13%,transparent);color:var(--mid)}
 .k-infra{background:color-mix(in srgb,var(--cyan) 13%,transparent);color:var(--cyan)}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chip{display:inline-flex;align-items:center;gap:6px;padding:2px 10px 2px 3px;border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--muted);font:500 12px var(--sans);cursor:pointer}

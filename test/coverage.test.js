@@ -309,8 +309,9 @@ describe('perch coverage', () => {
     const find = (kind, unit) => report.findings.find(finding => finding.kind === kind && finding.unit === unit);
     expect(find('redundant', 'tests/test_cart.py::test_discount_20').probability).toBe(0.8);
     expect(find('redundant', 'tests/test_cart.py::test_discount_20').note).toBe('Same checks and calls as test_discount_10 at line 9.');
-    // The chance of some smell: the scripted answer gives asserts_mock 0.8 and splits 0.2 over the other seven options.
-    expect(find('asserts_mock', 'tests/test_cart.py::test_count_mocked').probability).toBeCloseTo(1 - 0.2 / 7);
+    // The chance it checks nothing: the scripted answer gives asserts_mock 0.8 and splits 0.2 over the other six options, two of
+    // them no_assertion and tautology.
+    expect(find('asserts_mock', 'tests/test_cart.py::test_count_mocked').probability).toBeCloseTo(0.8 + 2 * 0.2 / 6);
     // That no test reaches restock is the call graph's; how much that matters is the answer's.
     expect(find('untested', 'cart.py::restock').probability).toBe(0.9);
     expect(find('edge_case', 'cart.py::apply_discount')).toMatchObject({ line: 7, probability: 0.7 });
@@ -397,6 +398,20 @@ describe('perch coverage', () => {
     const reopened = await run(repo, scripted());
     expect(reopened.findings.map(finding => finding.id)).toContain(repeat.id);
     expect(reopened.closed).toEqual([]);
+  });
+
+  it('keeps a test whose smell leaves it checking something', async () => {
+    const tests = { test_rate_mocked: { decides: ['invalid_input', 0.7], smell: ['mystery_guest', 0.8] } };
+    const report = await run(await repository(), scripted({ tests }));
+    const mocked = report.tests.find(test => test.id === 'tests/test_cart.py::test_rate_mocked');
+    // Listed as likely as the smells that leave a test checking something: mystery_guest's 0.8, and assertion_roulette's and
+    // eager's shares of the 0.2 split over the other six options.
+    const smell = report.findings.find(finding => finding.unit === mocked.id);
+    expect(smell).toMatchObject({ kind: 'mystery_guest', note: 'Uses a file, record or service it does not create.' });
+    expect(smell.probability).toBeCloseTo(0.8 + 2 * 0.2 / 6);
+    // It still checks what it checks: kept, and not among the tests dropping would save.
+    expect(mocked.useful).toBe(true);
+    expect(report.totals.drop.count).toBe(3);
   });
 
   it('calls a test empty only above the floor', async () => {
@@ -523,9 +538,9 @@ it('charges the stubbed amount', () => {
     expect(stub.unresolved).toEqual(['charge', 'expect', 'vi.fn']);
     expect(stub.useful).toBe(false);
     const own = report.findings.filter(finding => finding.unit === stub.id).map(finding => [finding.kind, finding.probability]);
-    // asserts_mock at 0.9 leaves 0.1 over the other seven smells, one of them none: some smell is 1 - 0.1 / 7.
+    // asserts_mock at 0.9 leaves 0.1 over the other six options, two of them no_assertion and tautology.
     expect(own.map(([kind]) => kind)).toEqual(['asserts_mock', 'unresolved']);
-    expect(own[0][1]).toBeCloseTo(1 - 0.1 / 7);
+    expect(own[0][1]).toBeCloseTo(0.9 + 2 * 0.1 / 6);
     // That none of its calls resolve is the call graph's; whether it tests nothing here is the answer's.
     expect(own[1][1]).toBe(0.8);
     expect('tests_nothing_here' in systemOne.calls.find(call => call.name === 'charges the stubbed amount').questions).toBe(true);

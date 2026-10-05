@@ -8,7 +8,7 @@ import { bold, COLOR, dim, keepEnd, keepStart, percent, relative, sureness, tabl
 
 /** Every kind of problem a coverage report can list, and so everything `--filter kind=` accepts. */
 export const COVERAGE_KINDS = ['untested', 'edge_case', 'redundant', 'asserts_mock', 'no_assertion', 'tautology',
-  'assertion_roulette', 'mystery_guest', 'eager', 'dead_setup', 'checks_nothing', 'infra', 'unresolved'];
+  'assertion_roulette', 'mystery_guest', 'eager', 'checks_nothing', 'infra', 'unresolved'];
 
 const plural = (count, noun, many = `${noun}s`) => `${count} ${count === 1 ? noun : many}`;
 /** A 0..1 value as a whole percentage; null is a value nobody answered, which is a dash and not a zero. */
