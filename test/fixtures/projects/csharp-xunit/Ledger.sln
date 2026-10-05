@@ -1,0 +1,14 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Ledger", "src\Ledger\Ledger.csproj", "{1B4E6C02-7B7D-4B52-9C0D-2A1D3F9E8A01}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Ledger.Tests", "tests\Ledger.Tests\Ledger.Tests.csproj", "{2C5F7D13-8C8E-4C63-AD1E-3B2E4F0F9B12}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Ledger.Seed", "tools\Ledger.Seed\Ledger.Seed.csproj", "{3D6A8E24-9D9F-4D74-BE2F-4C3F5A1A0C23}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+EndGlobal

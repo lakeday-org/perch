@@ -333,6 +333,65 @@ function jvmImportReference(node: Node, language: string): Reference | null {
   return makeReference("import", node, { name: reference, reference, module: module.join("."), imported_name: imported, alias: local });
 }
 
+/**
+ * A C# `using` as the graph needs it, with the shape a Java import has: `using Shop.Pricing;` brings a namespace in whole, as an
+ * on-demand import does; `using static Shop.Cart;` brings Cart's static members in, as `import static Shop.Cart.*` would; and
+ * `using Alias = Shop.Cart;` binds one class under a local name. A `global using` is the same directive for every file.
+ */
+function csharpUsingReference(node: Node): Reference | null {
+  const alias = node.childForFieldName("name");
+  const path = node.namedChildren.find((item) => item !== alias && (item.type === "qualified_name" || item.type === "identifier"));
+  if (!path) return null;
+  const segments = path.text.split(".").map((part) => part.trim());
+  const isStatic = node.children.some((item) => item.type === "static");
+  const last = segments.at(-1) ?? "";
+  const [module, imported, local] = alias ? [segments.slice(0, -1), last, alias.text]
+    : isStatic ? [segments.slice(0, -1), `${last}.*`, "*"]
+    : [segments, "*", "*"];
+  const reference = alias || isStatic ? segments.join(".") : `${segments.join(".")}.*`;
+  return makeReference("import", node, { name: reference, reference, module: module.join("."), imported_name: imported, alias: local });
+}
+
+/**
+ * A Swift import names a module, and every top-level declaration of the module is then visible by its bare name: the shape of an
+ * on-demand import, with the module as what is imported. `import struct Shop.Cart` names one declaration of it; the module is
+ * still the first segment, and that is what the graph places it by.
+ */
+function swiftImportReference(node: Node): Reference | null {
+  const path = node.namedChildren.find((item) => item.type === "identifier");
+  const module = path?.namedChildren.find((item) => item.type === "simple_identifier")?.text ?? null;
+  if (!module) return null;
+  return makeReference("import", node, { name: module, reference: module, module, imported_name: "*", alias: module });
+}
+
+/**
+ * A Scala import as the graph needs it, with the shape a Java import has: `import a.b.C` binds C from package a.b, `import a.b._`
+ * or `a.b.*` everything in it, and `import a.b.{C, D => E, F as G}` each selected name, renamed where it says. Which package
+ * holds which class is the graph's to decide.
+ */
+function scalaImportReferences(node: Node): Reference[] {
+  const segments = node.namedChildren.filter((item) => item.type === "identifier").map((item) => item.text);
+  const selectors = node.namedChildren.find((item) => item.type === "namespace_selectors");
+  const record = (module: string[], imported: string, local: string) => {
+    const reference = imported === "*" ? `${module.join(".")}.*` : [...module, imported].join(".");
+    return makeReference("import", node, { name: reference, reference, module: module.join("."), imported_name: imported, alias: local });
+  };
+  if (node.namedChildren.some((item) => item.type === "namespace_wildcard")) return [record(segments, "*", "*")];
+  if (selectors) {
+    return selectors.namedChildren.flatMap((item) => {
+      if (item.type === "identifier") return [record(segments, item.text, item.text)];
+      if (item.type === "namespace_wildcard") return [record(segments, "*", "*")];
+      if (item.type.endsWith("renamed_identifier")) {
+        const name = item.childForFieldName("name")?.text, alias = item.childForFieldName("alias")?.text;
+        // `C => _` hides a name rather than importing it.
+        return name && alias && alias !== "_" ? [record(segments, name, alias)] : [];
+      }
+      return [];
+    });
+  }
+  return segments.length > 1 ? [record(segments.slice(0, -1), segments.at(-1)!, segments.at(-1)!)] : [];
+}
+
 function callReference(node: Node, language: string): string {
   if (node.type === "method_invocation") {
     const object = child(node, "object");
@@ -379,12 +438,18 @@ const calleeOf = (node: Node): Node | null => (node.type === 'method_invocation'
 function memberOf(callee: Node | null, language: string): { receiver: Node | null; member: string } | null {
   if (!callee) return null;
   if (callee.type === 'method_invocation') return { receiver: child(callee, 'object'), member: text(child(callee, 'name')) };
-  const receiver = child(callee, 'object', 'value', 'argument', 'operand');
+  // C#'s member_access_expression holds its receiver as `expression`.
+  const receiver = child(callee, 'object', 'value', 'argument', 'operand', 'expression');
   const field = child(callee, 'property', 'attribute', 'field', 'name');
   if (receiver && field && /^[\p{L}_$][\p{L}\p{N}_$]*$/u.test(text(field))) return { receiver, member: text(field) };
   if (language === 'kotlin' && callee.type === 'navigation_expression') {
     const member = [...walkNodes(callee)].reverse().find(item => item.type === 'simple_identifier');
     if (member && member.endIndex === callee.endIndex) return { receiver: callee.namedChildren[0] ?? null, member: text(member) };
+  }
+  // Swift's `Cart().total`: a target and a navigation suffix holding the member's name.
+  if (language === 'swift' && callee.type === 'navigation_expression') {
+    const member = child(callee, 'suffix')?.childForFieldName('suffix');
+    if (member?.type === 'simple_identifier') return { receiver: child(callee, 'target'), member: text(member) };
   }
   return null;
 }
@@ -432,6 +497,8 @@ function isPassedAsValue(node: Node): boolean {
   const parent = node.parent;
   if (!parent) return false;
   if (parent.type === "arguments" || parent.type === "argument_list") return true;
+  // The receiver of a member access, `R` in Scala's or Rust's `R.standard`, sits in a `value` field and is handed to nothing.
+  if (parent.type === "field_expression") return false;
   // Go writes both sides of `:=`, `=` and `range` as an expression_list; the one on the left names what is assigned to.
   if (parent.type === "expression_list") {
     const left = parent.parent?.childForFieldName("left");
@@ -682,9 +749,20 @@ function valueOf(value: Node | null, language: string): Held | null {
     const split = memberOf(callee, language);
     if (split && UNWRAPS.has(split.member)) return valueOf(split.receiver, language);
   }
+  // Scala's uniform access: `Money.zero` or `entry.imbalance` written without parentheses runs the parameterless method it names,
+  // so as a value it is what that method returns, as the call `Money.zero()` would be.
+  if (language === 'scala' && value.type === 'field_expression') {
+    const name = validReference(pathText(value, language));
+    if (name !== '<dynamic>') return { call: name };
+    const split = memberOf(value, language);
+    const on = split ? receiverOf(split.receiver, language) : null;
+    return on && split?.member ? { call: `$receiver.${split.member}`, on } : null;
+  }
   if (value.type === 'new_expression') return { type: bareType(child(value, 'constructor', 'type')) };
   if (value.type === 'object_creation_expression') return { type: bareType(child(value, 'type')) };
   if (value.type === 'struct_expression') return { type: bareType(child(value, 'name')) };
+  // Scala's `new Cart()`: the type is the first named child after `new`.
+  if (value.type === 'instance_expression') return { type: bareType(value.namedChildren.find(item => item.type.endsWith('type') || item.type === 'type_identifier') ?? null) };
   if (CALL_TYPES.has(value.type)) {
     const callee = callReference(value, language);
     if (callee === '<dynamic>') return null;
@@ -700,9 +778,23 @@ function bindingOf(node: Node, language: string): { name: string; held: Held } |
   let name: Node | null, type: Node | null = null, value: Node | null = null;
   if (node.type === 'variable_declarator') {
     name = child(node, 'name'); value = child(node, 'value');
-    type = child(node, 'type') ?? (['local_variable_declaration', 'field_declaration'].includes(node.parent?.type ?? '') ? child(node.parent!, 'type') : null);
+    // Java writes the type on the declaration around the declarator; so does C#, as a variable_declaration, with the value a
+    // child of the declarator after its `=` and no field of its own.
+    type = child(node, 'type') ?? (['local_variable_declaration', 'field_declaration', 'variable_declaration'].includes(node.parent?.type ?? '') ? child(node.parent!, 'type') : null);
+    if (!value && node.parent?.type === 'variable_declaration') value = node.namedChildren.find(item => item !== name && !isComment(item)) ?? null;
   } else if (node.type === 'assignment' || node.type === 'assignment_expression') {
-    name = child(node, 'left'); value = child(node, 'right');
+    name = child(node, 'left', 'target'); value = child(node, 'right', 'result');
+    // Swift wraps the assigned name: `cart = Cart()` assigns to a directly_assignable_expression holding the identifier.
+    if (name?.type === 'directly_assignable_expression') name = name.namedChildren[0] ?? null;
+  } else if (node.type === 'property_declaration' && language === 'swift') {
+    // `let cart = Cart()` and `var cart: Cart!`: the name is the bound identifier of the pattern, the type its annotation.
+    name = child(node, 'name')?.childForFieldName('bound_identifier') ?? null;
+    type = node.namedChildren.find(item => item.type === 'type_annotation')?.childForFieldName('name') ?? null;
+    value = child(node, 'value');
+  } else if (node.type === 'val_definition' || node.type === 'var_definition') {
+    // Scala's `val cart = new Cart()` and `var cart: Cart = _`.
+    name = child(node, 'pattern'); type = child(node, 'type'); value = child(node, 'value');
+    if (value?.type === 'wildcard') value = null;
   } else if (node.type === 'field_declaration' && (language === 'cpp' || language === 'c')) {
     // `Ledger book_{Currency::USD};` in a class: a member the class's methods name bare.
     type = child(node, 'type');
@@ -740,10 +832,14 @@ function bindingOf(node: Node, language: string): { name: string; held: Held } |
 function basesOf(node: Node): string[] {
   const names: Node[] = [];
   if (node.type === 'class_definition') names.push(...(child(node, 'superclasses')?.namedChildren ?? []));
-  else if (node.type === 'class_declaration' || node.type === 'class' || node.type === 'class_specifier' || node.type === 'struct_specifier') {
+  // Scala's `class A extends B with C`: the extends clause lists each type.
+  if (['class_definition', 'object_definition', 'trait_definition'].includes(node.type)) names.push(...(child(node, 'extend')?.namedChildren.filter(item => item.type.endsWith('type') || item.type === 'type_identifier') ?? []));
+  if (node.type === 'class_declaration' || node.type === 'class' || node.type === 'class_specifier' || node.type === 'struct_specifier') {
     const superclass = child(node, 'superclass');
     if (superclass) names.push(...superclass.namedChildren);
-    for (const list of node.namedChildren.filter(item => ['class_heritage', 'super_interfaces', 'base_class_clause'].includes(item.type))) {
+    // Swift's `class A: B, C` lists each as an inheritance specifier.
+    for (const item of node.namedChildren.filter(item => item.type === 'inheritance_specifier')) names.push(child(item, 'inherits_from') ?? item);
+    for (const list of node.namedChildren.filter(item => ['class_heritage', 'super_interfaces', 'base_class_clause', 'base_list'].includes(item.type))) {
       for (const item of list.namedChildren) {
         if (item.type === 'extends_clause') names.push(child(item, 'value') ?? item.namedChildren[0]!);
         else if (item.type === 'implements_clause' || item.type === 'type_list') names.push(...item.namedChildren);
@@ -760,7 +856,12 @@ function parameterOf(node: Node): { name: string; held: Held } | null {
   if (node.type === 'typed_parameter') { name = node.namedChildren.find(item => item.type === 'identifier') ?? null; type = child(node, 'type'); }
   else if (node.type === 'typed_default_parameter') { name = child(node, 'name'); type = child(node, 'type'); }
   else if (node.type === 'required_parameter' || node.type === 'optional_parameter') { name = child(node, 'pattern'); type = child(node, 'type'); }
-  else if (node.type === 'formal_parameter' || node.type === 'parameter') { name = child(node, 'name', 'pattern'); type = child(node, 'type'); }
+  // Scala's `class Quoter(card: RateCard)`: a constructor parameter the class's methods name bare.
+  else if (node.type === 'formal_parameter' || node.type === 'parameter' || node.type === 'class_parameter') {
+    name = child(node, 'name', 'pattern'); type = child(node, 'type');
+    // Swift's parameter holds its type under a second `name` field: `parcel: Parcel` is a simple_identifier and then a user_type.
+    if (!type && name?.type === 'simple_identifier') type = node.namedChildren.find(item => item.type === 'user_type' || item.type.endsWith('_type')) ?? null;
+  }
   // `for (Box b : boxes)` and `catch (StockException e)` in Java: a variable with the type written before it.
   else if (node.type === 'enhanced_for_statement') { name = child(node, 'name'); type = child(node, 'type'); }
   else if (node.type === 'catch_formal_parameter') { name = child(node, 'name'); type = node.namedChildren.find(item => item.type === 'catch_type') ?? null; }
@@ -778,7 +879,10 @@ function parameterOf(node: Node): { name: string; held: Held } | null {
 /** A function's declared return type: Python's `-> Entry`, a TypeScript annotation, Java's method type, Rust's `-> Entry`. */
 function declaredReturn(node: Node, language: string): string | null {
   if (!isFunction(node)) return null;
-  const declared = child(node, 'return_type') ?? (['java', 'cpp', 'c', 'c_sharp', 'csharp'].includes(language) ? child(node, 'type') : null);
+  // Java's method type, C#'s `returns`, Scala's `return_type`; Swift writes the type after `->` with no field for it.
+  const arrow = language === 'swift' ? node.children.findIndex(item => item.type === '->') : -1;
+  const declared = child(node, 'return_type', 'returns') ?? (['java', 'cpp', 'c', 'c_sharp', 'csharp'].includes(language) ? child(node, 'type') : null)
+    ?? (arrow >= 0 ? node.children.slice(arrow + 1).find(item => item.isNamed) ?? null : null);
   // `sort(): this` in TypeScript and `-> Self` in Rust: an instance of the class the method is in, whichever that is.
   if (declared && /^(?::|->)?\s*&?\s*(?:mut\s+)?(?:this|Self)$/.test(text(declared).trim())) return '$self';
   return bareType(declared);
@@ -840,9 +944,16 @@ export function referenceVisitor(language: string): Visitor & { finish(index: Sy
       ...(owner ? { source: `function:${owner.startIndex}` } : {}) });
   }
   if (IMPORT_TYPES.has(node.type) || (language === "kotlin" && node.type === "import_header")) {
-    if (language !== "kotlin") references.push(...importReferences(node, language));
-    const binding = language === "java" || language === "kotlin" ? jvmImportReference(node, language) : null;
-    if (binding) references.push(binding);
+    // Each of these languages places a name by package or module, which its own reader records; the generic reader's record of
+    // the directive as a whole would bind nothing.
+    if (language === "csharp" || language === "c_sharp") { const using = csharpUsingReference(node); if (using) references.push(using); }
+    else if (language === "swift") { const imported = swiftImportReference(node); if (imported) references.push(imported); }
+    else if (language === "scala") references.push(...scalaImportReferences(node));
+    else {
+      if (language !== "kotlin") references.push(...importReferences(node, language));
+      const binding = language === "java" || language === "kotlin" ? jvmImportReference(node, language) : null;
+      if (binding) references.push(binding);
+    }
   } else if (language === 'groovy' && node.type === 'func') {
     const unit = node.parent, block = unit?.parent;
     // A declaration's signature also contains a func node; only uses are calls.
@@ -885,6 +996,13 @@ export function referenceVisitor(language: string): Visitor & { finish(index: Sy
   } else if (isMemberRead(node)) {
     const name = validReference(text(node, 128));
     if (name !== "<dynamic>") references.push(makeReference("read", node, { name, reference: name }));
+    else if (language === 'scala') {
+      // `Parcel(1, sides).girth`: a member of what the receiver holds, kept with the receiver, since in Scala the read may run
+      // a parameterless method as a call would.
+      const split = memberOf(node, language);
+      const held = split ? receiverOf(split.receiver, language) : null;
+      if (split?.member && held) references.push(makeReference("read", node, { name: `$receiver.${split.member}`, reference: `$receiver.${split.member}`, held }));
+    }
   }
 
   };

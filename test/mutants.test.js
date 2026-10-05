@@ -33,6 +33,19 @@ describe('mutants', () => {
     expect(edits(go)).toEqual(['boundary 3 >=>>', 'logic 3 &&>||', 'condition 3 a >= 100 && !b>!(a >= 100 && !b)', 'not 3 !b>b', 'arithmetic 4 ->+']);
   });
 
+  it('reads C#, Swift and Scala operators, negations, conditions and returns', () => {
+    const csharp = mutantsOf({ source: 'class C {\n  int F(int a, bool b) {\n    if (a >= 100 || !b) return 0;\n    while (a < 0) a++;\n    return a - 2;\n  }\n}\n', language: 'c_sharp', line: 2, end_line: 6 });
+    expect(edits(csharp)).toEqual(['boundary 3 >=>>', 'boundary 4 <><=', 'logic 3 ||>&&', 'condition 3 a >= 100 || !b>!(a >= 100 || !b)', 'condition 4 a < 0>!(a < 0)', 'not 3 !b>b', 'arithmetic 5 ->+', 'return 3 0>1']);
+    // Swift reads `a >= 100 || !b` as an infix_expression with a custom operator, and a return as a control transfer.
+    const swift = mutantsOf({ source: 'func f(_ a: Int, _ b: Bool) -> Int {\n    if a >= 100 || !b { return 0 }\n    if a > 5 { return 1 }\n    return a - 2\n}\n', language: 'swift', line: 1, end_line: 5 });
+    expect(edits(swift)).toEqual(['boundary 2 >=>>', 'boundary 3 >>>=', 'logic 2 ||>&&', 'condition 2 a >= 100 || !b>!(a >= 100 || !b)', 'condition 3 a > 5>!(a > 5)', 'not 2 !b>b', 'arithmetic 4 ->+', 'return 2 0>1', 'return 3 1>0']);
+    // Scala writes every binary operator as an infix_expression whose operator is a named operator_identifier.
+    const scala = mutantsOf({ source: 'object C {\n  def f(a: Int, b: Boolean): Int = {\n    if (a >= 100 || !b) return 0\n    a - 2\n  }\n}\n', language: 'scala', line: 2, end_line: 5 });
+    expect(edits(scala)).toEqual(['boundary 3 >=>>', 'logic 3 ||>&&', 'condition 3 a >= 100 || !b>!(a >= 100 || !b)', 'not 3 !b>b', 'arithmetic 4 ->+', 'return 3 0>1']);
+    // A Scala infix method call, `a max b`, is no operator to mutate.
+    expect(mutantsOf({ source: 'object C {\n  def f(a: Int, b: Int): Int = a max b\n}\n', language: 'scala', line: 2, end_line: 2 })).toEqual([]);
+  });
+
   it('keeps to the method it is given', () => {
     const source = 'function a() {\n  return 1 < 2;\n}\nfunction b() {\n  return 3 > 4;\n}\n';
     expect(edits(mutantsOf({ source, language: 'javascript', line: 4, end_line: 6 }))).toEqual(['boundary 5 >>>=']);

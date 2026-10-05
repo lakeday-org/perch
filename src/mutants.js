@@ -19,17 +19,24 @@ const LOGIC = { '&&': '||', '||': '&&', and: 'or', or: 'and' };
 const PRIORITY = ['boundary', 'logic', 'condition', 'not', 'arithmetic', 'boolean', 'return'];
 
 // The node that holds a binary operator, by language. Where the grammar gives the operator no field, it is the unnamed child.
+// Scala writes every binary operator as an infix_expression whose operator is a named operator_identifier; Swift reads a
+// comparison beside a `||` as an infix_expression with a custom_operator in its `op` field.
 const BINARY = new Set(['binary_expression', 'binary_operator', 'boolean_operator', 'comparison_operator',
-  'comparison_expression', 'equality_expression', 'additive_expression', 'multiplicative_expression', 'conjunction_expression', 'disjunction_expression']);
+  'comparison_expression', 'equality_expression', 'additive_expression', 'multiplicative_expression', 'conjunction_expression', 'disjunction_expression', 'infix_expression']);
 // A condition a statement branches on: the field that holds it, and whether it is wrapped in parentheses the grammar keeps.
 const CONDITIONS = new Set(['if_statement', 'while_statement', 'if_expression', 'while_expression']);
 const WRAPPED = new Set(['parenthesized_expression', 'condition_clause']);
-const NOT = new Set(['unary_expression', 'not_operator']);
+// A prefix operator with its operand: C#'s prefix_unary_expression, Swift's prefix_expression with a `bang` node for the `!`,
+// Scala's prefix_expression with the `!` unnamed.
+const NOT = new Set(['unary_expression', 'not_operator', 'prefix_unary_expression', 'prefix_expression']);
 const BOOLEANS = new Set(['true', 'false', 'boolean_literal']);
-const RETURNS = new Set(['return_statement', 'return_expression']);
+// Swift's return is a control_transfer_statement whose result is the value; a bare `break` or `continue` has none.
+const RETURNS = new Set(['return_statement', 'return_expression', 'control_transfer_statement']);
 const NUMBERS = new Set(['number', 'integer', 'float', 'integer_literal', 'float_literal', 'decimal_integer_literal', 'int_literal', 'number_literal']);
 
-const operatorOf = node => node.childForFieldName('operator') ?? node.children.find(child => !child.isNamed && (child.text in COMPARISONS || child.text in ARITHMETIC || child.text in LOGIC)) ?? null;
+const KNOWN = text => text in COMPARISONS || text in ARITHMETIC || text in LOGIC;
+const operatorOf = node => [node.childForFieldName('operator'), node.childForFieldName('op')].find(child => child && KNOWN(child.text))
+  ?? node.children.find(child => !child.isNamed && KNOWN(child.text)) ?? null;
 
 /**
  * The mutants of the method at lines `line` to `end_line` of `source`, most telling first and no more than MAX_MUTANTS. Each is
@@ -66,12 +73,12 @@ export function mutantsOf({ source, language, line, end_line }) {
         }
       }
       if (NOT.has(node.type)) {
-        const operator = node.childForFieldName('operator') ?? node.children.find(child => !child.isNamed);
-        const operand = node.childForFieldName('argument') ?? node.childForFieldName('operand') ?? node.namedChildren[0];
+        const operator = node.childForFieldName('operator') ?? node.childForFieldName('operation') ?? node.children.find(child => !child.isNamed);
+        const operand = node.childForFieldName('argument') ?? node.childForFieldName('operand') ?? node.childForFieldName('target') ?? node.namedChildren.find(child => child !== operator);
         if (operand && (operator?.text === '!' || operator?.text === 'not')) add('not', node, operand.text);
       }
       if (BOOLEANS.has(node.type)) add('boolean', node, node.text.toLowerCase() === 'true' ? (node.text[0] === 'T' ? 'False' : 'false') : (node.text[0] === 'F' ? 'True' : 'true'));
-      if (RETURNS.has(node.type)) {
+      if (RETURNS.has(node.type) && (node.type !== 'control_transfer_statement' || node.children[0]?.text === 'return')) {
         const value = node.namedChildren[0];
         if (value && node.namedChildren.length === 1 && NUMBERS.has(value.type)) add('return', value, /^0+(\.0+)?$/.test(value.text) ? '1' : '0');
       }

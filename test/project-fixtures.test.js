@@ -56,8 +56,9 @@ async function read(project) {
 describe('project fixtures', () => {
   it('has a project for every supported framework', () => {
     expect(all.map(project => `${project.language} ${project.framework}`).sort()).toEqual([
-      'cpp Catch2', 'cpp GoogleTest', 'cpp doctest', 'java JUnit 4', 'java JUnit 5', 'java TestNG', 'javascript Mocha', 'javascript node:test',
-      'python pytest', 'python unittest', 'rust libtest', 'rust nextest', 'typescript Jest', 'typescript Vitest',
+      'c_sharp MSTest', 'c_sharp NUnit', 'c_sharp xUnit', 'cpp Catch2', 'cpp GoogleTest', 'cpp doctest', 'java JUnit 4', 'java JUnit 5', 'java TestNG',
+      'javascript Mocha', 'javascript node:test', 'python pytest', 'python unittest', 'rust libtest', 'rust nextest', 'scala ScalaTest', 'scala munit',
+      'swift Swift Testing', 'swift XCTest', 'typescript Jest', 'typescript Vitest',
     ]);
   });
 

@@ -42,9 +42,9 @@ export interface TestScan {
   blockMacros: Set<string>;
 }
 
-const span = (node: Node) => `${node.startIndex}:${node.endIndex}`;
-const named = (node: Node, type: string) => node.namedChildren.filter(child => child.type === type);
-const lineOf = (node: Node) => node.startPosition.row + 1;
+export const span = (node: Node) => `${node.startIndex}:${node.endIndex}`;
+export const named = (node: Node, type: string) => node.namedChildren.filter(child => child.type === type);
+export const lineOf = (node: Node) => node.startPosition.row + 1;
 
 /** The declaration id a node sits in, as references.ts assigns it, or `file` at the top level. */
 function ownerOf(node: Node): string {
@@ -53,7 +53,7 @@ function ownerOf(node: Node): string {
 }
 
 /** Names of the enclosing scopes of the given node types, outermost first. */
-function enclosing(node: Node, types: Set<string>, nameOf: (scope: Node) => string | null): string[] {
+export function enclosing(node: Node, types: Set<string>, nameOf: (scope: Node) => string | null): string[] {
   const names: string[] = [];
   for (let parent = node.parent; parent; parent = parent.parent) {
     if (!types.has(parent.type)) continue;
@@ -96,13 +96,15 @@ function unescape(sequence: string): string {
  * the title the program sees: `'it\'s'` is reported as `it's`. A raw string, Python's `r'...'` or C++'s `R"(...)"`, has no
  * escapes and is taken as written.
  */
-function literal(node: Node | null | undefined): string | null {
+export function literal(node: Node | null | undefined): string | null {
   if (!node) return null;
   const parts = node.namedChildren;
-  if (parts.some(part => ["template_substitution", "interpolation", "string_interpolation"].includes(part.type))) return null;
-  if (!["string", "template_string", "string_literal", "raw_string_literal"].includes(node.type)) return null;
-  const raw = node.type === "raw_string_literal" || /^[a-zA-Z]*[rR][a-zA-Z]*["']/.test(parts.find(part => part.type === "string_start")?.text ?? "");
-  return parts.filter(part => ["string_fragment", "string_content", "escape_sequence"].includes(part.type))
+  if (parts.some(part => ["template_substitution", "interpolation", "string_interpolation", "interpolated_expression"].includes(part.type))) return null;
+  // Scala's string and Swift's line_string_literal keep their text in one child; C#'s string_literal in string_literal_content.
+  if (!["string", "template_string", "string_literal", "raw_string_literal", "line_string_literal", "verbatim_string_literal"].includes(node.type)) return null;
+  const raw = node.type === "raw_string_literal" || node.type === "verbatim_string_literal" || /^[a-zA-Z]*[rR][a-zA-Z]*["']/.test(parts.find(part => part.type === "string_start")?.text ?? "");
+  if (!parts.length) return node.text.replace(/^[a-zA-Z@]*(?:"""|"|')|(?:"""|"|')$/g, "");
+  return parts.filter(part => ["string_fragment", "string_content", "escape_sequence", "line_str_text", "string_literal_content"].includes(part.type))
     .map(part => (part.type === "escape_sequence" && !raw ? unescape(part.text) : part.text)).join("");
 }
 
@@ -693,6 +695,13 @@ function packageOf(root: Node, language: string): string | null {
       return name ? named(name, "simple_identifier").map(part => part.text).join(".") : null;
     }
     if (language === "go" && node.type === "package_clause") return node.namedChildren.find(child => child.type === "package_identifier")?.text ?? null;
+    // C#'s namespace, block-scoped or file-scoped: the first one declared is the file's. The declarations before it are in none.
+    if (language === "csharp" && ["namespace_declaration", "file_scoped_namespace_declaration"].includes(node.type)) return node.childForFieldName("name")?.text ?? null;
+  }
+  // Scala chains package clauses: `package shop` then `package cart` declares shop.cart.
+  if (language === "scala") {
+    const clauses = root.namedChildren.filter(node => node.type === "package_clause").map(node => node.childForFieldName("name")?.text ?? "").filter(Boolean);
+    return clauses.length ? clauses.join(".") : null;
   }
   return null;
 }
@@ -700,6 +709,8 @@ function packageOf(root: Node, language: string): string | null {
 /** The remaining languages, each in a module of its own under tests/. */
 const OTHERS: Record<string, (index: SyntaxIndex, scan: TestScan, path: string | null) => void> = {
   go: goTests,
+  // The analyzer normalizes `c_sharp`, the id languages.js gives a .cs file, to the grammar's `csharp` before anything reads the tree.
+  csharp: csharpTests,
   c_sharp: csharpTests,
   ruby: rubyTests,
   php: phpTests,
