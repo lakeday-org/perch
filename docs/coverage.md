@@ -10,17 +10,16 @@ summary: Find unit tests of low value and discover the real coverage gaps in you
 
 Perch Coverage finds low-value unit tests and the real gaps in your test
 coverage. It is predictive mutation testing. Perch generates mutants of every
-method your tests reach and, for each mutant, asks a decision model, Jev, which
-of those tests would fail with the mutant in place. Perch does not run any
-tests, and does not change any files.
+method your tests reach. For each mutant, it asks a decision model, Jev, which
+of those tests would fail with the mutant in place. Perch runs no tests and
+changes no files.
 
-A mutant is a change to one line of one method. Perch replaces `<` with `<=`,
-`&&` with `||`, negates a condition, removes a `!`, replaces `+` with `-`, flips
-a boolean, returns `0` instead of a number: the same operators Stryker and PIT
-use. If a test fails with a mutant in place, the test kills that mutant. If
-every test passes with a mutant in place, that mutant survives. Each survived
-mutant is a real gap in your coverage: a test runs that line, but nothing checks
-that it does the right thing.
+A mutant is a change to one line of one method: `<` to `<=`, `&&` to `||`, a
+negated condition, a removed `!`, `+` to `-`, a flipped boolean, `0` returned
+instead of a number. These are the operators Stryker and PIT use. If a test
+fails with a mutant in place, the test kills it. If every test passes, the
+mutant survives. A survived mutant is a real gap in your coverage: a test runs
+that line, and nothing checks what it does.
 
 Point it at a repository:
 
