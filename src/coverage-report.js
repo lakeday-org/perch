@@ -7,8 +7,7 @@ import { BELIEVED } from './questions.js';
 import { bold, COLOR, dim, keepEnd, keepStart, percent, relative, sureness, table, TOP, WIDTH } from './report.js';
 
 /** Every kind of problem a coverage report can list, and so everything `--filter kind=` accepts. */
-export const COVERAGE_KINDS = ['untested', 'edge_case', 'redundant', 'asserts_mock', 'no_assertion', 'tautology',
-  'assertion_roulette', 'mystery_guest', 'eager', 'checks_nothing', 'infra', 'unresolved'];
+export const COVERAGE_KINDS = ['untested', 'edge_case', 'redundant', 'checks_nothing', 'infra', 'unresolved'];
 
 const plural = (count, noun, many = `${noun}s`) => `${count} ${count === 1 ? noun : many}`;
 /** A 0..1 value as a whole percentage; null is a value nobody answered, which is a dash and not a zero. */
@@ -124,9 +123,9 @@ function testTable(report, { width, color }) {
     .sort((a, b) => a.path.localeCompare(b.path));
   if (!files.length) return '';
   // Quality is the tests worth keeping, of all of them; the next three are why the rest are not, or what they touch.
-  // Time saved is what the duplicate and weak tests took, the time dropping them gives back.
-  const header = ['Test files', 'Quality', 'Duplicates', 'Weak', 'Live services', 'Time', 'Time saved'];
-  const row = (name, totals) => [name, `${percent(totals.useful / totals.tests)} (${totals.useful} of ${totals.tests})`, totals.redundant, totals.smelly, totals.infra,
+  // Time saved is what the duplicate tests and the tests that check nothing took, the time dropping them gives back.
+  const header = ['Test files', 'Quality', 'Duplicates', 'Checks nothing', 'Live services', 'Time', 'Time saved'];
+  const row = (name, totals) => [name, `${percent(totals.useful / totals.tests)} (${totals.useful} of ${totals.tests})`, totals.redundant, totals.weak, totals.infra,
     duration(totals.seconds), duration(totals.dropped_seconds || null)];
   const rows = files.map(file => row(relative(file.path), file.totals));
   rows.push(row('All tests', report.totals ?? {}));
@@ -209,7 +208,7 @@ function diffCells(before, after) {
   const now = after ?? before;
   const moved = (key, show = value => value) => (after && before ? `${show(after[key])}${change(before[key], after[key])}` : show(now[key]));
   return [now.methods, moved('reached'), after && before ? `${ratio(after.exercised)}${change(points(before.exercised), points(after.exercised))}` : ratio(now.exercised),
-    moved('tests'), moved('useful'), moved('redundant'), moved('smelly')];
+    moved('tests'), moved('useful'), moved('redundant'), moved('weak')];
 }
 
 /**
@@ -221,7 +220,7 @@ export function formatCoverageDiff(report, { width = WIDTH(), color = COLOR() } 
   if (!diff) return '';
   const since = `Since ${short(diff.from?.revision)}`;
   if (!diff.files?.length) return `Nothing changed per file since ${short(diff.from?.revision)}.`;
-  const header = [since, 'Methods', 'Reached', 'Branches', 'Tests', 'Keep', 'Redundant', 'Weak', ''];
+  const header = [since, 'Methods', 'Reached', 'Branches', 'Tests', 'Keep', 'Redundant', 'Checks nothing', ''];
   const rows = [...diff.files].sort((a, b) => a.path.localeCompare(b.path)).map(file => [relative(file.path), ...diffCells(file.before, file.after),
     !file.before ? 'added' : !file.after ? 'removed' : '']);
   const totals = diff.totals ?? {};
@@ -229,7 +228,7 @@ export function formatCoverageDiff(report, { width = WIDTH(), color = COLOR() } 
   const count = key => `${pair(key).after ?? '-'}${change(pair(key).before, pair(key).after)}`;
   rows.push(['All', pair('methods').after ?? '-', count('reached'),
     `${ratio(pair('exercised').after)}${change(points(pair('exercised').before), points(pair('exercised').after))}`,
-    count('tests'), count('useful'), count('redundant'), count('smelly'), '']);
+    count('tests'), count('useful'), count('redundant'), count('weak'), '']);
   return painted(fitted(header, rows, ['left', 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'left'], { width }), color, true).join('\n');
 }
 

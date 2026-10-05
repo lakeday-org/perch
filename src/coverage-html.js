@@ -18,8 +18,7 @@ const words = label => String(label ?? '').replaceAll('_', ' ');
 /** Each kind of problem by the name the page gives it. */
 const PROBLEM_NAMES = {
   untested: 'No test', edge_case: 'Untested branch', redundant: 'Duplicate test', checks_nothing: 'Checks nothing',
-  asserts_mock: 'Checks its own mock', no_assertion: 'No assertion', tautology: 'Restates the code', assertion_roulette: 'Too many checks',
-  mystery_guest: 'Hidden dependency', eager: 'Checks one of many', infra: 'Live service', unresolved: 'Calls no repo code',
+  infra: 'Live service', unresolved: 'Calls no repo code',
 };
 const problemName = kind => PROBLEM_NAMES[kind] ?? words(kind);
 /** A saved report's ISO timestamp, to the minute. Seconds and milliseconds only make two dates harder to compare by eye. */
@@ -45,9 +44,9 @@ const COVERAGE_KINDS = ['lcov', 'cobertura', 'jacoco', 'contexts'];
 
 /** Where an effective figure came from: what each test ran, as the reports recorded it, or the call graph's guess at it. */
 const effectiveTag = basis => (basis === 'estimated'
-  ? '<span class="est" title="The coverage report did not say what each test ran here. A method counts not at all when only weak or duplicate tests reach it or ran its line, and in full otherwise.">est.</span>'
+  ? '<span class="est" title="The coverage report did not say what each test ran here. A method counts not at all when only duplicate tests or tests that check nothing reach it or ran its line, and in full otherwise.">est.</span>'
   : '<span class="msr" title="Read from the lines and branches each test ran, as the coverage report recorded them.">measured</span>');
-const EFFECTIVE_HINT = 'Run by tests worth keeping: what the coverage report counts, less what only weak and duplicate tests ran.';
+const EFFECTIVE_HINT = 'Run by tests worth keeping: what the coverage report counts, less what only duplicate tests and tests that check nothing ran.';
 
 /** The report files of the given kinds that the report says it read. */
 const inputsOf = (report, kinds) => (report.inputs ?? []).filter(input => kinds.includes(input.kind));
@@ -196,7 +195,7 @@ function headline(report) {
     tiles.push(tile('sources', 'Branches taken', share(totals.exercised), '<span class="est">estimated by Jev</span>',
       changed([moving('exercised', '', { points: true })]) + bar(totals.exercised), 'With no coverage report, Jev\'s estimate of how much of each method\'s branching its tests take, averaged over the methods.'));
   }
-  // What the tests worth keeping ran: the figure a coverage report gives, less what only weak and duplicate tests ran.
+  // What the tests worth keeping ran: the figure a coverage report gives, less what only duplicate tests and tests that check nothing ran.
   const effective = totals.effective ?? null;
   for (const [part, title, metric] of [['lines', 'Effective lines', 'effective_lines'], ['branches', 'Effective branches', 'effective_branches']]) {
     if (!effective?.[part].total) continue;
@@ -210,11 +209,11 @@ function headline(report) {
   // the bar is toned by the share that stays.
   const timed = typeof drop.seconds === 'number' && drop.count;
   const saving = timed ? `Saves ${escape(seconds(drop.seconds))}${suite ? ` of ${escape(seconds(suite.seconds))}` : ''}` : drop.count ? 'Time not measured' : 'Every test is worth keeping';
-  const cut = side => (moved.redundant?.[side] ?? null) === null || (moved.smelly?.[side] ?? null) === null ? null : moved.redundant[side] + moved.smelly[side];
+  const cut = side => (moved.redundant?.[side] ?? null) === null || (moved.weak?.[side] ?? null) === null ? null : moved.redundant[side] + moved.weak[side];
   const going = ratio(drop.count, totals.tests);
   tiles.push(tile('tests', 'Redundant tests', `${escape(drop.count)}<span class="of"> of ${escape(totals.tests)}</span>`, saving,
     changed([delta(cut('before'), cut('after'), { unit: 'tests', better: 'down' })]) + bar(going, null, band(going === null ? null : 1 - going)),
-    'The number of tests that are duplicate or weak out of the total number of tests, and the time they took, pulled from the JUnit test report.'));
+    'The number of tests that are duplicates or check nothing, out of the total number of tests, and the time they took, pulled from the JUnit test report.'));
   return `<section class="cards">${tiles.join('')}</section>`;
 }
 
@@ -262,14 +261,8 @@ function changes(report, index) {
     + '</section>');
 }
 
-/** The kinds of problem that say a test is not worth its keep, as the smell question names them. */
-const SMELLS = new Set(['asserts_mock', 'no_assertion', 'tautology', 'assertion_roulette', 'mystery_guest', 'eager', 'checks_nothing']);
-/** What fixing a smell that leaves the test checking something takes: the test stays, written so it is easier to read. */
-const SMELL_FIXES = {
-  assertion_roulette: 'Split it into tests that each check one behavior, or give each assertion a message saying what it checks. Keep every check it makes.',
-  mystery_guest: 'Build what it reads in the test or its setup, so a reader sees the input next to the assertion. Keep every check it makes.',
-  eager: 'Split it so each method it drives has a test asserting on what that method returns. Keep every check it makes.',
-};
+/** The kinds of problem that say a test is not worth its keep. */
+const WEAK = new Set(['checks_nothing']);
 
 /**
  * What a problem is about and what perch found, for the rows and notes that show it: the test or method it is on, and one fact.
@@ -346,9 +339,9 @@ function actionsView(report, index) {
     methodRows.length ? table('<th>Problem</th><th>Where</th><th>Details</th><th class="num" title="How complex and hard to maintain the method is, 0 to 100.">Risk</th><th class="x-cell"></th>', methodRows) : '',
     missing.length > TOP ? all(['untested', 'edge_case'], missing.length) : '');
 
-  // Test problems: duplicates, tests that check nothing or smell, and tests that leave the process, the slowest first, since
-  // that is where fixing one saves the most.
-  const testKinds = ['redundant', ...SMELLS, 'infra', 'unresolved'];
+  // Test problems: duplicates, tests that check nothing, and tests that call a live service, the slowest first, since that is
+  // where fixing one saves the most.
+  const testKinds = ['redundant', ...WEAK, 'infra', 'unresolved'];
   const time = finding => index.tests.get(finding.unit)?.run?.time ?? -1;
   const testProblems = of(testKinds).sort((a, b) => newFirst(a, b) || time(b) - time(a) || (b.probability ?? 2) - (a.probability ?? 2) || a.path.localeCompare(b.path));
   const testRows = testProblems.slice(0, TOP).map(finding => `<tr data-finding="${escape(finding.id)}">${actionCells(finding, index, fresh.has(finding.id))}`
@@ -458,14 +451,14 @@ function testTable(report, index) {
     const timed = typeof totals.seconds === 'number';
     return `<tr data-path="${escape(file.path)}"><td class="path" data-v="${escape(file.path)}"><a href="${index.href(file.path)}">${escape(file.path)}</a></td>`
       + `<td class="bars" data-v="${kept ?? -1}">${cell(kept, { count: `${escape(totals.useful)}/${escape(totals.tests)}` })}</td>`
-      + count(totals.redundant) + count(totals.smelly) + count(totals.infra) + time(timed ? totals.seconds : null) + time(timed ? totals.dropped_seconds ?? 0 : null) + '</tr>';
+      + count(totals.redundant) + count(totals.weak) + count(totals.infra) + time(timed ? totals.seconds : null) + time(timed ? totals.dropped_seconds ?? 0 : null) + '</tr>';
   }).join('');
   const heads = th('File', false) + th('Quality', true, true, 'Tests worth keeping, of all the file\'s tests: ones that check something and repeat no other test.')
     + th('Duplicates', true, false, 'Tests that check the same thing with the same code as an earlier test.')
-    + th('Weak', true, false, 'Tests that don’t check anything, check the return value of a mock created inside the test, or are weak in another way.')
+    + th('Checks nothing', true, false, 'Tests that would pass whatever the code they call does.')
     + th('Live services', true, false, 'Tests that call a real network service or database with nothing mocked.')
     + th('Time', true, false, 'How long the file\'s tests ran, added up from the JUnit report.')
-    + th('Time saved', true, false, 'The time duplicate or weak tests took to run: the time you would save if you removed them.');
+    + th('Time saved', true, false, 'The time duplicate tests and tests that check nothing took to run: the time you would save if you removed them.');
   return view('tests', 'Tests', '',
     `<section class="panel" id="tests"><div class="scroll"><table class="grid sortable files"><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody></table></div></section>`);
 }
@@ -628,7 +621,7 @@ function problemLine(finding, index) {
 }
 
 /** The order a test's problems are said in: what to cut first, then what to fix, then what to mock. */
-const PROBLEM_ORDER = ['redundant', ...SMELLS, 'infra', 'unresolved'];
+const PROBLEM_ORDER = ['redundant', ...WEAK, 'infra', 'unresolved'];
 
 /**
  * The note under a test with something wrong: each problem as the change it asks for, then whether it failed and what it mocks.
@@ -757,9 +750,7 @@ function fixSteps(finding, index) {
       const kept = index.tests.get(test.redundant_with);
       lines.push(`The test ${name} ${test.redundant_basis === 'measured' ? 'runs the same lines' : 'calls the same code'} and checks the same thing as "${kept ? testName(kept) : test.redundant_with}"${kept ? ` (${at(kept)})` : ''}.`,
         'Compare the two. Delete this one if it asserts nothing the other does not; otherwise move what differs into the other and delete this one.');
-    } else if (SMELL_FIXES[finding.kind]) {
-      lines.push(`The test ${name} has a problem: ${finding.note}`, SMELL_FIXES[finding.kind]);
-    } else if (SMELLS.has(finding.kind)) {
+    } else if (WEAK.has(finding.kind)) {
       lines.push(`The test ${name} has a problem: ${finding.note}`, 'Make it drive the code under test and assert on what that code returns. Delete it if nothing it checks is worth keeping.');
     } else if (finding.kind === 'infra') {
       lines.push(`The unit test ${name} leaves the process: ${finding.note}`, 'Replace those calls with fakes or mocks in the style the test file already uses, so it runs in memory. Do not change the code under test.');
@@ -952,7 +943,7 @@ table.problems td:nth-child(3){white-space:normal;max-width:260px;overflow-wrap:
 /* Problem kinds, as pills. */
 .kind{display:inline-block;padding:1px 8px;border-radius:999px;font:500 11.5px/1.7 var(--mono);white-space:nowrap;background:var(--raised);color:var(--muted)}
 .k-untested,.k-edge_case{background:color-mix(in srgb,var(--low) 14%,transparent);color:var(--low-ink)}
-.k-redundant,.k-checks_nothing,.k-asserts_mock,.k-no_assertion,.k-tautology,.k-assertion_roulette,.k-mystery_guest,.k-eager{background:color-mix(in srgb,var(--mid) 13%,transparent);color:var(--mid)}
+.k-redundant,.k-checks_nothing{background:color-mix(in srgb,var(--mid) 13%,transparent);color:var(--mid)}
 .k-infra{background:color-mix(in srgb,var(--cyan) 13%,transparent);color:var(--cyan)}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chip{display:inline-flex;align-items:center;gap:6px;padding:2px 10px 2px 3px;border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--muted);font:500 12px var(--sans);cursor:pointer}

@@ -47,7 +47,7 @@ function sampleReport({ diff = true, measured = true } = {}) {
     inputs: on([{ kind: 'junit', path: 'reports/junit.xml', runs: 4 }, { kind: 'lcov', path: 'coverage/lcov.info', files: 1 }], []),
     unmatched_runs: on([{ path: 'reports/junit.xml', classname: 'tests.test_gone', name: 'test_vanished' }], []),
     unmatched_paths: on([{ path: 'coverage/lcov.info', reported: '/ci/build/generated/parser.py' }], []),
-    totals: { methods: 3, reached: 2, useful_reached: 2, exercised: 0.5, exercised_basis: 'estimated', tests: 2, useful: 1, redundant: 1, smelly: 0, infra: 0,
+    totals: { methods: 3, reached: 2, useful_reached: 2, exercised: 0.5, exercised_basis: 'estimated', tests: 2, useful: 1, redundant: 1, weak: 0, infra: 0,
       untested: 1, edge_cases: 1, cost: { 0: on(1, 2), 1: 0, 2: 0, 3: 0 },
       drop: { count: 1, cost: { 0: on(0, 1), 1: 0, 2: 0, 3: 0 }, seconds: on(41.2), timed: on(1, 0) },
       measured: on({ lines: { hit: 6, total: 11 }, branches: { hit: 3, total: 6 } }),
@@ -55,13 +55,13 @@ function sampleReport({ diff = true, measured = true } = {}) {
       suite: on({ seconds: 190.4, runs: 4, failed: 1, skipped: 0 }) },
     files: [
       { path: 'src/cart.py', kind: 'source', language: 'python', lines: cartLines, methods: ['src/cart.py::apply_discount', 'src/cart.py::total'], tests: [],
-        totals: { methods: 2, reached: 1, useful_reached: 1, exercised: 0.25, exercised_basis: on('measured', 'estimated'), tests: 0, useful: 0, redundant: 0, smelly: 0, infra: 0,
+        totals: { methods: 2, reached: 1, useful_reached: 1, exercised: 0.25, exercised_basis: on('measured', 'estimated'), tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0,
           effective: on({ lines: { hit: 4, total: 11, basis: 'measured' }, branches: { hit: 2, total: 6, basis: 'estimated' } }) } },
       { path: 'src/util.py', kind: 'source', language: 'python', lines: utilLines, methods: ['src/util.py::round_money'], tests: [],
-        totals: { methods: 1, reached: 1, useful_reached: 1, exercised: 1, exercised_basis: 'estimated', tests: 0, useful: 0, redundant: 0, smelly: 0, infra: 0 } },
+        totals: { methods: 1, reached: 1, useful_reached: 1, exercised: 1, exercised_basis: 'estimated', tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0 } },
       { path: 'tests/test_cart.py', kind: 'test', language: 'python', lines: testLines, methods: [],
         tests: ['tests/test_cart.py::test_discount_10', 'tests/test_cart.py::test_discount_20'],
-        totals: { methods: 0, reached: 0, useful_reached: 0, exercised: null, tests: 2, useful: 1, redundant: 1, smelly: 0, infra: 0 } },
+        totals: { methods: 0, reached: 0, useful_reached: 0, exercised: null, tests: 2, useful: 1, redundant: 1, weak: 0, infra: 0 } },
     ],
     methods: [
       { id: 'src/cart.py::apply_discount', path: 'src/cart.py', name: 'apply_discount', line: 3, end_line: 11, risk: 12, branches: [4, 6, 9],
@@ -78,12 +78,12 @@ function sampleReport({ diff = true, measured = true } = {}) {
     tests: [
       { id: 'tests/test_cart.py::test_discount_10', path: 'tests/test_cart.py', name: 'test_discount_10', suite: [], line: 3, end_line: 4, framework: 'pytest',
         direct: ['src/cart.py::apply_discount'], reach: [{ id: 'src/cart.py::apply_discount', depth: 1 }, { id: 'src/util.py::round_money', depth: 2 }], cuts: [],
-        touches: [], decides: { choice: 'happy_path', probability: 0.91 }, smell: { choice: 'none', probability: 0.93 }, infra: 0.04,
+        touches: [], decides: { choice: 'happy_path', probability: 0.91 }, infra: 0.04,
         cost: { tier: 0, probabilities: [0.9, 0.05, 0.03, 0.02], basis: 'estimated' }, useful: true, redundant_with: null, redundant_basis: null, findings: [],
         run: null, executed_methods: null },
       { id: 'tests/test_cart.py::test_discount_20', path: 'tests/test_cart.py', name: 'test_discount_20', suite: [], line: 8, end_line: 9, framework: 'pytest',
         direct: ['src/cart.py::apply_discount'], reach: [{ id: 'src/cart.py::apply_discount', depth: 1 }], cuts: [],
-        touches: [], decides: { choice: 'happy_path', probability: 0.88 }, smell: { choice: 'none', probability: 0.9 }, infra: 0.03,
+        touches: [], decides: { choice: 'happy_path', probability: 0.88 }, infra: 0.03,
         cost: on({ seconds: 41.2, basis: 'measured' }, { tier: 0, probabilities: [0.92, 0.04, 0.02, 0.02], basis: 'estimated' }),
         useful: false, redundant_with: 'tests/test_cart.py::test_discount_10', redundant_basis: 'static', findings: [redundant.id],
         run: on({ time: 41.2, status: 'failed', cases: 3 }), executed_methods: on(['src/cart.py::apply_discount']) },
@@ -94,11 +94,11 @@ function sampleReport({ diff = true, measured = true } = {}) {
     diff: diff ? {
       from: { revision: 'aaaaaaa1111111', created_at: '2026-09-20T10:00:00.000Z' }, to: { revision: 'bbbbbbb2222222', created_at: '2026-09-28T10:00:00.000Z' },
       totals: { methods: { before: 3, after: 3 }, reached: { before: 1, after: 2 }, exercised: { before: 0.41, after: 0.5 }, tests: { before: 1, after: 2 },
-        useful: { before: 1, after: 1 }, redundant: { before: 0, after: 1 }, smelly: { before: 0, after: 0 }, infra: { before: 0, after: 0 },
+        useful: { before: 1, after: 1 }, redundant: { before: 0, after: 1 }, weak: { before: 0, after: 0 }, infra: { before: 0, after: 0 },
         untested: { before: 2, after: 1 }, edge_cases: { before: 1, after: 1 },
         ...(measured ? { measured_lines: { before: 0.4, after: 0.55 }, measured_branches: { before: 0.25, after: 0.5 }, suite_seconds: { before: 200.4, after: 190.4 } } : {}) },
-      files: [{ path: 'src/cart.py', before: { methods: 2, reached: 0, useful_reached: 0, exercised: 0, tests: 0, useful: 0, redundant: 0, smelly: 0, infra: 0 },
-        after: { methods: 2, reached: 1, useful_reached: 1, exercised: 0.25, tests: 0, useful: 0, redundant: 0, smelly: 0, infra: 0 } }],
+      files: [{ path: 'src/cart.py', before: { methods: 2, reached: 0, useful_reached: 0, exercised: 0, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0 },
+        after: { methods: 2, reached: 1, useful_reached: 1, exercised: 0.25, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0 } }],
       methods: [{ id: 'src/cart.py::apply_discount', path: 'src/cart.py', name: 'apply_discount',
         before: { reached: false, exercised: 0, executed: on(false), measured: on({ lines: { hit: 0, total: 9 }, branches: { hit: 0, total: 6 } }) },
         after: { reached: true, exercised: 0.5, executed: on(true), measured: on({ lines: { hit: 6, total: 9 }, branches: { hit: 3, total: 6 } }) } }],
@@ -271,7 +271,7 @@ describe('coverage HTML report', () => {
     // The tests tile is how many tests could go and what cutting them saves, from the JUnit times.
     const tests = card(html, 'Redundant tests');
     // Every calculated number says how it is counted, on hover.
-    expect(html).toMatch(/<div class="card-title" title="The number of tests that are duplicate or weak out of the total number of tests/);
+    expect(html).toMatch(/<div class="card-title" title="The number of tests that are duplicates or check nothing, out of the total number of tests/);
     expect(tests).toContain('1<span class="of"> of 2</span>');
     expect(tests).toContain('Saves 41.2s of 3m10s');
     // One more redundant test than the compared run: a change for the worse.
@@ -483,7 +483,7 @@ describe('coverage HTML report', () => {
 
   it('breaks each test file down by why tests are not worth keeping, and each source file by untested branches', () => {
     const heads = view => [...viewOf(html, view).matchAll(/<th data-sort="[a-z]+"[^>]*>([^<]+)</g)].map(match => match[1]);
-    expect(heads('tests')).toEqual(['File', 'Quality', 'Duplicates', 'Weak', 'Live services', 'Time', 'Time saved']);
+    expect(heads('tests')).toEqual(['File', 'Quality', 'Duplicates', 'Checks nothing', 'Live services', 'Time', 'Time saved']);
     expect(heads('sources')).toEqual(['File', 'Methods tested', 'Lines run', 'Branches taken', 'Effective lines', 'Effective branches', 'Untested branches']);
     // test_cart.py: one duplicate, test_discount_20.
     const row = viewOf(html, 'tests').match(/<tr data-path="tests\/test_cart.py">.*?<\/tr>/s)[0];

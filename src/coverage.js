@@ -273,7 +273,7 @@ export function computeCoverage({ scan, graph, depth = DEFAULT_DEPTH, inScope = 
     const test = { id: node.id, node, direct, reach: reached, cuts: [...cut].sort(), mocks, touches, evidence, ...(helpers.length ? { helpers } : {}) };
     tests.push(test);
     // A test none of whose calls resolve to a method in the repository is still asked about: a test that asserts on a stub it
-    // built itself reaches nothing, and that is exactly what the smell question is for. That its calls resolve to nothing is a
+    // built itself reaches nothing, and that is exactly what the decides question is for. That its calls resolve to nothing is a
     // fact of the graph, and the report says so beside whatever the answers say, since the same fact also describes a test
     // whose target perch could not resolve.
     if (!graph.callees(node.id).length) test.unresolved = [...new Set(graph.external(node.id).map(call => call.name))].sort();
@@ -675,31 +675,17 @@ function readAll(questions, answers) {
 }
 
 /**
- * The smells that mean a test passes whatever the code under test does. One of these makes a test weak, and dropping it loses
- * nothing it checked. The other smells make a test harder to read or keep up, and it still checks what it checks.
- */
-export const VOID_SMELLS = new Set(['asserts_mock', 'no_assertion', 'tautology']);
-/** The chance an answer gives the smells `kinds` accepts, and the likeliest of them. */
-const smellShare = (smell, kinds) => {
-  const named = Object.entries(smell.probabilities).filter(([kind]) => kinds(kind)).sort(([, a], [, b]) => b - a);
-  return { probability: named.reduce((total, [, p]) => total + p, 0), kind: named[0]?.[0] ?? null };
-};
-const voidShare = smell => smellShare(smell, kind => VOID_SMELLS.has(kind));
-
-/**
- * Which answered tests are worth keeping. A test is weak when the chance of a smell in VOID_SMELLS is at the floor or over it.
- * Among the tests left, two that were said to decide the same behavior are one test written twice when
+ * Which answered tests are worth keeping. A test checks nothing when the answer says no change to the code under test would make
+ * it fail, at the floor or over it. Among the tests left, two that were said to decide the same behavior are one test written twice when
  * they run the same code: measured, when the coverage report says which lines each test ran and both ran exactly the same lines
  * of the code under test; otherwise, when either has no such record, when they call exactly the same methods. The first by
  * path and line is kept.
  */
 export function judgeTests(tests, answered, min, repeats = null) {
-  const clean = [], smelly = new Set(), checksNothing = new Set(), redundantWith = new Map(), pairProbability = new Map(), redundantBasis = new Map();
+  const clean = [], checksNothing = new Set(), redundantWith = new Map(), pairProbability = new Map(), redundantBasis = new Map();
   for (const test of tests) {
     const answers = answered.get(test.id)?.answers;
     if (!answers) continue;
-    // A choice's distribution names every option it gave weight to; one it left out had none.
-    if (voidShare(answers.smell).probability >= min) { smelly.add(test.id); continue; }
     // That no change to the code under test would make it fail is judged at the floor like any other answer: under it, the
     // test is not held to have checked nothing.
     if (answers.decides.choice === 'nothing' && (answers.decides.probabilities.nothing ?? 0) >= min) { checksNothing.add(test.id); continue; }
@@ -740,7 +726,7 @@ export function judgeTests(tests, answered, min, repeats = null) {
     pairProbability.set(test.id, said ?? null);
   }
   const useful = new Set(clean.filter(test => !redundantWith.has(test.id)).map(test => test.id));
-  return { useful, smelly, checksNothing, redundantWith, pairProbability, redundantBasis };
+  return { useful, checksNothing, redundantWith, pairProbability, redundantBasis };
 }
 
 /**
@@ -905,16 +891,6 @@ const GAP_CASES = {
   ordering: method => `Untested case: ${method} with input in another order.`,
 };
 /** What an infra category is, as a person says it. */
-/** What each smell the smell question names is, as a person reads it under the test. */
-const SMELL_NOTES = {
-  asserts_mock: 'Checks a value its own mock returns.',
-  no_assertion: 'Asserts nothing.',
-  tautology: 'Computes the expected value the way the code does.',
-  assertion_roulette: 'Makes many unrelated checks.',
-  mystery_guest: 'Uses a file, record or service it does not create.',
-  eager: 'Runs several methods and checks one.',
-};
-
 /** A score's expected level, as a share of its top level: 0 for the first level, 1 for the last. */
 const expectedShare = (score, levels) => (levels > 1 ? Object.entries(score.probabilities).reduce((total, [level, p]) => total + p * Number(level) / (levels - 1), 0) : null);
 const mean = values => (values.length ? values.reduce((total, value) => total + value, 0) / values.length : null);
@@ -946,10 +922,9 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
   };
   const tiers = () => Object.fromEntries(Array.from({ length: costLevels }, (_, level) => [level, 0]));
   const measurement = coverage.measurement;
-  // The tests that could go: weak, checking nothing, or repeating another. One whose problem was closed is one someone chose to
-  // keep, and one that could not be asked about is not called weak.
-  const dropped = new Set(coverage.tests.filter(test => (judged.smelly.has(test.id) && !isClosed(voidShare(answers.tests.get(test.id).answers.smell).kind, test.id))
-    || (judged.checksNothing.has(test.id) && !isClosed('checks_nothing', test.id)) || (judged.redundantWith.has(test.id) && !isClosed('redundant', test.id))).map(test => test.id));
+  // The tests that could go: checking nothing, or repeating another. One whose problem was closed is one someone chose to keep,
+  // and one that could not be asked about is not said to check nothing.
+  const dropped = new Set(coverage.tests.filter(test => (judged.checksNothing.has(test.id) && !isClosed('checks_nothing', test.id)) || (judged.redundantWith.has(test.id) && !isClosed('redundant', test.id))).map(test => test.id));
   // What the tests kept ran and what the dropped tests ran, file by file, from the reports' per-test records.
   const kept = { lines: new Map(), arms: new Map() }, gone = { lines: new Map(), arms: new Map() };
   const gather = (into, files) => {
@@ -970,7 +945,7 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     return item => Boolean(theirs?.has(item)) && !ours?.has(item);
   };
   /**
-   * A measured method's lines and branches, less what only weak and duplicate tests ran. Where the report says what each test
+   * A measured method's lines and branches, less what only duplicate tests and tests that check nothing ran. Where the report says what each test
    * ran, that is the lines and branch sides only dropped tests ran, and is measured; coverage.py's contexts say lines but not
    * sides, so a side goes when only dropped tests ran its line, an estimate. Without per-test records it is estimated from the
    * call graph: none of the method counts when every test reaching it is dropped, and all of it otherwise.
@@ -1045,15 +1020,6 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
       own.push(add({ kind: 'redundant', subject: 'test', unit: test.id, path: node.path, line: node.line, name: node.qualified_name, probability: judged.pairProbability.get(test.id),
         note: `Same checks and ${redundantBasis === 'measured' ? 'lines' : 'calls'} as ${like}.` }));
     }
-    // A weak test is listed as likely as the answer says it checks nothing, the same number that judged it weak, and named by the
-    // likeliest such smell. Otherwise the likeliest smell, if any, is listed as likely as the other smells together: the test
-    // stays kept, and the problem is one to fix rather than a reason to delete it.
-    if (said) {
-      const smell = judged.smelly.has(test.id) ? voidShare(said.smell) : smellShare(said.smell, kind => kind !== 'none' && !VOID_SMELLS.has(kind));
-      if (smell.kind && (judged.smelly.has(test.id) || said.smell.choice === smell.kind)) own.push(add({ kind: smell.kind, subject: 'test', unit: test.id, path: node.path, line: node.line,
-        name: node.qualified_name, probability: smell.probability, note: SMELL_NOTES[smell.kind] }));
-    }
-    // Only one of the two is listed for a test, as it is judged: a smell first, since a smelly test is not asked what it checks.
     if (judged.checksNothing.has(test.id)) own.push(add({ kind: 'checks_nothing', subject: 'test', unit: test.id, path: node.path, line: node.line, name: node.qualified_name,
       probability: said.decides.probabilities.nothing, note: 'Passes whatever the code it calls does.' }));
     const leaks = test.evidence.filter(item => LEAKS.has(item.category));
@@ -1071,7 +1037,6 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     return { id: test.id, path: node.path, name: node.case.name, suite: node.case.suite, line: node.line, end_line: node.end_line, framework: node.case.framework,
       direct: test.direct, reach: test.reach, cuts: test.cuts, touches: test.touches, unresolved: test.unresolved ?? null,
       decides: said ? { choice: said.decides.choice, probability: said.decides.probability } : null,
-      smell: said ? { choice: said.smell.choice, probability: said.smell.probability, any: 1 - (said.smell.probabilities.none ?? 0) } : null,
       infra: said?.infra ?? null, cost, run, executed_methods: test.executed_methods ?? null,
       useful: judged.useful.has(test.id), redundant_with: keptId, redundant_basis: redundantBasis, findings: own.filter(Boolean) };
   });
@@ -1119,7 +1084,7 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     // rule untested follows, so the two columns never disagree about one method.
     return { methods: methodList.length, reached: methodList.filter(method => !method.untested).length, useful_reached: methodList.filter(method => method.useful.length).length,
       exercised: share(methodList), exercised_basis: basisOf(methodList), measured: measuredOf(methodList), effective: effectiveOfAll(methodList), tests: testList.length, useful: testList.filter(test => test.useful).length,
-      redundant: testList.filter(test => test.redundant_with).length, smelly: testList.filter(test => judged.smelly.has(test.id) || judged.checksNothing.has(test.id)).length, infra: count(testIds, 'infra'),
+      redundant: testList.filter(test => test.redundant_with).length, weak: testList.filter(test => judged.checksNothing.has(test.id)).length, infra: count(testIds, 'infra'),
       ...timeOf(testList), dropped_seconds: timeOf(testList.filter(test => dropped.has(test.id))).seconds ?? 0 };
   };
   const methodsIn = Map.groupBy(methods, method => method.path), testsIn = Map.groupBy(tests, test => test.path);
@@ -1179,7 +1144,7 @@ export function branchOf(report, { ref, base, files: changed }, sources) {
 const hitsOf = file => (file ? { lines: [...file.lines].sort(([a], [b]) => a - b),
   branches: [...file.branches].sort(([a], [b]) => a - b).map(([line, branch]) => [line, branch.taken, branch.total]) } : null);
 
-const DIFF_TOTALS = ['methods', 'reached', 'exercised', 'tests', 'useful', 'redundant', 'smelly', 'infra', 'untested', 'edge_cases', 'unresolved'];
+const DIFF_TOTALS = ['methods', 'reached', 'exercised', 'tests', 'useful', 'redundant', 'weak', 'infra', 'untested', 'edge_cases', 'unresolved'];
 /** The measured totals a diff compares, as shares and seconds, read off a report's totals. */
 const MEASURED_TOTALS = {
   measured_lines: totals => (totals.measured?.lines.total ? totals.measured.lines.hit / totals.measured.lines.total : null),

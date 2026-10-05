@@ -155,7 +155,7 @@ const TESTS = {
   test_discount_10: { decides: ['happy_path', 0.9] },
   test_discount_20: { decides: ['happy_path', 0.8] },
   test_discount_negative: { decides: ['error_path', 0.85] },
-  test_count_mocked: { decides: ['happy_path', 0.6], smell: ['asserts_mock', 0.8] },
+  test_count_mocked: { decides: ['nothing', 0.8] },
   test_rate: { decides: ['happy_path', 0.7], infra: 0.9, cost: 3 },
   test_rate_mocked: { decides: ['invalid_input', 0.7] },
   'cart > adds prices': { decides: ['happy_path', 0.9] },
@@ -201,7 +201,6 @@ function scripted({ fail = new Set(), error = name => new Error(`scripted failur
       const answers = {};
       for (const [id, question] of Object.entries(questions)) {
         if (id === 'decides') answers[id] = choice(question, script.decides);
-        else if (id === 'smell') answers[id] = choice(question, script.smell ?? ['none', 0.9]);
         else if (id in NOUL_DEFAULTS) answers[id] = { type: 'noul', noul: script[id] ?? NOUL_DEFAULTS[id] };
         else if (id === 'cost') answers[id] = score(question, tier(script.cost ?? 0));
         else if (id === 'exercised') answers[id] = score(question, script.exercised);
@@ -299,8 +298,8 @@ describe('perch coverage', () => {
 
     const findings = byId(report.findings);
     expect(kinds(report)).toEqual([
-      'asserts_mock tests/test_cart.py::test_count_mocked',
       'checks_nothing test/db.test.ts::saves an order',
+      'checks_nothing tests/test_cart.py::test_count_mocked',
       'edge_case cart.py::apply_discount',
       'infra tests/test_cart.py::test_rate',
       'redundant tests/test_cart.py::test_discount_20',
@@ -309,9 +308,7 @@ describe('perch coverage', () => {
     const find = (kind, unit) => report.findings.find(finding => finding.kind === kind && finding.unit === unit);
     expect(find('redundant', 'tests/test_cart.py::test_discount_20').probability).toBe(0.8);
     expect(find('redundant', 'tests/test_cart.py::test_discount_20').note).toBe('Same checks and calls as test_discount_10 at line 9.');
-    // The chance it checks nothing: the scripted answer gives asserts_mock 0.8 and splits 0.2 over the other six options, two of
-    // them no_assertion and tautology.
-    expect(find('asserts_mock', 'tests/test_cart.py::test_count_mocked').probability).toBeCloseTo(0.8 + 2 * 0.2 / 6);
+    expect(find('checks_nothing', 'tests/test_cart.py::test_count_mocked').probability).toBe(0.8);
     // That no test reaches restock is the call graph's; how much that matters is the answer's.
     expect(find('untested', 'cart.py::restock').probability).toBe(0.9);
     expect(find('edge_case', 'cart.py::apply_discount')).toMatchObject({ line: 7, probability: 0.7 });
@@ -338,13 +335,13 @@ describe('perch coverage', () => {
     expect(methods.get('src/cart.ts::total').gap).toBe(null);
     expect(methods.get('pricing.py::round_money').exercised).toBe(1);
     expect(methods.get('src/cart.ts::checkout').exercised).toBe(1);
-    // Reached only by a smelly test, or only by one that decides nothing: reached, and none of it exercised.
+    // Reached only by tests that decide nothing: reached, and none of it exercised.
     expect(methods.get('cart.py::item_count')).toMatchObject({ exercised: 0, useful: [] });
     expect(methods.get('cart.py::item_count').tests).toEqual([{ id: 'tests/test_cart.py::test_count_mocked', depth: 1 }]);
     expect(methods.get('src/db.ts::save').exercised).toBe(0);
     expect(methods.get('cart.py::restock').exercised).toBe(0);
 
-    expect(report.totals).toMatchObject({ methods: 8, reached: 7, useful_reached: 5, tests: 10, useful: 7, redundant: 1, smelly: 2, infra: 1,
+    expect(report.totals).toMatchObject({ methods: 8, reached: 7, useful_reached: 5, tests: 10, useful: 7, redundant: 1, weak: 2, infra: 1,
       untested: 1, edge_cases: 1, cost: { 0: 8, 1: 0, 2: 1, 3: 1 }, drop: { count: 3, cost: { 0: 2, 1: 0, 2: 1, 3: 0 } } });
     expect(report.totals.exercised).toBeCloseTo(4.7 / 8);
     // test_count_mocked is dropped for asserting its own value, and it is the only test that reaches item_count; saves an order,
@@ -355,7 +352,7 @@ describe('perch coverage', () => {
     expect(cartFile.totals).toMatchObject({ methods: 3, reached: 2, useful_reached: 1 });
     expect(cartFile.totals.exercised).toBeCloseTo(0.7 / 3);
     expect(cartFile.lines[4]).toBe('    if percent < 0:');
-    expect(report.files.find(file => file.path === 'tests/test_cart.py').totals).toMatchObject({ tests: 6, useful: 4, redundant: 1, smelly: 1, infra: 1 });
+    expect(report.files.find(file => file.path === 'tests/test_cart.py').totals).toMatchObject({ tests: 6, useful: 4, redundant: 1, weak: 1, infra: 1 });
 
     // Saved where the next run and the page read it.
     // A line of everything but the lists, then a line per item, so a report of any size is written and read a line at a time.
@@ -400,20 +397,6 @@ describe('perch coverage', () => {
     expect(reopened.closed).toEqual([]);
   });
 
-  it('keeps a test whose smell leaves it checking something', async () => {
-    const tests = { test_rate_mocked: { decides: ['invalid_input', 0.7], smell: ['mystery_guest', 0.8] } };
-    const report = await run(await repository(), scripted({ tests }));
-    const mocked = report.tests.find(test => test.id === 'tests/test_cart.py::test_rate_mocked');
-    // Listed as likely as the smells that leave a test checking something: mystery_guest's 0.8, and assertion_roulette's and
-    // eager's shares of the 0.2 split over the other six options.
-    const smell = report.findings.find(finding => finding.unit === mocked.id);
-    expect(smell).toMatchObject({ kind: 'mystery_guest', note: 'Uses a file, record or service it does not create.' });
-    expect(smell.probability).toBeCloseTo(0.8 + 2 * 0.2 / 6);
-    // It still checks what it checks: kept, and not among the tests dropping would save.
-    expect(mocked.useful).toBe(true);
-    expect(report.totals.drop.count).toBe(3);
-  });
-
   it('calls a test empty only above the floor', async () => {
     // saves an order is scripted as deciding nothing at 0.7; at 0.45 it is under the floor.
     const under = await run(await repository(), scripted({ tests: { 'saves an order': { decides: ['nothing', 0.45], infra: 0.1, cost: 2 } } }));
@@ -446,7 +429,7 @@ describe('perch coverage', () => {
     ]);
     expect(report.failed[0].error).toBe('scripted failure for cart > rejects a negative price');
     const rejects = report.tests.find(test => test.id === 'test/cart.test.ts::cart > rejects a negative price');
-    expect(rejects).toMatchObject({ decides: null, smell: null, infra: null, cost: null, useful: false });
+    expect(rejects).toMatchObject({ decides: null, infra: null, cost: null, useful: false });
     const total = report.methods.find(method => method.id === 'src/cart.ts::total');
     expect(total.exercised).toBe(null);
     expect(total.useful).toEqual(['test/cart.test.ts::cart > adds prices', 'test/cart.test.ts::cart > checks out']);
@@ -526,7 +509,7 @@ it('charges the stubbed amount', () => {
 });
 `,
     });
-    TESTS['charges the stubbed amount'] = { decides: ['nothing', 0.8], smell: ['asserts_mock', 0.9] };
+    TESTS['charges the stubbed amount'] = { decides: ['nothing', 0.8] };
     const systemOne = scripted();
     const report = await run(repo, systemOne);
     delete TESTS['charges the stubbed amount'];
@@ -538,9 +521,7 @@ it('charges the stubbed amount', () => {
     expect(stub.unresolved).toEqual(['charge', 'expect', 'vi.fn']);
     expect(stub.useful).toBe(false);
     const own = report.findings.filter(finding => finding.unit === stub.id).map(finding => [finding.kind, finding.probability]);
-    // asserts_mock at 0.9 leaves 0.1 over the other six options, two of them no_assertion and tautology.
-    expect(own.map(([kind]) => kind)).toEqual(['asserts_mock', 'unresolved']);
-    expect(own[0][1]).toBeCloseTo(0.9 + 2 * 0.1 / 6);
+    expect(own).toEqual([['checks_nothing', 0.8], ['unresolved', 0.8]]);
     // That none of its calls resolve is the call graph's; whether it tests nothing here is the answer's.
     expect(own[1][1]).toBe(0.8);
     expect('tests_nothing_here' in systemOne.calls.find(call => call.name === 'charges the stubbed amount').questions).toBe(true);
@@ -829,7 +810,7 @@ describe('perch coverage with test reports', () => {
     // Vitest wrote no per-test lines, so the two tests calling only total with one label are compared on that.
     expect(tests.get('test/cart.test.ts::cart > adds prices').executed_methods).toBe(null);
     expect(tests.get('test/cart.test.ts::cart > rejects a negative price')).toMatchObject({ redundant_with: 'test/cart.test.ts::cart > adds prices', redundant_basis: 'static' });
-    // Dropped: test_count_mocked for its smell, saves an order for checking nothing, and the two redundant tests. All but saves an
+    // Dropped: test_count_mocked and saves an order for checking nothing, and the two redundant tests. All but saves an
     // order were timed.
     expect(report.totals.drop).toMatchObject({ count: 4, seconds: 0.6875, timed: 3 });
   });
@@ -837,7 +818,7 @@ describe('perch coverage with test reports', () => {
   it('counts what the tests worth keeping ran', async () => {
     const { report } = await measuredRun();
     const methods = byId(report.methods);
-    // coverage.py's contexts say which lines each test ran. test_count_mocked, dropped for its smell, is the only test that ran
+    // coverage.py's contexts say which lines each test ran. test_count_mocked, dropped for checking nothing, is the only test that ran
     // restock, so none of it counts; its branches are estimated, since contexts say lines and not sides.
     expect(methods.get('cart.py::restock').effective).toEqual({ lines: { hit: 0, total: 4, basis: 'measured' }, branches: { hit: 0, total: 4, basis: 'estimated' } });
     // test_discount_10 and test_discount_negative are kept and ran lines 5, 6, 7 and 9 between them, the branch lines 5 and 7 among them.
@@ -889,7 +870,7 @@ end_of_record
 `;
     const repo = await repository();
     await write(repo.root, { ...REPORTS, 'reports/lcov.info': lcov });
-    const tests = { ...MEASURED_TESTS, 'cart > rejects a negative price': { decides: ['happy_path', 0.75], smell: ['asserts_mock', 0.9] } };
+    const tests = { ...MEASURED_TESTS, 'cart > rejects a negative price': { decides: ['nothing', 0.9] } };
     const report = await run(repo, scripted({ tests, methods: MEASURED_METHODS, needs: MEASURED_NEEDS }),
       { reportFlags: { junit: ['reports/junit.xml'], lcov: ['reports/lcov.info'] }, cwd: repo.root });
     const total = byId(report.methods).get('src/cart.ts::total');
@@ -1077,7 +1058,7 @@ describe('a JaCoCo report', () => {
 
 it('finds duplicate tests among 40,000 in about linear time', () => {
   const answered = new Map(), tests = [];
-  const said = { smell: { choice: 'none', probabilities: { none: 1 } }, decides: { choice: 'happy_path', probability: 0.9, probabilities: { happy_path: 0.9 } } };
+  const said = { decides: { choice: 'happy_path', probability: 0.9, probabilities: { happy_path: 0.9 } } };
   // Two tests for each method: the second repeats the first. Every tenth pair has a record of what ran, and those match on it.
   for (let index = 0; index < 20000; index++) for (const copy of [0, 1]) {
     const id = `test/t${index}.test.js::t${copy}`;
