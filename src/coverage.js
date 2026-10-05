@@ -1,13 +1,13 @@
 /**
- * `perch coverage`: which tests reach which methods, and which planted bugs those tests would catch.
+ * `perch coverage`: predictive mutation testing. Which tests reach which methods, and which mutants of those methods the tests
+ * would kill.
  *
  * Nothing here runs a test. Tests are the declarations tree-sitter marked as test cases, and what a test reaches is a walk over
- * the call graph. Each reached method has bugs planted in it, one-token edits read off its syntax tree (mutants.js), and Jev is
- * asked, per planted bug and per test reaching the method, whether that test would fail with the bug in. A bug no test is
- * predicted to catch is a gap; a test predicted to catch none is one that checks nothing; two tests predicted to catch the same
- * bugs are one test written twice. Nothing a test run wrote is read: no coverage report, no test results. Every listed
- * problem's probability is a System One answer or computed from answers. A problem whose unit could not be asked has none,
- * and is listed with the failure.
+ * the call graph. Each reached method gets mutants, one-token edits read off its syntax tree (mutants.js), and Jev is asked,
+ * per mutant and per test reaching the method, whether that test would fail against it. A mutant no test is predicted to kill
+ * survived; a test predicted to kill none checks nothing; two tests predicted to kill the same mutants are one test written
+ * twice. Nothing a test run wrote is read: no coverage report, no test results. Every listed problem's probability is a System
+ * One answer or computed from answers. A problem whose unit could not be asked has none, and is listed with the failure.
  *
  * A test or a method that cannot be asked about is recorded as failed and stays in the report as failed. It is never counted as
  * a useful test or as a covered method, since a report that quietly fills in what it could not find out reads as complete.
@@ -40,11 +40,9 @@ export const MAX_SHOWN = 8;
 /** What an answer is kept under: what was shown, which questions were asked, and who answered. Any of them changing asks again. */
 const QUESTIONS = parseQuestions(readFileSync(new URL('../coverage.yaml', import.meta.url), 'utf8'), 'coverage.yaml');
 
-/** What is asked of tests and of methods. `catches` is a template: it is asked once per test shown, as `catches_1` and so on. */
+/** What is asked of tests and of methods. `kills` is a template: it is asked once per test shown, as `kills_1` and so on. */
 export const coverageQuestions = () => ({ test: QUESTIONS.filter(question => question.each === 'test'), method: QUESTIONS.filter(question => question.each === 'method') });
 const questionNamed = name => QUESTIONS.find(question => question.name === name);
-/** Whether a method is untested: no test reaches it through the call graph. */
-const isUntested = method => !method.tests.length;
 /** What a node in a test's request is, when it is not code the test reaches: a helper of its own. */
 const HELPER = "the test's own helper, which it calls through to the code under test";
 const MACRO = "a macro the test uses, which may hold its assertions";
@@ -66,8 +64,6 @@ function macroIn(lines, name) {
   return { line: start + 1, text: lines.slice(start, end + 1).join('\n') };
 }
 const MACRO_LANGUAGES = new Set(['c', 'cpp', 'rust']);
-/** Asked of a method only once the call graph has found no test reaches it. */
-const NEEDS_TEST = 'needs_test';
 
 /**
  * A unit's text as a request shows it: the comment above it, which is its contract, then its lines, with no line numbers. The
@@ -222,7 +218,7 @@ const describeMock = ({ target, line }) => {
  */
 export function computeCoverage({ scan, graph, depth = DEFAULT_DEPTH, inScope = () => true, runs = () => true, named = inScope }) {
   const nodes = [...graph.nodes.values()];
-  // A file's code outside every function is the scan's to read: no test calls it, so as a method it would always be untested.
+  // A file's code outside every function is the scan's to read: no test calls it, so as a method it would never be reached.
   const methods = nodes.filter(node => !node.test && node.qualified_name !== TOP_LEVEL && inScope(node.path));
   for (const node of methods) if (!Array.isArray(node.branches)) throw new Error(`${node.id} was analyzed without branch lines; the analysis is from an older perch`);
   const inScopeIds = new Set(methods.map(node => node.id));
@@ -314,51 +310,50 @@ function readAll(questions, answers) {
 }
 
 /**
- * Which tests are worth keeping, from what each is predicted to catch. `planted` is each method's planted bugs with, per bug,
- * the tests asked about it and how likely each is to fail with it in. A test checks nothing when, over at least two bugs it
- * was asked about, the chance it catches none is at the floor or over it. Among the tests left, two asked about the same bugs
- * that are predicted to catch exactly the same ones, at least one, are one test written twice; the first by path and line is
- * kept, and the kept test's chance on the bug it is least sure of is the duplicate's probability.
+ * Which tests are worth keeping, from what each is predicted to kill. `mutants` is each method's mutants with, per mutant, the
+ * tests asked about it and how likely each is to fail against it. A test checks nothing when, over at least two mutants it was
+ * asked about, the chance it kills none is at the floor or over it. Among the tests left, two asked about the same mutants that
+ * are predicted to kill exactly the same ones, at least one, are one test written twice; the first by path and line is kept, and
+ * the kept test's chance on the mutant it is least sure of is the duplicate's probability.
  */
-export function judgeTests(tests, planted, min) {
+export function judgeTests(tests, mutants, min) {
   const asked = new Map();
-  for (const [methodId, bugs] of planted) for (const bug of bugs) for (const [testId, p] of bug.catches) {
+  for (const [methodId, list] of mutants) for (const item of list) for (const [testId, p] of item.kills) {
     if (!asked.has(testId)) asked.set(testId, []);
-    asked.get(testId).push({ key: `${methodId}#${mutantId(bug.mutant)}`, p });
+    asked.get(testId).push({ key: `${methodId}#${mutantId(item.mutant)}`, p });
   }
   const checksNothing = new Map();
-  for (const [testId, bugs] of asked) {
-    if (bugs.length < 2) continue;
-    const none = bugs.reduce((total, bug) => total * (1 - bug.p), 1);
+  for (const [testId, list] of asked) {
+    if (list.length < 2) continue;
+    const none = list.reduce((total, item) => total * (1 - item.p), 1);
     if (none >= min) checksNothing.set(testId, none);
   }
   const redundantWith = new Map(), pairProbability = new Map();
   const byKills = new Map();
   for (const test of [...tests].sort((a, b) => a.node.path.localeCompare(b.node.path) || a.node.line - b.node.line)) {
-    const bugs = asked.get(test.id);
-    if (!bugs || bugs.length < 2 || checksNothing.has(test.id)) continue;
-    const sorted = [...bugs].sort((a, b) => a.key.localeCompare(b.key));
-    if (!sorted.some(bug => bug.p >= min)) continue;
-    const key = JSON.stringify(sorted.map(bug => [bug.key, bug.p >= min]));
+    const list = asked.get(test.id);
+    if (!list || list.length < 2 || checksNothing.has(test.id)) continue;
+    const sorted = [...list].sort((a, b) => a.key.localeCompare(b.key));
+    if (!sorted.some(item => item.p >= min)) continue;
+    const key = JSON.stringify(sorted.map(item => [item.key, item.p >= min]));
     const first = byKills.get(key);
-    if (!first) { byKills.set(key, { id: test.id, bugs: sorted }); continue; }
-    // Deleting this one loses nothing when the first catches every bug it catches: the chance of that is the first's chance on
-    // the bug it is least sure of among those.
-    const agree = Math.min(...sorted.map((bug, at) => (bug.p >= min ? first.bugs[at].p : 1)));
+    if (!first) { byKills.set(key, { id: test.id, mutants: sorted }); continue; }
+    // Deleting this one loses nothing when the first kills every mutant it kills: the chance of that is the first's chance on
+    // the mutant it is least sure of among those.
+    const agree = Math.min(...sorted.map((item, at) => (item.p >= min ? first.mutants[at].p : 1)));
     if (agree < min) continue;
     redundantWith.set(test.id, first.id);
     pairProbability.set(test.id, agree);
   }
-  const kills = new Map([...asked].map(([testId, bugs]) => [testId, bugs.filter(bug => bug.p >= min).map(bug => bug.key)]));
+  const kills = new Map([...asked].map(([testId, list]) => [testId, list.filter(item => item.p >= min).map(item => item.key)]));
   const useful = new Set(tests.filter(test => !checksNothing.has(test.id) && !redundantWith.has(test.id)).map(test => test.id));
-  return { useful, checksNothing, redundantWith, pairProbability, kills, asked: new Map([...asked].map(([testId, bugs]) => [testId, bugs.length])) };
+  return { useful, checksNothing, redundantWith, pairProbability, kills, asked: new Map([...asked].map(([testId, list]) => [testId, list.length])) };
 }
 
 /**
- * Ask System One about the tests that need asking, then about every planted bug of every reached method. A test is asked only
- * what the graph left open: whether it calls a live service, when it can reach one. A method is asked once per planted bug,
- * with the tests reaching it in view: `matters`, and `catches` for each test. A method no test reaches is asked whether it
- * needs one.
+ * Ask System One about the tests that need asking, then about every mutant of every reached method. A test is asked only what
+ * the graph left open: whether it calls a live service, when it can reach one. A method is asked once per mutant, with the tests
+ * reaching it in view: `matters`, and `kills` for each test. A method no test reaches is asked nothing.
  *
  * Every unit is asked on every run: the endpoint caches answers, perch does not. A unit that fails is recorded in `failed` with
  * its error and carries no answers; an authentication failure stops the run, since every other request would get the same
@@ -367,9 +362,9 @@ export function judgeTests(tests, planted, min) {
 export async function askCoverage({ coverage, graph, linesOf, systemOne, parallel = DEFAULT_PARALLEL,
   testProgress = () => {}, methodProgress = () => {}, log = () => {}, debug = () => {} }) {
   const { test: testAsked } = coverageQuestions();
-  const catchesTemplate = questionNamed('catches'), mattersAsked = [questionNamed('matters')], needsAsked = [questionNamed(NEEDS_TEST)];
+  const killsTemplate = questionNamed('kills'), mattersAsked = [questionNamed('matters')];
   const initial = systemOne.limits?.state ?? TOKEN_LIMITS.state;
-  const tests = new Map(), bugs = new Map(), needs = new Map(), failed = [...coverage.failed];
+  const tests = new Map(), mutants = new Map(), failed = [...coverage.failed];
   let asked = 0, failures = 0;
 
   /** One unit, asked at the full budget and again at smaller ones when its state is too large. */
@@ -439,27 +434,27 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, paralle
     return answer({ subject: 'test', node, build, typed: () => compile(questions), questions });
   }, tests, testProgress);
 
-  // Every reached method, one request per planted bug, with the tests reaching it in view, nearest first. A macro the test
-  // checks through is shown with it, since the check is inside the macro and no call graph reaches it.
+  // Every reached method, one request per mutant, with the tests reaching it in view, nearest first. A macro the test checks
+  // through is shown with it, since the check is inside the macro and no call graph reaches it.
   const sources = new Map();
   const sourceText = async path => { if (!sources.has(path)) sources.set(path, (await linesOf({ path })).join('\n')); return sources.get(path); };
-  const bugUnits = [];
+  const mutantUnits = [];
   for (const method of coverage.methods) {
     if (!method.tests.length) continue;
     const { node } = method;
     const language = graph.files.get(node.path)?.file.language;
-    const planted = mutantsOf({ source: await sourceText(node.path), language, line: node.line, end_line: node.end_line });
+    const generated = mutantsOf({ source: await sourceText(node.path), language, line: node.line, end_line: node.end_line });
     const shown = method.tests.slice(0, MAX_SHOWN).map(item => item.id);
-    for (const mutant of planted) bugUnits.push({ id: `${method.id}#${mutantId(mutant)}`, node, method, mutant, shown });
+    for (const mutant of generated) mutantUnits.push({ id: `${method.id}#${mutantId(mutant)}`, node, method, mutant, shown });
   }
-  const bugRows = new Map();
-  await settle(bugUnits, async unit => {
+  const mutantRows = new Map();
+  await settle(mutantUnits, async unit => {
     const { node, mutant, shown } = unit;
     const lines = await linesOf(node);
     const reaching = await Promise.all(shown.map(async id => ({ id, ...(await neighbourSource({ id })) })));
     const macros = await Promise.all(reaching.map(item => macrosOf(item.node, graph, linesOf)));
-    // catches_1 asks about test 1, and so on: the question names the test, and the test's node in the graph is noted the same way.
-    const questions = [...mattersAsked, ...shown.map((id, at) => ({ ...catchesTemplate, name: `catches_${at + 1}`, ask: `This question is about test ${at + 1}, \`${id}\`. ${catchesTemplate.ask}` }))];
+    // kills_1 asks about test 1, and so on: the question names the test, and the test's node in the graph is noted the same way.
+    const questions = [...mattersAsked, ...shown.map((id, at) => ({ ...killsTemplate, name: `kills_${at + 1}`, ask: `This question is about test ${at + 1}, \`${id}\`. ${killsTemplate.ask}` }))];
     const build = budget => fitState((limit, count) => {
       const nodes = reaching.slice(0, count).flatMap((item, at) => [
         { id: item.id, path: item.node.path, source: excerpt(item.node, item.lines, limit), note: `test ${at + 1}` },
@@ -471,29 +466,17 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, paralle
       };
     }, budget, `method ${node.qualified_name}`);
     return answer({ subject: 'method', node, build, typed: () => compile(questions), questions });
-  }, bugRows, methodProgress);
-  for (const unit of bugUnits) {
-    const row = bugRows.get(unit.id);
+  }, mutantRows, methodProgress);
+  for (const unit of mutantUnits) {
+    const row = mutantRows.get(unit.id);
     if (!row) continue;
-    if (!bugs.has(unit.method.id)) bugs.set(unit.method.id, []);
-    bugs.get(unit.method.id).push({ mutant: unit.mutant, matters: row.answers.matters, catches: unit.shown.map((id, at) => [id, row.answers[`catches_${at + 1}`]]) });
+    if (!mutants.has(unit.method.id)) mutants.set(unit.method.id, []);
+    mutants.get(unit.method.id).push({ mutant: unit.mutant, matters: row.answers.matters, kills: unit.shown.map((id, at) => [id, row.answers[`kills_${at + 1}`]]) });
   }
-
-  // A method no test runs is asked whether it needs one, with how perch knows no test runs it.
-  const untested = coverage.methods.filter(isUntested);
-  await settle(untested, async method => {
-    const { node } = method;
-    const lines = await linesOf(node);
-    const how = `No test reaches it within ${coverage.depth} calls.`;
-    const build = budget => fitState(() => ({
-      method: { path: node.path, name: node.qualified_name, source: sourceOf(node, lines), note: how }, graph: { nodes: [], edges: [] },
-    }), budget, `method ${node.qualified_name}`);
-    return answer({ subject: 'method', node, build, typed: () => compile(needsAsked), questions: needsAsked });
-  }, needs, methodProgress);
 
   // Every request failed and none answered, which is an outage or a refusal, not a repository with nothing to say.
   if (failures && !asked) throw new Error(`nothing could be asked: ${failures} failed; last error: ${failed.at(-1).error}`);
-  return { tests, bugs, needs, failed, asked };
+  return { tests, mutants, failed, asked };
 }
 
 /**
@@ -525,11 +508,11 @@ const findingIdOf = (kind, unit) => identity('coverage', kind, unit).slice(0, 8)
  * counted from the coverage, the answers and the lines it is given; nothing is looked up again.
  */
 export function buildReport({ coverage, answers, lines, revision, root, label = root, github = null, createdAt = new Date().toISOString(), model = null, min = 0.5, usage = {}, closed = new Map() }) {
-  const judged = judgeTests(coverage.tests, answers.bugs, min);
+  const judged = judgeTests(coverage.tests, answers.mutants, min);
   const findings = [];
   const listed = finding => finding.probability === null || finding.probability >= min;
   // A problem someone closed with `perch close` stays closed: it is kept apart, so perch reopen can find it, and listed nowhere.
-  // A planted bug's problem is keyed by the bug, since a method can have several; every other problem by its unit.
+  // A mutant's problem is keyed by the mutant, since a method can have several; every other problem by its unit.
   const isClosed = (kind, key) => closed.get(findingIdOf(kind, key))?.kinds.has(kind) ?? false;
   const closedFindings = [];
   const add = finding => {
@@ -549,29 +532,22 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
   const methods = coverage.methods.map(method => {
     const { node } = method;
     const usefulTests = method.tests.filter(item => judged.useful.has(item.id)).map(item => item.id);
-    const untested = isUntested(method);
-    const own = [];
-    // That no test reaches it is the call graph's; whether that is a problem is Jev's. An unasked one stays listed.
-    const needsTest = answers.needs?.get(method.id)?.answers.needs_test ?? null;
-    if (untested) own.push(add({ kind: 'untested', subject: 'method', unit: method.id, path: node.path, line: node.line, name: node.qualified_name, probability: needsTest,
-      note: `No test reaches it within ${plural(coverage.depth, 'call')}.` }));
-    // Each planted bug: how likely it is that no test shown catches it, and that it is a bug at all. A bug is caught when some
-    // test is likely enough to fail with it in; one no test catches, that matters, is listed.
-    const planted = (answers.bugs.get(method.id) ?? []).map(({ mutant, matters, catches }) => {
-      const survives = catches.reduce((total, [, p]) => total * (1 - p), 1);
+    // Each mutant: how likely it is that no test shown kills it, and that it changes behaviour at all. A mutant is killed when
+    // some test is likely enough to fail against it; one that survives, and matters, is listed.
+    const mutants = (answers.mutants.get(method.id) ?? []).map(({ mutant, matters, kills }) => {
+      const survives = kills.reduce((total, [, p]) => total * (1 - p), 1);
       const id = mutantId(mutant);
-      const bug = { id, kind: mutant.kind, line: mutant.line, column: mutant.column, from: mutant.from, to: mutant.to, original: mutant.original, mutated: mutant.mutated,
-        matters, survives, caught: 1 - survives >= min, caught_by: catches.filter(([, p]) => p >= min).map(([testId]) => testId), asked: catches.map(([testId]) => testId), finding: null };
-      const count = catches.length;
-      bug.finding = add({ kind: 'uncaught', subject: 'method', unit: method.id, key: `${method.id}#${id}`, path: node.path, line: mutant.line, name: node.qualified_name,
-        probability: survives * matters, bug: id,
+      const item = { id, kind: mutant.kind, line: mutant.line, column: mutant.column, from: mutant.from, to: mutant.to, original: mutant.original, mutated: mutant.mutated,
+        matters, survives, killed: 1 - survives >= min, killed_by: kills.filter(([, p]) => p >= min).map(([testId]) => testId), asked: kills.map(([testId]) => testId), finding: null };
+      const count = kills.length;
+      item.finding = add({ kind: 'survived', subject: 'method', unit: method.id, key: `${method.id}#${id}`, path: node.path, line: mutant.line, name: node.qualified_name,
+        probability: survives * matters, mutant: id,
         note: `With ${describeMutant(mutant)}, ${count === 1 ? 'the 1 test reaching it still passes' : `none of the ${count} tests reaching it fails`}.` });
-      return bug;
+      return item;
     });
-    own.push(...planted.map(bug => bug.finding));
     return { id: method.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, risk: node.metrics?.risk_score ?? null,
-      branches: method.branches, tests: method.tests, useful: usefulTests, untested,
-      bugs: planted, planted: planted.length, caught: planted.filter(bug => bug.caught).length, findings: own.filter(Boolean) };
+      branches: method.branches, tests: method.tests, useful: usefulTests,
+      mutants, killed: mutants.filter(item => item.killed).length, findings: mutants.map(item => item.finding).filter(Boolean) };
   });
   const testById = new Map(coverage.tests.map(test => [test.id, test]));
 
@@ -584,10 +560,10 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
       const kept = testById.get(keptId).node;
       const like = `${kept.qualified_name}${kept.path === node.path ? '' : ` in ${kept.path}`} at line ${kept.line}`;
       own.push(add({ kind: 'redundant', subject: 'test', unit: test.id, path: node.path, line: node.line, name: node.qualified_name, probability: judged.pairProbability.get(test.id),
-        note: `Catches the same planted bugs as ${like}, and no others.` }));
+        note: `Kills the same mutants as ${like}, and no others.` }));
     }
     if (judged.checksNothing.has(test.id)) own.push(add({ kind: 'checks_nothing', subject: 'test', unit: test.id, path: node.path, line: node.line, name: node.qualified_name,
-      probability: judged.checksNothing.get(test.id), note: `Passes with every one of the ${plural(judged.asked.get(test.id), 'bug')} planted in the code it reaches.` }));
+      probability: judged.checksNothing.get(test.id), note: `Kills none of the ${plural(judged.asked.get(test.id), 'mutant')} in the code it reaches.` }));
     const leaks = test.evidence.filter(item => LEAKS.has(item.category));
     const shown = leaks.slice(0, 3).map(item => `${item.name} at ${item.path}:${item.line}`).join(', ');
     // The call graph finds the network and database calls a test can reach; the answer decides whether it makes one to a live
@@ -616,9 +592,9 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
   };
   const totalsOf = (methodList, testList) => {
     const testIds = new Set(testList.map(test => test.id)), methodIds = new Set(methodList.map(method => method.id));
-    const planted = methodList.reduce((total, method) => total + method.planted, 0), caught = methodList.reduce((total, method) => total + method.caught, 0);
-    return { methods: methodList.length, reached: methodList.filter(method => !method.untested).length, useful_reached: methodList.filter(method => method.useful.length).length,
-      planted, caught, score: planted ? caught / planted : null, uncaught: count(methodIds, 'uncaught'),
+    const mutants = methodList.reduce((total, method) => total + method.mutants.length, 0), killed = methodList.reduce((total, method) => total + method.killed, 0);
+    return { methods: methodList.length, reached: methodList.filter(method => method.tests.length).length, useful_reached: methodList.filter(method => method.useful.length).length,
+      mutants, killed, score: mutants ? killed / mutants : null, survived: count(methodIds, 'survived'),
       tests: testList.length, useful: testList.filter(test => test.useful).length,
       redundant: testList.filter(test => test.redundant_with).length, weak: testList.filter(test => judged.checksNothing.has(test.id)).length, infra: count(testIds, 'infra') };
   };
@@ -632,7 +608,7 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
   // "nothing" is a claim.
   const drop = { count: tests.filter(test => dropped.has(test.id)).length,
     unreached: methods.filter(method => method.tests.length && method.tests.every(item => dropped.has(item.id))).map(method => method.id) };
-  const totals = { ...totalsOf(methods, tests), untested: methods.filter(method => method.untested).length, drop };
+  const totals = { ...totalsOf(methods, tests), drop };
   return { version: 2, revision, root, target: label, github, created_at: createdAt, model, depth: coverage.depth, min,
     totals, files, methods, tests, findings, failed: answers.failed, closed: closedFindings, baseline: null, diff: null, usage };
 }
@@ -648,7 +624,7 @@ export function branchOf(report, { ref, base, files: changed }) {
   return { ref, base, units, findings: report.findings.filter(finding => changedUnits.has(finding.unit)).map(finding => finding.id) };
 }
 
-const DIFF_TOTALS = ['methods', 'reached', 'planted', 'caught', 'score', 'uncaught', 'tests', 'useful', 'redundant', 'weak', 'infra', 'untested'];
+const DIFF_TOTALS = ['methods', 'reached', 'mutants', 'killed', 'score', 'survived', 'tests', 'useful', 'redundant', 'weak', 'infra'];
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 /**
  * What changed between two saved reports, unit by unit. Methods, tests, files and findings are matched by id, so a method whose
@@ -661,7 +637,7 @@ export function diffReports(before, after) {
   const files = union(filesBefore.keys(), filesAfter.keys()).sort()
     .map(path => ({ path, before: filesBefore.get(path) ?? null, after: filesAfter.get(path) ?? null }))
     .filter(change => !same(change.before, change.after));
-  const state = method => (method ? { reached: !method.untested, planted: method.planted ?? 0, caught: method.caught ?? 0 } : null);
+  const state = method => (method ? { reached: method.tests.length > 0, mutants: method.mutants.length, killed: method.killed } : null);
   const methodsBefore = new Map(before.methods.map(method => [method.id, method])), methodsAfter = new Map(after.methods.map(method => [method.id, method]));
   const methods = union(methodsBefore.keys(), methodsAfter.keys()).sort().map(id => {
     const was = methodsBefore.get(id), is = methodsAfter.get(id), either = is ?? was;

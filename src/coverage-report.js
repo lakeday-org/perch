@@ -7,7 +7,7 @@ import { BELIEVED } from './questions.js';
 import { bold, COLOR, dim, keepEnd, keepStart, percent, relative, sureness, table, TOP, WIDTH } from './report.js';
 
 /** Every kind of problem a coverage report can list, and so everything `--filter kind=` accepts. */
-export const COVERAGE_KINDS = ['untested', 'uncaught', 'redundant', 'checks_nothing', 'infra'];
+export const COVERAGE_KINDS = ['survived', 'redundant', 'checks_nothing', 'infra'];
 
 const plural = (count, noun, many = `${noun}s`) => `${count} ${count === 1 ? noun : many}`;
 /** A 0..1 value as a whole percentage; null is a value nobody answered, which is a dash and not a zero. */
@@ -20,11 +20,11 @@ const points = value => (value === null || value === undefined ? null : Math.rou
 const change = (before, after) => (before === null || after === null || before === undefined || after === undefined || before === after
   ? '' : ` (${after > before ? '+' : ''}${after - before})`);
 const short = revision => String(revision ?? '?').slice(0, 7);
-/** Planted bugs caught, as a share and a count: `67% (4 of 6)`, or a dash for a file with nothing planted. */
-const scoreCell = totals => (totals.planted ? `${percent(totals.caught / totals.planted)} (${totals.caught} of ${totals.planted})` : '-');
+/** The mutation score, as a share and a count: `67% (4 of 6)`, or a dash for a file with no mutants. */
+const scoreCell = totals => (totals.mutants ? `${percent(totals.killed / totals.mutants)} (${totals.killed} of ${totals.mutants})` : '-');
 
 /**
- * `--filter kind=untested,redundant` as clauses. Coverage findings have one thing to filter on, the kind of problem, so any other key
+ * `--filter kind=survived,redundant` as clauses. Coverage findings have one thing to filter on, the kind of problem, so any other key
  * is a mistake and says so with the list rather than filtering on nothing.
  */
 export function parseCoverageFilters(text) {
@@ -86,13 +86,13 @@ function sourceTable(report, onList, { width, color }) {
   const files = (report.files ?? []).filter(file => file.kind === 'source' && file.totals?.methods)
     .sort((a, b) => a.path.localeCompare(b.path));
   if (!files.length) return '';
-  // Bugs caught is the planted bugs some test is predicted to fail on, of all planted; uncaught is counted from the problems
+  // The mutation score is the mutants some test is predicted to kill, of all mutants; survived is counted from the problems
   // listed under the table, at the same floor, so the two agree.
-  const header = ['Source files', 'Methods tested', 'Bugs caught', 'Uncaught bugs'];
-  const gaps = onList.filter(finding => finding.kind === 'uncaught');
+  const header = ['Source files', 'Methods tested', 'Mutation score', 'Survived'];
+  const gaps = onList.filter(finding => finding.kind === 'survived');
   const gapsIn = Map.groupBy(gaps, finding => finding.path);
-  const uncaught = path => (path === null ? gaps.length : gapsIn.get(path)?.length ?? 0);
-  const row = (name, totals, path) => [name, `${totals.reached} of ${totals.methods}`, scoreCell(totals), uncaught(path)];
+  const survived = path => (path === null ? gaps.length : gapsIn.get(path)?.length ?? 0);
+  const row = (name, totals, path) => [name, `${totals.reached} of ${totals.methods}`, scoreCell(totals), survived(path)];
   const rows = files.map(file => row(relative(file.path), file.totals, file.path));
   rows.push(row('All source', report.totals ?? {}, null));
   return painted(fitted(header, rows, ['left', 'right', 'right', 'right'], { width }), color, true).join('\n');
@@ -176,7 +176,7 @@ export function formatCoverageDiff(report, { width = WIDTH(), color = COLOR() } 
   if (!diff) return '';
   const since = `Since ${short(diff.from?.revision)}`;
   if (!diff.files?.length) return `Nothing changed per file since ${short(diff.from?.revision)}.`;
-  const header = [since, 'Methods', 'Reached', 'Bugs caught', 'Tests', 'Keep', 'Redundant', 'Checks nothing', ''];
+  const header = [since, 'Methods', 'Reached', 'Mutation score', 'Tests', 'Keep', 'Redundant', 'Checks nothing', ''];
   const rows = [...diff.files].sort((a, b) => a.path.localeCompare(b.path)).map(file => [relative(file.path), ...diffCells(file.before, file.after),
     !file.before ? 'added' : !file.after ? 'removed' : '']);
   const totals = diff.totals ?? {};

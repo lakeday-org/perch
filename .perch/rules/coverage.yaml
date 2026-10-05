@@ -60,8 +60,8 @@
   each: method
   ensure: >-
     When this method marks tests redundant, the tests were asked about the same
-    planted bugs and System One predicted they catch exactly the same ones, at
-    least one. Grouping by name, by file, or by reach alone breaks this rule.
+    mutants and System One predicted they kill exactly the same ones, at least
+    one. Grouping by name, by file, or by reach alone breaks this rule.
 
 - name: coverage-diff-is-per-unit
   where: mentions baseline

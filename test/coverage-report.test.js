@@ -6,16 +6,16 @@ import { coverageCount, coverageDetails, formatCoverage, formatCoverageDiff, lis
  * A report written out by hand, in the shape the contract gives it, so the formatting is checked against numbers chosen here rather
  * than numbers the engine happened to produce. Two source files, one test file, and findings of three kinds.
  */
-const totalsOf = values => ({ methods: 0, reached: 0, useful_reached: 0, planted: 0, caught: 0, score: null, uncaught: 0, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0, ...values });
+const totalsOf = values => ({ methods: 0, reached: 0, useful_reached: 0, mutants: 0, killed: 0, score: null, survived: 0, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0, ...values });
 const report = {
   version: 1, revision: '9f8e7d6c5b4a', root: '/repo', created_at: '2026-09-28T10:00:00.000Z', model: 'jev-1', depth: 3, min: 50,
-  totals: { methods: 6, reached: 4, useful_reached: 4, planted: 12, caught: 7, score: 7 / 12, uncaught: 1,
-    tests: 5, useful: 3, redundant: 1, weak: 1, infra: 0, untested: 2, drop: { count: 2, unreached: [] } },
+  totals: { methods: 6, reached: 4, useful_reached: 4, mutants: 15, killed: 8, score: 8 / 15, survived: 3,
+    tests: 5, useful: 3, redundant: 1, weak: 1, infra: 0, drop: { count: 2, unreached: [] } },
   files: [
     { path: 'src/tax.py', kind: 'source', language: 'python', lines: [], methods: ['m4', 'm5', 'm6'], tests: [],
-      totals: totalsOf({ methods: 3, reached: 1, useful_reached: 1 }) },
+      totals: totalsOf({ methods: 3, reached: 1, useful_reached: 1, mutants: 3, killed: 1, score: 1 / 3, survived: 2 }) },
     { path: 'src/cart.py', kind: 'source', language: 'python', lines: [], methods: ['m1', 'm2', 'm3'], tests: [],
-      totals: totalsOf({ methods: 3, reached: 3, useful_reached: 3, planted: 12, caught: 7, score: 7 / 12, uncaught: 1 }) },
+      totals: totalsOf({ methods: 3, reached: 3, useful_reached: 3, mutants: 12, killed: 7, score: 7 / 12, survived: 1 }) },
     { path: 'tests/test_cart.py', kind: 'test', language: 'python', lines: [], methods: [], tests: ['t1', 't2', 't3', 't4', 't5'],
       totals: totalsOf({ tests: 5, useful: 3, redundant: 1, weak: 1, infra: 0 }) },
   ],
@@ -27,14 +27,15 @@ const report = {
   findings: [
     { id: 'a91c2e0f', kind: 'redundant', subject: 'test', unit: 't2', path: 'tests/test_cart.py', line: 41, name: 'test_discount_20',
       probability: 0.88, note: 'Decides happy_path of apply_discount, like test_discount_10 at line 12.' },
-    { id: 'b7d31e22', kind: 'untested', subject: 'method', unit: 'm5', path: 'src/tax.py', line: 30, name: 'round_tax',
-      probability: null, note: 'No test reaches round_tax.' },
-    { id: 'c0ffee11', kind: 'untested', subject: 'method', unit: 'm6', path: 'src/tax.py', line: 9, name: 'rate_for',
-      probability: null, note: 'No test reaches rate_for.' },
-    { id: 'd4e5f6a7', kind: 'uncaught', subject: 'method', unit: 'm1', bug: '17:7:>>>=', path: 'src/cart.py', line: 17, name: 'apply_discount',
+    // One whose method could not be asked, so it carries no probability and no floor can judge it.
+    { id: 'b7d31e22', kind: 'survived', subject: 'method', unit: 'm5', mutant: '30:11:*>/', path: 'src/tax.py', line: 30, name: 'round_tax',
+      probability: null, note: 'With `/` instead of `*`, the 1 test reaching it still passes.' },
+    { id: 'c0ffee11', kind: 'survived', subject: 'method', unit: 'm4', mutant: '9:7:<><=', path: 'src/tax.py', line: 9, name: 'rate_for',
+      probability: 0.65, note: 'With `<=` instead of `<`, the 1 test reaching it still passes.' },
+    { id: 'd4e5f6a7', kind: 'survived', subject: 'method', unit: 'm1', mutant: '17:7:>>>=', path: 'src/cart.py', line: 17, name: 'apply_discount',
       probability: 0.72, note: 'With `>=` instead of `>`, none of the 2 tests reaching it fails.' },
     // Under the floor, so it is on the report and off the list.
-    { id: 'e1e2e3e4', kind: 'uncaught', subject: 'method', unit: 'm2', bug: '50:9:&&>||', path: 'src/cart.py', line: 50, name: 'total',
+    { id: 'e1e2e3e4', kind: 'survived', subject: 'method', unit: 'm2', mutant: '50:9:&&>||', path: 'src/cart.py', line: 50, name: 'total',
       probability: 0.31, note: 'With `||` instead of `&&`, none of the 2 tests reaching it fails.' },
   ],
   failed: [{ unit: 'm9', subject: 'method', path: 'src/tax.py', name: 'legacy', error: 'too long to send' }],
@@ -44,7 +45,7 @@ const report = {
     to: { revision: '9f8e7d6c5b4a', created_at: '2026-09-28T10:00:00.000Z' },
     totals: { methods: { before: 6, after: 6 }, reached: { before: 4, after: 4 }, score: { before: 0.45, after: 0.54 },
       tests: { before: 3, after: 5 }, useful: { before: 2, after: 3 }, redundant: { before: 0, after: 1 }, weak: { before: 1, after: 1 },
-      infra: { before: 0, after: 0 }, untested: { before: 2, after: 2 }, uncaught: { before: 2, after: 1 } },
+      infra: { before: 0, after: 0 }, survived: { before: 4, after: 3 } },
     files: [
       { path: 'src/cart.py', before: totalsOf({ methods: 3, reached: 2, score: 0.3 }), after: totalsOf({ methods: 3, reached: 3, score: 0.41 }) },
       { path: 'tests/test_cart.py', before: totalsOf({ tests: 3, useful: 2, weak: 1 }), after: totalsOf({ tests: 5, useful: 3, redundant: 1, weak: 1 }) },
@@ -64,14 +65,17 @@ describe('coverage report', () => {
   it('prints source and test tables with totals', () => {
     const text = formatCoverage(report, { min: 0.5, ...plain });
     const source = text.split('\n\n')[0].split('\n');
-    expect(source[0]).toMatch(/^Source files\s+Methods tested\s+Bugs caught\s+Uncaught bugs$/);
+    expect(source[0]).toMatch(/^Source files\s+Methods tested\s+Mutation score\s+Survived$/);
     // Files in path order, whatever order the report had them in.
     expect(source.slice(1).map(line => line.split(/\s{2,}/)[0])).toEqual(['src/cart.py', 'src/tax.py', 'All source']);
-    // Of 12 bugs planted in cart.py, 7 are caught, and one uncaught one is over the floor.
+    // Of cart.py's 12 mutants, 7 are killed, and one survivor is over the floor.
     expect(rowOf(text, 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '3 of 3', '58% (7 of 12)', '1']);
-    // Nothing planted in tax.py, which is a dash and not a zero.
-    expect(rowOf(text, 'src/tax.py').split(/\s{2,}/)).toEqual(['src/tax.py', '1 of 3', '-', '0']);
-    expect(rowOf(text, 'All source').split(/\s{2,}/)).toEqual(['All source', '4 of 6', '58% (7 of 12)', '1']);
+    // tax.py's two listed survivors: one over the floor, one whose method could not be asked.
+    expect(rowOf(text, 'src/tax.py').split(/\s{2,}/)).toEqual(['src/tax.py', '1 of 3', '33% (1 of 3)', '2']);
+    expect(rowOf(text, 'All source').split(/\s{2,}/)).toEqual(['All source', '4 of 6', '53% (8 of 15)', '3']);
+    // A file with no mutants is a dash and not a zero.
+    const bare = { ...report, files: [{ ...report.files[0], totals: totalsOf({ methods: 3, reached: 1, useful_reached: 1 }) }], findings: [] };
+    expect(rowOf(formatCoverage(bare, { min: 0.5, ...plain }), 'src/tax.py').split(/\s{2,}/)).toEqual(['src/tax.py', '1 of 3', '-', '0']);
     // Quality is the tests worth keeping, of all of them; then why the rest are not, and what the tests touch.
     expect(rowOf(text, 'Test files').split(/\s{2,}/)).toEqual(['Test files', 'Quality', 'Duplicates', 'Checks nothing', 'Live services']);
     expect(rowOf(text, 'tests/test_cart.py ').split(/\s{2,}/)).toEqual(['tests/test_cart.py', '60% (3 of 5)', '1', '1', '0']);
@@ -87,7 +91,8 @@ describe('coverage report', () => {
     expect(blocks[0]).not.toContain('e1e2e3e4');
     // Within a file, by line.
     expect(blocks[1].split('\n').slice(2).map(line => line.trim().split(/\s+/)[0])).toEqual(['c0ffee11', 'b7d31e22']);
-    expect(rowOf(blocks[1], '  c0ffee11').split(/\s{2,}/).slice(1)).toEqual(['c0ffee11', '9', 'untested', '-', 'rate_for', 'No test reaches rate_for.']);
+    expect(rowOf(blocks[1], '  c0ffee11').split(/\s{2,}/).slice(1)).toEqual(['c0ffee11', '9', 'survived', '65%', 'rate_for', 'With `<=` instead of `<`, the 1 test reaching it still passes.']);
+    expect(rowOf(blocks[1], '  b7d31e22').split(/\s{2,}/).slice(1)).toEqual(['b7d31e22', '30', 'survived', '-', 'round_tax', 'With `/` instead of `*`, the 1 test reaching it still passes.']);
     expect(rowOf(blocks[2], '  a91c2e0f').split(/\s{2,}/).slice(1)).toEqual(['a91c2e0f', '41', 'redundant', '88%', 'test_discount_20',
       'Decides happy_path of apply_discount, like test_discount_10 at line 12.']);
     expect(listedFindings(report, { min: 0.5 }).map(finding => finding.id)).toEqual(['a91c2e0f', 'b7d31e22', 'c0ffee11', 'd4e5f6a7']);
@@ -103,17 +108,17 @@ describe('coverage report', () => {
   });
 
   it('filters problems by kind', () => {
-    const filters = parseCoverageFilters('kind=untested');
-    expect(filters).toEqual([{ key: 'kind', value: 'untested' }]);
+    const filters = parseCoverageFilters('kind=redundant');
+    expect(filters).toEqual([{ key: 'kind', value: 'redundant' }]);
     const text = formatCoverage(report, { min: 0.5, filters, ...plain });
-    expect(text).toContain('c0ffee11');
-    expect(text).toContain('b7d31e22');
-    expect(text).not.toContain('a91c2e0f');
+    expect(text).toContain('a91c2e0f');
+    expect(text).not.toContain('c0ffee11');
+    expect(text).not.toContain('b7d31e22');
     expect(text).not.toContain('d4e5f6a7');
     expect(rowOf(text, 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '3 of 3', '58% (7 of 12)', '1']);
     // A second value is another alternative for the same key, and a spelling with a space or a hyphen is the same kind.
     expect(parseCoverageFilters('kind=checks nothing,redundant')).toEqual([{ key: 'kind', value: 'checks_nothing' }, { key: 'kind', value: 'redundant' }]);
-    expect(() => parseCoverageFilters('kind=bogus')).toThrow(/kind "bogus" is not one of untested, uncaught, redundant/);
+    expect(() => parseCoverageFilters('kind=bogus')).toThrow(/kind "bogus" is not one of survived, redundant/);
     expect(() => parseCoverageFilters('type=defect')).toThrow(/filters on kind, not "type"/);
   });
 
@@ -135,7 +140,7 @@ describe('coverage report', () => {
 
   it('prints per-file changes for --diff', () => {
     const lines = formatCoverageDiff(report, plain).split('\n');
-    expect(lines[0].split(/\s{2,}/)).toEqual(['Since 1a2b3c4', 'Methods', 'Reached', 'Bugs caught', 'Tests', 'Keep', 'Redundant', 'Checks nothing']);
+    expect(lines[0].split(/\s{2,}/)).toEqual(['Since 1a2b3c4', 'Methods', 'Reached', 'Mutation score', 'Tests', 'Keep', 'Redundant', 'Checks nothing']);
     expect(rowOf(lines.join('\n'), 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '3', '3 (+1)', '41% (+11)', '0', '0', '0', '0']);
     expect(rowOf(lines.join('\n'), 'src/old.py').split(/\s{2,}/)).toEqual(['src/old.py', '1', '1', '100%', '0', '0', '0', '0', 'removed']);
     expect(rowOf(lines.join('\n'), 'tests/test_cart.py').split(/\s{2,}/)).toEqual(['tests/test_cart.py', '0', '0', '-', '5 (+2)', '3 (+1)', '1 (+1)', '1']);
@@ -145,8 +150,8 @@ describe('coverage report', () => {
 });
 
 describe('coverage report with --since', () => {
-  // The branch changed four lines of code in cart.py, one of which did not run, every line of code in tax.py, which all ran, and a
-  // file no coverage report covers. The problems on what it changed are the edge case on apply_discount and one under the floor.
+  // The branch changed apply_discount and total. The problems on what it changed are the survivor on apply_discount and one under
+  // the floor.
   const branch = { ref: 'origin/main', base: '1a2b3c4d5e6f', units: ['m1', 'm2'], findings: ['d4e5f6a7', 'e1e2e3e4'] };
   const onBranch = { ...report, diff: null, failed: [], branch, totals: { ...report.totals, drop: { count: 0 } } };
 
@@ -190,7 +195,7 @@ describe('perch coverage', () => {
   it('rejects an unknown kind', async () => {
     const { err, io } = capture();
     expect(await main(['coverage', '--filter', 'kind=bogus'], io)).toBe(2);
-    expect(err.join('\n')).toContain('kind "bogus" is not one of untested, uncaught, redundant, checks_nothing, infra');
+    expect(err.join('\n')).toContain('kind "bogus" is not one of survived, redundant, checks_nothing, infra');
     expect(err.join('\n')).toContain('perch coverage --help');
     expect(await main(['coverage', '--depth', '0'], io)).toBe(2);
     expect(err.join('\n')).toContain('--depth must be a positive integer');

@@ -31,42 +31,43 @@ const testLines = [
   '    assert apply_discount(100, 20) == 80',
 ];
 
-const edge = { id: 'e1e1e1e1', kind: 'uncaught', subject: 'method', unit: 'src/cart.py::apply_discount', bug: '6:7:>>>=', path: 'src/cart.py', line: 6, name: 'apply_discount', probability: 0.82, note: 'With `>=` instead of `>`, none of the 2 tests reaching it fails.' };
-const untested = { id: 'u2u2u2u2', kind: 'untested', subject: 'method', unit: 'src/cart.py::total', path: 'src/cart.py', line: 14, name: 'total', probability: null, note: 'No test reaches total.' };
-const redundant = { id: 'r3r3r3r3', kind: 'redundant', subject: 'test', unit: 'tests/test_cart.py::test_discount_20', path: 'tests/test_cart.py', line: 8, name: 'test_discount_20', probability: 0.88, note: 'Catches the same planted bugs as test_discount_10 at line 3, and no others.' };
+const edge = { id: 'e1e1e1e1', kind: 'survived', subject: 'method', unit: 'src/cart.py::apply_discount', mutant: '6:7:>>>=', path: 'src/cart.py', line: 6, name: 'apply_discount', probability: 0.82, note: 'With `>=` instead of `>`, none of the 2 tests reaching it fails.' };
+const redundant = { id: 'r3r3r3r3', kind: 'redundant', subject: 'test', unit: 'tests/test_cart.py::test_discount_20', path: 'tests/test_cart.py', line: 8, name: 'test_discount_20', probability: 0.88, note: 'Kills the same mutants as test_discount_10 at line 3, and no others.' };
+/** A mutant the compared run listed and this one does not. */
+const gone = { id: 'f4f4f4f4', kind: 'survived', subject: 'method', unit: 'src/cart.py::apply_discount', mutant: '11:30:->+', path: 'src/cart.py', line: 11, name: 'apply_discount', probability: 0.7, note: 'With `+` instead of `-`, none of the 2 tests reaching it fails.' };
 
 /**
- * A report as buildReport writes one: apply_discount is reached by two tests and has six bugs planted, one of them uncaught;
- * total is reached by nothing; util.py's round_money is reached but has no line to change.
+ * A report as buildReport writes one: apply_discount is reached by two tests and has six mutants, one of them survived; total is
+ * reached by nothing; util.py's round_money is reached but has no line to change.
  */
 function sampleReport({ diff = true } = {}) {
   return {
     version: 1, revision: 'bbbbbbb2222222', root: '/work/shop', created_at: '2026-09-28T10:00:00.000Z', model: 'jev-1', depth: 3, min: 0.5,
-    totals: { methods: 3, reached: 2, useful_reached: 2, planted: 6, caught: 3, score: 0.5, uncaught: 1, tests: 2, useful: 1, redundant: 1, weak: 0, infra: 0,
-      untested: 1, drop: { count: 1, unreached: [] } },
+    totals: { methods: 3, reached: 2, useful_reached: 2, mutants: 6, killed: 3, score: 0.5, survived: 1, tests: 2, useful: 1, redundant: 1, weak: 0, infra: 0,
+      drop: { count: 1, unreached: [] } },
     files: [
       { path: 'src/cart.py', kind: 'source', language: 'python', lines: cartLines, methods: ['src/cart.py::apply_discount', 'src/cart.py::total'], tests: [],
-        totals: { methods: 2, reached: 1, useful_reached: 1, planted: 6, caught: 3, score: 0.5, uncaught: 1, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0 } },
+        totals: { methods: 2, reached: 1, useful_reached: 1, mutants: 6, killed: 3, score: 0.5, survived: 1, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0 } },
       { path: 'src/util.py', kind: 'source', language: 'python', lines: utilLines, methods: ['src/util.py::round_money'], tests: [],
-        totals: { methods: 1, reached: 1, useful_reached: 1, planted: 0, caught: 0, score: null, uncaught: 0, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0 } },
+        totals: { methods: 1, reached: 1, useful_reached: 1, mutants: 0, killed: 0, score: null, survived: 0, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0 } },
       { path: 'tests/test_cart.py', kind: 'test', language: 'python', lines: testLines, methods: [],
         tests: ['tests/test_cart.py::test_discount_10', 'tests/test_cart.py::test_discount_20'],
-        totals: { methods: 0, reached: 0, useful_reached: 0, planted: 0, caught: 0, score: null, uncaught: 0, tests: 2, useful: 1, redundant: 1, weak: 0, infra: 0 } },
+        totals: { methods: 0, reached: 0, useful_reached: 0, mutants: 0, killed: 0, score: null, survived: 0, tests: 2, useful: 1, redundant: 1, weak: 0, infra: 0 } },
     ],
     methods: [
       { id: 'src/cart.py::apply_discount', path: 'src/cart.py', name: 'apply_discount', line: 3, end_line: 11, risk: 12, branches: [4, 6, 9],
         tests: [{ id: 'tests/test_cart.py::test_discount_10', depth: 1 }, { id: 'tests/test_cart.py::test_discount_20', depth: 1 }],
-        useful: ['tests/test_cart.py::test_discount_10'], findings: [edge.id], planted: 6, caught: 3,
-        // Six bugs planted: the boundary at line 6 escapes both tests; the rest are caught by test_discount_10 (and the duplicate).
-        bugs: [
-          { id: '6:7:>>>=', kind: 'boundary', line: 6, column: 7, from: '>', to: '>=', original: '    if percent > 100:', mutated: '    if percent >= 100:', matters: 0.9, survives: 0.9, caught: false, caught_by: [], asked: ['tests/test_cart.py::test_discount_10', 'tests/test_cart.py::test_discount_20'], finding: edge.id },
+        useful: ['tests/test_cart.py::test_discount_10'], findings: [edge.id], killed: 3,
+        // Six mutants: the boundary at line 6 survives both tests; the rest are killed by test_discount_10 (and the duplicate).
+        mutants: [
+          { id: '6:7:>>>=', kind: 'boundary', line: 6, column: 7, from: '>', to: '>=', original: '    if percent > 100:', mutated: '    if percent >= 100:', matters: 0.9, survives: 0.9, killed: false, killed_by: [], asked: ['tests/test_cart.py::test_discount_10', 'tests/test_cart.py::test_discount_20'], finding: edge.id },
           ...[['4:7:<><=', 4, '<', '<=', true], ['4:4:percent < 0>not (percent < 0)', 4, 'percent < 0', 'not (percent < 0)', true], ['6:4:percent > 100>not (percent > 100)', 6, 'percent > 100', 'not (percent > 100)', true], ['9:4:total == 0>not (total == 0)', 9, 'total == 0', 'not (total == 0)', false], ['11:30:->+', 11, '-', '+', false]]
-            .map(([id, line, from, to, caught]) => ({ id, kind: 'condition', line, column: 4, from, to, original: '', mutated: '', matters: 0.9, survives: caught ? 0.05 : 0.6, caught, caught_by: caught ? ['tests/test_cart.py::test_discount_10', 'tests/test_cart.py::test_discount_20'] : [], asked: ['tests/test_cart.py::test_discount_10', 'tests/test_cart.py::test_discount_20'], finding: null })),
+            .map(([id, line, from, to, killed]) => ({ id, kind: 'condition', line, column: 4, from, to, original: '', mutated: '', matters: 0.9, survives: killed ? 0.05 : 0.6, killed, killed_by: killed ? ['tests/test_cart.py::test_discount_10', 'tests/test_cart.py::test_discount_20'] : [], asked: ['tests/test_cart.py::test_discount_10', 'tests/test_cart.py::test_discount_20'], finding: null })),
         ],
       },
-      { id: 'src/cart.py::total', path: 'src/cart.py', name: 'total', line: 14, end_line: 15, risk: 2, branches: [], tests: [], useful: [], planted: 0, caught: 0, bugs: [], findings: [untested.id] },
+      { id: 'src/cart.py::total', path: 'src/cart.py', name: 'total', line: 14, end_line: 15, risk: 2, branches: [], tests: [], useful: [], killed: 0, mutants: [], findings: [] },
       { id: 'src/util.py::round_money', path: 'src/util.py', name: 'round_money', line: 1, end_line: 2, risk: 1, branches: [],
-        tests: [{ id: 'tests/test_cart.py::test_discount_10', depth: 2 }], useful: ['tests/test_cart.py::test_discount_10'], planted: 0, caught: 0, bugs: [], findings: [] },
+        tests: [{ id: 'tests/test_cart.py::test_discount_10', depth: 2 }], useful: ['tests/test_cart.py::test_discount_10'], killed: 0, mutants: [], findings: [] },
     ],
     tests: [
       { id: 'tests/test_cart.py::test_discount_10', path: 'tests/test_cart.py', name: 'test_discount_10', suite: [], line: 3, end_line: 4, framework: 'pytest',
@@ -78,23 +79,19 @@ function sampleReport({ diff = true } = {}) {
         touches: [], infra: 0.03, asked: 6, kills: ['src/cart.py::apply_discount#4:7:<><=', 'src/cart.py::apply_discount#4:4:percent < 0>not (percent < 0)', 'src/cart.py::apply_discount#6:4:percent > 100>not (percent > 100)'],
         useful: false, redundant_with: 'tests/test_cart.py::test_discount_10', findings: [redundant.id] },
     ],
-    findings: [edge, untested, redundant],
+    findings: [edge, redundant],
     failed: [],
     baseline: diff ? { revision: 'aaaaaaa1111111', created_at: '2026-09-20T10:00:00.000Z' } : null,
     diff: diff ? {
       from: { revision: 'aaaaaaa1111111', created_at: '2026-09-20T10:00:00.000Z' }, to: { revision: 'bbbbbbb2222222', created_at: '2026-09-28T10:00:00.000Z' },
-      totals: { methods: { before: 3, after: 3 }, reached: { before: 1, after: 2 }, planted: { before: 6, after: 6 }, caught: { before: 2, after: 3 }, score: { before: 0.41, after: 0.5 }, uncaught: { before: 1, after: 1 }, tests: { before: 1, after: 2 },
-        useful: { before: 1, after: 1 }, redundant: { before: 0, after: 1 }, weak: { before: 0, after: 0 }, infra: { before: 0, after: 0 },
-        untested: { before: 2, after: 1 } },
-      files: [{ path: 'src/cart.py', before: { methods: 2, reached: 0, useful_reached: 0, planted: 6, caught: 0, score: 0, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0 },
-        after: { methods: 2, reached: 1, useful_reached: 1, planted: 6, caught: 3, score: 0.5, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0 } }],
+      totals: { methods: { before: 3, after: 3 }, reached: { before: 1, after: 2 }, mutants: { before: 6, after: 6 }, killed: { before: 2, after: 3 }, score: { before: 0.41, after: 0.5 }, survived: { before: 2, after: 1 }, tests: { before: 1, after: 2 },
+        useful: { before: 1, after: 1 }, redundant: { before: 0, after: 1 }, weak: { before: 0, after: 0 }, infra: { before: 0, after: 0 } },
+      files: [{ path: 'src/cart.py', before: { methods: 2, reached: 0, useful_reached: 0, mutants: 6, killed: 0, score: 0, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0 },
+        after: { methods: 2, reached: 1, useful_reached: 1, mutants: 6, killed: 3, score: 0.5, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0 } }],
       methods: [{ id: 'src/cart.py::apply_discount', path: 'src/cart.py', name: 'apply_discount',
-        before: { reached: false, planted: 6, caught: 0 }, after: { reached: true, planted: 6, caught: 3 } }],
+        before: { reached: false, mutants: 6, killed: 0 }, after: { reached: true, mutants: 6, killed: 3 } }],
       tests: { added: ['tests/test_cart.py::test_discount_20'], removed: ['tests/test_old.py::test_gone'] },
-      findings: {
-        fixed: [{ id: 'f4f4f4f4', kind: 'untested', subject: 'method', unit: 'src/cart.py::apply_discount', path: 'src/cart.py', line: 3, name: 'apply_discount', probability: null, note: 'No test reaches apply_discount.' }],
-        new: [redundant],
-      },
+      findings: { fixed: [gone], new: [redundant] },
     } : null,
     usage: {},
   };
@@ -141,19 +138,21 @@ describe('coverage HTML report', () => {
   const html = renderCoverageHtml(sampleReport());
 
   it('puts notes under their lines', () => {
-    // The bug's note names the problem, the edit, and shows the line both ways; no percentage when perch is sure (82% is sure enough).
-    expect(under(html, 'src/cart.py', 6)).toContain('<b>Uncaught bug</b> With `&gt;=` instead of `&gt;`, none of the 2 tests reaching it fails.</p>');
+    // The mutant's note names the problem, the edit, and shows the line both ways; no percentage when perch is sure (82% is sure enough).
+    expect(under(html, 'src/cart.py', 6)).toContain('<b>Survived mutant</b> With `&gt;=` instead of `&gt;`, none of the 2 tests reaching it fails.</p>');
     expect(under(html, 'src/cart.py', 6)).toContain('<pre class="diff"><del>- if percent &gt; 100:</del>\n<ins>+ if percent &gt;= 100:</ins></pre>');
     expect(under(html, 'src/cart.py', 6)).toContain('Still passes: <a href="#file=tests%2Ftest_cart.py&amp;line=3" title="tests/test_cart.py:3">test_discount_10</a> and <a href="#file=tests%2Ftest_cart.py&amp;line=8" title="tests/test_cart.py:8">test_discount_20</a>.');
     expect(under(html, 'src/cart.py', 6)).not.toContain('% sure');
     // The tests that reach the method are listed once, in its bar above the code, not again in the gap's note.
     expect(under(html, 'src/cart.py', 6)).not.toContain('Reached by');
     expect(under(html, 'src/cart.py', 2)).toContain('test_discount_10');
-    expect(under(html, 'src/cart.py', 5)).not.toContain('Uncaught bug');
-    expect(under(html, 'src/cart.py', 7)).not.toContain('Uncaught bug');
-    expect(under(html, 'src/cart.py', 14)).toContain(untested.note);
+    expect(under(html, 'src/cart.py', 5)).not.toContain('Survived mutant');
+    expect(under(html, 'src/cart.py', 7)).not.toContain('Survived mutant');
+    // A method no test reaches is said so above its code, and is not a problem: the call graph alone lists nothing.
+    expect(under(html, 'src/cart.py', 13)).toContain('<span class="unran">No test reaches it</span>');
+    expect(under(html, 'src/cart.py', 14)).not.toContain('class="note');
     // A redundant test's note is a verdict: delete it, and which test it repeats, as a link.
-    expect(under(html, 'tests/test_cart.py', 8)).toContain('<b>Duplicate test</b> Catches the same planted bugs as <a href="#file=tests%2Ftest_cart.py&amp;line=3" title="tests/test_cart.py:3">test_discount_10</a>, and no others.</p>');
+    expect(under(html, 'tests/test_cart.py', 8)).toContain('<b>Duplicate test</b> Kills the same mutants as <a href="#file=tests%2Ftest_cart.py&amp;line=3" title="tests/test_cart.py:3">test_discount_10</a>, and no others.</p>');
     // A test worth keeping with no problem gets no note and no tint: there is nothing to do about it.
     expect(under(html, 'tests/test_cart.py', 3)).not.toContain('class="note');
     expect(lineClasses(html, 'tests/test_cart.py', 3)).toEqual(['l']);
@@ -181,8 +180,8 @@ describe('coverage HTML report', () => {
     expect(note).not.toContain('runs through');
   });
 
-  it('marks only listed uncaught bugs', () => {
-    // Under the floor, the uncaught bug is not a finding: the method still has the bug, and the page says nothing about it.
+  it('marks only listed survived mutants', () => {
+    // Under the floor, the survived mutant is not a finding: the method still has the mutant, and the page says nothing about it.
     const quiet = sampleReport();
     quiet.findings = quiet.findings.filter(finding => finding.id !== edge.id);
     quiet.methods[0].findings = [];
@@ -210,9 +209,9 @@ describe('coverage HTML report', () => {
     expect(html).toContain('tests/test_old.py::test_gone');
     // A problem that went away is counted, not listed: nothing in such a list asks for anything.
     expect(viewOf(html, 'changes')).toContain('1 problem from that run is gone.');
-    expect(html).not.toContain('No test reaches apply_discount.');
-    // Bugs caught went from 41% to 50%.
-    expect(card(html, 'Bugs caught')).toContain('<span class="delta good">+9 pts</span>');
+    expect(html).not.toContain(gone.note);
+    // The mutation score went from 41% to 50%.
+    expect(card(html, 'Mutation score')).toContain('<span class="delta good">+9 pts</span>');
     // The header says which run this is compared with; the model, depth and floor are under Run details.
     const top = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
     expect(top).toContain('compared with</span><code title="aaaaaaa1111111">aaaaaaa</code>');
@@ -220,16 +219,16 @@ describe('coverage HTML report', () => {
     expect(viewOf(html, 'details')).toContain('jev-1');
   });
 
-  it('counts planted bugs in the tiles', () => {
+  it('counts mutants in the tiles', () => {
     // Four tiles, each linking to the view that breaks it down.
     const tiles = html.slice(html.indexOf('<section class="cards">'), html.indexOf('</section>', html.indexOf('<section class="cards">')));
     expect(tiles.match(/<a class="card" href="#view=/g)).toHaveLength(4);
     expect(html).not.toContain('class="counters"');
-    // Bugs caught is counted from the planted bugs, the same with or without a coverage report.
-    const bugs = card(html, 'Bugs caught');
-    expect(bugs).toContain('50%');
-    expect(bugs).toContain('3 of 6 planted');
-    expect(card(html, 'Uncaught bugs')).toContain('1<span class="of"> of 6</span>');
+    // The mutation score: mutants killed of all mutants.
+    const score = card(html, 'Mutation score');
+    expect(score).toContain('50%');
+    expect(score).toContain('3 of 6 mutants killed');
+    expect(card(html, 'Survived')).toContain('1<span class="of"> of 6</span>');
     const cartRow = viewOf(html, 'sources').match(/<tr data-path="src\/cart.py">.*?<\/tr>/s)[0];
     expect(cartRow).toContain('3/6');
     // The tests tile is how many tests could go.
@@ -255,33 +254,34 @@ describe('coverage HTML report', () => {
     const summary = viewOf(html, 'summary');
     expect(summary).not.toContain('class="lede"');
     // Two lists and no per-file tables: those are the Source files and Tests tabs.
-    expect([...summary.matchAll(/<h3>([^<]+?) </g)].map(match => match[1])).toEqual(['Untested code', 'Test problems']);
-    // Untested code, riskiest first: apply_discount is risk 12, total 2.
-    const untestedCode = summary.slice(summary.indexOf('<h3>Untested code '), summary.indexOf('<h3>Test problems '));
-    expect(untestedCode.indexOf('<b>Uncaught bug</b> <span class="subject">apply_discount</span>')).toBeLessThan(untestedCode.indexOf('<b>No test</b> <span class="subject">total</span>'));
-    // The bug in words; the code is one click away, at the line.
-    expect(untestedCode).toContain('<td class="why"><span class="clamp">With `&gt;=` instead of `&gt;`, none of the 2 tests reaching it fails.</span></td>');
-    expect(untestedCode).not.toContain('if percent');
-    expect(untestedCode).toContain('<a href="#file=src%2Fcart.py&amp;line=6">src/cart.py:6</a>');
+    expect([...summary.matchAll(/<h3>([^<]+?) </g)].map(match => match[1])).toEqual(['Survived mutants', 'Test problems']);
+    // Survived mutants, one row per method. A method no test reaches is not in the list: the call graph alone is not a problem.
+    const survivedList = summary.slice(summary.indexOf('<h3>Survived mutants '), summary.indexOf('<h3>Test problems '));
+    expect(survivedList).toContain('<b>Survived mutant</b> <span class="subject">apply_discount</span>');
+    expect(survivedList).not.toContain('>total<');
+    // The mutant in words; the code is one click away, at the line.
+    expect(survivedList).toContain('<td class="why"><span class="clamp">With `&gt;=` instead of `&gt;`, none of the 2 tests reaching it fails.</span></td>');
+    expect(survivedList).not.toContain('if percent');
+    expect(survivedList).toContain('<a href="#file=src%2Fcart.py&amp;line=6">src/cart.py:6</a>');
     const testProblems = summary.slice(summary.indexOf('<h3>Test problems '));
     expect(testProblems).toContain('<b>Duplicate test</b> <span class="subject">test_discount_20</span>');
     // The first review is short lists: each problem once, not every list again.
-    expect(summary.split('No test reaches total.')).toHaveLength(2);
+    expect(summary.split('none of the 2 tests reaching it fails.')).toHaveLength(2);
   });
 
-  it('tints methods by what the planted bugs found', () => {
-    // apply_discount has 3 of its 6 planted bugs caught; the bar above line 3 is in the markup that follows line 2.
+  it('tints methods by what the mutants found', () => {
+    // apply_discount has 3 of its 6 mutants killed; the bar above line 3 is in the markup that follows line 2.
     const discount = under(html, 'src/cart.py', 2);
-    expect(discount).toContain('3 of 6 planted bugs caught');
+    expect(discount).toContain('3 of 6 mutants killed');
     expect(lineClasses(html, 'src/cart.py', 4)).toEqual(['l', 'part']);
     expect(lineClasses(html, 'src/cart.py', 6)).toEqual(['l', 'part', 'gapline']);
-    expect(under(html, 'src/cart.py', 6)).toContain('<b>Uncaught bug</b>');
+    expect(under(html, 'src/cart.py', 6)).toContain('<b>Survived mutant</b>');
     // No test reaches total.
     expect(under(html, 'src/cart.py', 13)).toContain('<span class="unran">No test reaches it</span>');
     expect(lineClasses(html, 'src/cart.py', 15)).toEqual(['l', 'none']);
-    // round_money has no line to change: reached, with nothing to catch.
+    // round_money has no line to change: reached, with no mutant to kill.
     const money = html.slice(html.indexOf('<section class="file" data-path="src/util.py"'));
-    expect(money.slice(0, money.indexOf('data-n="1"'))).not.toContain('planted bugs caught');
+    expect(money.slice(0, money.indexOf('data-n="1"'))).not.toContain('mutants killed');
     expect(lineClasses(html, 'src/util.py', 2)).toEqual(['l', 'full']);
   });
 
@@ -299,20 +299,19 @@ describe('coverage HTML report', () => {
   });
 
   it('scopes the summary to changed code with --since', () => {
-    const branch = { ref: 'origin/main', base: 'aaaaaaa1111111', units: ['src/cart.py::total'], findings: [untested.id] };
+    const branch = { ref: 'origin/main', base: 'aaaaaaa1111111', units: ['src/cart.py::apply_discount'], findings: [edge.id] };
     const page = renderCoverageHtml({ ...sampleReport(), branch });
     const summary = viewOf(page, 'summary');
     expect(summary).not.toContain('new-badge');
     // The lists hold only the changed code's problems.
-    const lists = summary.slice(summary.indexOf('<h3>Untested code '));
-    expect(lists).toContain('<b>No test</b> <span class="subject">total</span>');
-    expect(lists).not.toContain('apply_discount');
+    const lists = summary.slice(summary.indexOf('<h3>Survived mutants '));
+    expect(lists).toContain('<b>Survived mutant</b> <span class="subject">apply_discount</span>');
     expect(summary).not.toContain('test_discount_20');
     // All problems marks which rows are in changed code, and can show those alone.
     const problems = viewOf(page, 'problems');
     expect(problems).toContain('<input type="checkbox" id="changed-only"> Only code changed since origin/main (1)');
     expect(problems.match(/data-changed="1"/g)).toHaveLength(1);
-    expect(problems.match(/data-changed="0"/g)).toHaveLength(2);
+    expect(problems.match(/data-changed="0"/g)).toHaveLength(1);
     // A branch with no problems in what it changed says so under the table.
     expect(viewOf(renderCoverageHtml({ ...sampleReport(), branch: { ...branch, findings: [] } }), 'summary')).toContain('No problems in code changed since origin/main.');
     // Without --since there is no such filter.
@@ -322,10 +321,10 @@ describe('coverage HTML report', () => {
   it('copies fix prompts and dismisses problems', () => {
     const data = page => JSON.parse(page.match(/<script type="application\/json" id="perch-fixes">(.*?)<\/script>/s)[1]);
     const fixes = data(html);
-    expect(Object.keys(fixes.steps).sort()).toEqual([edge.id, redundant.id, untested.id].sort());
+    expect(Object.keys(fixes.steps).sort()).toEqual([edge.id, redundant.id].sort());
     expect(fixes).toMatchObject({ root: '/work/shop', repo: 'shop' });
     // Every place a problem shows carries its id, a Copy prompt button and a close mark: the summary, All problems, the file view.
-    for (const id of [edge.id, redundant.id, untested.id]) expect(html.match(new RegExp(`data-finding="${id}"[^>]*>`, 'g')).length).toBeGreaterThanOrEqual(2);
+    for (const id of [edge.id, redundant.id]) expect(html.match(new RegExp(`data-finding="${id}"[^>]*>`, 'g')).length).toBeGreaterThanOrEqual(2);
     const row = viewOf(html, 'problems').match(new RegExp(`<tr data-finding="${redundant.id}".*?</tr>`, 's'))[0];
     expect(row).toContain('<div class="acts"><button type="button" data-copy>Copy prompt</button></div>');
     expect(row).toContain('<td class="x-cell"><button type="button" class="x" data-dismiss title="Dismiss" aria-label="Dismiss">×</button></td>');
@@ -338,7 +337,7 @@ describe('coverage HTML report', () => {
     // Each list of problems has one button for all of it: the file's Problems box, Risk, and All problems.
     const file = html.slice(html.indexOf('<section class="file" data-path="src/cart.py"'));
     expect(file.slice(file.indexOf('file-problems'), file.indexOf('class="legend"'))).toContain('<button type="button" class="copy-all" data-copy-all>Copy prompt</button>');
-    expect(viewOf(html, 'summary')).toContain('<h3>Untested code <span class="count">2</span> <button type="button" class="copy-all" data-copy-all>Copy prompt</button></h3>');
+    expect(viewOf(html, 'summary')).toContain('<h3>Survived mutants <span class="count">1</span> <button type="button" class="copy-all" data-copy-all>Copy prompt</button></h3>');
     expect(viewOf(html, 'problems')).toContain('data-copy-all');
     // No app links: the prompt is copied, to paste into whichever agent you use.
     expect(html).not.toMatch(/claude-cli:|codex:\/\/|cursor:\/\//);
@@ -346,17 +345,17 @@ describe('coverage HTML report', () => {
     const script = html.match(/function promptFor[\s\S]*?\n {2}}\n/)[0];
     const promptFor = new Function('fixData', `${script}return promptFor;`)(fixes);
     const index = { methods: new Map(sampleReport().methods.map(item => [item.id, item])), tests: new Map(sampleReport().tests.map(item => [item.id, item])) };
-    for (const finding of [edge, redundant, untested]) expect(promptFor([finding.id])).toBe(fixPrompt(finding, sampleReport(), index));
+    for (const finding of [edge, redundant]) expect(promptFor([finding.id])).toBe(fixPrompt(finding, sampleReport(), index));
     expect(promptFor([redundant.id])).toBe([
       'perch coverage found a problem in shop.',
-      'The test "test_discount_20" (tests/test_cart.py:8) catches the same planted bugs as "test_discount_10" (tests/test_cart.py:3), and no others.',
+      'The test "test_discount_20" (tests/test_cart.py:8) kills the same mutants as "test_discount_10" (tests/test_cart.py:3), and no others.',
       'Compare the two. Delete this one if it asserts nothing the other does not; otherwise move what differs into the other and delete this one.',
       'Run that test file afterwards and make sure it passes.',
       'Change only what this needs.',
     ].join('\n'));
-    const both = promptFor([untested.id, edge.id]);
-    expect(both.startsWith('perch coverage found 2 problems in shop. Fix them one at a time.\n\n1. No test runs total (src/cart.py:14). No test reaches total.\n   Write a unit test')).toBe(true);
-    expect(both).toContain('\n\n2. apply_discount (src/cart.py:3) has a bug no test catches. With `>=` instead of `>`, none of the 2 tests reaching it fails. Line 6 reads `if percent > 100:`; with the bug it reads `if percent >= 100:`.');
+    const both = promptFor([redundant.id, edge.id]);
+    expect(both.startsWith('perch coverage found 2 problems in shop. Fix them one at a time.\n\n1. The test "test_discount_20" (tests/test_cart.py:8) kills the same mutants as "test_discount_10" (tests/test_cart.py:3), and no others.\n   Compare the two.')).toBe(true);
+    expect(both).toContain('\n\n2. A mutant of apply_discount (src/cart.py:3) survives every test. With `>=` instead of `>`, none of the 2 tests reaching it fails. Line 6 reads `if percent > 100:`; the mutant reads `if percent >= 100:`.');
     expect(both).toContain('Add a test with an input for which that change gives a different result, and assert on the result. Tests that already reach it: "test_discount_10" (tests/test_cart.py:3).');
     expect(both.endsWith('\n\nChange only what each one needs.')).toBe(true);
     // Text from the report cannot end the script it sits in.
@@ -375,14 +374,14 @@ describe('coverage HTML report', () => {
     expect(html).toContain('data-theme-toggle');
   });
 
-  it('breaks each test file down by why tests are not worth keeping, and each source file by untested branches', () => {
+  it('breaks each test file down by why tests are not worth keeping, and each source file by survived mutants', () => {
     const heads = view => [...viewOf(html, view).matchAll(/<th data-sort="[a-z]+"[^>]*>([^<]+)</g)].map(match => match[1]);
     expect(heads('tests')).toEqual(['File', 'Quality', 'Duplicates', 'Checks nothing', 'Live services']);
-    expect(heads('sources')).toEqual(['File', 'Methods tested', 'Bugs caught', 'Uncaught bugs']);
+    expect(heads('sources')).toEqual(['File', 'Methods tested', 'Mutation score', 'Survived']);
     // test_cart.py: one duplicate, test_discount_20.
     const row = viewOf(html, 'tests').match(/<tr data-path="tests\/test_cart.py">.*?<\/tr>/s)[0];
     expect(row).toContain('<td class="num" data-v="1">1</td><td class="num zero" data-v="0">0</td><td class="num zero" data-v="0">0</td>');
-    // cart.py has the one uncaught bug.
+    // cart.py has the one survived mutant.
     expect(viewOf(html, 'sources').match(/<tr data-path="src\/cart.py">.*?<\/tr>/s)[0]).toContain('<td class="num" data-v="1">1</td></tr>');
   });
 
