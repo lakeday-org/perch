@@ -138,7 +138,7 @@ export function fileRecord(file, source, analysis) {
   // Member access nothing calls, once per name and method: how a method reads its environment or configuration.
   const seen = new Set();
   const reads = analysis.references.filter(reference => reference.kind === 'read')
-    .map(reference => ({ name: reference.name, from: ownerOf(reference.source, reference.location.start.byte, reference.line), line: reference.line }))
+    .map(reference => ({ name: reference.name, from: ownerOf(reference.source, reference.location.start.byte, reference.line), line: reference.line, ...(reference.held ? { via: reference.held } : {}) }))
     .filter(read => read.from && !seen.has(`${read.from}:${read.name}`) && seen.add(`${read.from}:${read.name}`));
   // What a variable holds and what a function returns, when the source says: how `ledger.post()` is found to be Ledger's post.
   const binds = analysis.references.filter(reference => reference.kind === 'bind')

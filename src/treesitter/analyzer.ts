@@ -21,8 +21,8 @@ function unavailable(language: string, status: 'unsupported' | 'resource-unavail
  * `#[cfg(test)] mod tests`. What holds tests makes what holds it test code too, a test class its file, except a Rust module:
  * a file with a test module in it is a source file with its tests inside.
  */
-const CONTAINERS = new Set(['class_definition', 'class_declaration', 'class_specifier', 'struct_specifier', 'object_declaration', 'record_declaration',
-  'enum_declaration', 'interface_declaration', 'namespace_definition', 'impl_item', 'mod_item', 'object_literal', 'protocol_declaration', 'extension_declaration']);
+const CONTAINERS = new Set(['class_definition', 'class_declaration', 'class_specifier', 'struct_specifier', 'object_declaration', 'object_definition', 'trait_definition',
+  'record_declaration', 'enum_declaration', 'interface_declaration', 'namespace_definition', 'impl_item', 'mod_item', 'object_literal', 'protocol_declaration', 'extension_declaration']);
 
 function testHolders(root: Node, cases: Map<string, FoundTest>, suites: Array<{ start: number; end: number }>, index: SyntaxIndex): Set<string> {
   const key = (node: Node) => `${node.startIndex}:${node.endIndex}`;

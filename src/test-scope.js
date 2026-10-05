@@ -25,11 +25,13 @@ const MODULES = [
   { languages: ['rust'], files: [/^Cargo\.toml$/], nearest: true, built: 'src/', tests: /^tests\// },
   { languages: ['java', 'kotlin', 'scala', 'groovy'], files: [/^build\.gradle(\.kts)?$/, /^pom\.xml$/, /^build\.sbt$/], nearest: true, built: 'src/main/',
     tests: /^src\/(?:test|testFixtures|integrationTest|\w+Test)\// },
-  { languages: ['swift'], files: [/^Package\.swift$/, /\.xcodeproj$/], nearest: true },
+  // SwiftPM builds Sources/<target> and runs Tests/<target>; the targets of one Package.swift are one module to its tests.
+  { languages: ['swift'], files: [/^Package\.swift$/, /\.xcodeproj$/], nearest: true, built: 'Sources/', tests: /^Tests\// },
   { languages: ['dart'], files: [/^pubspec\.yaml$/], nearest: true },
   { languages: ['elixir'], files: [/^mix\.exs$/], nearest: true },
   { languages: ['c', 'cpp'], files: [/^CMakeLists\.txt$/, /^meson\.build$/, /^Makefile$/], nearest: false },
-  { languages: ['csharp', 'fsharp'], files: [/\.sln$/, /\.[cf]sproj$/], nearest: false },
+  // A .NET test project is a project of its own, `Shop.Tests/Shop.Tests.csproj`, named for the project it tests.
+  { languages: ['c_sharp', 'fsharp'], files: [/\.sln$/, /\.[cf]sproj$/], nearest: false, tests: /(?:^|\/)[^/]+\.Tests?\// },
   { languages: ['ruby'], files: [/^Gemfile$/, /\.gemspec$/], nearest: false },
   { languages: ['php'], files: [/^composer\.json$/, /^phpunit\.xml(\.dist)?$/], nearest: false },
   // Zig's tests sit in the source files they test, under src/ as `zig init` lays a package out; build.zig itself is not built.

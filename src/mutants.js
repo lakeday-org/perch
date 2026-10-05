@@ -24,24 +24,32 @@ const PRIORITY = ['boundary', 'logic', 'condition', 'not', 'arithmetic', 'boolea
 // Bash's `[ a ] && [ b ]` is a `list` of two commands with the connective between them; a list is read only in Bash, since Python
 // names its list literal the same.
 // Zig's BinaryExpr holds its operator in a CompareOp, AdditionOp or MultiplyOp node, or as the bare `and`/`or` keyword.
+// Scala writes every binary operator as an infix_expression whose operator is a named operator_identifier; Swift reads a
+// comparison beside a `||` as an infix_expression with a custom_operator in its `op` field.
 const BINARY = new Set(['binary_expression', 'binary_operator', 'boolean_operator', 'comparison_operator',
-  'comparison_expression', 'equality_expression', 'additive_expression', 'multiplicative_expression', 'conjunction_expression', 'disjunction_expression', 'BinaryExpr']);
+  'comparison_expression', 'equality_expression', 'additive_expression', 'multiplicative_expression', 'conjunction_expression', 'disjunction_expression', 'BinaryExpr', 'infix_expression']);
 // A condition a statement branches on: the field that holds it, and whether it is wrapped in parentheses the grammar keeps.
 const CONDITIONS = new Set(['if_statement', 'while_statement', 'if_expression', 'while_expression', 'IfPrefix', 'WhilePrefix']);
 // Zig's IfPrefix and WhilePrefix give the condition no field: it is the first named child, between the keyword's parentheses.
 const PREFIXED = new Set(['IfPrefix', 'WhilePrefix']);
 const WRAPPED = new Set(['parenthesized_expression', 'condition_clause']);
-const NOT = new Set(['unary_expression', 'not_operator', 'negated_command', 'UnaryExpr']);
+// A prefix operator with its operand: C#'s prefix_unary_expression, Swift's prefix_expression with a `bang` node for the `!`,
+// Scala's prefix_expression with the `!` unnamed, Bash's negated_command, Zig's UnaryExpr.
+const NOT = new Set(['unary_expression', 'not_operator', 'negated_command', 'UnaryExpr', 'prefix_unary_expression', 'prefix_expression']);
 const BOOLEANS = new Set(['true', 'false', 'boolean_literal']);
-const RETURNS = new Set(['return_statement', 'return_expression']);
+// Swift's return is a control_transfer_statement whose result is the value; a bare `break` or `continue` has none.
+const RETURNS = new Set(['return_statement', 'return_expression', 'control_transfer_statement']);
 const NUMBERS = new Set(['number', 'integer', 'float', 'integer_literal', 'float_literal', 'decimal_integer_literal', 'int_literal', 'number_literal', 'INTEGER', 'FLOAT']);
 // Nodes that hold one expression and add nothing to it: Solidity wraps every operand in `expression`, Zig every operand in an
 // ErrorUnionExpr around a SuffixExpr. A returned literal is read through them.
 const WRAPPERS = new Set(['expression', 'ErrorUnionExpr', 'SuffixExpr']);
 
-const operatorOf = node => node.childForFieldName('operator') ?? node.children.find(child => !child.isNamed && (child.text in COMPARISONS || child.text in ARITHMETIC || child.text in LOGIC)) ?? null;
-/** Zig has no return node: `return x;` is an AssignExpr whose first token is the keyword. */
-const isReturn = node => RETURNS.has(node.type) || (node.type === 'AssignExpr' && node.children[0]?.isNamed === false && node.children[0].text === 'return');
+const KNOWN = text => text in COMPARISONS || text in ARITHMETIC || text in LOGIC || text in TEST_COMPARISONS;
+const operatorOf = node => [node.childForFieldName('operator'), node.childForFieldName('op')].find(child => child && KNOWN(child.text))
+  ?? node.children.find(child => !child.isNamed && KNOWN(child.text)) ?? null;
+/** Zig has no return node: `return x;` is an AssignExpr whose first token is the keyword. Swift's control_transfer_statement is one only when it starts with `return`. */
+const isReturn = node => (RETURNS.has(node.type) && (node.type !== 'control_transfer_statement' || node.children[0]?.text === 'return'))
+  || (node.type === 'AssignExpr' && node.children[0]?.isNamed === false && node.children[0].text === 'return');
 const unwrapped = node => { while (WRAPPERS.has(node.type) && node.childCount === 1 && node.namedChildren.length === 1) node = node.namedChildren[0]; return node; };
 
 /** A Bash command's name and arguments: `return 1` is the command return with the argument 1. */
@@ -85,8 +93,8 @@ export function mutantsOf({ source, language, line, end_line }) {
         }
       }
       if (NOT.has(node.type)) {
-        const operator = node.childForFieldName('operator') ?? node.children.find(child => !child.isNamed);
-        const operand = node.childForFieldName('argument') ?? node.childForFieldName('operand') ?? node.namedChildren.find(child => child !== operator);
+        const operator = node.childForFieldName('operator') ?? node.childForFieldName('operation') ?? node.children.find(child => !child.isNamed);
+        const operand = node.childForFieldName('argument') ?? node.childForFieldName('operand') ?? node.childForFieldName('target') ?? node.namedChildren.find(child => child !== operator);
         if (operand && (operator?.text === '!' || operator?.text === 'not')) add('not', node, operand.text);
       }
       // Solidity's boolean_literal holds a `true` node: one literal, read once.

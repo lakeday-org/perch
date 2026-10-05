@@ -112,9 +112,15 @@ export function resolveModule(fromPath, module, language, paths, crates = []) {
 }
 
 const JAVASCRIPT = new Set(['javascript', 'typescript', 'tsx']);
-const CONSTRUCTORS = { python: ['__init__'], javascript: ['constructor'], typescript: ['constructor'], tsx: ['constructor'], solidity: ['constructor'] };
-/** Languages that find a class by its package rather than by the file it is in. */
-const JVM = new Set(['java', 'kotlin']);
+/** What a call to a class by its bare name runs: Swift's `init`, Solidity's `constructor`, and in Scala the companion's `apply`, since `Cart(1)` is `Cart.apply(1)`. */
+const CONSTRUCTORS = { python: ['__init__'], javascript: ['constructor'], typescript: ['constructor'], tsx: ['constructor'], solidity: ['constructor'], swift: ['init'], scala: ['apply'] };
+/**
+ * Languages that find a class by its package rather than by the file it is in. C# finds one by its namespace and its `using`
+ * directives the way Java does by its package and imports, and Scala by its package and imports.
+ */
+const JVM = new Set(['java', 'kotlin', 'scala', 'c_sharp']);
+/** Of those, the languages with functions declared outside any class, found by package as a class is. */
+const TOP_LEVEL_FUNCTIONS = new Set(['kotlin', 'scala']);
 /** Languages whose linker joins a call in one file to a definition in another, by name alone. */
 const NATIVE = new Set(['c', 'cpp']);
 /**
@@ -122,7 +128,7 @@ const NATIVE = new Set(['c', 'cpp']);
  * need the receiver written out, so a bare name there is never a method of the class the caller sits in. A Solidity function
  * calls its contract's functions bare, and a Zig function the declarations of the struct it is declared in.
  */
-const IMPLICIT_THIS = new Set(['java', 'kotlin', 'cpp', 'csharp', 'scala', 'swift', 'dart', 'solidity', 'zig']);
+const IMPLICIT_THIS = new Set(['java', 'kotlin', 'cpp', 'c_sharp', 'scala', 'swift', 'dart', 'solidity', 'zig']);
 /** Languages whose `const x = @import("m")` passes a module or a name on, as Rust's `pub use` does, written like any other import. */
 const PASSES_IMPORTS = new Set(['rust', 'python', 'zig']);
 /** Names a method uses for the object or class it belongs to. */
@@ -413,6 +419,15 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
   const functionsIn = (name, head) => [...(jvm.get(name)?.functions.get(head) ?? [])];
   const extensionsIn = (name, member) => [...(jvm.get(name)?.extensions.get(member) ?? [])];
   /**
+   * The packages a file's own code is in, nearest first. In Java and Kotlin that is its one package. In C# a name is looked up in
+   * the file's namespace and then in each namespace enclosing it, so `Shop.Tests` sees `Shop`'s classes and the global namespace's.
+   */
+  const ownPackages = file => {
+    if (file.language !== 'c_sharp') return [file.package ?? ''];
+    const parts = (file.package ?? '').split('.').filter(Boolean);
+    return parts.map((_, index) => parts.slice(0, parts.length - index).join('.')).concat('');
+  };
+  /**
    * `x.f()` in Kotlin where f is no member perch can find: an extension function named f, by Kotlin's lookup for a top-level
    * function, an import naming it, then the file's own package, then an on-demand import. Which receiver x is decides nothing more
    * here, since the tree does not give its type; an f declared for two receivers in one package links neither.
@@ -436,20 +451,30 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
     const imports = file.imports ?? [];
     const named = imports.find(item => item.alias === head && item.name !== '*' && !item.name.includes('.'));
     if (named) return classesIn(named.module, named.name);
-    const own = classesIn(file.package ?? '', head);
-    if (own.length) return own;
+    for (const name of ownPackages(file)) {
+      const own = classesIn(name, head);
+      if (own.length) return own;
+    }
     const onDemand = imports.filter(item => item.name === '*').flatMap(item => classesIn(item.module, head));
     return onDemand.length ? onDemand : null;
   };
-  /** `new Ledger()` in Java: the constructor of the class the name means in this file, by Java's scoping. */
+  /**
+   * The name a class is declared under when this file knows it by another: `using Prices = Shop.Pricing.Catalogue` in C#,
+   * `import shop.pricing.{Rules => R}` in Scala, `import a.B as C` in Kotlin. Its methods are qualified by the declared name.
+   */
+  const declaredName = (file, head) => (file.imports ?? []).find(item => item.alias === head && item.name !== '*' && !item.name.includes('.'))?.name ?? head;
+  /**
+   * `new Ledger()` in Java or C#: the constructor of the class the name means in this file, by the language's scoping. In Scala
+   * `Cart(1)` runs the companion object's `apply`.
+   */
   const jvmConstructor = (file, name) => {
-    const files = classFiles(file, name);
-    return files ? single(files, `${name}.${name}`) : null;
+    const files = classFiles(file, name), declared = declaredName(file, name);
+    return files ? single(files, `${declared}.${CONSTRUCTORS[file.language]?.[0] ?? declared}`) : null;
   };
   /** `Head.tail` where Head is a class: the method of that class, or null when the class has no such method. */
   const jvmQualified = (file, parts) => {
     const files = classFiles(file, parts[0]);
-    return files === null ? undefined : single(files, parts.join('.'));
+    return files === null ? undefined : single(files, [declaredName(file, parts[0]), ...parts.slice(1)].join('.'));
   };
   /**
    * An unqualified call to something no class of this file declares. In Java that is a static import, by name before on
@@ -457,7 +482,7 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
    * through an on-demand import. Java cannot call a Kotlin top-level function without the class Kotlin compiles it into.
    */
   const jvmUnqualified = (file, name) => {
-    const kotlin = file.language === 'kotlin', imports = file.imports ?? [];
+    const kotlin = TOP_LEVEL_FUNCTIONS.has(file.language), imports = file.imports ?? [];
     const explicit = imports.find(item => item.alias === name && item.name !== '*' && !item.name.endsWith('.*'));
     if (explicit) {
       const [owner, member] = explicit.name.split('.');
@@ -473,6 +498,59 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
       return [single(classesIn(item.module, owner), `${owner}.${name}`)].filter(Boolean);
     });
     return sole(onDemand);
+  };
+
+  // Swift makes every top-level declaration of a module visible by its bare name throughout the module, and in any file that
+  // imports the module. A module is a SwiftPM target, Sources/<name> or Tests/<name> under the nearest Package.swift; a file
+  // outside that layout is in the package's own module, and a repository with no Package.swift is one module. Each module's
+  // top-level functions and classes are indexed once, as a package's are above.
+  const swiftModuleOf = path => {
+    for (let dir = dirname(path); ; dir = dirname(dir)) {
+      const root = dir === '.' ? '' : dir;
+      if (paths.has(root ? `${root}/Package.swift` : 'Package.swift')) {
+        const target = /^(?:Sources|Tests)\/([^/]+)\//.exec(root ? path.slice(root.length + 1) : path);
+        return `${root}/${target ? target[1] : ''}`;
+      }
+      if (dir === '.') return '/';
+    }
+  };
+  const swift = new Map();
+  for (const file of files) {
+    if (file.language !== 'swift') continue;
+    const module = swiftModuleOf(file.path);
+    if (!swift.has(module)) swift.set(module, { classes: new Map(), functions: new Map() });
+    const entry = swift.get(module);
+    for (const method of file.methods) {
+      const dot = method.qualified_name.indexOf('.');
+      const [map, key, value] = dot > 0 ? [entry.classes, method.qualified_name.slice(0, dot), file.path] : [entry.functions, method.qualified_name, method.id];
+      if (!map.has(key)) map.set(key, new Set());
+      map.get(key).add(value);
+    }
+  }
+  /** The modules a Swift file sees: its own, then each one an `import` names, by the target's name. */
+  const swiftModulesOf = file => [swiftModuleOf(file.path),
+    ...(file.imports ?? []).filter(item => item.name === '*').flatMap(item => [...swift.keys()].filter(module => module.split('/').at(-1) === item.module))];
+  /** The files declaring the class a Swift name means in this file: its own module's first, then an imported module's. Null when none. */
+  const swiftClassFiles = (file, head) => {
+    for (const module of swiftModulesOf(file)) {
+      const found = [...(swift.get(module)?.classes.get(head) ?? [])];
+      if (found.length) return found;
+    }
+    return null;
+  };
+  /** A bare name in Swift: a top-level function of a module the file sees, or a class, whose `init` the call runs. */
+  const swiftUnqualified = (file, name) => {
+    for (const module of swiftModulesOf(file)) {
+      const found = [...(swift.get(module)?.functions.get(name) ?? [])];
+      if (found.length) return sole(found);
+    }
+    const files = swiftClassFiles(file, name);
+    return files ? single(files, `${name}.init`) : null;
+  };
+  /** `Cart.discount` in Swift where Cart is a type the file sees: its method, or null when the type has none so named. */
+  const swiftQualified = (file, parts) => {
+    const files = swiftClassFiles(file, parts[0]);
+    return files === null ? undefined : single(files, parts.join('.'));
   };
 
   // C and C++ join a call to a definition in another file through the linker, which finds the one definition of the name with
@@ -525,6 +603,7 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
         ?? (file.language === 'go' ? samePackage(file, name) : null)
         ?? (JVM.has(file.language) ? jvmUnqualified(file, name) ?? jvmConstructor(file, name) : null)
         ?? (file.language === 'kotlin' ? jvmExtension(file, name) : null)
+        ?? (file.language === 'swift' ? swiftUnqualified(file, name) : null)
         ?? (native ? linked(from, parts, file) : null);
     }
     // `Color::Red.code()` in Rust, `Status.PAID.isFinal()` or `Money.ZERO.plus()` elsewhere: a method of the enum a variant belongs
@@ -572,6 +651,17 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
         const extension = jvmExtension(file, tail);
         if (extension) return extension;
       }
+      // `RateCard.empty.set(..)` in Scala: `RateCard.empty` runs a parameterless method, and set is a member of what it returns.
+      if (file.language === 'scala' && parts.length >= 3 && depth <= 3) {
+        const kind = classOf(file, { call: parts.slice(0, -1).join('.') }, from, depth + 1);
+        const found = kind && memberOf(file, kind, tail);
+        if (found) return found;
+      }
+      if (member !== undefined) return member;
+    }
+    // A Swift type the file's module or an import makes visible decides the call the same way.
+    if (file.language === 'swift') {
+      const member = swiftQualified(file, parts);
       if (member !== undefined) return member;
     }
     // `obj.f` on an object whose type the tree does not give links nothing: which f it is depends on what obj holds.
@@ -584,16 +674,23 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
    * another method, then the module's. A binding in some other function of the file is that function's, and linking through it
    * gave one test the type another test's local had.
    */
+  /** Whether a value is computed from the name it is bound to: `entry = entry.debit(..)`, which says nothing about what entry is. */
+  const refersToItself = (held, name) => Boolean(held) && (held.local === name || (held.call ?? '').startsWith(`${name}.`) || refersToItself(held.on, name));
   const bindingFor = (file, name, from) => {
-    const all = (file.binds ?? []).filter(item => item.name === name);
-    if (!all.length) return null;
+    const all = (file.binds ?? []).filter(item => item.name === name && !refersToItself(item, name));
+    // `this.cart` in a language that also names the field bare: the field's declaration, `Cart cart;`, is bound under `cart`,
+    // outside every method of the class.
+    const field = IMPLICIT_THIS.has(file.language) && name.startsWith('this.') ? (file.binds ?? []).filter(item => item.name === name.slice(5)) : [];
+    if (!all.length && !field.length) return null;
     const caller = nodes.get(from)?.qualified_name ?? '';
     const scope = id => nodes.get(id)?.qualified_name ?? '';
     const classOfCaller = caller.split('.').slice(0, -1).join('.');
+    const atTopLevel = item => !item.from || scope(item.from) === '<top-level>';
     return all.find(item => item.from === from)
       ?? all.find(item => item.from && caller.startsWith(`${scope(item.from)}.`))
       ?? (name.startsWith('this.') ? all.find(item => item.from && classOfCaller && scope(item.from).split('.').slice(0, -1).join('.') === classOfCaller) : null)
-      ?? all.find(item => !item.from || scope(item.from) === '<top-level>')
+      ?? all.find(atTopLevel)
+      ?? field.find(atTopLevel)
       ?? null;
   };
   /**
@@ -620,7 +717,7 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
     }
     return null;
   };
-  const CONSTRUCTOR_NAMES = new Set(['__init__', 'constructor', 'new']);
+  const CONSTRUCTOR_NAMES = new Set(['__init__', 'constructor', 'new', 'init']);
   /**
    * The class a value is an instance of: the type it was declared or constructed with, or for a call, the class of what the call
    * resolves to: a constructor's class, what a factory returns, or a static factory's own class (`Ledger::new`, `Ledger.of`).
@@ -659,9 +756,10 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
     const imported = (file.imports ?? []).find(item => item.alias === kind.name && !item.reexport);
     const target = imported && resolveIn(file.path, imported.module, file.language, paths);
     if (target && byPath.get(target)?.file.bases?.[imported.name === 'default' ? byPath.get(target).file.default_export : imported.name]) return byPath.get(target).file;
-    // Java and Kotlin find the class by its package or an import, wherever its file is.
-    const jvmFiles = JVM.has(file.language) ? (classFiles(file, kind.name) ?? []).map(path => byPath.get(path)?.file).filter(item => item?.bases?.[kind.name]) : [];
-    return jvmFiles.length === 1 ? jvmFiles[0] : null;
+    // Java, Kotlin, Scala and C# find the class by its package or an import, Swift by its module, wherever its file is.
+    const visible = JVM.has(file.language) ? classFiles(file, kind.name) : file.language === 'swift' ? swiftClassFiles(file, kind.name) : null;
+    const declaring = (visible ?? []).map(path => byPath.get(path)?.file).filter(item => item?.bases?.[kind.name]);
+    return declaring.length === 1 ? declaring[0] : null;
   };
   /** A member a class inherits: looked up in each base it names, by that base's own lookup, a few generations up. */
   const inherited = (file, kind, member, depth) => {
@@ -731,12 +829,17 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
       // A class nested in another, `JournalEntry.Builder`, is found through the outer one, by the outer one's package or import.
       const outer = full ? kind.full.split('.')[0] : kind.name;
       const files = classFiles(file, outer);
-      const member$ = files && single(files, full ?? qualified);
+      const member$ = files && single(files, [declaredName(file, outer), ...(full ?? qualified).split('.').slice(1)].join('.'));
       if (member$) return member$;
     }
     if (file.language === 'kotlin') {
       const extension = jvmExtension(file, member, kind.name);
       if (extension) return extension;
+    }
+    if (file.language === 'swift') {
+      const files = swiftClassFiles(file, full ? kind.full.split('.')[0] : kind.name);
+      const member$ = files && single(files, full ?? qualified);
+      if (member$) return member$;
     }
     // A C++ class in a namespace, `shop::Cart` or `Cart` under `using namespace shop`, is found as the linker finds it, from the
     // scope the value was declared in.
@@ -752,12 +855,17 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
 
   const callees = new Map(), callers = new Map(), sites = new Map(), dynamic = new Set(), external = new Map();
   const link = (map, from, to) => { if (!map.has(from)) map.set(from, new Set()); map.get(from).add(to); };
+  // Scala's uniform access: `entry.isBalanced` written without parentheses runs the parameterless method of that name, so a
+  // member read that resolves, by the rules a call does, to a method of what the receiver holds is a call to it. A class cannot
+  // declare a field and a method under one name, so a read that reaches a method reaches what the program runs.
+  const uniformAccess = file => (file.language === 'scala' ? (file.reads ?? []) : []);
   for (const file of files) {
-    for (const call of file.calls) {
+    for (const call of [...file.calls, ...uniformAccess(file)]) {
       const to = resolve(file, call.name, call.from, 0, call.via ?? null);
       if (!to) {
         // A member of a receiver the tree cannot name says nothing about what leaves the repository: `expect(x).not.toThrow()`.
-        if (call.name.startsWith('$receiver.')) continue;
+        // Nor does a read that reaches no method: it is a field, or a member of something outside the repository.
+        if (call.name.startsWith('$receiver.') || !file.calls.includes(call)) continue;
         // What a method calls outside the repository: a library, the runtime, the operating system.
         if (!external.has(call.from)) external.set(call.from, new Map());
         external.get(call.from).set(`${call.name}:${call.line}`, { name: call.name, line: call.line });
@@ -793,6 +901,7 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
   const classMethods = (file, name) => {
     let targets, declared = name;
     if (JVM.has(file.language)) targets = classFiles(file, name) ?? [];
+    else if (file.language === 'swift') targets = swiftClassFiles(file, name) ?? [];
     else if (NATIVE.has(file.language)) targets = files.filter(item => NATIVE.has(item.language)).map(item => item.path);
     else {
       const imported = file.imports.find(item => item.alias === name);
