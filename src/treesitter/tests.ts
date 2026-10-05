@@ -52,6 +52,17 @@ function ownerOf(node: Node): string {
   return "file";
 }
 
+/**
+ * The declaration a node sits in when test bodies the grammar does not call functions count too: a Ruby `it "x" do ... end`
+ * block is a declaration once `cases` holds its span, and a mock inside it belongs to that test.
+ */
+export function ownerIn(node: Node, scan: TestScan): string {
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    if (isFunction(parent) || scan.cases.has(span(parent))) return `function:${parent.startIndex}`;
+  }
+  return "file";
+}
+
 /** Names of the enclosing scopes of the given node types, outermost first. */
 export function enclosing(node: Node, types: Set<string>, nameOf: (scope: Node) => string | null): string[] {
   const names: string[] = [];
@@ -100,8 +111,10 @@ export function literal(node: Node | null | undefined): string | null {
   if (!node) return null;
   const parts = node.namedChildren;
   if (parts.some(part => ["template_substitution", "interpolation", "string_interpolation", "interpolated_expression"].includes(part.type))) return null;
+  // PHP's double-quoted string interpolates a variable written bare in it, `"total $x"`, with no node to say so but the variable's.
+  if (node.type === "encapsed_string" && parts.some(part => !["string_content", "escape_sequence"].includes(part.type))) return null;
   // Scala's string and Swift's line_string_literal keep their text in one child; C#'s string_literal in string_literal_content.
-  if (!["string", "template_string", "string_literal", "raw_string_literal", "interpreted_string_literal", "line_string_literal", "verbatim_string_literal"].includes(node.type)) return null;
+  if (!["string", "template_string", "string_literal", "raw_string_literal", "interpreted_string_literal", "line_string_literal", "verbatim_string_literal", "encapsed_string"].includes(node.type)) return null;
   const raw = node.type === "raw_string_literal" || node.type === "verbatim_string_literal" || /^[a-zA-Z]*[rR][a-zA-Z]*["']/.test(parts.find(part => part.type === "string_start")?.text ?? "");
   if (!parts.length) return node.text.replace(/^[a-zA-Z@]*(?:"""|"|')|(?:"""|"|')$/g, "");
   return parts.filter(part => ["string_fragment", "string_content", "escape_sequence", "interpreted_string_literal_content", "raw_string_literal_content", "line_str_text", "string_literal_content"].includes(part.type))
@@ -706,6 +719,8 @@ function packageOf(root: Node, language: string): string | null {
     if (language === "go" && node.type === "package_clause") return node.namedChildren.find(child => child.type === "package_identifier")?.text ?? null;
     // C#'s namespace, block-scoped or file-scoped: the first one declared is the file's. The declarations before it are in none.
     if (language === "csharp" && ["namespace_declaration", "file_scoped_namespace_declaration"].includes(node.type)) return node.childForFieldName("name")?.text ?? null;
+    // PHP's namespace is its package: `namespace App\Tests;` puts every class in the file in App\Tests.
+    if (language === "php" && node.type === "namespace_definition") return node.childForFieldName("name")?.text ?? null;
   }
   // Scala chains package clauses: `package shop` then `package cart` declares shop.cart.
   if (language === "scala") {

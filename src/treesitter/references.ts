@@ -26,7 +26,13 @@ const CALL_TYPES = new Set([
   "function_call",
   "function_call_expression",
   "invocation_expression",
+  "member_call_expression",
+  "nullsafe_member_call_expression",
+  "scoped_call_expression",
 ]);
+
+/** Calls whose node holds the receiver and the member apart: Java's invocation, PHP's `$a->b()` and `A::b()`. */
+const MEMBER_CALLS = new Set(["method_invocation", "member_call_expression", "nullsafe_member_call_expression", "scoped_call_expression"]);
 
 const NAME_TYPES = new Set([
   "identifier",
@@ -106,8 +112,14 @@ function safeNavigation(value: string): string {
 /** What every language here lets an identifier be: a letter in any script, then letters, marks, digits and joiners. */
 const IDENTIFIER = /^[\p{ID_Start}_$][\p{ID_Continue}$\u200C\u200D]*$/u;
 
-function validReference(value: string): string {
-  const normalized = value.replaceAll("::", ".");
+/**
+ * A reference as a path of identifiers, or `<dynamic>`. Ruby lets a method end in `?` or `!`, and name a top-level constant with a
+ * leading `::`; PHP separates namespaces with `\`, and a leading `\` makes a name fully qualified.
+ */
+function validReference(value: string, language = ""): string {
+  let normalized = value.replaceAll("::", ".");
+  if (language === "ruby") normalized = normalized.replace(/^\./, "").replace(/[?!]$/, "");
+  if (language === "php") normalized = normalized.replace(/^\\/, "").replaceAll("\\", ".");
   if (
     value.length > 256 ||
     !normalized ||
@@ -516,22 +528,28 @@ function scalaImportReferences(node: Node): Reference[] {
 }
 
 function callReference(node: Node, language: string): string {
-  if (node.type === "method_invocation") {
-    const object = child(node, "object");
+  if (MEMBER_CALLS.has(node.type)) {
+    const object = child(node, "object", "scope");
     const name = text(child(node, "name"));
-    const named = validReference(object ? `${pathText(object, language)}.${name}` : name);
+    const named = validReference(object ? `${pathText(object, language)}.${name}` : name, language);
     // `Money.of(1).plus(...)`: the member of what the receiver holds, as for every other language's member call.
     return named === '<dynamic>' && object ? `$receiver.${name}` : named;
   }
-  // Ruby's call holds the receiver apart from the method, where other grammars hold one callee.
+  // Ruby's call holds the receiver apart from the method, where other grammars hold one callee. `@cart.total` is a member of
+  // what the instance variable holds, written `this.cart.total` as the other languages write it.
   const receiver = child(node, "receiver"), method = child(node, "method");
-  if (receiver || method) return validReference(safeNavigation(receiver ? `${text(receiver)}.${text(method)}` : text(method)));
+  if (receiver || method) {
+    const written = receiver ? `${text(receiver).replace(/^@(?=[\p{L}_])/u, "this.")}.${text(method)}` : text(method);
+    const named = validReference(safeNavigation(written), language);
+    // `Cart.new(3).total`: the member of what the receiver's call returns.
+    return named === '<dynamic>' && receiver && validReference(text(method), language) !== '<dynamic>' ? `$receiver.${text(method)}` : named;
+  }
   const callee = referenceBase(node);
   if (language === 'solidity') {
     const rebound = solidityCallee(callee);
-    if (rebound) return validReference(rebound);
+    if (rebound) return validReference(rebound, language);
   }
-  const named = validReference(pathText(callee, language));
+  const named = validReference(pathText(callee, language), language);
   // `"x".size()`, `Thing::new().get()` or `Entry(day).debit()`: the receiver is no name, but the member is. `$` cannot begin a name
   // in these languages, so `$receiver` stands for one the tree cannot name without being mistaken for one.
   if (named === '<dynamic>') {
@@ -567,8 +585,12 @@ function solidityCallee(callee: Node | null): string | null {
  */
 function pathText(callee: Node | null, language: string): string {
   // A safe call, `a?.b()` or Ruby's `a&.b`, calls the same method `a.b()` does whenever it calls anything.
-  let written = safeNavigation(text(callee).replace(/\s*(\.|::|\?\.|&\.|->)\s*/g, '$1'));
+  let written = safeNavigation(text(callee).replace(/\s*(\.|::|\?\.|&\.|->|\?->)\s*/g, '$1'));
   if (language === 'c' || language === 'cpp') written = written.replaceAll('->', '.');
+  // PHP's `$this->cart->total` and `$this?->cart` are `this.cart.total`; `static::` names the class as `self::` does.
+  if (language === 'php') written = written.replaceAll('?->', '.').replaceAll('->', '.').replace(/^\$this\b/, 'this').replace(/^static(?=$|::)/, 'self');
+  // Lua's `cart:total()` calls the same function `cart.total(cart)` does.
+  if (language === 'lua') written = written.replace(/(?<!:):(?!:)/g, '.');
   // `run_tests<true>()` in C++ and `parse::<i32>()` in Rust call the function their name is before the type arguments.
   if (TYPE_ARGUMENTS.has(language) && written.includes('<')) {
     written = written.replaceAll('::<', '<');
@@ -578,13 +600,23 @@ function pathText(callee: Node | null, language: string): string {
 }
 const TYPE_ARGUMENTS = new Set(['c', 'cpp', 'rust']);
 
-/** What a call calls: its callee, or for a Java invocation, the invocation itself, which holds the object and the name. */
-const calleeOf = (node: Node): Node | null => (node.type === 'method_invocation' ? node : referenceBase(node));
+/**
+ * What a call calls: its callee, or for a Java or PHP member call and a Ruby call with a receiver, the call itself, which holds
+ * the object and the name.
+ */
+const calleeOf = (node: Node): Node | null => (MEMBER_CALLS.has(node.type) || (node.type === 'call' && child(node, 'method')) ? node : referenceBase(node));
 
 /** A member access as its receiver and the member's name: `a.b`, `a->b`, `a?.b`, a Java invocation's object and name. */
 function memberOf(callee: Node | null, language: string): { receiver: Node | null; member: string } | null {
   if (!callee) return null;
   if (callee.type === 'method_invocation') return { receiver: child(callee, 'object'), member: text(child(callee, 'name')) };
+  if (MEMBER_CALLS.has(callee.type)) return { receiver: child(callee, 'object', 'scope'), member: text(child(callee, 'name')) };
+  if (callee.type === 'call' && child(callee, 'method')) return { receiver: child(callee, 'receiver'), member: text(child(callee, 'method')) };
+  // Lua's `cart.total` and `cart:total`.
+  if (callee.type === 'dot_index_expression' || callee.type === 'method_index_expression') {
+    const table = child(callee, 'table'), field = child(callee, 'field', 'method');
+    return table && field ? { receiver: table, member: text(field) } : null;
+  }
   // C#'s member_access_expression holds its receiver as `expression`.
   const receiver = child(callee, 'object', 'value', 'argument', 'operand', 'expression');
   const field = child(callee, 'property', 'attribute', 'field', 'name');
@@ -777,6 +809,7 @@ const MEMBER_TYPES = new Set([
   "field_expression",
   "navigation_expression",
   "selector_expression",
+  "member_access_expression",
 ]);
 
 /** The child of a member access that holds the object it is read from. */
@@ -791,6 +824,8 @@ function isMemberRead(node: Node): boolean {
   const parent = node.parent?.type === 'expression' && node.parent.namedChildren.length === 1 ? node.parent.parent : node.parent;
   if (!parent) return true;
   if (MEMBER_TYPES.has(parent.type) && memberObject(parent)?.id === node.id) return false;
+  // The object of a member call, `$this->cart` in `$this->cart->total()`, is part of the call rather than a read of its own.
+  if (MEMBER_CALLS.has(parent.type) && child(parent, "object", "scope")?.id === node.id) return false;
   const callee = CALL_TYPES.has(parent.type) ? referenceBase(parent) : null;
   return !(callee && (callee.id === node.id || (callee.type === 'expression' && callee.namedChildren[0]?.id === node.id)));
 }
@@ -821,6 +856,79 @@ function isRequire(node: Node, language: string): boolean {
   const callee = referenceBase(node);
   const argument = child(node, "arguments")?.namedChildren[0] ?? null;
   return callee?.type === "identifier" && text(callee) === "require" && argument?.type === "string";
+}
+
+/** The one string a call is given, `require "cart"` or `require("cart")`, as the module it names; null for anything computed. */
+function requiredModule(node: Node): string | null {
+  const argument = child(node, "arguments")?.namedChildren.find(item => !isComment(item)) ?? null;
+  return argument?.type === "string" ? stripModule(text(argument)) : null;
+}
+
+/**
+ * Ruby's `require "cart"` and `require_relative "../lib/cart"`: the file's constants and methods become visible here, as a Python
+ * `from m import *` makes a module's. A relative require is recorded with its `./` or `../` so the graph looks beside the
+ * requiring file; a plain one is looked for on the load path.
+ */
+function rubyRequire(node: Node): Reference[] {
+  if (node.type !== "call" || child(node, "receiver")) return [];
+  const method = text(child(node, "method"));
+  if (method !== "require" && method !== "require_relative") return [];
+  const named = requiredModule(node);
+  if (!named) return [];
+  const module = method === "require_relative" && !/^\.\.?\//.test(named) ? `./${named}` : named;
+  return [makeReference("import", node, { name: module, reference: module, module, imported_name: "*", alias: null })];
+}
+
+/**
+ * Lua's `local cart = require("src.cart")` binds the module's returned table to a name, so `cart.total()` is total in that
+ * module. A `require` bound to nothing loads the module for what it does on load.
+ */
+function luaRequire(node: Node): Reference[] {
+  if (node.type !== "function_call" || text(child(node, "name")) !== "require") return [];
+  const module = requiredModule(node);
+  if (!module) return [];
+  // `local cart = require(...)`: the one name of the assignment the call is the one value of.
+  const list = node.parent?.type === "expression_list" ? node.parent : null;
+  const assignment = list?.parent?.type === "assignment_statement" ? list.parent : null;
+  const names = assignment?.namedChildren.find(item => item.type === "variable_list")?.namedChildren ?? [];
+  const bound = list?.namedChildren.length === 1 && names.length === 1 && names[0].type === "identifier" ? text(names[0]) : null;
+  return [makeReference("import", node, { name: module, reference: module, module, imported_name: "*", alias: bound })];
+}
+
+/** PHP's require and include: `require_once __DIR__ . '/../bootstrap.php'` brings a file's declarations in, as Ruby's require does. */
+const PHP_INCLUDES = new Set(["require_expression", "require_once_expression", "include_expression", "include_once_expression"]);
+function phpInclude(node: Node): Reference[] {
+  if (!PHP_INCLUDES.has(node.type)) return [];
+  const argument = node.namedChildren.find(item => !isComment(item)) ?? null;
+  let module: string | null = null;
+  if (argument?.type === "string" || argument?.type === "encapsed_string") module = stripModule(text(argument));
+  else if (argument?.type === "binary_expression" && text(child(argument, "left")) === "__DIR__") {
+    const right = child(argument, "right");
+    if (right?.type === "string" || right?.type === "encapsed_string") module = `.${stripModule(text(right))}`;
+  }
+  if (!module) return [];
+  return [makeReference("import", node, { name: module, reference: module, module, imported_name: "*", alias: null })];
+}
+
+/**
+ * PHP's `use App\Cart;`, `use App\Cart as C;`, `use function App\helper;` and the group form `use App\{Cart, Money};`: each binds
+ * one name from a namespace, which is the module, as a Java import binds a class from a package.
+ */
+function phpUseReferences(node: Node): Reference[] {
+  const references: Reference[] = [];
+  const group = child(node, "body");
+  const prefix = group ? text(node.namedChildren.find(item => item.type === "namespace_name") ?? null) : "";
+  const clauses = (group ?? node).namedChildren.filter(item => item.type === "namespace_use_clause");
+  for (const clause of clauses) {
+    const path = clause.namedChildren.find(item => item.type === "qualified_name" || item.type === "name");
+    if (!path) continue;
+    const segments = [...(prefix ? prefix.split("\\") : []), ...text(path).replace(/^\\/, "").split("\\")];
+    const name = segments.pop() ?? "";
+    const alias = text(child(clause, "alias")) || name;
+    const module = segments.join("\\");
+    references.push(makeReference("import", clause, { name: module ? `${module}\\${name}` : name, reference: module ? `${module}\\${name}` : name, module, imported_name: name, alias }));
+  }
+  return references;
 }
 
 /**
@@ -869,8 +977,19 @@ function typeName(written: string): string | null {
 }
 const bareType = (node: Node | null): string | null => {
   if (!node || ['placeholder_type_specifier', 'void_type', 'primitive_type', 'integral_type', 'floating_point_type', 'boolean_type', 'unit_type'].includes(node.type)) return null;
+  // PHP's `?Cart` and `Cart|null` hold a Cart when they hold anything; `\App\Cart` is Cart by the name its file sees.
+  if (node.type === 'optional_type') return bareType(node.namedChildren[0] ?? null);
+  if (node.type === 'union_type') {
+    const named = node.namedChildren.filter(item => item.type === 'named_type');
+    return named.length === 1 ? bareType(named[0]) : null;
+  }
+  if (node.type === 'named_type') return typeName(text(node).split('\\').at(-1) ?? '');
   return typeName(text(node));
 };
+
+/** The class a `new` expression constructs. PHP's grammar gives the name no field: it is the first name after `new`. */
+const constructedType = (node: Node): string | null =>
+  bareType(child(node, 'constructor', 'type', 'name') ?? node.namedChildren.find(item => item.type === 'name' || item.type === 'qualified_name') ?? null);
 /** Calls that hand back the one value they were given or hold: `Some(x)`, `Ok(x)`, `Box::new(x)`, `x.unwrap()`, `x?`. */
 const PASS_THROUGH = new Set(['Some', 'Ok', 'Box::new', 'Rc::new', 'Arc::new', 'RefCell::new', 'Optional.of', 'Promise.resolve']);
 // Rust's `map_err`, `ok_or` and `context` change only the error a Result or an Option carries, and `as_ref` or `borrow` only how
@@ -891,7 +1010,7 @@ function valueOf(value: Node | null, language: string): Held | null {
   if (value.type === 'UnaryExpr' && ['try', 'await'].includes(child(value, 'operator')?.text ?? '')) return valueOf(child(value, 'left'), language);
   if (value.type === 'SuffixExpr') return zigChain(value).value;
   // `return this` or `self`: a fluent method hands back an instance of its own class.
-  if (['this', 'self'].includes(value.type) || (value.type === 'identifier' && text(value) === 'self')) return { type: '$self' };
+  if (['this', 'self'].includes(value.type) || (value.type === 'identifier' && text(value) === 'self') || (value.type === 'variable_name' && text(value) === '$this')) return { type: '$self' };
   // A local handed on: `t` at the end of a Rust function, `return entry`, followed to what that local holds.
   if (value.type === 'identifier') return { local: text(value) };
   // `items[0]`: an element of a typed list is of the list's element type, which is what a `Money[]` is recorded as.
@@ -915,8 +1034,7 @@ function valueOf(value: Node | null, language: string): Held | null {
     const on = split ? receiverOf(split.receiver, language) : null;
     return on && split?.member ? { call: `$receiver.${split.member}`, on } : null;
   }
-  if (value.type === 'new_expression') return { type: bareType(child(value, 'constructor', 'type', 'name')) };
-  if (value.type === 'object_creation_expression') return { type: bareType(child(value, 'type')) };
+  if (value.type === 'new_expression' || value.type === 'object_creation_expression') return { type: constructedType(value) };
   if (value.type === 'struct_expression') return { type: bareType(child(value, 'name')) };
   // Go: `Cart{}` and `&Cart{}` make a Cart, and `new(Cart)` a pointer to one, which is called through the same way.
   if (language === 'go') {
@@ -959,6 +1077,27 @@ function bindingOf(node: Node, language: string): { name: string; held: Held } |
     // Scala's `val cart = new Cart()` and `var cart: Cart = _`.
     name = child(node, 'pattern'); type = child(node, 'type'); value = child(node, 'value');
     if (value?.type === 'wildcard') value = null;
+  } else if (node.type === 'assignment_statement' && language === 'lua') {
+    // `self.c = cart.new(3)` and `local cart = require(...)`: Lua lists the names and the values side by side.
+    const names = node.namedChildren.find(item => item.type === 'variable_list')?.namedChildren ?? [];
+    const values = node.namedChildren.find(item => item.type === 'expression_list')?.namedChildren ?? [];
+    if (names.length !== 1 || values.length !== 1) return null;
+    name = names[0]; value = values[0];
+  } else if (node.type === 'call' && language === 'ruby') {
+    // RSpec's `let(:cart) { Cart.new(3) }` and `subject(:cart) { ... }` define a method named by the symbol, whose value is the
+    // block's last expression; a test then writes `cart.total` as it would for a local.
+    const method = text(child(node, 'method')), symbol = child(node, 'arguments')?.namedChildren[0], block = child(node, 'block');
+    if (!['let', 'let!', 'subject'].includes(method) || child(node, 'receiver') || symbol?.type !== 'simple_symbol' || !block) return null;
+    const last = child(block, 'body')?.namedChildren.filter(item => !isComment(item)).at(-1) ?? null;
+    const held = valueOf(last, language);
+    return held ? { name: symbol.text.slice(1), held } : null;
+  } else if (node.type === 'property_declaration' && language === 'php') {
+    // `private Cart $cart;` in a class: a member the class's methods reach as `$this->cart`.
+    type = child(node, 'type');
+    name = node.namedChildren.find(item => item.type === 'property_element')?.childForFieldName('name') ?? null;
+    const written = name ? `this.${text(name).replace(/^\$/, '')}` : '';
+    const declared = bareType(type);
+    return written && declared ? { name: written, held: { type: declared } } : null;
   } else if (node.type === 'field_declaration' && (language === 'cpp' || language === 'c')) {
     // `Ledger book_{Currency::USD};` in a class: a member the class's methods name bare.
     type = child(node, 'type');
@@ -995,7 +1134,8 @@ function bindingOf(node: Node, language: string): { name: string; held: Held } |
     // Solidity's `Cart internal cart;` in a contract body, which the contract's functions name bare.
     name = child(node, 'name'); type = child(node, 'type'); value = child(node, 'value');
   } else return null;
-  const written = text(name).replace(/^self\./, 'this.');
+  // Ruby's `@cart` and PHP's `$this->cart` are the instance's own member, which every other language here writes `this.cart`.
+  const written = text(name).replace(/^self\./, 'this.').replace(/^@(?=[\p{L}_])/u, 'this.').replace(/^\$this->/, 'this.');
   if (!written || written === '_' || !/^(this\.)?[\p{L}_$][\p{L}\p{N}_$]*$/u.test(written)) return null;
   const held = valueOf(value, language) ?? (constructed ? { type: constructed } : null);
   const declared = node.type === 'VarDecl' ? zigBareType(type) : bareType(type);
@@ -1054,7 +1194,7 @@ function basesOf(node: Node): string[] {
     if (superclass) names.push(...superclass.namedChildren);
     // Swift's `class A: B, C` lists each as an inheritance specifier.
     for (const item of node.namedChildren.filter(item => item.type === 'inheritance_specifier')) names.push(child(item, 'inherits_from') ?? item);
-    for (const list of node.namedChildren.filter(item => ['class_heritage', 'super_interfaces', 'base_class_clause', 'base_list'].includes(item.type))) {
+    for (const list of node.namedChildren.filter(item => ['class_heritage', 'super_interfaces', 'base_class_clause', 'base_list', 'base_clause', 'class_interface_clause'].includes(item.type))) {
       for (const item of list.namedChildren) {
         if (item.type === 'extends_clause') names.push(child(item, 'value') ?? item.namedChildren[0]!);
         else if (item.type === 'implements_clause' || item.type === 'type_list') names.push(...item.namedChildren);
@@ -1077,6 +1217,8 @@ function parameterOf(node: Node): { name: string; held: Held } | null {
     // Swift's parameter holds its type under a second `name` field: `parcel: Parcel` is a simple_identifier and then a user_type.
     if (!type && name?.type === 'simple_identifier') type = node.namedChildren.find(item => item.type === 'user_type' || item.type.endsWith('_type')) ?? null;
   }
+  // PHP's `Cart $cart` and a constructor's `private Cart $cart`, which declares the property too.
+  else if (node.type === 'simple_parameter' || node.type === 'property_promotion_parameter') { name = child(node, 'name'); type = child(node, 'type'); }
   // `for (Box b : boxes)` and `catch (StockException e)` in Java: a variable with the type written before it.
   else if (node.type === 'enhanced_for_statement') { name = child(node, 'name'); type = child(node, 'type'); }
   else if (node.type === 'catch_formal_parameter') { name = child(node, 'name'); type = node.namedChildren.find(item => item.type === 'catch_type') ?? null; }
@@ -1106,17 +1248,20 @@ function declaredReturn(node: Node, language: string): string | null {
   const arrow = language === 'swift' ? node.children.findIndex(item => item.type === '->') : -1;
   const declared = child(node, 'return_type', 'returns') ?? (['java', 'cpp', 'c', 'c_sharp', 'csharp'].includes(language) ? child(node, 'type') : language === 'go' ? goResult(node) : null)
     ?? (arrow >= 0 ? node.children.slice(arrow + 1).find(item => item.isNamed) ?? null : null);
-  // `sort(): this` in TypeScript and `-> Self` in Rust: an instance of the class the method is in, whichever that is.
-  if (declared && /^(?::|->)?\s*&?\s*(?:mut\s+)?(?:this|Self)$/.test(text(declared).trim())) return '$self';
+  // `sort(): this` in TypeScript and `-> Self` in Rust and `: static` or `: self` in PHP: an instance of the class the method is in, whichever that is.
+  if (declared && /^(?::|->)?\s*&?\s*(?:mut\s+)?(?:this|Self|self|static)$/.test(text(declared).trim())) return '$self';
   return bareType(declared);
 }
 
 /** What a function returns, when it says: `return new Ledger()`, `return make()`, an arrow's body, a Rust block's last expression. */
 function returnOf(node: Node, language: string): Node | null {
-  if (node.type === 'return_statement' || node.type === 'return_expression') {
+  if (node.type === 'return_statement' || node.type === 'return_expression' || node.type === 'return') {
     const value = node.namedChildren.find(item => !isComment(item)) ?? null;
-    // Go returns an expression_list; its first value is the one a caller binds first.
-    return value?.type === 'expression_list' ? value.namedChildren[0] ?? null : value;
+    // Go returns an expression_list; its first value is the one a caller binds first. Ruby and Lua list what is returned the same
+    // way: `return x` is an argument_list or an expression_list of one.
+    if (value?.type === 'expression_list') return value.namedChildren[0] ?? null;
+    if (value?.type === 'argument_list') return value.namedChildren.length === 1 ? value.namedChildren[0] : null;
+    return value;
   }
   if (node.type === 'arrow_function') { const body = child(node, 'body'); return body && body.type !== 'statement_block' ? body : null; }
   if (language === 'rust' && node.type === 'block' && node.parent?.type === 'function_item') {
@@ -1187,6 +1332,11 @@ export function referenceVisitor(language: string): Visitor & { finish(index: Sy
   }
   const bindings = language === 'go' ? goBindings(node) : [bindingOf(node, language) ?? parameterOf(node)].filter((item): item is { name: string; held: Held } => item !== null);
   for (const binding of bindings) references.push(makeReference('bind', node, { name: binding.name, reference: binding.name, held: binding.held }));
+  // PHP's `__construct(private Calculator $tax)` declares the property too: `$this->tax` holds what the parameter does.
+  if (node.type === 'property_promotion_parameter' && bindings[0]) {
+    const name = `this.${bindings[0].name.replace(/^\$/, '')}`;
+    references.push(makeReference('bind', node, { name, reference: name, held: bindings[0].held }));
+  }
   // Declared first, so it is what a function returns ahead of anything its body says.
   const declared = declaredReturn(node, language);
   if (declared) references.push({ ...makeReference('returns', node, { name: 'return', reference: 'return', held: { type: declared } }), source: `function:${node.startIndex}` });
@@ -1198,7 +1348,9 @@ export function referenceVisitor(language: string): Visitor & { finish(index: Sy
     if (value) references.push({ ...makeReference('returns', returned, { name: 'return', reference: 'return', held: value }),
       ...(owner ? { source: `function:${owner.startIndex}` } : {}) });
   }
-  if (IMPORT_TYPES.has(node.type) || (language === "kotlin" && node.type === "import_header")) {
+  if (language === "php" && node.type === "namespace_use_declaration") {
+    references.push(...phpUseReferences(node));
+  } else if (IMPORT_TYPES.has(node.type) || (language === "kotlin" && node.type === "import_header")) {
     // Each of these languages places a name by package or module, which its own reader records; the generic reader's record of
     // the directive as a whole would bind nothing.
     if (language === "csharp" || language === "c_sharp") { const using = csharpUsingReference(node); if (using) references.push(using); }
@@ -1209,6 +1361,12 @@ export function referenceVisitor(language: string): Visitor & { finish(index: Sy
       const binding = language === "java" || language === "kotlin" ? jvmImportReference(node, language) : null;
       if (binding) references.push(binding);
     }
+  } else if (language === "php" && PHP_INCLUDES.has(node.type)) {
+    references.push(...phpInclude(node));
+  } else if (language === "ruby" && node.type === "call" && rubyRequire(node).length) {
+    references.push(...rubyRequire(node));
+  } else if (language === "lua" && node.type === "function_call" && luaRequire(node).length) {
+    references.push(...luaRequire(node));
   } else if (language === 'bash' && node.type === 'command') {
     references.push(...bashCommand(node));
   } else if (language === 'groovy' && node.type === 'func') {
@@ -1242,7 +1400,7 @@ export function referenceVisitor(language: string): Visitor & { finish(index: Sy
     for (const item of zigChain(node).calls) references.push(makeReference('call', item.at, { name: item.reference, reference: item.reference, ...(item.held ? { held: item.held } : {}) }));
   } else if (node.type === 'new_expression' || node.type === 'object_creation_expression') {
     // `new Ledger()` runs Ledger's constructor: a call to the class, which the graph takes to its constructor.
-    const kind = bareType(child(node, 'constructor', 'type', 'name'));
+    const kind = constructedType(node);
     if (kind) references.push(makeReference('call', node, { name: kind, reference: kind }));
   } else if (CALL_TYPES.has(node.type) && isRequire(node, language)) {
     references.push(...requireReferences(node));

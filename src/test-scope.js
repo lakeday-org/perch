@@ -32,8 +32,11 @@ const MODULES = [
   { languages: ['c', 'cpp'], files: [/^CMakeLists\.txt$/, /^meson\.build$/, /^Makefile$/], nearest: false },
   // A .NET test project is a project of its own, `Shop.Tests/Shop.Tests.csproj`, named for the project it tests.
   { languages: ['c_sharp', 'fsharp'], files: [/\.sln$/, /\.[cf]sproj$/], nearest: false, tests: /(?:^|\/)[^/]+\.Tests?\// },
-  { languages: ['ruby'], files: [/^Gemfile$/, /\.gemspec$/], nearest: false },
-  { languages: ['php'], files: [/^composer\.json$/, /^phpunit\.xml(\.dist)?$/], nearest: false },
+  // Rake's TestTask and RSpec run test/ and spec/; PHPUnit's convention is tests/; busted's default is spec/, with no manifest
+  // of its own, so a Lua project is bounded by its rockspec or `.busted`, and failing both, is the repository.
+  { languages: ['ruby'], files: [/^Gemfile$/, /\.gemspec$/], nearest: false, tests: /^(?:test|spec|features)\// },
+  { languages: ['php'], files: [/^composer\.json$/, /^phpunit\.xml(\.dist)?$/], nearest: false, built: 'src/', tests: /^tests?\// },
+  { languages: ['lua'], files: [/\.rockspec$/, /^\.busted$/], nearest: false, tests: /^(?:spec|tests?)\// },
   // Zig's tests sit in the source files they test, under src/ as `zig init` lays a package out; build.zig itself is not built.
   { languages: ['zig'], files: [/^build\.zig$/, /^build\.zig\.zon$/], nearest: true, built: 'src/' },
   // Foundry's defaults: src/ is compiled, test/ holds the tests, script/ the deploy scripts, and lib/ the dependencies forge

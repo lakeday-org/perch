@@ -25,7 +25,7 @@ it('names Ruby and Swift calls by their receiver and method, and links them in t
   expect(calls(await analyzer.analyzeSource(swift, 'swift'))).toEqual(['helper', 'self.helper', 'other.helper', 'Foo.Bar.baz']);
   const scan = await analyzeFiles([{ path: 'app.rb', sha: 'a' }, { path: 'App.swift', sha: 'b' }], { analyzer, readSource: async file => (file.path === 'app.rb' ? ruby : swift) });
   const graph = buildGraph(scan.files);
-  expect(graph.callees('app.rb::run')).toEqual(['app.rb::helper']);
+  expect(graph.callees('app.rb::Greeter.run')).toEqual(['app.rb::Greeter.helper']);
   expect(graph.callees('App.swift::Greeter.run')).toEqual(['App.swift::Greeter.helper']);
 });
 

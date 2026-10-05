@@ -1,0 +1,72 @@
+{
+  "language": "php",
+  "framework": "PHPUnit",
+  "left_out": ["scripts/export.php"],
+  "tests": [
+    {
+      "file": "tests/MoneyTest.php",
+      "name": "testParsesAnAmountWithItsCurrency",
+      "reaches": ["src/Money.php::Money.parse", "src/Money.php::Money.of"]
+    },
+    {
+      "file": "tests/MoneyTest.php",
+      "name": "testRejectsANegativeAmount",
+      "reaches": ["src/Money.php::Money.of"]
+    },
+    {
+      "file": "tests/MoneyTest.php",
+      "name": "addsAmountsInTheSameCurrency",
+      "reaches": ["src/Money.php::Money.of", "src/Money.php::Money.plus", "src/Money.php::Money.format"]
+    },
+    {
+      "file": "tests/MoneyTest.php",
+      "name": "refusesToAddAcrossCurrencies",
+      "reaches": ["src/Money.php::Money.of", "src/Money.php::Money.plus", "src/Money.php::Money.sameCurrency"]
+    },
+    {
+      "file": "tests/MoneyTest.php",
+      "name": "testTimesRoundsToTheNearestCent",
+      "reaches": ["src/Money.php::Money.of", "src/Money.php::Money.times"]
+    },
+    {
+      "file": "tests/CartTest.php",
+      "name": "testSubtotalAddsEveryLine",
+      "reaches": ["src/Cart.php::Cart.__construct", "src/Cart.php::Cart.add", "src/Cart.php::Cart.subtotal", "src/Money.php::Money.of", "src/Tax/Calculator.php::Calculator.register", "src/Tax/Rate.php::Rate.__construct"]
+    },
+    {
+      "file": "tests/CartTest.php",
+      "name": "testTotalAddsTaxAfterTheDiscount",
+      "reaches": ["src/Cart.php::Cart.add", "src/Cart.php::Cart.apply", "src/Cart.php::Cart.total", "src/Cart.php::Cart.subtotal", "src/Discount.php::Discount.__construct", "src/Money.php::Money.format", "src/Tax/Calculator.php::Calculator.on"]
+    },
+    {
+      "file": "tests/CartTest.php",
+      "name": "testRejectsAZeroQuantity",
+      "reaches": ["src/Cart.php::Cart.add", "src/Money.php::Money.of"]
+    },
+    {
+      "file": "tests/CartTest.php",
+      "name": "testTaxIsAskedForTheDiscountedAmount",
+      "reaches": ["src/Cart.php::Cart.__construct", "src/Cart.php::Cart.add", "src/Cart.php::Cart.apply", "src/Cart.php::Cart.total", "src/Discount.php::Discount.__construct"]
+    },
+    {
+      "file": "tests/Tax/CalculatorTest.php",
+      "name": "testChargesTheRegisteredRate",
+      "reaches": ["src/Tax/Calculator.php::Calculator.register", "src/Tax/Calculator.php::Calculator.on", "src/Tax/Calculator.php::Calculator.rateFor", "src/Tax/Rate.php::Rate.__construct", "src/Money.php::Money.of"]
+    },
+    {
+      "file": "tests/Tax/CalculatorTest.php",
+      "name": "testChargesNothingOnAnExemptRate",
+      "reaches": ["src/Tax/Calculator.php::Calculator.on", "src/Money.php::Money.isZero"]
+    },
+    {
+      "file": "tests/Tax/CalculatorTest.php",
+      "name": "anUnknownCodeIsAnError",
+      "reaches": ["src/Tax/Calculator.php::Calculator.rateFor", "src/Tax/Calculator.php::Calculator.register"]
+    },
+    {
+      "file": "tests/Tax/CalculatorTest.php",
+      "name": "testARateOutsideZeroToAHundredIsRejected",
+      "reaches": ["src/Tax/Rate.php::Rate.__construct"]
+    }
+  ]
+}
