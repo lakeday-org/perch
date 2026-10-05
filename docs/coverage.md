@@ -9,10 +9,16 @@ summary: Find unit tests of low value and discover the real coverage gaps in you
 # Test coverage
 
 Perch Coverage tells you which of your existing unit tests aren’t useful and
-where you have holes in test coverage. It does this by reading the JUnit and
-coverage reports your CI system already writes when it runs your tests. Perch
-traces your tests through the call graph to find all the methods that each test
-runs, then uses a model to figure out what each test is actually testing.
+where you have holes in test coverage. Perch reads every test and every function
+in your repository. It follows each test through the call graph to the methods
+it reaches. Then it uses a model to figure out what each test is actually
+testing.
+
+If your CI writes test results and a coverage report, Perch reads those too, and
+its numbers are measured. Test results are JUnit XML, which pytest, Vitest,
+Jest, nextest, Maven, Gradle and GoogleTest can all write. The coverage report
+can be LCOV, Cobertura, JaCoCo or coverage.py's. Without them, Perch estimates
+from the call graph and marks each estimate `est.`
 
 Perch will identify tests that don’t have any assertions, tests that just test
 that a mock returns what you told it to return, tests that are duplicating other
@@ -72,10 +78,6 @@ method the model could not be asked about. `--all` lists every row. The HTML
 report shows the source with each problem under its line. It is one file, unless
 the repository has more than 8 MB of source. Then each file gets its own page
 under `files/`, next to `index.html`.
-
-Without any report files, `perch coverage` still runs. It follows the call graph
-from each test and estimates branch coverage and cost instead of measuring them.
-An estimated number is marked `est.`.
 
 ## How it differs from a coverage report
 
