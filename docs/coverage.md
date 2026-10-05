@@ -11,15 +11,15 @@ summary: Find unit tests of low value and discover the real coverage gaps in you
 Perch Coverage finds the bugs your tests would not catch, and the tests that
 catch nothing. It reads every test and every function in your repository, and
 follows each test through the call graph to the methods it reaches. Then it
-plants bugs in those methods and asks a model, for each bug and each test that
-reaches the method, whether that test would fail with the bug in.
+plants bugs in those methods. For each bug and each test that reaches the
+method, it asks a model whether that test would fail with the bug in.
 
 A planted bug is one line changed: a comparison moved to its boundary (`<` to
 `<=`), a condition negated, `&&` swapped for `||`, a `!` dropped, `+` swapped
 for `-`, a boolean flipped, a returned number zeroed. These are the edits a
 developer makes by mistake, and the ones mutation testers have planted for
-decades. Perch runs no tests: the model reads the method with the edit marked,
-and each test with what it reaches, and says whether the test would notice.
+decades. Perch runs no tests. The model reads the method with the edit marked
+and each test with what it reaches, then says whether the test would notice.
 
 Point it at a repository:
 
