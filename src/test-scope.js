@@ -30,8 +30,11 @@ const MODULES = [
   { languages: ['elixir'], files: [/^mix\.exs$/], nearest: true },
   { languages: ['c', 'cpp'], files: [/^CMakeLists\.txt$/, /^meson\.build$/, /^Makefile$/], nearest: false },
   { languages: ['csharp', 'fsharp'], files: [/\.sln$/, /\.[cf]sproj$/], nearest: false },
-  { languages: ['ruby'], files: [/^Gemfile$/, /\.gemspec$/], nearest: false },
-  { languages: ['php'], files: [/^composer\.json$/, /^phpunit\.xml(\.dist)?$/], nearest: false },
+  // Rake's TestTask and RSpec run test/ and spec/; PHPUnit's convention is tests/; busted's default is spec/, with no manifest
+  // of its own, so a Lua project is bounded by its rockspec or `.busted`, and failing both, is the repository.
+  { languages: ['ruby'], files: [/^Gemfile$/, /\.gemspec$/], nearest: false, tests: /^(?:test|spec|features)\// },
+  { languages: ['php'], files: [/^composer\.json$/, /^phpunit\.xml(\.dist)?$/], nearest: false, built: 'src/', tests: /^tests?\// },
+  { languages: ['lua'], files: [/\.rockspec$/, /^\.busted$/], nearest: false, tests: /^(?:spec|tests?)\// },
 ];
 
 /**

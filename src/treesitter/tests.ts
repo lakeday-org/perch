@@ -42,9 +42,9 @@ export interface TestScan {
   blockMacros: Set<string>;
 }
 
-const span = (node: Node) => `${node.startIndex}:${node.endIndex}`;
+export const span = (node: Node) => `${node.startIndex}:${node.endIndex}`;
 const named = (node: Node, type: string) => node.namedChildren.filter(child => child.type === type);
-const lineOf = (node: Node) => node.startPosition.row + 1;
+export const lineOf = (node: Node) => node.startPosition.row + 1;
 
 /** The declaration id a node sits in, as references.ts assigns it, or `file` at the top level. */
 function ownerOf(node: Node): string {
@@ -52,8 +52,19 @@ function ownerOf(node: Node): string {
   return "file";
 }
 
+/**
+ * The declaration a node sits in when test bodies the grammar does not call functions count too: a Ruby `it "x" do ... end`
+ * block is a declaration once `cases` holds its span, and a mock inside it belongs to that test.
+ */
+export function ownerIn(node: Node, scan: TestScan): string {
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    if (isFunction(parent) || scan.cases.has(span(parent))) return `function:${parent.startIndex}`;
+  }
+  return "file";
+}
+
 /** Names of the enclosing scopes of the given node types, outermost first. */
-function enclosing(node: Node, types: Set<string>, nameOf: (scope: Node) => string | null): string[] {
+export function enclosing(node: Node, types: Set<string>, nameOf: (scope: Node) => string | null): string[] {
   const names: string[] = [];
   for (let parent = node.parent; parent; parent = parent.parent) {
     if (!types.has(parent.type)) continue;
@@ -96,11 +107,13 @@ function unescape(sequence: string): string {
  * the title the program sees: `'it\'s'` is reported as `it's`. A raw string, Python's `r'...'` or C++'s `R"(...)"`, has no
  * escapes and is taken as written.
  */
-function literal(node: Node | null | undefined): string | null {
+export function literal(node: Node | null | undefined): string | null {
   if (!node) return null;
   const parts = node.namedChildren;
   if (parts.some(part => ["template_substitution", "interpolation", "string_interpolation"].includes(part.type))) return null;
-  if (!["string", "template_string", "string_literal", "raw_string_literal"].includes(node.type)) return null;
+  // PHP's double-quoted string interpolates a variable written bare in it, `"total $x"`, with no node to say so but the variable's.
+  if (node.type === "encapsed_string" && parts.some(part => !["string_content", "escape_sequence"].includes(part.type))) return null;
+  if (!["string", "template_string", "string_literal", "raw_string_literal", "encapsed_string"].includes(node.type)) return null;
   const raw = node.type === "raw_string_literal" || /^[a-zA-Z]*[rR][a-zA-Z]*["']/.test(parts.find(part => part.type === "string_start")?.text ?? "");
   return parts.filter(part => ["string_fragment", "string_content", "escape_sequence"].includes(part.type))
     .map(part => (part.type === "escape_sequence" && !raw ? unescape(part.text) : part.text)).join("");
@@ -693,6 +706,8 @@ function packageOf(root: Node, language: string): string | null {
       return name ? named(name, "simple_identifier").map(part => part.text).join(".") : null;
     }
     if (language === "go" && node.type === "package_clause") return node.namedChildren.find(child => child.type === "package_identifier")?.text ?? null;
+    // PHP's namespace is its package: `namespace App\Tests;` puts every class in the file in App\Tests.
+    if (language === "php" && node.type === "namespace_definition") return node.childForFieldName("name")?.text ?? null;
   }
   return null;
 }

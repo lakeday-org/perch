@@ -71,27 +71,62 @@ function resolveInclude(fromPath, module, paths) {
   return found.length === 1 ? found[0] : null;
 }
 
+/**
+ * Ruby's `require_relative "../lib/cart"` names a file beside the requiring one. `require "cart"` searches the load path, which a
+ * gem's Gemfile or gemspec makes `lib/` (Bundler and RubyGems), Rake's TestTask `test/`, and RSpec `spec/`: each is tried under
+ * the requiring file's own directories, outermost last, so a gem in a monorepo's subdirectory finds its own lib.
+ */
+const RUBY_LOAD_PATH = ['lib', 'test', 'spec'];
+function resolveRuby(fromPath, module, paths) {
+  const stem = module.replace(/\.rb$/, '');
+  if (/^\.\.?\//.test(stem)) return firstExisting(paths, [`${posix.join(dirname(fromPath), stem)}.rb`, `${stem.replace(/^\.\//, '')}.rb`]);
+  const dirs = ['.', ...ancestors(fromPath)];
+  return firstExisting(paths, dirs.flatMap(dir => RUBY_LOAD_PATH.map(root => `${dir}/${root}/${stem}.rb`)));
+}
+/**
+ * Lua's `require("src.cart")` searches package.path, whose default is `./?.lua;./?/init.lua` from the directory the tests are run
+ * in, the repository's root; a `.busted` or a rockspec commonly adds `src/` and `lua/` the same way.
+ */
+const LUA_ROOTS = ['', 'src', 'lua'];
+function resolveLua(module, paths) {
+  const rest = module.split('.').join('/');
+  return firstExisting(paths, LUA_ROOTS.flatMap(root => [`${root}/${rest}.lua`, `${root}/${rest}/init.lua`]));
+}
+/** PHP's `require __DIR__ . '/../bootstrap.php'` names a file beside the requiring one; a bare path is tried there, then at the root. */
+function resolvePhp(fromPath, module, paths) {
+  return firstExisting(paths, [posix.join(dirname(fromPath), module), module]);
+}
+
 export function resolveModule(fromPath, module, language, paths, crates = []) {
   if (typeof module !== 'string') return null;
   if (language === 'python') return resolvePython(fromPath, module, paths);
   if (language === 'rust') return resolveRust(fromPath, module, paths, crates);
   if (language === 'c' || language === 'cpp') return resolveInclude(fromPath, module, paths);
+  if (language === 'ruby') return resolveRuby(fromPath, module, paths);
+  if (language === 'lua') return resolveLua(module, paths);
+  if (language === 'php') return resolvePhp(fromPath, module, paths);
   if (!module.startsWith('.')) return null;
   const base = normalize(posix.join(dirname(fromPath), module)), stem = base.replace(/\.(js|mjs|cjs|jsx)$/, '');
   return firstExisting(paths, [base, ...extensions.map(ext => `${stem}.${ext}`), ...extensions.map(ext => `${base}/index.${ext}`)]);
 }
 
 const JAVASCRIPT = new Set(['javascript', 'typescript', 'tsx']);
-const CONSTRUCTORS = { python: ['__init__'], javascript: ['constructor'], typescript: ['constructor'], tsx: ['constructor'] };
-/** Languages that find a class by its package rather than by the file it is in. */
-const JVM = new Set(['java', 'kotlin']);
+const CONSTRUCTORS = { python: ['__init__'], javascript: ['constructor'], typescript: ['constructor'], tsx: ['constructor'], ruby: ['initialize'], php: ['__construct'], lua: ['new'] };
+/** The method a call to a class by its bare name runs, in a language: `Cart()` in Python is `Cart.__init__`, `new Cart()` in PHP `Cart.__construct`. */
+const constructorOf = (language, name) => CONSTRUCTORS[language]?.[0] ?? name;
+/**
+ * Languages that find a class by its package rather than by the file it is in: Java's and Kotlin's packages, and PHP's
+ * namespaces, which `use` imports from exactly as Java imports a class.
+ */
+const PACKAGED = new Set(['java', 'kotlin', 'php']);
 /** Languages whose linker joins a call in one file to a definition in another, by name alone. */
 const NATIVE = new Set(['c', 'cpp']);
 /**
  * Languages where a method calls another method of its own class by its bare name. Python, JavaScript, TypeScript, Rust and Go
- * need the receiver written out, so a bare name there is never a method of the class the caller sits in.
+ * need the receiver written out, so a bare name there is never a method of the class the caller sits in. PHP is not here
+ * either: a bare `helper()` is a function, and a method is always `$this->helper()`.
  */
-const IMPLICIT_THIS = new Set(['java', 'kotlin', 'cpp', 'csharp', 'scala', 'swift', 'dart']);
+const IMPLICIT_THIS = new Set(['java', 'kotlin', 'cpp', 'csharp', 'scala', 'swift', 'dart', 'ruby']);
 /** Names a method uses for the object or class it belongs to. */
 /** The name a C++ `using namespace` directive is recorded under among a file's imports, the namespace as its module. */
 const USING_NAMESPACE = '<namespace>', USING_NAME = '<using>';
@@ -151,6 +186,21 @@ export function buildGraph(files, { crates = [] } = {}) {
       const module = resolveIn(file.path, glob.module, file.language, paths);
       const through = module && exported(module, qualified, file.language);
       if (through) return through;
+    }
+    return null;
+  };
+  /**
+   * Ruby looks a constant up in the lexical scopes around the caller, innermost first, then at the top level: `Shift.new` inside
+   * `module Rota` is `Rota::Shift`. Each is looked for in the file, then in what the file requires, since `require` loads a file's
+   * constants into the one global namespace. `X.new` runs `X#initialize`, the one method a class has for its construction.
+   */
+  const rubyConstant = (file, parts, from) => {
+    const named = parts.at(-1) === 'new' && parts.length > 1 ? [...parts.slice(0, -1), 'initialize'] : parts;
+    const qualified = named.join('.');
+    for (const prefix of [...scopesOf(file.path, from).filter(scope => !scope.callable).map(scope => scope.name), '']) {
+      const name = prefix ? `${prefix}.${qualified}` : qualified;
+      const found = exact(file.path, name) ?? throughGlobs(file, name);
+      if (found) return found;
     }
     return null;
   };
@@ -228,14 +278,17 @@ export function buildGraph(files, { crates = [] } = {}) {
    * that defines nothing itself, whatever its `export ... from` passes on, followed a few files deep.
    */
   const exported = (target, qualified, language, depth = 0) => {
-    const own = exact(target, qualified) ?? (JAVASCRIPT.has(language) ? exact(target, `exports.${qualified}`) ?? exact(target, `module.exports.${qualified}`) : null);
     const module = byPath.get(target)?.file;
+    // A Lua module is the table its chunk returns: `require("cart").total` is `M.total` of a file that ends `return M`.
+    const own = exact(target, qualified) ?? (JAVASCRIPT.has(language) ? exact(target, `exports.${qualified}`) ?? exact(target, `module.exports.${qualified}`) : null)
+      ?? (module?.language === 'lua' && module.default_export ? exact(target, `${module.default_export}.${qualified}`) : null);
     if (own || !module || depth > 4) return own;
     const [head, ...more] = qualified.split('.');
     for (const item of module.imports ?? []) {
       // Rust passes a name on with `pub use`, and Python with an import in a package's __init__.py, each written like any other
-      // import; a lib.rs or an __init__.py is mostly those.
-      if (!item.reexport && module.language !== 'rust' && module.language !== 'python') continue;
+      // import; a lib.rs or an __init__.py is mostly those. Ruby's `require` loads a file's constants for every file after it, so
+      // a `lib/rota.rb` that requires each of its parts stands for all of them.
+      if (!item.reexport && !['rust', 'python', 'ruby'].includes(module.language)) continue;
       const next = resolveIn(target, item.module, module.language, paths);
       if (!next) continue;
       if (item.name === '*' && (!item.alias || item.alias === '*')) {
@@ -317,7 +370,7 @@ export function buildGraph(files, { crates = [] } = {}) {
     return jvm.get(name);
   };
   for (const file of files) {
-    if (!JVM.has(file.language)) continue;
+    if (!PACKAGED.has(file.language)) continue;
     const entry = jvmPackage(file.package ?? '');
     for (const method of file.methods) {
       // A Kotlin extension is a top-level function named for its receiver, not a member of a class with that name.
@@ -365,15 +418,31 @@ export function buildGraph(files, { crates = [] } = {}) {
     const onDemand = imports.filter(item => item.name === '*').flatMap(item => classesIn(item.module, head));
     return onDemand.length ? onDemand : null;
   };
+  /** The name a class is declared under, when this file imports it under another: `import a.Cart as Basket` in Kotlin, `use App\Cart as C` in PHP. */
+  const declaredAs = (file, head) => (file.imports ?? []).find(item => item.alias === head && item.name !== '*' && !item.name.includes('.'))?.name ?? head;
+  /**
+   * `\App\Cart::discount()` in PHP: a class named with its namespace, fully qualified by a leading backslash, or relative to the
+   * file's own namespace without one. The files declaring that class, or null when none does.
+   */
+  const namespacedFiles = (file, head) => {
+    const absolute = head.startsWith('\\'), segments = head.replace(/^\\/, '').split('\\'), name = segments.pop();
+    const namespace = absolute || !file.package ? segments.join('\\') : `${file.package}\\${segments.join('\\')}`;
+    const found = classesIn(namespace, name);
+    return found.length ? { files: found, name } : null;
+  };
   /** `new Ledger()` in Java: the constructor of the class the name means in this file, by Java's scoping. */
   const jvmConstructor = (file, name) => {
-    const files = classFiles(file, name);
-    return files ? single(files, `${name}.${name}`) : null;
+    const files = classFiles(file, name), declared = declaredAs(file, name);
+    return files ? single(files, `${declared}.${constructorOf(file.language, declared)}`) : null;
   };
   /** `Head.tail` where Head is a class: the method of that class, or null when the class has no such method. */
   const jvmQualified = (file, parts) => {
+    if (file.language === 'php' && parts[0].includes('\\')) {
+      const found = namespacedFiles(file, parts[0]);
+      return found ? single(found.files, [found.name, ...parts.slice(1)].join('.')) : undefined;
+    }
     const files = classFiles(file, parts[0]);
-    return files === null ? undefined : single(files, parts.join('.'));
+    return files === null ? undefined : single(files, [declaredAs(file, parts[0]), ...parts.slice(1)].join('.'));
   };
   /**
    * An unqualified call to something no class of this file declares. In Java that is a static import, by name before on
@@ -381,15 +450,21 @@ export function buildGraph(files, { crates = [] } = {}) {
    * through an on-demand import. Java cannot call a Kotlin top-level function without the class Kotlin compiles it into.
    */
   const jvmUnqualified = (file, name) => {
-    const kotlin = file.language === 'kotlin', imports = file.imports ?? [];
+    // Kotlin and PHP have top-level functions besides; Java has not.
+    const kotlin = file.language === 'kotlin', php = file.language === 'php', functions = kotlin || php, imports = file.imports ?? [];
     const explicit = imports.find(item => item.alias === name && item.name !== '*' && !item.name.endsWith('.*'));
     if (explicit) {
       const [owner, member] = explicit.name.split('.');
       if (member) return single(classesIn(explicit.module, owner), `${owner}.${member}`);
-      return kotlin ? sole(functionsIn(explicit.module, explicit.name)) : null;
+      return functions ? sole(functionsIn(explicit.module, explicit.name)) : null;
     }
-    const own = kotlin ? functionsIn(file.package ?? '', name) : [];
+    const own = functions ? functionsIn(file.package ?? '', name) : [];
     if (own.length) return sole(own);
+    // PHP falls back from the file's namespace to the global one for a function, and only for a function.
+    if (php && file.package) {
+      const global = functionsIn('', name);
+      if (global.length) return sole(global);
+    }
     const onDemand = imports.flatMap(item => {
       if (item.name === '*') return kotlin ? functionsIn(item.module, name) : [];
       if (!item.name.endsWith('.*')) return [];
@@ -447,10 +522,12 @@ export function buildGraph(files, { crates = [] } = {}) {
       return viaImport(file, parts) ?? unqualified(file, name, from) ?? throughGlobs(file, name)
         ?? (file.language === 'python' && depth <= 3 ? viaBinding(file, name, '__call__', from, depth) : null)
         ?? (file.language === 'go' ? sameDirectory(file, name) : null)
-        ?? (JVM.has(file.language) ? jvmUnqualified(file, name) ?? jvmConstructor(file, name) : null)
+        ?? (PACKAGED.has(file.language) ? jvmUnqualified(file, name) ?? jvmConstructor(file, name) : null)
         ?? (file.language === 'kotlin' ? jvmExtension(file, name) : null)
         ?? (native ? linked(from, parts, file) : null);
     }
+    // `\App\Cart::discount()`: a PHP class named with its namespace is found by that namespace, wherever its file is.
+    if (file.language === 'php' && head.includes('\\')) return jvmQualified(file, parts) ?? null;
     // `Color::Red.code()` in Rust, `Status.PAID.isFinal()` or `Money.ZERO.plus()` elsewhere: a method of the enum a variant belongs
     // to, or the type a constant is of.
     const variant = file.language === 'rust' ? /^(?:.*::)?([A-Z]\w*)::[A-Z]\w*\.(\w+)$/.exec(name) : /^(?:.*\.)?([A-Z]\w*)\.[A-Z][A-Z\d_]*\.(\w+)$/.exec(name);
@@ -474,6 +551,11 @@ export function buildGraph(files, { crates = [] } = {}) {
     if (RECEIVERS.has(head)) return null;
     const imported = viaImport(file, parts) ?? exact(file.path, parts.join('.'));
     if (imported) return imported;
+    // `Cart.discount` or `Rota::Shift.new` in Ruby: a constant found by Ruby's lookup, in this file or in what it requires.
+    if (file.language === 'ruby') {
+      const constant = rubyConstant(file, parts, from);
+      if (constant) return constant;
+    }
     // `serde_json::to_string(...)` or `crate::de::from_str(...)`: the longest leading path that is a module, then the name in it.
     if (file.language === 'rust' && name.includes('::')) {
       for (let length = parts.length - 1; length >= 1; length--) {
@@ -483,7 +565,7 @@ export function buildGraph(files, { crates = [] } = {}) {
       }
     }
     // A class the file can see decides the call alone: its method, or nothing.
-    if (JVM.has(file.language)) {
+    if (PACKAGED.has(file.language)) {
       const member = jvmQualified(file, parts);
       if (member !== undefined && member !== null) return member;
       if (file.language === 'kotlin' && parts.length === 2) {
@@ -538,7 +620,7 @@ export function buildGraph(files, { crates = [] } = {}) {
     }
     return null;
   };
-  const CONSTRUCTOR_NAMES = new Set(['__init__', 'constructor', 'new']);
+  const CONSTRUCTOR_NAMES = new Set(['__init__', 'constructor', 'new', 'initialize', '__construct']);
   /**
    * The class a value is an instance of: the type it was declared or constructed with, or for a call, the class of what the call
    * resolves to: a constructor's class, what a factory returns, or a static factory's own class (`Ledger::new`, `Ledger.of`).
@@ -563,7 +645,8 @@ export function buildGraph(files, { crates = [] } = {}) {
     const onKind = value.on ? classOf(file, value.on, from, depth) : null;
     const target = value.on ? (onKind && memberOf(file, onKind, value.call.split('.').at(-1))) : resolve(file, value.call, from, depth + 1);
     const parts = value.call.split(/::|\./);
-    if (!target) return /^[A-Z]/.test(parts.at(-2) ?? '') ? { name: parts.at(-2), path: file.path, from } : /^[A-Z]/.test(parts[0]) && parts.length === 1 ? { name: parts[0], path: file.path, from } : null;
+    // `Rota::Shift.new` with no initialize of its own: an instance of the class the call is made on, by its whole name.
+    if (!target) return /^[A-Z]/.test(parts.at(-2) ?? '') ? { name: parts.at(-2), full: parts.slice(0, -1).join('.'), path: file.path, from } : /^[A-Z]/.test(parts[0]) && parts.length === 1 ? { name: parts[0], path: file.path, from } : null;
     const node = nodes.get(target), owner = node.qualified_name.split('.');
     if (owner.length > 1 && (CONSTRUCTOR_NAMES.has(owner.at(-1)) || owner.at(-1) === owner.at(-2))) return { name: owner.at(-2), full: owner.slice(0, -1).join('.'), path: node.path, from };
     const returned = node.returns && classOf(byPath.get(node.path).file, node.returns, target, depth + 1);
@@ -577,8 +660,8 @@ export function buildGraph(files, { crates = [] } = {}) {
     const imported = (file.imports ?? []).find(item => item.alias === kind.name && !item.reexport);
     const target = imported && resolveIn(file.path, imported.module, file.language, paths);
     if (target && byPath.get(target)?.file.bases?.[imported.name === 'default' ? byPath.get(target).file.default_export : imported.name]) return byPath.get(target).file;
-    // Java and Kotlin find the class by its package or an import, wherever its file is.
-    const jvmFiles = JVM.has(file.language) ? (classFiles(file, kind.name) ?? []).map(path => byPath.get(path)?.file).filter(item => item?.bases?.[kind.name]) : [];
+    // Java, Kotlin and PHP find the class by its package or an import, wherever its file is.
+    const jvmFiles = PACKAGED.has(file.language) ? (classFiles(file, kind.name) ?? []).map(path => byPath.get(path)?.file).filter(item => item?.bases?.[declaredAs(file, kind.name)]) : [];
     return jvmFiles.length === 1 ? jvmFiles[0] : null;
   };
   /** A member a class inherits: looked up in each base it names, by that base's own lookup, a few generations up. */
@@ -632,7 +715,7 @@ export function buildGraph(files, { crates = [] } = {}) {
       const through = viaImport(file, [...kind.full.split('.'), member]);
       if (through) return through;
     }
-    const globbed = throughGlobs(file, qualified);
+    const globbed = throughGlobs(file, qualified) ?? (full ? throughGlobs(file, full) : null);
     if (globbed) return globbed;
     // `crate::money::Money` written whole names the module it is in.
     if (file.language === 'rust' && full) {
@@ -640,11 +723,11 @@ export function buildGraph(files, { crates = [] } = {}) {
       const through = module && exact(module, qualified);
       if (through) return through;
     }
-    if (JVM.has(file.language)) {
+    if (PACKAGED.has(file.language)) {
       // A class nested in another, `JournalEntry.Builder`, is found through the outer one, by the outer one's package or import.
       const outer = full ? kind.full.split('.')[0] : kind.name;
       const files = classFiles(file, outer);
-      const member$ = files && single(files, full ?? qualified);
+      const member$ = files && single(files, (full ?? qualified).replace(/^[^.]+/, declaredAs(file, outer)));
       if (member$) return member$;
     }
     if (file.language === 'kotlin') {
@@ -705,7 +788,7 @@ export function buildGraph(files, { crates = [] } = {}) {
   /** Every method of a class, in the files the class name resolves to from this file by the file's own language. */
   const classMethods = (file, name) => {
     let targets, declared = name;
-    if (JVM.has(file.language)) targets = classFiles(file, name) ?? [];
+    if (PACKAGED.has(file.language)) { targets = classFiles(file, name) ?? []; declared = declaredAs(file, name); }
     else if (NATIVE.has(file.language)) targets = files.filter(item => NATIVE.has(item.language)).map(item => item.path);
     else {
       const imported = file.imports.find(item => item.alias === name);
