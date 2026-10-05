@@ -71,31 +71,53 @@ function resolveInclude(fromPath, module, paths) {
   return found.length === 1 ? found[0] : null;
 }
 
+/**
+ * A Solidity import names a file: relative to the importing file when it starts with `.`, otherwise as forge finds it, from the
+ * project root (`src/Cart.sol`) or through the remapping forge writes for each dependency, `forge-std/Test.sol` being
+ * `lib/forge-std/src/Test.sol`. The project root is the file's own directory or one above it, so each is tried.
+ */
+const resolveSolidity = (fromPath, module, paths) => {
+  if (module.startsWith('.')) return firstExisting(paths, [posix.join(dirname(fromPath), module)]);
+  const [head, ...rest] = module.split('/');
+  return firstExisting(paths, ancestors(fromPath).flatMap(dir => {
+    const at = dir === '.' ? '' : `${dir}/`;
+    return [`${at}${module}`, `${at}lib/${head}/src/${rest.join('/')}`, `${at}lib/${module}`];
+  }));
+};
+
 export function resolveModule(fromPath, module, language, paths, crates = []) {
   if (typeof module !== 'string') return null;
   if (language === 'python') return resolvePython(fromPath, module, paths);
   if (language === 'rust') return resolveRust(fromPath, module, paths, crates);
   if (language === 'c' || language === 'cpp') return resolveInclude(fromPath, module, paths);
+  // `@import("cart.zig")` names a file beside the importing one, or below it; `@import("std")` names a package the build provides.
+  if (language === 'zig') return module.endsWith('.zig') ? firstExisting(paths, [posix.join(dirname(fromPath), module)]) : null;
+  if (language === 'solidity') return resolveSolidity(fromPath, module, paths);
   if (!module.startsWith('.')) return null;
   const base = normalize(posix.join(dirname(fromPath), module)), stem = base.replace(/\.(js|mjs|cjs|jsx)$/, '');
   return firstExisting(paths, [base, ...extensions.map(ext => `${stem}.${ext}`), ...extensions.map(ext => `${base}/index.${ext}`)]);
 }
 
 const JAVASCRIPT = new Set(['javascript', 'typescript', 'tsx']);
-const CONSTRUCTORS = { python: ['__init__'], javascript: ['constructor'], typescript: ['constructor'], tsx: ['constructor'] };
+const CONSTRUCTORS = { python: ['__init__'], javascript: ['constructor'], typescript: ['constructor'], tsx: ['constructor'], solidity: ['constructor'] };
 /** Languages that find a class by its package rather than by the file it is in. */
 const JVM = new Set(['java', 'kotlin']);
 /** Languages whose linker joins a call in one file to a definition in another, by name alone. */
 const NATIVE = new Set(['c', 'cpp']);
 /**
  * Languages where a method calls another method of its own class by its bare name. Python, JavaScript, TypeScript, Rust and Go
- * need the receiver written out, so a bare name there is never a method of the class the caller sits in.
+ * need the receiver written out, so a bare name there is never a method of the class the caller sits in. A Solidity function
+ * calls its contract's functions bare, and a Zig function the declarations of the struct it is declared in.
  */
-const IMPLICIT_THIS = new Set(['java', 'kotlin', 'cpp', 'csharp', 'scala', 'swift', 'dart']);
+const IMPLICIT_THIS = new Set(['java', 'kotlin', 'cpp', 'csharp', 'scala', 'swift', 'dart', 'solidity', 'zig']);
+/** Languages whose `const x = @import("m")` passes a module or a name on, as Rust's `pub use` does, written like any other import. */
+const PASSES_IMPORTS = new Set(['rust', 'python', 'zig']);
 /** Names a method uses for the object or class it belongs to. */
 /** The name a C++ `using namespace` directive is recorded under among a file's imports, the namespace as its module. */
 const USING_NAMESPACE = '<namespace>', USING_NAME = '<using>';
 const RECEIVERS = new Set(['this', 'self', 'cls', 'Self']);
+/** The namespaces the Zig compiler qualifies tests with: `cart.test.adds`, `money.decltest.format`. */
+const ZIG_TEST_NAMESPACES = new Set(['test', 'decltest']);
 
 export function buildGraph(files, { crates = [] } = {}) {
   const resolveIn = (from, module, language, known) => resolveModule(from, module, language, known, crates);
@@ -132,7 +154,11 @@ export function buildGraph(files, { crates = [] } = {}) {
    * with an implicit `this` can.
    */
   const scopesOf = (path, from) => {
-    const parts = (nodes.get(from)?.qualified_name ?? '').split('.').filter(Boolean);
+    const node = nodes.get(from);
+    const parts = (node?.qualified_name ?? '').split('.').filter(Boolean);
+    // Zig qualifies a test as `test.adds` or `decltest.format`, after the compiler: a namespace for tests, not a container a bare
+    // name is looked up in. Read as one, `format()` in the decltest `format` found the test itself.
+    if (node?.case && node.language === 'zig' && parts.length >= 2 && ZIG_TEST_NAMESPACES.has(parts.at(-2))) parts.splice(parts.length - 2, 1);
     const scopes = [];
     for (let length = parts.length; length > 0; length -= 1) {
       const name = parts.slice(0, length).join('.');
@@ -160,7 +186,16 @@ export function buildGraph(files, { crates = [] } = {}) {
       const found = exact(file.path, `${scope.name}.${name}`);
       if (found) return found;
     }
-    return exact(file.path, name) ?? inClosure(file.path, name);
+    return exact(file.path, name) ?? inClosure(file.path, name) ?? inheritedBare(file, name, from);
+  };
+  /**
+   * A bare name in a language with an implicit `this` that no scope of the caller's declares: a member of a base of the class the
+   * caller is in, `_requireNotPaused()` in a contract deriving from Pausable, found as `this.f` would be.
+   */
+  const inheritedBare = (file, name, from) => {
+    if (!IMPLICIT_THIS.has(file.language)) return null;
+    const owner = scopesOf(file.path, from).find(scope => !scope.callable);
+    return owner ? inherited(file, { name: owner.name.split('.').at(-1), path: file.path }, name, 0) : null;
   };
   /**
    * A function declared inside an unnamed one, `const run = () => ...` in a describe callback, has no name a caller's scopes can
@@ -235,7 +270,7 @@ export function buildGraph(files, { crates = [] } = {}) {
     for (const item of module.imports ?? []) {
       // Rust passes a name on with `pub use`, and Python with an import in a package's __init__.py, each written like any other
       // import; a lib.rs or an __init__.py is mostly those.
-      if (!item.reexport && module.language !== 'rust' && module.language !== 'python') continue;
+      if (!item.reexport && !PASSES_IMPORTS.has(module.language)) continue;
       const next = resolveIn(target, item.module, module.language, paths);
       if (!next) continue;
       if (item.name === '*' && (!item.alias || item.alias === '*')) {
@@ -472,7 +507,8 @@ export function buildGraph(files, { crates = [] } = {}) {
       if (held) return held;
     }
     if (RECEIVERS.has(head)) return null;
-    const imported = viaImport(file, parts) ?? exact(file.path, parts.join('.'));
+    // `Pricing.rate()` through `import "./Pricing.sol";` or `use pricing::*;`: a member of a name a glob import brought in.
+    const imported = viaImport(file, parts) ?? exact(file.path, parts.join('.')) ?? throughGlobs(file, parts.join('.'));
     if (imported) return imported;
     // `serde_json::to_string(...)` or `crate::de::from_str(...)`: the longest leading path that is a module, then the name in it.
     if (file.language === 'rust' && name.includes('::')) {

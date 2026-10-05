@@ -28,6 +28,9 @@ function testHolders(root: Node, cases: Map<string, FoundTest>, suites: Array<{ 
   const key = (node: Node) => `${node.startIndex}:${node.endIndex}`;
   const suite = new Set(suites.map(item => `${item.start}:${item.end}`));
   const holderOf = (node: Node): Node => {
+    // A Zig test block sits beside the code it tests, at the top of the file or in a struct, as Zig writes them. It holds its own
+    // test code and makes nothing around it test code.
+    if (node.type === 'TestDecl') return node;
     for (let parent = node.parent; parent; parent = parent.parent) if (!parent.parent || CONTAINERS.has(parent.type) || suite.has(key(parent))) return parent;
     return root;
   };
@@ -72,7 +75,7 @@ function declarationsOf(items: StructureItem[], nodes: Map<string, Node>, langua
       if (hasSyntaxError(node, blockMacros, index)) { result.push(...declarationsOf(item.children ?? [], nodes, language, nonblank, cases, blockMacros, held, index)); continue; }
       const test = found(node);
       result.push({ id: `function:${node.startIndex}`, kind: 'function', syntax_kind: node.type,
-        name: test?.test.name ?? (['kotlin', 'cpp'].includes(language) ? functionName(node) : item.name ?? '<anonymous>'),
+        name: test?.test.name ?? (['kotlin', 'cpp', 'solidity'].includes(language) ? functionName(node) : item.name ?? '<anonymous>'),
         qualified_name: qualifiedFunctionName(node, renamed), parent_function: parentFunctionName(node, renamed), parent_id: parentId(node),
         function_depth: functionDepth(node), line: span.startLine! + 1,
         end_line: Math.max(span.startLine! + 1, span.endLine! + (span.endColumn! > 0 ? 1 : 0)),

@@ -19,17 +19,26 @@ const LOGIC = { '&&': '||', '||': '&&', and: 'or', or: 'and' };
 const PRIORITY = ['boundary', 'logic', 'condition', 'not', 'arithmetic', 'boolean', 'return'];
 
 // The node that holds a binary operator, by language. Where the grammar gives the operator no field, it is the unnamed child.
+// Zig's BinaryExpr holds its operator in a CompareOp, AdditionOp or MultiplyOp node, or as the bare `and`/`or` keyword.
 const BINARY = new Set(['binary_expression', 'binary_operator', 'boolean_operator', 'comparison_operator',
-  'comparison_expression', 'equality_expression', 'additive_expression', 'multiplicative_expression', 'conjunction_expression', 'disjunction_expression']);
+  'comparison_expression', 'equality_expression', 'additive_expression', 'multiplicative_expression', 'conjunction_expression', 'disjunction_expression', 'BinaryExpr']);
 // A condition a statement branches on: the field that holds it, and whether it is wrapped in parentheses the grammar keeps.
-const CONDITIONS = new Set(['if_statement', 'while_statement', 'if_expression', 'while_expression']);
+const CONDITIONS = new Set(['if_statement', 'while_statement', 'if_expression', 'while_expression', 'IfPrefix', 'WhilePrefix']);
+// Zig's IfPrefix and WhilePrefix give the condition no field: it is the first named child, between the keyword's parentheses.
+const PREFIXED = new Set(['IfPrefix', 'WhilePrefix']);
 const WRAPPED = new Set(['parenthesized_expression', 'condition_clause']);
-const NOT = new Set(['unary_expression', 'not_operator']);
+const NOT = new Set(['unary_expression', 'not_operator', 'UnaryExpr']);
 const BOOLEANS = new Set(['true', 'false', 'boolean_literal']);
 const RETURNS = new Set(['return_statement', 'return_expression']);
-const NUMBERS = new Set(['number', 'integer', 'float', 'integer_literal', 'float_literal', 'decimal_integer_literal', 'int_literal', 'number_literal']);
+const NUMBERS = new Set(['number', 'integer', 'float', 'integer_literal', 'float_literal', 'decimal_integer_literal', 'int_literal', 'number_literal', 'INTEGER', 'FLOAT']);
+// Nodes that hold one expression and add nothing to it: Solidity wraps every operand in `expression`, Zig every operand in an
+// ErrorUnionExpr around a SuffixExpr. A returned literal is read through them.
+const WRAPPERS = new Set(['expression', 'ErrorUnionExpr', 'SuffixExpr']);
 
 const operatorOf = node => node.childForFieldName('operator') ?? node.children.find(child => !child.isNamed && (child.text in COMPARISONS || child.text in ARITHMETIC || child.text in LOGIC)) ?? null;
+/** Zig has no return node: `return x;` is an AssignExpr whose first token is the keyword. */
+const isReturn = node => RETURNS.has(node.type) || (node.type === 'AssignExpr' && node.children[0]?.isNamed === false && node.children[0].text === 'return');
+const unwrapped = node => { while (WRAPPERS.has(node.type) && node.childCount === 1 && node.namedChildren.length === 1) node = node.namedChildren[0]; return node; };
 
 /**
  * The mutants of the method at lines `line` to `end_line` of `source`, most telling first and no more than MAX_MUTANTS. Each is
@@ -58,7 +67,7 @@ export function mutantsOf({ source, language, line, end_line }) {
         else if (text in ARITHMETIC) add('arithmetic', operator, ARITHMETIC[text]);
       }
       if (CONDITIONS.has(node.type)) {
-        const condition = node.childForFieldName('condition');
+        const condition = node.childForFieldName('condition') ?? (PREFIXED.has(node.type) ? node.namedChildren[0] : null);
         // `if let` binds a pattern rather than testing a value; there is no condition to negate.
         if (condition && !/^let/.test(condition.type)) {
           const inner = WRAPPED.has(condition.type) ? condition.namedChildren[0] : condition;
@@ -67,13 +76,14 @@ export function mutantsOf({ source, language, line, end_line }) {
       }
       if (NOT.has(node.type)) {
         const operator = node.childForFieldName('operator') ?? node.children.find(child => !child.isNamed);
-        const operand = node.childForFieldName('argument') ?? node.childForFieldName('operand') ?? node.namedChildren[0];
+        const operand = node.childForFieldName('argument') ?? node.childForFieldName('operand') ?? node.namedChildren.find(child => child !== operator);
         if (operand && (operator?.text === '!' || operator?.text === 'not')) add('not', node, operand.text);
       }
-      if (BOOLEANS.has(node.type)) add('boolean', node, node.text.toLowerCase() === 'true' ? (node.text[0] === 'T' ? 'False' : 'false') : (node.text[0] === 'F' ? 'True' : 'true'));
-      if (RETURNS.has(node.type)) {
-        const value = node.namedChildren[0];
-        if (value && node.namedChildren.length === 1 && NUMBERS.has(value.type)) add('return', value, /^0+(\.0+)?$/.test(value.text) ? '1' : '0');
+      // Solidity's boolean_literal holds a `true` node: one literal, read once.
+      if (BOOLEANS.has(node.type) && !BOOLEANS.has(node.parent?.type)) add('boolean', node, node.text.toLowerCase() === 'true' ? (node.text[0] === 'T' ? 'False' : 'false') : (node.text[0] === 'F' ? 'True' : 'true'));
+      if (isReturn(node)) {
+        const value = node.namedChildren.length === 1 ? unwrapped(node.namedChildren[0]) : null;
+        if (value && NUMBERS.has(value.type)) add('return', value, /^0+(\.0+)?$/.test(value.text) ? '1' : '0');
       }
     }
     for (const child of node.children) walk(child);
