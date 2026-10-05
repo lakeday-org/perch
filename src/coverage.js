@@ -23,7 +23,7 @@ import { buildGraph } from './graph.js';
 import { AuthenticationError } from './systemone.js';
 import { compile, parseQuestions, readAnswer } from './ask.js';
 import { excerpt, leadingComment, shownLines, spanOf } from './questions.js';
-import { identity, openStore, readJson, sha256 } from './store.js';
+import { identity, openStore, readJson } from './store.js';
 import { estimateTokens, IncompleteCheckError, TOKEN_LIMITS, withTokenRetries } from './tokens.js';
 import { matches, readCoverageReports, readIgnored } from './units.js';
 import { covers } from './scan.js';
@@ -40,7 +40,6 @@ export const MAX_SHOWN = 8;
 
 /** The questions perch asks about tests and methods, read once from the file they are declared in. */
 /** What an answer is kept under: what was shown, which questions were asked, and who answered. Any of them changing asks again. */
-const askKey = (steps, asked, client) => sha256(JSON.stringify([steps.map(step => step.state), asked.map(question => question.hash).sort(), client]));
 const QUESTIONS = parseQuestions(readFileSync(new URL('../coverage.yaml', import.meta.url), 'utf8'), 'coverage.yaml');
 
 /**
@@ -733,26 +732,22 @@ export function judgeTests(tests, answered, min, repeats = null) {
  * Ask System One about every test, then about every method a useful test reaches that has branches. Tests go first because which
  * tests are useful, and what each decides, is what a method is asked over.
  *
- * `earlier` maps an answer key to a saved row. A key is the state, the questions and the client, so an unchanged test or method
- * is carried rather than asked again. A unit that fails is recorded in `failed` with its error and carries no answers; an
- * authentication failure stops the run, since every other request would get the same refusal.
+ * Every unit is asked on every run: the endpoint caches answers, perch does not. A unit that fails is recorded in `failed` with
+ * its error and carries no answers; an authentication failure stops the run, since every other request would get the same
+ * refusal.
  */
-export async function askCoverage({ coverage, graph, linesOf, systemOne, min = 0.5, parallel = DEFAULT_PARALLEL, earlier = new Map(),
-  onAnswer = () => {}, testProgress = () => {}, methodProgress = () => {}, log = () => {}, debug = () => {} }) {
+export async function askCoverage({ coverage, graph, linesOf, systemOne, min = 0.5, parallel = DEFAULT_PARALLEL,
+  testProgress = () => {}, methodProgress = () => {}, log = () => {}, debug = () => {} }) {
   const { test: testAsked, method: allMethodQuestions } = coverageQuestions();
   const methodAsked = allMethodQuestions.filter(question => question.name !== NEEDS_TEST);
   const needsAsked = allMethodQuestions.filter(question => question.name === NEEDS_TEST);
-  const client = systemOne.cacheKey ?? systemOne.id;
   const initial = systemOne.limits?.state ?? TOKEN_LIMITS.state;
-  const tests = new Map(), methods = new Map(), needs = new Map(), repeats = new Map(), failed = [...coverage.failed], rows = [];
-  let asked = 0, carried = 0, failures = 0;
+  const tests = new Map(), methods = new Map(), needs = new Map(), repeats = new Map(), failed = [...coverage.failed];
+  let asked = 0, failures = 0;
 
-  /** One unit: its key from the state at the full budget, the saved row when the key matches, otherwise a request. */
+  /** One unit, asked at the full budget and again at smaller ones when its state is too large. */
   const answer = async ({ subject, node, build, typed, questions, check = () => {} }) => {
     const first = build(initial);
-    const key = askKey([{ state: first }], questions, client);
-    const saved = earlier.get(key);
-    if (saved) { carried++; debug(`${node.qualified_name} in ${node.path} is unchanged since it was asked`); return { ...saved, carried: true }; }
     const response = await withTokenRetries(async budget => {
       const state = budget === initial ? first : build(budget);
       debug(`asking ${systemOne.id} about ${subject} ${node.qualified_name} in ${node.path}:${node.line}`);
@@ -761,7 +756,7 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, min = 0
     const answers = readAll(questions, response.answers);
     check(answers);
     asked++;
-    return { key, subject, unit: node.id, path: node.path, name: node.qualified_name, model: response.model ?? systemOne.id, at: new Date().toISOString(), answers };
+    return { subject, unit: node.id, path: node.path, name: node.qualified_name, model: response.model ?? systemOne.id, at: new Date().toISOString(), answers };
   };
 
   const settle = async (units, one, into, progress) => {
@@ -774,11 +769,7 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, min = 0
       while (next < units.length) {
         const unit = units[next++];
         try {
-          const row = await one(unit);
-          into.set(unit.id, row);
-          const saved = { key: row.key, subject: row.subject, unit: row.unit, path: row.path, name: row.name, model: row.model, at: row.at, answers: row.answers };
-          rows.push(saved);
-          if (!row.carried) await onAnswer(saved);
+          into.set(unit.id, await one(unit));
         } catch (error) {
           if (error instanceof AuthenticationError) throw error;
           failures++;
@@ -870,8 +861,8 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, min = 0
   }, needs, methodProgress);
 
   // Every request failed and none answered, which is an outage or a refusal, not a repository with nothing to say.
-  if (failures && !asked && !carried) throw new Error(`nothing could be asked: ${failures} failed; last error: ${failed.at(-1).error}`);
-  return { tests, methods, needs, repeats, failed, rows, asked, carried };
+  if (failures && !asked) throw new Error(`nothing could be asked: ${failures} failed; last error: ${failed.at(-1).error}`);
+  return { tests, methods, needs, repeats, failed, asked };
 }
 
 /** The level of a score most of its mass sits on. */
@@ -1206,33 +1197,8 @@ export function diffReports(before, after) {
 /** Where a coverage run keeps what it saves, under --out. */
 export const coveragePaths = out => {
   const dir = join(out, 'coverage');
-  return { dir, reports: join(dir, 'reports'), latest: join(dir, 'latest.jsonl'), answers: join(dir, 'answers.jsonl'), html: join(dir, 'index.html') };
+  return { dir, reports: join(dir, 'reports'), latest: join(dir, 'latest.jsonl'), html: join(dir, 'index.html') };
 };
-
-/** Saved answers, one row per test or method, read through the store. */
-export async function readCoverageAnswers(out) {
-  const { dir, answers } = coveragePaths(out);
-  return openStore(dir).readLines(answers);
-}
-
-/** Add rows to the saved answers a thousand at a time, and the rest on flush. */
-function appendCoverageAnswers(out) {
-  const { dir, answers } = coveragePaths(out);
-  let waiting = [], writing = Promise.resolve();
-  const write = () => {
-    const batch = waiting;
-    waiting = [];
-    writing = writing.then(() => openStore(dir).appendLines(answers, batch));
-    return writing;
-  };
-  return { add: row => { waiting.push(row); return waiting.length >= 1000 ? write() : undefined; }, flush: () => (waiting.length ? write() : writing) };
-}
-
-/** Replace the saved answers with these rows. */
-export async function writeCoverageAnswers(out, rows) {
-  const { dir, answers } = coveragePaths(out);
-  await openStore(dir).writeLines(answers, rows);
-}
 
 /** A report's file name: when it was made, then the commit, so the names sort in the order the runs happened. */
 const reportName = report => `${report.created_at.replace(/[:.]/g, '-')}-${String(report.revision).slice(0, 7)}.jsonl`;
@@ -1346,14 +1312,8 @@ export async function coverageRepository({ root, revision, label = root, github 
   const chosen = path => covered(path) && !ignored.some(glob => matches(glob, path));
   const inScope = path => chosen(path) && (!scope || scope.source(path));
   const coverage = computeCoverage({ scan, graph, depth: walk, inScope, named: chosen, runs: path => !scope || scope.test(path), reports });
-  const saved = await readCoverageAnswers(out);
-  const earlier = new Map(saved.map(row => [row.key, row]));
   const linesOf = lineReader(root, graph);
-  // Each answer is added to the saved ones as it comes back, so a run that dies partway keeps what it paid for and the next run
-  // asks only the rest. The rewrite at the end drops what this run replaced.
-  const keep = appendCoverageAnswers(out);
-  const answers = await askCoverage({ coverage, graph, linesOf, systemOne, min, parallel, earlier, onAnswer: keep.add, testProgress, methodProgress, log, debug })
-    .finally(keep.flush);
+  const answers = await askCoverage({ coverage, graph, linesOf, systemOne, min, parallel, testProgress, methodProgress, log, debug });
   const lines = new Map();
   for (const file of coverage.files) lines.set(file.path, await linesOf({ path: file.path }));
   const report = buildReport({ coverage, answers, lines, revision, root, label, github, model: systemOne.id, min, closed: await openStore(out).closures() });
@@ -1366,10 +1326,6 @@ export async function coverageRepository({ root, revision, label = root, github 
   // compared with only when --diff names it.
   const baseline = requested ?? (since ? null : await findBaseline({ out, root, revision }));
   if (baseline) { report.baseline = { revision: baseline.revision, created_at: baseline.created_at }; report.diff = diffReports(baseline, report); }
-  // Answers about units this run did not cover are kept, so a run narrowed by --paths does not cost the next full run its cache.
-  // Answers about units this run did cover are replaced by what it said, or dropped when it could not ask.
-  const coveredUnits = new Set([...coverage.tests.map(test => test.id), ...coverage.methods.map(method => method.id)]);
-  await writeCoverageAnswers(out, [...answers.rows, ...saved.filter(row => !coveredUnits.has(row.unit))]);
   await saveCoverageReport(out, report);
   return report;
 }

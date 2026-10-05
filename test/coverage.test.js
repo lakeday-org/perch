@@ -189,7 +189,7 @@ function scripted({ fail = new Set(), error = name => new Error(`scripted failur
   };
   const tier = level => Object.fromEntries([0, 1, 2, 3].map(index => [index, index === level ? 0.85 : 0.05]));
   return {
-    id: 'scripted-jev', cacheKey: 'scripted-jev', limits: TOKEN_LIMITS, calls,
+    id: 'scripted-jev', limits: TOKEN_LIMITS, calls,
     async ask(state, questions) {
       const name = state.test?.name ?? state.method?.name;
       calls.push({ name, state, questions });
@@ -357,10 +357,9 @@ describe('perch coverage', () => {
     expect(items.filter(([list]) => list === 'findings').map(([, finding]) => finding)).toEqual(report.findings);
     expect(items.filter(([list]) => list === 'methods')).toHaveLength(report.methods.length);
     expect(await readdir(join(repo.out, 'coverage', 'reports'))).toHaveLength(1);
-    const rows = (await readFile(join(repo.out, 'coverage', 'answers.jsonl'), 'utf8')).trim().split('\n');
     // Ten tests, test_discount_20 asked whether it repeats test_discount_10, two methods asked about their branches, and restock
     // asked whether it needs a test.
-    expect(rows).toHaveLength(14);
+    expect(systemOne.calls).toHaveLength(14);
     expect(report.baseline).toBe(null);
   });
 
@@ -405,25 +404,13 @@ describe('perch coverage', () => {
     expect(over.tests.find(test => test.id === saves.id).useful).toBe(false);
   });
 
-  it('reuses answers when nothing changed', async () => {
-    const repo = await repository();
-    const first = await run(repo, scripted());
-    const again = scripted();
-    const second = await run(repo, again);
-    expect(again.calls).toEqual([]);
-    expect(second.findings).toEqual(first.findings);
-    expect(second.methods).toEqual(first.methods);
-  });
-
-  it('reuses answers when code above a method moves it down', async () => {
+  it('keeps a gap on its own line when code above the method moves it down', async () => {
     const repo = await repository();
     await run(repo, scripted());
     // Three lines above every method in cart.py: each one's text and its neighbours' are what they were, only the lines move.
     await writeFile(join(repo.root, 'cart.py'), FILES['cart.py'].replace('import pricing\n', 'import pricing\n\n# Prices are in cents.\nCURRENCY = "USD"\n'));
     await commitAll(repo.root, 'a constant above the methods');
-    const again = scripted();
-    const second = await run({ ...repo, revision: await revision(repo.root) }, again);
-    expect(again.calls).toEqual([]);
+    const second = await run({ ...repo, revision: await revision(repo.root) }, scripted());
     // A gap still points at its own line, which moved with it.
     const discount = second.methods.find(method => method.id === 'cart.py::apply_discount');
     expect(discount.gap).toMatchObject({ line: 10, text: 'if percent > 100:' });
@@ -444,10 +431,6 @@ describe('perch coverage', () => {
     expect(total.useful).toEqual(['test/cart.test.ts::cart > adds prices', 'test/cart.test.ts::cart > checks out']);
     expect(report.totals.useful).toBe(6);
     expect(report.totals.exercised).toBeCloseTo(3.7 / 7);
-    // Nothing was saved for either, so the next run asks both again and carries the rest.
-    const retry = scripted();
-    await run(repo, retry);
-    expect(retry.calls.map(call => call.name).sort()).toEqual(['cart > rejects a negative price', 'total']);
   });
 
   it('stops on rejected credentials', async () => {
@@ -462,22 +445,6 @@ describe('perch coverage', () => {
     const twenty = byId(report.tests).get('tests/test_cart.py::test_discount_20');
     expect(twenty).toMatchObject({ useful: true, redundant_with: null });
     expect(kinds(report)).not.toContain('redundant tests/test_cart.py::test_discount_20');
-  });
-
-  it('keeps the answers a stopped run was given', async () => {
-    const repo = await repository();
-    const first = scripted();
-    await run(repo, first);
-    const units = first.calls.length;
-    await rm(join(repo.out, 'coverage'), { recursive: true });
-    // One at a time, so the units answered before the refusal are known: every test before the last one.
-    const last = first.calls.filter(call => call.state.test).at(-1).name;
-    const refused = scripted({ fail: new Set([last]), error: () => new AuthenticationError(401, 'bad key') });
-    await expect(run(repo, refused, { parallel: 1 })).rejects.toThrow(/HTTP 401/);
-    const retry = scripted();
-    await run(repo, retry);
-    expect(retry.calls.length).toBe(units - (refused.calls.length - 1));
-    expect(retry.calls.map(call => call.name)).toContain(last);
   });
 
   it('compares with the last run', async () => {
