@@ -148,6 +148,8 @@ export const EXIT = { clean: 0, broke: 1, usage: 2, found: 3 };
 
 const valued = new Set(['paths', 'parallel', 'min', 'filter', 'depth', 'diff', 'html', 'junit', 'lcov', 'cobertura', 'jacoco', 'contexts', 'out', 'reason', 'kind', 'limit', 'page', 'since', 'rules',
   'ensure', 'ensure_present', 'ensure_absent', 'where', 'except', 'each', 'sees', 'type', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', 'gate', 'file']);
+/** The flags that take a list of report files: given more than once, every value is read. */
+const LISTED = new Set(['junit', 'lcov', 'cobertura', 'jacoco', 'contexts']);
 const switches = new Set(['force', 'all', 'json', 'verbose', 'closed', 'types', 'help', 'version']);
 
 export function parseArgs(argv) {
@@ -166,7 +168,10 @@ export function parseArgs(argv) {
       // So is `--min --all`: the next flag is not a value, and taking it as one dropped the flag it was.
       const value = eq < 0 ? argv[++i] : arg.slice(eq + 1);
       if (value === undefined || value === '' || (eq < 0 && /^--[a-z]/.test(value))) throw new Error(`--${key} requires a value`);
-      flags[key] = value;
+      // A report flag names files, and each time it is given adds to the list, as a comma does; any other flag given twice is
+      // a mistake, since keeping one of the two dropped the other without a word.
+      if (key in flags && !LISTED.has(key)) throw new Error(`--${key} is given twice`);
+      flags[key] = key in flags ? `${flags[key]},${value}` : value;
     } else if (switches.has(key)) flags[key] = true;
     else throw new Error(`unknown option --${key}`);
   }

@@ -36,6 +36,10 @@ describe('cli', () => {
     expect(parseArgs(['lint', 'add', 'no-stale', '--ensure_absent', 'a doc for something deleted', '--where', 'docs/**'])).toEqual({ flags: { ensure_absent: 'a doc for something deleted', where: 'docs/**' }, positional: ['lint', 'add', 'no-stale'] });
     expect(parseArgs(['issues', '--closed', '--all']).flags).toEqual({ closed: true, all: true });
     expect(() => parseArgs(['scan', '--bogus'])).toThrow('unknown option --bogus');
+    // Each report flag adds to its list, as a comma does; any other flag given twice is refused rather than half read.
+    expect(parseArgs(['coverage', '--jacoco', 'core/jacoco.xml', '--jacoco', 'api/jacoco.xml', '--junit', 'a.xml']).flags)
+      .toEqual({ jacoco: 'core/jacoco.xml,api/jacoco.xml', junit: 'a.xml' });
+    expect(() => parseArgs(['scan', '--min', '0.5', '--min', '0.7'])).toThrow('--min is given twice');
     expect(() => parseArgs(['scan', '--candidates', '2'])).toThrow('unknown option --candidates');
     expect(() => parseArgs(['lint', 'add', 'x', '--ensure'])).toThrow('--ensure requires a value');
     expect(() => parseArgs(['scan', '--min', '--all'])).toThrow('--min requires a value');
