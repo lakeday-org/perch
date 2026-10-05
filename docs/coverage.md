@@ -22,11 +22,11 @@ from the call graph and marks each estimate `est.`
 
 Perch will identify tests that don’t have any assertions, tests that just test
 that a mock returns what you told it to return, tests that are duplicating other
-tests, and tests that hit the disk or network without mocking. For each method
-that your tests run, Perch will tell you the most important branch that isn’t
-being tested, and what kind of input you need to write a test for that branch.
-For each method that isn’t run by any tests, Perch will tell you whether it
-needs to be tested or not.
+tests, and tests that call a live network service or database without mocking.
+For each method that your tests run, Perch will tell you the most important
+branch that isn’t being tested, and what kind of input you need to write a test
+for that branch. For each method that isn’t run by any tests, Perch will tell
+you whether it needs to be tested or not.
 
 Point `perch coverage` at the JUnit XML and coverage report your CI already
 writes, and its numbers are measured:
@@ -39,11 +39,11 @@ src/checkout.ts           1 of 1   100%       50%        100% est.            50
 src/inventory.ts          1 of 1   100%       75%        100% est.            75% est.                  1
 All source                4 of 4   100%       70%        100% est.            70% est.                  3
 
-Test files                    Quality  Duplicates  Weak  Unmocked I/O  Time  Time saved
-test/cart.test.ts        71% (5 of 7)           0     2             1   4ms         4ms
-test/checkout.test.ts   100% (1 of 1)           0     0             0   1ms           -
-test/inventory.test.ts   75% (3 of 4)           0     1             0   1ms         1ms
-All tests               75% (9 of 12)           0     3             1   6ms         4ms
+Test files                    Quality  Duplicates  Weak  Live services  Time  Time saved
+test/cart.test.ts        71% (5 of 7)           0     2              1   4ms         4ms
+test/checkout.test.ts   100% (1 of 1)           0     0              0   1ms           -
+test/inventory.test.ts   75% (3 of 4)           0     1              0   1ms         1ms
+All tests               75% (9 of 12)           0     3              1   6ms         4ms
 
 src/cart.ts
   ID        Line  Problem    Confidence  Test or method  Note
@@ -61,14 +61,14 @@ test/cart.test.ts
   ID        Line  Problem        Confidence  Test or method            Note
   f5aebe0a    28  no_assertion         100%  subtotal > adds up the …  Asserts nothing.
   12d6d00b    32  mystery_guest         99%  subtotal > matches the …  Uses a file, record or service it does not…
-  472ae559    32  infra                 97%  subtotal > matches the …  Touches the network and environment variab…
+  472ae559    32  infra                 88%  subtotal > matches the …  Calls a live service with nothing mocked: …
 
 test/inventory.test.ts
   ID        Line  Problem       Confidence  Test or method             Note
   3ca3cd17    23  asserts_mock         98%  canFulfil > returns what…  Checks a value its own mock returns.
-shop at commit 1c9c71a: 4 methods, 12 tests, 7 problems
+shop at commit 14f9145: 4 methods, 12 tests, 7 problems
 Report: .perch/coverage/index.html
-19 requests  0 tokens in  $0.0000
+19 requests  13k tokens in / 2k out  $0.0025
 ```
 
 Lines and Branches are what the coverage report counts. Effective lines and
@@ -209,9 +209,9 @@ All changed source               1             50%
 src/cart.ts
   ID        Line  Problem    Confidence  Test or method  Note
   d0bee7da    12  edge_case        100%  applyDiscount   Untested case: applyDiscount at the edge of its range.
-shop at commit 8c0998b: 4 methods, 12 tests, 1 problem in changed code, 6 elsewhere
+shop at commit f875f58: 4 methods, 12 tests, 1 problem in changed code, 6 elsewhere
 Report: .perch/coverage/index.html
-7 requests  0 tokens in  $0.0000
+19 requests  5k tokens in / 860 out  $0.0010
 ```
 
 Changed comments and blank lines are not counted. A file no coverage report

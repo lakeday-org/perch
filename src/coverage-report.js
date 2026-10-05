@@ -125,7 +125,7 @@ function testTable(report, { width, color }) {
   if (!files.length) return '';
   // Quality is the tests worth keeping, of all of them; the next three are why the rest are not, or what they touch.
   // Time saved is what the duplicate and weak tests took, the time dropping them gives back.
-  const header = ['Test files', 'Quality', 'Duplicates', 'Weak', 'Unmocked I/O', 'Time', 'Time saved'];
+  const header = ['Test files', 'Quality', 'Duplicates', 'Weak', 'Live services', 'Time', 'Time saved'];
   const row = (name, totals) => [name, `${percent(totals.useful / totals.tests)} (${totals.useful} of ${totals.tests})`, totals.redundant, totals.smelly, totals.infra,
     duration(totals.seconds), duration(totals.dropped_seconds || null)];
   const rows = files.map(file => row(relative(file.path), file.totals));

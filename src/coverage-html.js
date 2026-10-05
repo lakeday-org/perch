@@ -19,7 +19,7 @@ const words = label => String(label ?? '').replaceAll('_', ' ');
 const PROBLEM_NAMES = {
   untested: 'No test', edge_case: 'Untested branch', redundant: 'Duplicate test', checks_nothing: 'Checks nothing',
   asserts_mock: 'Checks its own mock', no_assertion: 'No assertion', tautology: 'Restates the code', assertion_roulette: 'Too many checks',
-  mystery_guest: 'Hidden dependency', eager: 'Checks one of many', dead_setup: 'Unused setup', infra: 'Unmocked I/O', unresolved: 'Calls no repo code',
+  mystery_guest: 'Hidden dependency', eager: 'Checks one of many', dead_setup: 'Unused setup', infra: 'Live service', unresolved: 'Calls no repo code',
 };
 const problemName = kind => PROBLEM_NAMES[kind] ?? words(kind);
 /** A saved report's ISO timestamp, to the minute. Seconds and milliseconds only make two dates harder to compare by eye. */
@@ -277,9 +277,6 @@ function problemFacts(finding, index) {
     fact = escape(finding.note);
   } else if (finding.kind === 'redundant' && test?.redundant_with) {
     fact = `Same checks and ${test.redundant_basis === 'measured' ? 'lines' : 'calls'} as ${unitLink(test.redundant_with, index)}.`;
-  } else if (finding.kind === 'infra') {
-    const touched = (test?.touches ?? []).filter(category => category !== 'clock').map(category => TOUCHES[category] ?? category);
-    if (touched.length) fact = `Touches ${escape(listed(touched))}.`;
   }
   return { subject, fact: `${fact}${unsure(finding.probability)}` };
 }
@@ -464,7 +461,7 @@ function testTable(report, index) {
   const heads = th('File', false) + th('Quality', true, true, 'Tests worth keeping, of all the file\'s tests: ones that check something and repeat no other test.')
     + th('Duplicates', true, false, 'Tests that check the same thing with the same code as an earlier test.')
     + th('Weak', true, false, 'Tests that don’t check anything, check the return value of a mock created inside the test, or are weak in another way.')
-    + th('Unmocked I/O', true, false, 'Tests that touch the network, the disk, a database, other processes or environment variables with nothing mocked.')
+    + th('Live services', true, false, 'Tests that call a real network service or database with nothing mocked.')
     + th('Time', true, false, 'How long the file\'s tests ran, added up from the JUnit report.')
     + th('Time saved', true, false, 'The time duplicate or weak tests took to run: the time you would save if you removed them.');
   return view('tests', 'Tests', '',
@@ -611,7 +608,6 @@ function methodBar(method, index) {
   return `<div class="mbar ${methodState(method)}" id="${escape(`m:${method.id}`)}"><b>${escape(method.name)}</b>${ran ? `<span>${ran}</span>` : ''}${tests}</div>`;
 }
 
-const TOUCHES = { network: 'the network', database: 'a database', filesystem: 'the disk', process: 'other processes', environment: 'environment variables', clock: 'the clock' };
 /** "a", "a and b", "a, b and c". */
 const listed = items => (items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`);
 /** How sure perch is, said only when it is not very: a verdict at 95% needs no number, one at 63% does. */
@@ -686,7 +682,7 @@ function fileStats(file) {
     const quality = ratio(totals.useful, totals.tests);
     return stat('quality', `<span class="${band(quality)}-text">${percent(quality)}</span> <small>${escape(totals.useful)}/${escape(totals.tests)}</small>`,
       'Tests worth keeping, of all the file\'s tests: ones that check something and repeat no other test.')
-      + stat('unmocked I/O', escape(totals.infra), 'Tests that touch the network, the disk, a database, other processes or environment variables with nothing mocked.')
+      + stat('live services', escape(totals.infra), 'Tests that call a real network service or database with nothing mocked.')
       + (typeof totals.seconds === 'number' ? stat('time', escape(seconds(totals.seconds)), 'How long the file\'s tests ran, added up from the JUnit report.') : '');
   }
   const reached = ratio(totals.reached, totals.methods);

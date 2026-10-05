@@ -80,7 +80,7 @@ describe('coverage report', () => {
     expect(rowOf(text, 'All source').split(/\s{2,}/)).toEqual(['All source', '4 of 6', '75%', '42%', '60%', '25% est.', '1']);
     // Quality is the tests worth keeping, of all of them; then why the rest are not, and what the tests touch.
     // Time saved is what the duplicate and weak tests took.
-    expect(rowOf(text, 'Test files').split(/\s{2,}/)).toEqual(['Test files', 'Quality', 'Duplicates', 'Weak', 'Unmocked I/O', 'Time', 'Time saved']);
+    expect(rowOf(text, 'Test files').split(/\s{2,}/)).toEqual(['Test files', 'Quality', 'Duplicates', 'Weak', 'Live services', 'Time', 'Time saved']);
     expect(rowOf(text, 'tests/test_cart.py ').split(/\s{2,}/)).toEqual(['tests/test_cart.py', '60% (3 of 5)', '1', '1', '0', '2.5s', '1.3s']);
     expect(rowOf(text, 'All tests').split(/\s{2,}/)).toEqual(['All tests', '60% (3 of 5)', '1', '1', '0', '2.5s', '1.3s']);
   });

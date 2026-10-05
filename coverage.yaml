@@ -1,12 +1,12 @@
 # Questions `perch coverage` asks. Same grammar as scan.yaml.
 # Every request is shaped as a scan's is: the unit asked about, `test` or `method`, with its source under the comment above it and
 # no line numbers, then `graph`, the code around it as nodes and the calls between them as edges. A test's graph holds the code it
-# reaches, nearest first, and the helpers of its own it calls through; the test also carries its `mocks` and the kinds of I/O
-# perch found along its reach (`touches`). A method's graph holds the useful tests that reach it, and the method carries its
+# reaches, nearest first, and the helpers of its own it calls through; the test also carries its `mocks` and the network and
+# database calls perch found along its reach (`reachable_io`), with the methods that make them in its graph. A method's graph holds the useful tests that reach it, and the method carries its
 # branch lines by their text.
 # gap_line's options are the method's own branch lines, named by their place in the method and added when it is asked; `none`
 # is the only option written here.
-# tests_nothing_here, repeats and needs_test are asked only of a unit the call graph or the coverage report already flagged,
+# infra, tests_nothing_here, repeats and needs_test are asked only of a unit the call graph or the coverage report already flagged,
 # and decide whether that problem is listed.
 
 - name: decides
@@ -45,10 +45,11 @@
   each: test
   where: "**/*"
   ask: >
-    Through what `test` runs and the code in `graph`, without a mock in its `mocks` cutting it off, does it open a socket, a database
-    connection, a file or a subprocess, or read a credential or setting from the environment?
-  "true": Running it touches the network, a database, the filesystem, a process or the environment
-  "false": Everything it runs stays in memory, or whatever would leave it is mocked
+    `reachable_io` lists the network and database calls in the code `test` can reach; a call behind a branch its inputs do not
+    take is not made. Following what `test` passes, without a mock in its `mocks` cutting it off, does running it make one of
+    them to a real service, rather than to a server or database it starts itself on localhost?
+  "true": It calls a live network service or database, so it fails when that service is down and can change its data
+  "false": None of those calls is made with what it passes, or each goes to something it started itself or is mocked
 
 - name: tests_nothing_here
   each: test

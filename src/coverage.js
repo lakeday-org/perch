@@ -154,8 +154,12 @@ export const INFRA = {
 };
 INFRA.kotlin = INFRA.java;
 INFRA.cpp = INFRA.c;
-/** The kinds of I/O a test is flagged for by the call graph alone. The clock makes a test slow or flaky, not a leak. */
-const LEAKS = new Set(['network', 'database', 'filesystem', 'process', 'environment']);
+/**
+ * The kinds of I/O a test is asked about: a live service it does not own. A test's disk, processes and environment are almost
+ * always its own temporary directory, fixtures and the variables it runs under, and reading them as a problem flagged half of
+ * every suite. The clock makes a test slow or flaky, not a leak.
+ */
+const LEAKS = new Set(['network', 'database']);
 
 const segments = name => String(name).split(/::|\./).filter(Boolean);
 const JS_FAMILY = new Set(['javascript', 'typescript', 'tsx']);
@@ -788,21 +792,31 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, min = 0
     const reached = await Promise.all(test.reach.slice(0, MAX_SHOWN).map(async item => ({ ...item, ...(await neighbourSource(item)) })));
     const helpers = await Promise.all((test.helpers ?? []).slice(0, MAX_SHOWN).map(id => neighbourSource({ id })));
     const mocks = test.mocks.map(describeMock), source = sourceOf(node, lines);
+    // The network and database calls in reach, where they are, and the methods making them in view: whether one is made is a
+    // matter of the branch around it, which the method's source shows and a list of kinds does not.
+    const leaks = test.evidence.filter(item => LEAKS.has(item.category));
+    const reachable_io = leaks.slice(0, MAX_SHOWN).map(item => `${item.name} at ${item.path}:${item.line}`);
+    const shownIds = new Set(reached.slice(0, MAX_SHOWN).map(item => item.id));
+    const holders = await Promise.all([...new Set(leaks.map(item => item.from))].filter(id => id !== node.id && !shownIds.has(id) && graph.nodes.get(id) && !graph.nodes.get(id).test)
+      .slice(0, MAX_SHOWN / 2).map(id => neighbourSource({ id }).then(item => ({ id, ...item }))));
     // The test, then the code it reaches and the helpers it calls through as the nodes of its call graph, nearest first, as a
     // scan shows a method.
     const build = budget => fitState((limit, shown) => {
       const nodes = [
         ...helpers.slice(0, shown).map(item => ({ id: item.node.id, path: item.node.path, source: excerpt(item.node, item.lines, limit), note: HELPER }) ),
         ...reached.slice(0, shown).map(item => ({ id: item.id, path: item.node.path, source: excerpt(item.node, item.lines, limit) })),
+        ...holders.slice(0, Math.ceil(shown / 2)).map(item => ({ id: item.id, path: item.node.path, source: excerpt(item.node, item.lines, limit) })),
       ];
       return {
-        test: { path: node.path, name: node.qualified_name, framework: node.case.framework, source, mocks, touches: test.touches },
+        test: { path: node.path, name: node.qualified_name, framework: node.case.framework, source, mocks, reachable_io },
         graph: { nodes, edges: edgesAmong(graph, [node.id, ...nodes.map(item => item.id)]) },
       };
     }, budget, `test ${node.qualified_name}`);
     // A test the JUnit report timed is not asked what it costs: the report says, in seconds. Whether it tests anything here is
-    // asked only of a test the call graph found calling nothing in the repository.
-    const skip = new Set(['repeats', ...(typeof test.run?.time === 'number' ? ['cost'] : []), ...(test.unresolved ? [] : ['tests_nothing_here'])]);
+    // asked only of a test the call graph found calling nothing in the repository, and whether it calls a live service only of
+    // one that can reach a network or database call.
+    const skip = new Set(['repeats', ...(typeof test.run?.time === 'number' ? ['cost'] : []), ...(test.unresolved ? [] : ['tests_nothing_here']),
+      ...(leaks.length ? [] : ['infra'])]);
     const questions = testAsked.filter(question => !skip.has(question.name));
     return answer({ subject: 'test', node, build, typed: () => compile(questions), questions });
   }, tests, testProgress);
@@ -880,7 +894,6 @@ const GAP_CASES = {
   ordering: method => `Untested case: ${method} with input in another order.`,
 };
 /** What an infra category is, as a person says it. */
-const TOUCHED = { network: 'the network', database: 'a database', filesystem: 'the disk', process: 'other processes', environment: 'environment variables' };
 /** What each smell the smell question names is, as a person reads it under the test. */
 const SMELL_NOTES = {
   asserts_mock: 'Checks a value its own mock returns.',
@@ -1032,11 +1045,10 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
       probability: said.decides.probabilities.nothing, note: 'Passes whatever the code it calls does.' }));
     const leaks = test.evidence.filter(item => LEAKS.has(item.category));
     const shown = leaks.slice(0, 3).map(item => `${item.name} at ${item.path}:${item.line}`).join(', ');
-    const touched = [...new Set(leaks.map(item => TOUCHED[item.category] ?? item.category))];
-    const infraNote = leaks.length ? `Touches ${touched.length > 1 ? `${touched.slice(0, -1).join(', ')} and ${touched.at(-1)}` : touched[0]} unmocked: ${shown}.` : 'Reaches outside the process unmocked.';
-    // The call graph finds what a test touches; the answer decides whether that is a problem. A test
-    // that could not be asked keeps what the call graph found, with no probability, and is listed under failures as well.
-    if (said ? said.infra >= min || leaks.length : leaks.length) own.push(add({ kind: 'infra', subject: 'test', unit: test.id, path: node.path, line: node.line, name: node.qualified_name, probability: said ? said.infra : null, note: infraNote }));
+    // The call graph finds the network and database calls a test can reach; the answer decides whether it makes one to a live
+    // service. A test that could not be asked keeps what the call graph found, with no probability, and is listed under failures.
+    if (leaks.length) own.push(add({ kind: 'infra', subject: 'test', unit: test.id, path: node.path, line: node.line, name: node.qualified_name,
+      probability: said?.infra ?? null, note: `Calls a live service with nothing mocked: ${shown}.` }));
     if (test.unresolved) own.push(add({ kind: 'unresolved', subject: 'test', unit: test.id, path: node.path, line: node.line, name: node.qualified_name, probability: said ? said.tests_nothing_here : null,
       note: `Calls nothing in this repository${test.unresolved.length ? `: ${test.unresolved.slice(0, 6).join(', ')}` : ''}.` }));
     const run = test.run ?? null;
@@ -1047,7 +1059,7 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
       direct: test.direct, reach: test.reach, cuts: test.cuts, touches: test.touches, unresolved: test.unresolved ?? null,
       decides: said ? { choice: said.decides.choice, probability: said.decides.probability } : null,
       smell: said ? { choice: said.smell.choice, probability: said.smell.probability, any: 1 - (said.smell.probabilities.none ?? 0) } : null,
-      infra: said ? said.infra : null, cost, run, executed_methods: test.executed_methods ?? null,
+      infra: said?.infra ?? null, cost, run, executed_methods: test.executed_methods ?? null,
       useful: judged.useful.has(test.id), redundant_with: keptId, redundant_basis: redundantBasis, findings: own.filter(Boolean) };
   });
 

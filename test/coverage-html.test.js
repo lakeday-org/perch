@@ -181,13 +181,13 @@ describe('coverage HTML report', () => {
     const report = sampleReport();
     const test = report.tests[1];
     Object.assign(test, { touches: ['filesystem'] });
-    const infra = { id: 'i5i5i5i5', kind: 'infra', subject: 'test', unit: test.id, path: test.path, line: 8, name: test.name, probability: 0.62, note: 'Touches filesystem unmocked.' };
+    const infra = { id: 'i5i5i5i5', kind: 'infra', subject: 'test', unit: test.id, path: test.path, line: 8, name: test.name, probability: 0.62, note: 'Calls a live service with nothing mocked: requests.get at src/cart.py:3.' };
     test.findings = [...test.findings, infra.id];
     report.findings = [...report.findings, infra];
     const note = under(renderCoverageHtml(report), 'tests/test_cart.py', 8);
     // What to cut first, then what to mock; how sure perch is only when it is not very.
-    expect(note.indexOf('<b>Duplicate test</b>')).toBeLessThan(note.indexOf('<b>Unmocked I/O</b>'));
-    expect(note).toContain('<b>Unmocked I/O</b> Touches the disk. <span class="unsure">62% sure</span></p>');
+    expect(note.indexOf('<b>Duplicate test</b>')).toBeLessThan(note.indexOf('<b>Live service</b>'));
+    expect(note).toContain('<b>Live service</b> Calls a live service with nothing mocked: requests.get at src/cart.py:3. <span class="unsure">62% sure</span></p>');
     // Running through other files of this repository is not a problem, and not said.
     expect(note).not.toContain('runs through');
   });
@@ -483,7 +483,7 @@ describe('coverage HTML report', () => {
 
   it('breaks each test file down by why tests are not worth keeping, and each source file by untested branches', () => {
     const heads = view => [...viewOf(html, view).matchAll(/<th data-sort="[a-z]+"[^>]*>([^<]+)</g)].map(match => match[1]);
-    expect(heads('tests')).toEqual(['File', 'Quality', 'Duplicates', 'Weak', 'Unmocked I/O', 'Time', 'Time saved']);
+    expect(heads('tests')).toEqual(['File', 'Quality', 'Duplicates', 'Weak', 'Live services', 'Time', 'Time saved']);
     expect(heads('sources')).toEqual(['File', 'Methods tested', 'Lines run', 'Branches taken', 'Effective lines', 'Effective branches', 'Untested branches']);
     // test_cart.py: one duplicate, test_discount_20.
     const row = viewOf(html, 'tests').match(/<tr data-path="tests\/test_cart.py">.*?<\/tr>/s)[0];

@@ -314,12 +314,18 @@ describe('perch coverage', () => {
     // That no test reaches restock is the call graph's; how much that matters is the answer's.
     expect(find('untested', 'cart.py::restock').probability).toBe(0.9);
     expect(find('edge_case', 'cart.py::apply_discount')).toMatchObject({ line: 7, probability: 0.7 });
-    expect(find('infra', 'tests/test_cart.py::test_rate').probability).toBe(0.9);
+    expect(find('infra', 'tests/test_cart.py::test_rate')).toMatchObject({ probability: 0.9,
+      note: 'Calls a live service with nothing mocked: requests.get at rates.py:5.' });
+    // The model is shown the call and where it is, and the method making it is in the graph it reads.
+    const rate = systemOne.calls.find(call => call.name === 'test_rate').state;
+    expect(rate.test.reachable_io).toEqual(['requests.get at rates.py:5']);
+    expect(rate.graph.nodes.map(item => item.id)).toContain('rates.py::fetch_rate');
     // Said to decide nothing, at 0.7: no change to what it calls would make it fail.
     expect(find('checks_nothing', 'test/db.test.ts::saves an order')).toMatchObject({ probability: 0.7, note: 'Passes whatever the code it calls does.' });
-    // The call graph finds save writing a file with nothing mocking it, and the answer says that is not a problem: the fact stays
-    // on the test, and no problem is listed.
+    // The call graph finds save writing a file with nothing mocking it. A test's disk is not a live service, so the fact stays on
+    // the test, it is not asked about, and no problem is listed.
     expect(tests.get('test/db.test.ts::saves an order').touches).toEqual(['filesystem']);
+    expect('infra' in systemOne.calls.find(call => call.name === 'saves an order').questions).toBe(false);
     expect(find('infra', 'test/db.test.ts::saves an order')).toBe(undefined);
     expect(tests.get('tests/test_cart.py::test_discount_20').findings.map(id => findings.get(id).kind).sort()).toEqual(['redundant']);
 
