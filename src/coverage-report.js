@@ -7,7 +7,7 @@ import { BELIEVED } from './questions.js';
 import { bold, COLOR, dim, keepEnd, keepStart, percent, relative, sureness, table, TOP, WIDTH } from './report.js';
 
 /** Every kind of problem a coverage report can list, and so everything `--filter kind=` accepts. */
-export const COVERAGE_KINDS = ['untested', 'edge_case', 'redundant', 'checks_nothing', 'infra', 'unresolved'];
+export const COVERAGE_KINDS = ['untested', 'uncaught', 'redundant', 'checks_nothing', 'infra'];
 
 const plural = (count, noun, many = `${noun}s`) => `${count} ${count === 1 ? noun : many}`;
 /** A 0..1 value as a whole percentage; null is a value nobody answered, which is a dash and not a zero. */
@@ -22,17 +22,8 @@ const change = (before, after) => (before === null || after === null || before =
 const short = revision => String(revision ?? '?').slice(0, 7);
 /** A measured part of a whole, `{ hit, total }`, as a percentage, or a dash when nothing was measured. */
 const measuredShare = part => (part?.total ? percent(part.hit / part.total) : '-');
-/** Lines or branches the tests kept ran, marked `est.` when any of it is from the call graph rather than per-test records. */
-const effectiveShare = part => (part?.total ? `${percent(part.hit / part.total)}${part.basis === 'estimated' ? ' est.' : ''}` : '-');
-/**
- * Branches as a coverage tool counts them, taken over all, when a report measured them; the same figure the HTML page shows.
- * Otherwise the average of each method's share, marked est. when any of it is Jev's estimate.
- */
-const branchCell = totals => {
-  if (totals.measured?.branches?.total) return measuredShare(totals.measured.branches);
-  if (totals.exercised === null || totals.exercised === undefined) return '-';
-  return `${percent(totals.exercised)}${totals.exercised_basis === 'measured' || totals.exercised_basis === 'static' ? '' : ' est.'}`;
-};
+/** Planted bugs caught, as a share and a count: `67% (4 of 6)`, or a dash for a file with nothing planted. */
+const scoreCell = totals => (totals.planted ? `${percent(totals.caught / totals.planted)} (${totals.caught} of ${totals.planted})` : '-');
 
 /** Seconds as a person reads a test run's time: 350ms, 41.2s, 3m10s. */
 export function duration(seconds) {
@@ -106,16 +97,17 @@ function sourceTable(report, onList, { width, color }) {
   const files = (report.files ?? []).filter(file => file.kind === 'source' && file.totals?.methods)
     .sort((a, b) => a.path.localeCompare(b.path));
   if (!files.length) return '';
-  const header = ['Source files', 'Methods tested', 'Lines', 'Branches', 'Effective lines', 'Effective branches', 'Untested branches'];
-  // Counted from the problems listed under the table, at the same floor, so the two agree.
-  const gaps = onList.filter(finding => finding.kind === 'edge_case');
+  // Bugs caught is the planted bugs some test is predicted to fail on, of all planted; uncaught is counted from the problems
+  // listed under the table, at the same floor, so the two agree. Lines is there when a coverage report measured them.
+  const measured = Boolean(report.totals?.measured);
+  const header = ['Source files', 'Methods tested', ...(measured ? ['Lines'] : []), 'Bugs caught', 'Uncaught bugs'];
+  const gaps = onList.filter(finding => finding.kind === 'uncaught');
   const gapsIn = Map.groupBy(gaps, finding => finding.path);
-  const untested = path => (path === null ? gaps.length : gapsIn.get(path)?.length ?? 0);
-  const row = (name, totals, path) => [name, `${totals.reached} of ${totals.methods}`, measuredShare(totals.measured?.lines), branchCell(totals),
-    effectiveShare(totals.effective?.lines), effectiveShare(totals.effective?.branches), untested(path)];
+  const uncaught = path => (path === null ? gaps.length : gapsIn.get(path)?.length ?? 0);
+  const row = (name, totals, path) => [name, `${totals.reached} of ${totals.methods}`, ...(measured ? [measuredShare(totals.measured?.lines)] : []), scoreCell(totals), uncaught(path)];
   const rows = files.map(file => row(relative(file.path), file.totals, file.path));
   rows.push(row('All source', report.totals ?? {}, null));
-  return painted(fitted(header, rows, ['left', 'right', 'right', 'right', 'right', 'right', 'right'], { width }), color, true).join('\n');
+  return painted(fitted(header, rows, ['left', 'right', ...(measured ? ['right'] : []), 'right', 'right'], { width }), color, true).join('\n');
 }
 
 function testTable(report, { width, color }) {
@@ -207,7 +199,7 @@ export function formatCoverage(report, { min = BELIEVED, filters = [], all = fal
 function diffCells(before, after) {
   const now = after ?? before;
   const moved = (key, show = value => value) => (after && before ? `${show(after[key])}${change(before[key], after[key])}` : show(now[key]));
-  return [now.methods, moved('reached'), after && before ? `${ratio(after.exercised)}${change(points(before.exercised), points(after.exercised))}` : ratio(now.exercised),
+  return [now.methods, moved('reached'), after && before ? `${ratio(after.score)}${change(points(before.score), points(after.score))}` : ratio(now.score),
     moved('tests'), moved('useful'), moved('redundant'), moved('weak')];
 }
 
@@ -220,14 +212,14 @@ export function formatCoverageDiff(report, { width = WIDTH(), color = COLOR() } 
   if (!diff) return '';
   const since = `Since ${short(diff.from?.revision)}`;
   if (!diff.files?.length) return `Nothing changed per file since ${short(diff.from?.revision)}.`;
-  const header = [since, 'Methods', 'Reached', 'Branches', 'Tests', 'Keep', 'Redundant', 'Checks nothing', ''];
+  const header = [since, 'Methods', 'Reached', 'Bugs caught', 'Tests', 'Keep', 'Redundant', 'Checks nothing', ''];
   const rows = [...diff.files].sort((a, b) => a.path.localeCompare(b.path)).map(file => [relative(file.path), ...diffCells(file.before, file.after),
     !file.before ? 'added' : !file.after ? 'removed' : '']);
   const totals = diff.totals ?? {};
   const pair = key => ({ before: totals[key]?.before ?? null, after: totals[key]?.after ?? null });
   const count = key => `${pair(key).after ?? '-'}${change(pair(key).before, pair(key).after)}`;
   rows.push(['All', pair('methods').after ?? '-', count('reached'),
-    `${ratio(pair('exercised').after)}${change(points(pair('exercised').before), points(pair('exercised').after))}`,
+    `${ratio(pair('score').after)}${change(points(pair('score').before), points(pair('score').after))}`,
     count('tests'), count('useful'), count('redundant'), count('weak'), '']);
   return painted(fitted(header, rows, ['left', 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'left'], { width }), color, true).join('\n');
 }

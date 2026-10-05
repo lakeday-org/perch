@@ -6,20 +6,18 @@ import { coverageCount, coverageDetails, duration, formatCoverage, formatCoverag
  * A report written out by hand, in the shape the contract gives it, so the formatting is checked against numbers chosen here rather
  * than numbers the engine happened to produce. Two source files, one test file, and findings of three kinds.
  */
-const totalsOf = values => ({ methods: 0, reached: 0, useful_reached: 0, exercised: null, exercised_basis: null, measured: null, tests: 0, useful: 0, redundant: 0,
+const totalsOf = values => ({ methods: 0, reached: 0, useful_reached: 0, planted: 0, caught: 0, score: null, uncaught: 0, measured: null, tests: 0, useful: 0, redundant: 0,
   weak: 0, infra: 0, seconds: null, timed: 0, ...values });
 const report = {
   version: 1, revision: '9f8e7d6c5b4a', root: '/repo', created_at: '2026-09-28T10:00:00.000Z', model: 'jev-1', depth: 3, min: 50,
-  totals: { methods: 6, reached: 4, useful_reached: 4, exercised: 0.54, exercised_basis: 'estimated', measured: { lines: { hit: 30, total: 40 }, branches: { hit: 5, total: 12 } },
-    effective: { lines: { hit: 24, total: 40, basis: 'measured' }, branches: { hit: 3, total: 12, basis: 'estimated' } },
+  totals: { methods: 6, reached: 4, useful_reached: 4, planted: 12, caught: 7, score: 7 / 12, uncaught: 1, measured: { lines: { hit: 30, total: 40 }, branches: { hit: 5, total: 12 } },
     tests: 5, useful: 3, redundant: 1, weak: 1, infra: 0, seconds: 2.5, timed: 5, dropped_seconds: 1.25,
-    untested: 2, edge_cases: 1, cost: { 0: 3, 1: 2, 2: 0, 3: 0 }, drop: { count: 2, cost: { 0: 1, 1: 0, 2: 0, 3: 1 }, unreached: [], seconds: null, timed: 0 }, suite: null },
+    untested: 2, cost: { 0: 3, 1: 2, 2: 0, 3: 0 }, drop: { count: 2, cost: { 0: 1, 1: 0, 2: 0, 3: 1 }, unreached: [], seconds: null, timed: 0 }, suite: null },
   files: [
     { path: 'src/tax.py', kind: 'source', language: 'python', lines: [], methods: ['m4', 'm5', 'm6'], tests: [],
-      totals: totalsOf({ methods: 3, reached: 1, useful_reached: 1, exercised: null }) },
+      totals: totalsOf({ methods: 3, reached: 1, useful_reached: 1 }) },
     { path: 'src/cart.py', kind: 'source', language: 'python', lines: [], methods: ['m1', 'm2', 'm3'], tests: [],
-      totals: totalsOf({ methods: 3, reached: 3, useful_reached: 3, exercised: 0.41, exercised_basis: 'measured', measured: { lines: { hit: 30, total: 40 }, branches: { hit: 5, total: 12 } },
-        effective: { lines: { hit: 24, total: 40, basis: 'measured' }, branches: { hit: 3, total: 12, basis: 'estimated' } } }) },
+      totals: totalsOf({ methods: 3, reached: 3, useful_reached: 3, planted: 12, caught: 7, score: 7 / 12, uncaught: 1, measured: { lines: { hit: 30, total: 40 }, branches: { hit: 5, total: 12 } } }) },
     { path: 'tests/test_cart.py', kind: 'test', language: 'python', lines: [], methods: [], tests: ['t1', 't2', 't3', 't4', 't5'],
       totals: totalsOf({ tests: 5, useful: 3, redundant: 1, weak: 1, infra: 0, seconds: 2.5, timed: 5, dropped_seconds: 1.25 }) },
   ],
@@ -35,24 +33,24 @@ const report = {
       probability: null, note: 'No test reaches round_tax.' },
     { id: 'c0ffee11', kind: 'untested', subject: 'method', unit: 'm6', path: 'src/tax.py', line: 9, name: 'rate_for',
       probability: null, note: 'No test reaches rate_for.' },
-    { id: 'd4e5f6a7', kind: 'edge_case', subject: 'method', unit: 'm1', path: 'src/cart.py', line: 17, name: 'apply_discount',
-      probability: 0.72, note: 'No test decides the boundary at line 17.' },
+    { id: 'd4e5f6a7', kind: 'uncaught', subject: 'method', unit: 'm1', bug: '17:7:>>>=', path: 'src/cart.py', line: 17, name: 'apply_discount',
+      probability: 0.72, note: 'With `>=` instead of `>`, none of the 2 tests reaching it fails.' },
     // Under the floor, so it is on the report and off the list.
-    { id: 'e1e2e3e4', kind: 'edge_case', subject: 'method', unit: 'm2', path: 'src/cart.py', line: 50, name: 'total',
-      probability: 0.31, note: 'No test decides the empty cart at line 50.' },
+    { id: 'e1e2e3e4', kind: 'uncaught', subject: 'method', unit: 'm2', bug: '50:9:&&>||', path: 'src/cart.py', line: 50, name: 'total',
+      probability: 0.31, note: 'With `||` instead of `&&`, none of the 2 tests reaching it fails.' },
   ],
   failed: [{ unit: 'm9', subject: 'method', path: 'src/tax.py', name: 'legacy', error: 'too long to send' }],
   baseline: { revision: '1a2b3c4d5e6f', created_at: '2026-09-20T10:00:00.000Z' },
   diff: {
     from: { revision: '1a2b3c4d5e6f', created_at: '2026-09-20T10:00:00.000Z' },
     to: { revision: '9f8e7d6c5b4a', created_at: '2026-09-28T10:00:00.000Z' },
-    totals: { methods: { before: 6, after: 6 }, reached: { before: 4, after: 4 }, exercised: { before: 0.45, after: 0.54 },
+    totals: { methods: { before: 6, after: 6 }, reached: { before: 4, after: 4 }, score: { before: 0.45, after: 0.54 },
       tests: { before: 3, after: 5 }, useful: { before: 2, after: 3 }, redundant: { before: 0, after: 1 }, weak: { before: 1, after: 1 },
-      infra: { before: 0, after: 0 }, untested: { before: 2, after: 2 }, edge_cases: { before: 2, after: 1 } },
+      infra: { before: 0, after: 0 }, untested: { before: 2, after: 2 }, uncaught: { before: 2, after: 1 } },
     files: [
-      { path: 'src/cart.py', before: totalsOf({ methods: 3, reached: 2, exercised: 0.3 }), after: totalsOf({ methods: 3, reached: 3, exercised: 0.41 }) },
+      { path: 'src/cart.py', before: totalsOf({ methods: 3, reached: 2, score: 0.3 }), after: totalsOf({ methods: 3, reached: 3, score: 0.41 }) },
       { path: 'tests/test_cart.py', before: totalsOf({ tests: 3, useful: 2, weak: 1 }), after: totalsOf({ tests: 5, useful: 3, redundant: 1, weak: 1 }) },
-      { path: 'src/old.py', before: totalsOf({ methods: 1, reached: 1, exercised: 1 }), after: null },
+      { path: 'src/old.py', before: totalsOf({ methods: 1, reached: 1, score: 1 }), after: null },
     ],
     methods: [],
     tests: { added: ['t4', 't5'], removed: [] },
@@ -68,16 +66,14 @@ describe('coverage report', () => {
   it('prints source and test tables with totals', () => {
     const text = formatCoverage(report, { min: 0.5, ...plain });
     const source = text.split('\n\n')[0].split('\n');
-    expect(source[0]).toMatch(/^Source files\s+Methods tested\s+Lines\s+Branches\s+Effective lines\s+Effective branches\s+Untested branches$/);
+    expect(source[0]).toMatch(/^Source files\s+Methods tested\s+Lines\s+Bugs caught\s+Uncaught bugs$/);
     // Files in path order, whatever order the report had them in.
     expect(source.slice(1).map(line => line.split(/\s{2,}/)[0])).toEqual(['src/cart.py', 'src/tax.py', 'All source']);
-    // cart.py was measured: 30 of its 40 lines ran and 5 of its 12 branches were taken, counted over all as the page counts them.
-    // Tests worth keeping ran 24 of the lines, from per-test records, and an estimated 3 of the branches.
-    expect(rowOf(text, 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '3 of 3', '75%', '42%', '60%', '25% est.', '1']);
-    // Nothing measured or answered about tax.py, which is a dash and not a zero.
-    expect(rowOf(text, 'src/tax.py').split(/\s{2,}/)).toEqual(['src/tax.py', '1 of 3', '-', '-', '-', '-', '0']);
-    // The whole is what the report measured, lines and branches alike: tax.py was not in it.
-    expect(rowOf(text, 'All source').split(/\s{2,}/)).toEqual(['All source', '4 of 6', '75%', '42%', '60%', '25% est.', '1']);
+    // cart.py was measured: 30 of its 40 lines ran. Of 12 bugs planted in it, 7 are caught, and one uncaught one is over the floor.
+    expect(rowOf(text, 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '3 of 3', '75%', '58% (7 of 12)', '1']);
+    // Nothing measured or planted in tax.py, which is a dash and not a zero.
+    expect(rowOf(text, 'src/tax.py').split(/\s{2,}/)).toEqual(['src/tax.py', '1 of 3', '-', '-', '0']);
+    expect(rowOf(text, 'All source').split(/\s{2,}/)).toEqual(['All source', '4 of 6', '75%', '58% (7 of 12)', '1']);
     // Quality is the tests worth keeping, of all of them; then why the rest are not, and what the tests touch.
     // Time saved is what the duplicate and weak tests took.
     expect(rowOf(text, 'Test files').split(/\s{2,}/)).toEqual(['Test files', 'Quality', 'Duplicates', 'Checks nothing', 'Live services', 'Time', 'Time saved']);
@@ -117,10 +113,10 @@ describe('coverage report', () => {
     expect(text).toContain('b7d31e22');
     expect(text).not.toContain('a91c2e0f');
     expect(text).not.toContain('d4e5f6a7');
-    expect(rowOf(text, 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '3 of 3', '75%', '42%', '60%', '25% est.', '1']);
+    expect(rowOf(text, 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '3 of 3', '75%', '58% (7 of 12)', '1']);
     // A second value is another alternative for the same key, and a spelling with a space or a hyphen is the same kind.
-    expect(parseCoverageFilters('kind=edge case,redundant')).toEqual([{ key: 'kind', value: 'edge_case' }, { key: 'kind', value: 'redundant' }]);
-    expect(() => parseCoverageFilters('kind=bogus')).toThrow(/kind "bogus" is not one of untested, edge_case, redundant/);
+    expect(parseCoverageFilters('kind=checks nothing,redundant')).toEqual([{ key: 'kind', value: 'checks_nothing' }, { key: 'kind', value: 'redundant' }]);
+    expect(() => parseCoverageFilters('kind=bogus')).toThrow(/kind "bogus" is not one of untested, uncaught, redundant/);
     expect(() => parseCoverageFilters('type=defect')).toThrow(/filters on kind, not "type"/);
   });
 
@@ -148,7 +144,7 @@ describe('coverage report', () => {
 
   it('prints per-file changes for --diff', () => {
     const lines = formatCoverageDiff(report, plain).split('\n');
-    expect(lines[0].split(/\s{2,}/)).toEqual(['Since 1a2b3c4', 'Methods', 'Reached', 'Branches', 'Tests', 'Keep', 'Redundant', 'Checks nothing']);
+    expect(lines[0].split(/\s{2,}/)).toEqual(['Since 1a2b3c4', 'Methods', 'Reached', 'Bugs caught', 'Tests', 'Keep', 'Redundant', 'Checks nothing']);
     expect(rowOf(lines.join('\n'), 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '3', '3 (+1)', '41% (+11)', '0', '0', '0', '0']);
     expect(rowOf(lines.join('\n'), 'src/old.py').split(/\s{2,}/)).toEqual(['src/old.py', '1', '1', '100%', '0', '0', '0', '0', 'removed']);
     expect(rowOf(lines.join('\n'), 'tests/test_cart.py').split(/\s{2,}/)).toEqual(['tests/test_cart.py', '0', '0', '-', '5 (+2)', '3 (+1)', '1 (+1)', '1']);
@@ -212,7 +208,7 @@ describe('perch coverage', () => {
   it('rejects an unknown kind', async () => {
     const { err, io } = capture();
     expect(await main(['coverage', '--filter', 'kind=bogus'], io)).toBe(2);
-    expect(err.join('\n')).toContain('kind "bogus" is not one of untested, edge_case, redundant, checks_nothing, infra');
+    expect(err.join('\n')).toContain('kind "bogus" is not one of untested, uncaught, redundant, checks_nothing, infra');
     expect(err.join('\n')).toContain('perch coverage --help');
     expect(await main(['coverage', '--depth', '0'], io)).toBe(2);
     expect(err.join('\n')).toContain('--depth must be a positive integer');

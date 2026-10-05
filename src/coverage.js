@@ -1,12 +1,13 @@
 /**
- * `perch coverage`: which tests reach which methods, what each test decides, and which branch of each tested method no test takes.
+ * `perch coverage`: which tests reach which methods, and which planted bugs those tests would catch.
  *
  * Nothing here runs a test. Tests are the declarations tree-sitter marked as test cases, and what a test reaches is a walk over
- * the call graph. When CI's test run wrote JUnit XML and a coverage report, those are read: a test's time and result, the lines
- * and branches of each method that ran, and with per-test data, the lines each test ran. A number a report holds is measured and
- * says so; what no report covers is Jev's estimate or a fact of the graph, and says which. The call graph and the reports find a
- * problem, and Jev decides whether it is one: every listed problem's probability is a System One answer or computed from
- * answers. A problem whose unit could not be asked has none, and is listed with the failure.
+ * the call graph. Each reached method has bugs planted in it, one-token edits read off its syntax tree (mutants.js), and Jev is
+ * asked, per planted bug and per test reaching the method, whether that test would fail with the bug in. A bug no test is
+ * predicted to catch is a gap; a test predicted to catch none is one that checks nothing; two tests predicted to catch the same
+ * bugs are one test written twice. When CI's test run wrote JUnit XML, each test's time and result are read from it. Every
+ * listed problem's probability is a System One answer or computed from answers. A problem whose unit could not be asked has
+ * none, and is listed with the failure.
  *
  * A test or a method that cannot be asked about is recorded as failed and stays in the report as failed. It is never counted as
  * a useful test or as a covered method, since a report that quietly fills in what it could not find out reads as complete.
@@ -28,6 +29,7 @@ import { estimateTokens, IncompleteCheckError, TOKEN_LIMITS, withTokenRetries } 
 import { matches, readCoverageReports, readIgnored } from './units.js';
 import { covers } from './scan.js';
 import { namesOf, patternsOf, rootsOf, runNames } from './runs/index.js';
+import { describeMutant, mutantId, mutantsOf } from './mutants.js';
 import { languages as jvmLanguages } from './runs/jvm.js';
 import { shownPath } from './runs/paths.js';
 
@@ -42,17 +44,13 @@ export const MAX_SHOWN = 8;
 /** What an answer is kept under: what was shown, which questions were asked, and who answered. Any of them changing asks again. */
 const QUESTIONS = parseQuestions(readFileSync(new URL('../coverage.yaml', import.meta.url), 'utf8'), 'coverage.yaml');
 
-/**
- * What is asked of every test and of every tested method. gap_line is declared with `none` as its only option; the method's own
- * branch lines are added when it is asked, by `methodQuestions`, since they are different for every method.
- */
+/** What is asked of tests and of methods. `catches` is a template: it is asked once per test shown, as `catches_1` and so on. */
 export const coverageQuestions = () => ({ test: QUESTIONS.filter(question => question.each === 'test'), method: QUESTIONS.filter(question => question.each === 'method') });
 const questionNamed = name => QUESTIONS.find(question => question.name === name);
 /** Whether a method is untested: measured, none of its lines ran, whatever reaches it; unmeasured, no test reaches it. */
 const isUntested = method => (method.measured ? method.measured.lines.hit === 0 : !method.tests.length);
-/** What a node in a test's request is, when it is not code the test reaches: a helper of its own, or the test it may repeat. */
+/** What a node in a test's request is, when it is not code the test reaches: a helper of its own. */
 const HELPER = "the test's own helper, which it calls through to the code under test";
-const EARLIER = 'the earlier test this one may repeat';
 const MACRO = "a macro the test uses, which may hold its assertions";
 
 /**
@@ -74,22 +72,6 @@ function macroIn(lines, name) {
 const MACRO_LANGUAGES = new Set(['c', 'cpp', 'rust']);
 /** Asked of a method only once the call graph or the report has found no test runs it, and never with the branch questions. */
 const NEEDS_TEST = 'needs_test';
-
-/**
- * A branch line as gap_line names it: its place within the method, `line_3` for the method's third line. A file line number
- * changed whenever code above the method moved, and with it the question, so a method nobody touched was asked again.
- */
-const branchKey = (node, line) => `line_${line - node.line + 1}`;
-/** The file line a gap_line answer names, or null for `none`. */
-const branchLine = (node, choice) => { const match = /^line_(\d+)$/.exec(choice ?? ''); return match ? node.line + Number(match[1]) - 1 : null; };
-
-/** The typed questions for one method, gap_line offering that method's branch lines, each shown with the line's own text. */
-export function methodQuestions(node, branches, lines) {
-  const typed = compile(coverageQuestions().method.filter(question => question.name !== NEEDS_TEST));
-  const gap = questionNamed('gap_line');
-  typed.gap_line = { ...typed.gap_line, criteria: { ...Object.fromEntries(branches.map(line => [branchKey(node, line), (lines[line - 1] ?? '').trim()])), ...gap.options } };
-  return typed;
-}
 
 /**
  * A unit's text as a request shows it: the comment above it, which is its contract, then its lines, with no line numbers. The
@@ -694,75 +676,62 @@ function readAll(questions, answers) {
 }
 
 /**
- * Which answered tests are worth keeping. A test checks nothing when the answer says no change to the code under test would make
- * it fail, at the floor or over it. Among the tests left, two that were said to decide the same behavior are one test written twice when
- * they run the same code: measured, when the coverage report says which lines each test ran and both ran exactly the same lines
- * of the code under test; otherwise, when either has no such record, when they call exactly the same methods. The first by
- * path and line is kept.
+ * Which tests are worth keeping, from what each is predicted to catch. `planted` is each method's planted bugs with, per bug,
+ * the tests asked about it and how likely each is to fail with it in. A test checks nothing when, over at least two bugs it
+ * was asked about, the chance it catches none is at the floor or over it. Among the tests left, two asked about the same bugs
+ * that are predicted to catch exactly the same ones, at least one, are one test written twice; the first by path and line is
+ * kept, and the kept test's chance on the bug it is least sure of is the duplicate's probability.
  */
-export function judgeTests(tests, answered, min, repeats = null) {
-  const clean = [], checksNothing = new Set(), redundantWith = new Map(), pairProbability = new Map(), redundantBasis = new Map();
-  for (const test of tests) {
-    const answers = answered.get(test.id)?.answers;
-    if (!answers) continue;
-    // That no change to the code under test would make it fail is judged at the floor like any other answer: under it, the
-    // test is not held to have checked nothing.
-    if (answers.decides.choice === 'nothing' && (answers.decides.probabilities.nothing ?? 0) >= min) { checksNothing.add(test.id); continue; }
-    clean.push(test);
+export function judgeTests(tests, planted, min) {
+  const asked = new Map();
+  for (const [methodId, bugs] of planted) for (const bug of bugs) for (const [testId, p] of bug.catches) {
+    if (!asked.has(testId)) asked.set(testId, []);
+    asked.get(testId).push({ key: `${methodId}#${mutantId(bug.mutant)}`, p });
   }
-  const decided = test => answered.get(test.id).answers.decides.choice;
-  // Two tests that ran none of the code under test did not run the same code; they ran none. Only a nonempty record counts.
-  const ranSomething = test => test.executed_key !== '[]';
-  // The same code is the same lines run when both tests have a record of what ran, and otherwise the same direct calls. The
-  // first kept test with the same behavior and the same code is looked up by key: scanning every kept test for each one was
-  // quadratic, and 167,000 tests took longer than asking about all of them.
-  const directKey = test => (test.direct.length ? JSON.stringify(test.direct) : null);
-  const byRun = new Map(), byCalls = new Map(), byCallsUnmeasured = new Map();
-  const remember = (index, key, test) => { if (key !== null && !index.has(key)) index.set(key, test); };
-  const kept = [], order = new Map();
-  for (const test of [...clean].sort((a, b) => a.node.path.localeCompare(b.node.path) || a.node.line - b.node.line)) {
-    const behavior = decided(test), calls = directKey(test);
-    // A test whose likeliest answer is that it decides nothing, below the floor, has no behavior to compare, so it repeats none.
-    const candidates = behavior === 'nothing' ? []
-      : test.executed_key
-        ? [[ranSomething(test) ? byRun.get(`${behavior}\0${test.executed_key}`) : null, 'measured'], [calls === null ? null : byCallsUnmeasured.get(`${behavior}\0${calls}`), 'static']]
-        : [[calls === null ? null : byCalls.get(`${behavior}\0${calls}`), 'static']];
-    const [first, basis] = candidates.filter(([other]) => other).sort(([a], [b]) => order.get(a) - order.get(b))[0] ?? [null, null];
-    if (!first) {
-      order.set(test, kept.length);
-      kept.push(test);
-      if (test.executed_key && ranSomething(test)) remember(byRun, `${behavior}\0${test.executed_key}`, test);
-      if (calls !== null) remember(byCalls, `${behavior}\0${calls}`, test);
-      if (calls !== null && !test.executed_key) remember(byCallsUnmeasured, `${behavior}\0${calls}`, test);
-      continue;
-    }
-    // The call graph finds the pair; whether the test checks a case the first does not is the answer's to say. Two tests calling
-    // one function with different input are two cases, and listing one as a duplicate told people to delete a real test.
-    const said = repeats?.get(test.id)?.answers.repeats;
-    if (said !== undefined && said < min) { order.set(test, kept.length); kept.push(test); continue; }
+  const checksNothing = new Map();
+  for (const [testId, bugs] of asked) {
+    if (bugs.length < 2) continue;
+    const none = bugs.reduce((total, bug) => total * (1 - bug.p), 1);
+    if (none >= min) checksNothing.set(testId, none);
+  }
+  const redundantWith = new Map(), pairProbability = new Map();
+  const byKills = new Map();
+  for (const test of [...tests].sort((a, b) => a.node.path.localeCompare(b.node.path) || a.node.line - b.node.line)) {
+    const bugs = asked.get(test.id);
+    if (!bugs || bugs.length < 2 || checksNothing.has(test.id)) continue;
+    const sorted = [...bugs].sort((a, b) => a.key.localeCompare(b.key));
+    if (!sorted.some(bug => bug.p >= min)) continue;
+    const key = JSON.stringify(sorted.map(bug => [bug.key, bug.p >= min]));
+    const first = byKills.get(key);
+    if (!first) { byKills.set(key, { id: test.id, bugs: sorted }); continue; }
+    // Deleting this one loses nothing when the first catches every bug it catches: the chance of that is the first's chance on
+    // the bug it is least sure of among those.
+    const agree = Math.min(...sorted.map((bug, at) => (bug.p >= min ? first.bugs[at].p : 1)));
+    if (agree < min) continue;
     redundantWith.set(test.id, first.id);
-    redundantBasis.set(test.id, basis);
-    pairProbability.set(test.id, said ?? null);
+    pairProbability.set(test.id, agree);
   }
-  const useful = new Set(clean.filter(test => !redundantWith.has(test.id)).map(test => test.id));
-  return { useful, checksNothing, redundantWith, pairProbability, redundantBasis };
+  const kills = new Map([...asked].map(([testId, bugs]) => [testId, bugs.filter(bug => bug.p >= min).map(bug => bug.key)]));
+  const useful = new Set(tests.filter(test => !checksNothing.has(test.id) && !redundantWith.has(test.id)).map(test => test.id));
+  return { useful, checksNothing, redundantWith, pairProbability, kills, asked: new Map([...asked].map(([testId, bugs]) => [testId, bugs.length])) };
 }
 
 /**
- * Ask System One about every test, then about every method a useful test reaches that has branches. Tests go first because which
- * tests are useful, and what each decides, is what a method is asked over.
+ * Ask System One about the tests that need asking, then about every planted bug of every reached method. A test is asked only
+ * what the graph or the report left open: whether it calls a live service, when it can reach one, and what it costs, when no
+ * report timed it. A method is asked once per planted bug, with the tests reaching it in view: `matters`, and `catches` for
+ * each test. A method no test reaches is asked whether it needs one.
  *
  * Every unit is asked on every run: the endpoint caches answers, perch does not. A unit that fails is recorded in `failed` with
  * its error and carries no answers; an authentication failure stops the run, since every other request would get the same
  * refusal.
  */
-export async function askCoverage({ coverage, graph, linesOf, systemOne, min = 0.5, parallel = DEFAULT_PARALLEL,
+export async function askCoverage({ coverage, graph, linesOf, systemOne, parallel = DEFAULT_PARALLEL,
   testProgress = () => {}, methodProgress = () => {}, log = () => {}, debug = () => {} }) {
-  const { test: testAsked, method: allMethodQuestions } = coverageQuestions();
-  const methodAsked = allMethodQuestions.filter(question => question.name !== NEEDS_TEST);
-  const needsAsked = allMethodQuestions.filter(question => question.name === NEEDS_TEST);
+  const { test: testAsked } = coverageQuestions();
+  const catchesTemplate = questionNamed('catches'), mattersAsked = [questionNamed('matters')], needsAsked = [questionNamed(NEEDS_TEST)];
   const initial = systemOne.limits?.state ?? TOKEN_LIMITS.state;
-  const tests = new Map(), methods = new Map(), needs = new Map(), repeats = new Map(), failed = [...coverage.failed];
+  const tests = new Map(), bugs = new Map(), needs = new Map(), failed = [...coverage.failed];
   let asked = 0, failures = 0;
 
   /** One unit, asked at the full budget and again at smaller ones when its state is too large. */
@@ -794,7 +763,7 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, min = 0
           if (error instanceof AuthenticationError) throw error;
           failures++;
           log(`${unit.node.qualified_name} in ${unit.node.path}: ${error.message}`);
-          failed.push({ unit: unit.id, subject: unit.node.case ? 'test' : 'method', path: unit.node.path, name: unit.node.qualified_name, error: error.message });
+          failed.push({ unit: unit.node.id, subject: unit.node.case ? 'test' : 'method', path: unit.node.path, name: unit.node.qualified_name, error: error.message });
         } finally { progress(++done, units.length); }
       }
     }));
@@ -802,8 +771,11 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, min = 0
 
   const neighbourSource = async ({ id }) => { const node = graph.nodes.get(id); return { node, lines: await linesOf(node) }; };
 
-  await settle(coverage.tests, async test => {
-    const { node } = test;
+  // Only a test with something left to ask is asked: one the report timed, with no live service in reach, is a fact already.
+  const testUnits = coverage.tests.map(test => ({ ...test, questions: testAsked.filter(question => (question.name === 'infra' ? test.evidence.some(item => LEAKS.has(item.category))
+    : question.name === 'cost' ? typeof test.run?.time !== 'number' : false)) })).filter(test => test.questions.length);
+  await settle(testUnits, async test => {
+    const { node, questions } = test;
     const lines = await linesOf(node);
     const reached = await Promise.all(test.reach.slice(0, MAX_SHOWN).map(async item => ({ ...item, ...(await neighbourSource(item)) })));
     const helpers = await Promise.all((test.helpers ?? []).slice(0, MAX_SHOWN).map(id => neighbourSource({ id })));
@@ -815,27 +787,8 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, min = 0
     const shownIds = new Set(reached.slice(0, MAX_SHOWN).map(item => item.id));
     const holders = await Promise.all([...new Set(leaks.map(item => item.from))].filter(id => id !== node.id && !shownIds.has(id) && graph.nodes.get(id) && !graph.nodes.get(id).test)
       .slice(0, MAX_SHOWN / 2).map(id => neighbourSource({ id }).then(item => ({ id, ...item }))));
-    // A macro the test calls is no method, so the call graph does not reach it, and an EXPECT_EQ or an assert! inside one is the
-    // check the test makes. One defined in the test's file, or in a file it includes, is shown with it.
-    const macros = [];
-    if (MACRO_LANGUAGES.has(graph.files.get(node.path)?.file.language)) {
-      const testFile = graph.files.get(node.path).file;
-      const included = (testFile.imports ?? []).map(item => resolveModule(node.path, item.module, testFile.language, new Set(graph.files.keys()))).filter(Boolean);
-      const names = [...new Set(graph.external(node.id).map(call => String(call.name).replace(/!$/, '')).filter(name => /^\w+$/.test(name)))];
-      for (const path of [node.path, ...included]) {
-        const fileLines = await linesOf({ path });
-        for (const name of names) {
-          if (macros.some(item => item.name === name)) continue;
-          const found = macroIn(fileLines, name);
-          if (found) macros.push({ name, id: `${path}::${name}`, path, source: found.text });
-        }
-      }
-    }
-    // The test, then the code it reaches and the helpers it calls through as the nodes of its call graph, nearest first, as a
-    // scan shows a method.
     const build = budget => fitState((limit, shown) => {
       const nodes = [
-        ...macros.slice(0, shown).map(item => ({ id: item.id, path: item.path, source: item.source.split('\n').slice(0, limit).join('\n'), note: MACRO })),
         ...helpers.slice(0, shown).map(item => ({ id: item.node.id, path: item.node.path, source: excerpt(item.node, item.lines, limit), note: HELPER }) ),
         ...reached.slice(0, shown).map(item => ({ id: item.id, path: item.node.path, source: excerpt(item.node, item.lines, limit) })),
         ...holders.slice(0, Math.ceil(shown / 2)).map(item => ({ id: item.id, path: item.node.path, source: excerpt(item.node, item.lines, limit) })),
@@ -845,55 +798,48 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, min = 0
         graph: { nodes, edges: edgesAmong(graph, [node.id, ...nodes.map(item => item.id)]) },
       };
     }, budget, `test ${node.qualified_name}`);
-    // A test the JUnit report timed is not asked what it costs: the report says, in seconds. Whether it tests anything here is
-    // asked only of a test the call graph found calling nothing in the repository, and whether it calls a live service only of
-    // one that can reach a network or database call.
-    const skip = new Set(['repeats', ...(typeof test.run?.time === 'number' ? ['cost'] : []), ...(test.unresolved ? [] : ['tests_nothing_here']),
-      ...(leaks.length ? [] : ['infra'])]);
-    const questions = testAsked.filter(question => !skip.has(question.name));
     return answer({ subject: 'test', node, build, typed: () => compile(questions), questions });
   }, tests, testProgress);
 
-  // A test the call graph pairs with an earlier one is asked, with both in view, whether it checks a case the earlier one does not.
-  const candidates = judgeTests(coverage.tests, tests, min);
-  const testById = new Map(coverage.tests.map(test => [test.id, test]));
-  const repeatsAsked = testAsked.filter(question => question.name === 'repeats');
-  await settle([...candidates.redundantWith.keys()].map(id => testById.get(id)), async test => {
-    const earlier = testById.get(candidates.redundantWith.get(test.id)).node, { node } = test;
-    const [lines, earlierLines] = [await linesOf(node), await linesOf(earlier)];
-    const build = budget => fitState(() => ({
-      test: { path: node.path, name: node.qualified_name, source: sourceOf(node, lines) },
-      graph: { nodes: [{ id: earlier.id, path: earlier.path, source: sourceOf(earlier, earlierLines), note: EARLIER }], edges: [] },
-    }), budget, `test ${node.qualified_name}`);
-    return answer({ subject: 'test', node, build, typed: () => compile(repeatsAsked), questions: repeatsAsked });
-  }, repeats, testProgress);
-  const { useful } = judgeTests(coverage.tests, tests, min, repeats);
-  // A measured method is asked only which untaken branch matters, and only when it ran and the report shows a branch line with a
-  // side no test took: what share of its branches the tests take is what the report measured. An unmeasured one is asked as
-  // before, when it has branches and a useful test reaches it.
-  const worthAsking = coverage.methods.filter(method => (method.measured ? method.measured.lines.hit > 0 && method.untaken.length > 0
-    : method.branches.length && method.tests.some(item => useful.has(item.id))));
-  const gapAsked = methodAsked.filter(question => question.name !== 'exercised');
-  await settle(worthAsking, async method => {
-    const { node, branches, measured } = method;
+  // Every reached method, one request per planted bug, with the tests reaching it in view, nearest first. A macro the test
+  // checks through is shown with it, since the check is inside the macro and no call graph reaches it.
+  const sources = new Map();
+  const sourceText = async path => { if (!sources.has(path)) sources.set(path, (await linesOf({ path })).join('\n')); return sources.get(path); };
+  const bugUnits = [];
+  for (const method of coverage.methods) {
+    if (!method.tests.length) continue;
+    const { node } = method;
+    const language = graph.files.get(node.path)?.file.language;
+    const planted = mutantsOf({ source: await sourceText(node.path), language, line: node.line, end_line: node.end_line });
+    const shown = method.tests.slice(0, MAX_SHOWN).map(item => item.id);
+    for (const mutant of planted) bugUnits.push({ id: `${method.id}#${mutantId(mutant)}`, node, method, mutant, shown });
+  }
+  const bugRows = new Map();
+  await settle(bugUnits, async unit => {
+    const { node, mutant, shown } = unit;
     const lines = await linesOf(node);
-    const reaching = await Promise.all(method.tests.filter(item => useful.has(item.id)).slice(0, MAX_SHOWN).map(async item => ({ ...item, ...(await neighbourSource(item)) })));
-    const offered = measured ? method.untaken : branches;
-    const typed = methodQuestions(node, offered, lines);
-    if (measured) delete typed.exercised;
-    // Branch lines by their text: the same branch reads the same wherever the method has moved to.
-    const named = offered.map(line => (lines[line - 1] ?? '').trim());
-    const build = budget => fitState((limit, shown) => {
-      const nodes = reaching.slice(0, shown).map(item => ({ id: item.id, path: item.node.path, source: excerpt(item.node, item.lines, limit) }));
+    const reaching = await Promise.all(shown.map(async id => ({ id, ...(await neighbourSource({ id })) })));
+    const macros = await Promise.all(reaching.map(item => macrosOf(item.node, graph, linesOf)));
+    // catches_1 asks about test 1, and so on: the question names the test, and the test's node in the graph is noted the same way.
+    const questions = [...mattersAsked, ...shown.map((id, at) => ({ ...catchesTemplate, name: `catches_${at + 1}`, ask: `This question is about test ${at + 1}, \`${id}\`. ${catchesTemplate.ask}` }))];
+    const build = budget => fitState((limit, count) => {
+      const nodes = reaching.slice(0, count).flatMap((item, at) => [
+        { id: item.id, path: item.node.path, source: excerpt(item.node, item.lines, limit), note: `test ${at + 1}` },
+        ...macros[at].slice(0, 2).map(macro => ({ id: macro.id, path: macro.path, source: macro.source.split('\n').slice(0, limit).join('\n'), note: MACRO })),
+      ]);
       return {
-        method: { path: node.path, name: node.qualified_name, source: sourceOf(node, lines), ...(measured ? { untaken_branches: named } : { branches: named }) },
+        method: { path: node.path, name: node.qualified_name, source: sourceOf(node, lines), mutation: { kind: mutant.kind, original: mutant.original.trim(), mutated: mutant.mutated.trim() } },
         graph: { nodes, edges: edgesAmong(graph, [node.id, ...nodes.map(item => item.id)]) },
       };
     }, budget, `method ${node.qualified_name}`);
-    // A line the method was not offered is not a line of this method, and reading it as one would put a finding somewhere else.
-    const check = answers => { if (!Object.hasOwn(typed.gap_line.criteria, answers.gap_line.choice)) throw new Error(`gap_line picked ${answers.gap_line.choice}, which was not offered`); };
-    return answer({ subject: 'method', node, build, typed: () => typed, questions: measured ? gapAsked : methodAsked, check });
-  }, methods, methodProgress);
+    return answer({ subject: 'method', node, build, typed: () => compile(questions), questions });
+  }, bugRows, methodProgress);
+  for (const unit of bugUnits) {
+    const row = bugRows.get(unit.id);
+    if (!row) continue;
+    if (!bugs.has(unit.method.id)) bugs.set(unit.method.id, []);
+    bugs.get(unit.method.id).push({ mutant: unit.mutant, matters: row.answers.matters, catches: unit.shown.map((id, at) => [id, row.answers[`catches_${at + 1}`]]) });
+  }
 
   // A method no test runs is asked whether it needs one, with how perch knows no test runs it.
   const untested = coverage.methods.filter(isUntested);
@@ -909,7 +855,28 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, min = 0
 
   // Every request failed and none answered, which is an outage or a refusal, not a repository with nothing to say.
   if (failures && !asked) throw new Error(`nothing could be asked: ${failures} failed; last error: ${failed.at(-1).error}`);
-  return { tests, methods, needs, repeats, failed, asked };
+  return { tests, bugs, needs, failed, asked };
+}
+
+/**
+ * The macros a test calls, as nodes for its request: a C, C++ or Rust test's assertions are often inside one, and no call graph
+ * reaches a macro. One defined in the test's file, or in a file it includes, is found by its name.
+ */
+async function macrosOf(node, graph, linesOf) {
+  const file = graph.files.get(node.path)?.file;
+  if (!file || !MACRO_LANGUAGES.has(file.language)) return [];
+  const included = (file.imports ?? []).map(item => resolveModule(node.path, item.module, file.language, new Set(graph.files.keys()))).filter(Boolean);
+  const names = [...new Set(graph.external(node.id).map(call => String(call.name).replace(/!$/, '')).filter(name => /^\w+$/.test(name)))];
+  const macros = [];
+  for (const path of [node.path, ...included]) {
+    const fileLines = await linesOf({ path });
+    for (const name of names) {
+      if (macros.some(item => item.name === name)) continue;
+      const found = macroIn(fileLines, name);
+      if (found) macros.push({ name, id: `${path}::${name}`, path, source: found.text });
+    }
+  }
+  return macros;
 }
 
 /** The level of a score most of its mass sits on. */
@@ -917,19 +884,6 @@ const likeliest = probabilities => {
   const top = Object.entries(probabilities ?? {}).sort((a, b) => b[1] - a[1] || Number(a[0]) - Number(b[0]))[0];
   return top ? Number(top[0]) : null;
 };
-/** The case no test covers, named: the method in the situation the missing test would put it in. One per gap_kind option. */
-const GAP_CASES = {
-  boundary: method => `Untested case: ${method} at the edge of its range.`,
-  empty_or_absent_input: method => `Untested case: ${method} with empty, missing or zero input.`,
-  error_path: method => `Untested case: ${method} failing.`,
-  invalid_input: method => `Untested case: ${method} with invalid input.`,
-  state_after_call: method => `Untested case: ${method} from the state that takes this branch.`,
-  ordering: method => `Untested case: ${method} with input in another order.`,
-};
-/** What an infra category is, as a person says it. */
-/** A score's expected level, as a share of its top level: 0 for the first level, 1 for the last. */
-const expectedShare = (score, levels) => (levels > 1 ? Object.entries(score.probabilities).reduce((total, [level, p]) => total + p * Number(level) / (levels - 1), 0) : null);
-const mean = values => (values.length ? values.reduce((total, value) => total + value, 0) / values.length : null);
 const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`;
 const findingIdOf = (kind, unit) => identity('coverage', kind, unit).slice(0, 8);
 
@@ -940,19 +894,19 @@ const findingIdOf = (kind, unit) => identity('coverage', kind, unit).slice(0, 8)
 export function buildReport({ coverage, answers, lines, revision, root, label = root, github = null, createdAt = new Date().toISOString(), model = null, min = 0.5, usage = {}, closed = new Map() }) {
   const { test: testAsked } = coverageQuestions();
   const costLevels = testAsked.find(question => question.name === 'cost').levels.length;
-  const exercisedLevels = questionNamed('exercised').levels.length;
-  const judged = judgeTests(coverage.tests, answers.tests, min, answers.repeats);
-  const failedUnits = new Set(answers.failed.map(item => item.unit));
-  const anything = answers.tests.size + answers.methods.size > 0 || coverage.methods.some(method => method.measured);
+  const judged = judgeTests(coverage.tests, answers.bugs, min);
   const findings = [];
   const listed = finding => finding.probability === null || finding.probability >= min;
   // A problem someone closed with `perch close` stays closed: it is kept apart, so perch reopen can find it, and listed nowhere.
-  const isClosed = (kind, unit) => closed.get(findingIdOf(kind, unit))?.kinds.has(kind) ?? false;
+  // A planted bug's problem is keyed by the bug, since a method can have several; every other problem by its unit.
+  const isClosed = (kind, key) => closed.get(findingIdOf(kind, key))?.kinds.has(kind) ?? false;
   const closedFindings = [];
   const add = finding => {
-    const full = { id: findingIdOf(finding.kind, finding.unit), ...finding };
+    const key = finding.key ?? finding.unit;
+    const full = { id: findingIdOf(finding.kind, key), ...finding };
+    delete full.key;
     if (!listed(full)) return null;
-    if (isClosed(full.kind, full.unit)) { closedFindings.push({ ...full, reason: closed.get(full.id).reason }); return null; }
+    if (isClosed(full.kind, key)) { closedFindings.push({ ...full, reason: closed.get(full.id).reason }); return null; }
     findings.push(full);
     return full.id;
   };
@@ -960,73 +914,14 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
   const measurement = coverage.measurement;
   // The tests that could go: checking nothing, or repeating another. One whose problem was closed is one someone chose to keep,
   // and one that could not be asked about is not said to check nothing.
-  const dropped = new Set(coverage.tests.filter(test => (judged.checksNothing.has(test.id) && !isClosed('checks_nothing', test.id)) || (judged.redundantWith.has(test.id) && !isClosed('redundant', test.id))).map(test => test.id));
-  // What the tests kept ran and what the dropped tests ran, file by file, from the reports' per-test records.
-  const kept = { lines: new Map(), arms: new Map() }, gone = { lines: new Map(), arms: new Map() };
-  const gather = (into, files) => {
-    for (const [path, items] of files ?? []) {
-      if (!into.has(path)) into.set(path, new Set());
-      for (const item of items) into.get(path).add(item);
-    }
-  };
-  for (const test of coverage.tests) {
-    const into = dropped.has(test.id) ? gone : kept;
-    gather(into.lines, test.executed);
-    gather(into.arms, test.arms);
-  }
-  // Ran only by tests that could go: a dropped test ran it and no kept test did. What ran outside any test, or under a run
-  // perch could not match, is no dropped test's doing and stays.
-  const onlyDropped = (part, path) => {
-    const theirs = gone[part].get(path), ours = kept[part].get(path);
-    return item => Boolean(theirs?.has(item)) && !ours?.has(item);
-  };
-  /**
-   * A measured method's lines and branches, less what only duplicate tests and tests that check nothing ran. Where the report says what each test
-   * ran, that is the lines and branch sides only dropped tests ran, and is measured; coverage.py's contexts say lines but not
-   * sides, so a side goes when only dropped tests ran its line, an estimate. Without per-test records it is estimated from the
-   * call graph: none of the method counts when every test reaching it is dropped, and all of it otherwise.
-   */
-  const effectiveOf = method => {
-    const { measured, node } = method;
-    if (!measured) return null;
-    const file = measurement.files.get(node.path);
-    if (!file.per_test) {
-      const lost = method.tests.length > 0 && method.tests.every(item => dropped.has(item.id));
-      return { lines: { hit: lost ? 0 : measured.lines.hit, total: measured.lines.total, basis: 'estimated' },
-        branches: { hit: lost ? 0 : measured.branches.hit, total: measured.branches.total, basis: 'estimated' } };
-    }
-    const lineGone = onlyDropped('lines', node.path);
-    const { from, to } = bodyLines(node);
-    const lines = measured.lines.hit === 0 ? 0 : [...file.lines].filter(([line, hits]) => line >= from && line <= to && hits > 0 && !lineGone(line)).length;
-    const branchLines = [...file.branches.keys()].filter(line => line >= node.line && line <= node.end_line);
-    let branches;
-    if (file.per_test_arms) {
-      const armGone = onlyDropped('arms', node.path);
-      branches = branchLines.reduce((sum, line) => sum + [...(file.arms.get(line) ?? [])].filter(([arm, taken]) => taken > 0 && !armGone(`${line}\0${arm}`)).length, 0);
-    } else branches = branchLines.reduce((sum, line) => sum + (lineGone(line) ? 0 : file.branches.get(line).taken), 0);
-    return { lines: { hit: lines, total: measured.lines.total, basis: 'measured' },
-      branches: { hit: branches, total: measured.branches.total, basis: file.per_test_arms || !measured.branches.total ? 'measured' : 'estimated' } };
-  };
+  const dropped = new Set(coverage.tests.filter(test => (judged.checksNothing.has(test.id) && !isClosed('checks_nothing', test.id))
+    || (judged.redundantWith.has(test.id) && !isClosed('redundant', test.id))).map(test => test.id));
 
   const methods = coverage.methods.map(method => {
     const { node } = method;
     const usefulTests = method.tests.filter(item => judged.useful.has(item.id)).map(item => item.id);
-    const said = answers.methods.get(method.id)?.answers;
     const measured = method.measured ?? null;
     const executed = measured ? measured.lines.hit > 0 : null;
-    // A measured method's share is the report's: the branches taken of those it counted, or, with none, whether it ran at all.
-    // Otherwise it is an answer when it was asked, and follows from the answers about its tests when it was not: none of them
-    // useful is none of it exercised, and a useful test reaching a method with no branches takes the only path there is. No
-    // test reaching it at all is a fact of the graph. When the answer that would decide it failed, it is unknown, not zero and
-    // not whole.
-    let exercised, basis;
-    if (measured) [exercised, basis] = [measured.branches.total ? measured.branches.hit / measured.branches.total : executed ? 1 : 0, 'measured'];
-    else if (said?.exercised) [exercised, basis] = [expectedShare(said.exercised, exercisedLevels), 'estimated'];
-    else if (!method.tests.length) [exercised, basis] = [0, 'static'];
-    else if (!usefulTests.length) [exercised, basis] = method.tests.some(item => failedUnits.has(item.id)) ? [null, null] : [0, 'estimated'];
-    else [exercised, basis] = !method.branches.length ? [1, 'estimated'] : [null, null];
-    const gapLine = said ? branchLine(node, said.gap_line.choice) : null;
-    const gap = gapLine === null ? null : { line: gapLine, text: (lines.get(node.path)?.[gapLine - 1] ?? '').trim(), kind: said.gap_kind.choice, probability: said.gap_line.probability };
     // Measured, a method is untested when none of its lines ran, whatever the call graph says reaches it; and one the call graph
     // misses is tested when the report shows it ran. Unmeasured, it is untested when no test reaches it.
     const untested = isUntested(method);
@@ -1036,11 +931,23 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     if (untested) own.push(add({ kind: 'untested', subject: 'method', unit: method.id, path: node.path, line: node.line, name: node.qualified_name, probability: needsTest,
       note: measured ? `None of its lines ran.${method.tests.length ? ` ${plural(method.tests.length, 'test')} ${method.tests.length === 1 ? 'calls' : 'call'} it.` : ''}`
         : `No test reaches it within ${plural(coverage.depth, 'call')}.` }));
-    if (gap) own.push(add({ kind: 'edge_case', subject: 'method', unit: method.id, path: node.path, line: gap.line, name: node.qualified_name, probability: gap.probability,
-      note: GAP_CASES[gap.kind]?.(node.name ?? node.qualified_name) ?? `Untested case: the other side of line ${gap.line}.` }));
+    // Each planted bug: how likely it is that no test shown catches it, and that it is a bug at all. A bug is caught when some
+    // test is likely enough to fail with it in; one no test catches, that matters, is listed.
+    const planted = (answers.bugs.get(method.id) ?? []).map(({ mutant, matters, catches }) => {
+      const survives = catches.reduce((total, [, p]) => total * (1 - p), 1);
+      const id = mutantId(mutant);
+      const bug = { id, kind: mutant.kind, line: mutant.line, column: mutant.column, from: mutant.from, to: mutant.to, original: mutant.original, mutated: mutant.mutated,
+        matters, survives, caught: 1 - survives >= min, caught_by: catches.filter(([, p]) => p >= min).map(([testId]) => testId), asked: catches.map(([testId]) => testId), finding: null };
+      const count = catches.length;
+      bug.finding = add({ kind: 'uncaught', subject: 'method', unit: method.id, key: `${method.id}#${id}`, path: node.path, line: mutant.line, name: node.qualified_name,
+        probability: survives * matters, bug: id,
+        note: `With ${describeMutant(mutant)}, ${count === 1 ? 'the 1 test reaching it still passes' : `none of the ${count} tests reaching it fails`}.` });
+      return bug;
+    });
+    own.push(...planted.map(bug => bug.finding));
     return { id: method.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, risk: node.metrics?.risk_score ?? null,
-      branches: method.branches, tests: method.tests, useful: usefulTests, exercised, exercised_basis: basis, measured, effective: effectiveOf(method), executed,
-      untaken: measured ? method.untaken : null, untested, gap, findings: own.filter(Boolean) };
+      branches: method.branches, tests: method.tests, useful: usefulTests, measured, executed, untested,
+      bugs: planted, planted: planted.length, caught: planted.filter(bug => bug.caught).length, findings: own.filter(Boolean) };
   });
   const testById = new Map(coverage.tests.map(test => [test.id, test]));
 
@@ -1049,32 +956,29 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     const said = answers.tests.get(test.id)?.answers ?? null;
     const own = [];
     const keptId = judged.redundantWith.get(test.id) ?? null;
-    const redundantBasis = keptId ? judged.redundantBasis.get(test.id) : null;
     if (keptId) {
       const kept = testById.get(keptId).node;
       const like = `${kept.qualified_name}${kept.path === node.path ? '' : ` in ${kept.path}`} at line ${kept.line}`;
       own.push(add({ kind: 'redundant', subject: 'test', unit: test.id, path: node.path, line: node.line, name: node.qualified_name, probability: judged.pairProbability.get(test.id),
-        note: `Same checks and ${redundantBasis === 'measured' ? 'lines' : 'calls'} as ${like}.` }));
+        note: `Catches the same planted bugs as ${like}, and no others.` }));
     }
     if (judged.checksNothing.has(test.id)) own.push(add({ kind: 'checks_nothing', subject: 'test', unit: test.id, path: node.path, line: node.line, name: node.qualified_name,
-      probability: said.decides.probabilities.nothing, note: 'Passes whatever the code it calls does.' }));
+      probability: judged.checksNothing.get(test.id), note: `Passes with every one of the ${plural(judged.asked.get(test.id), 'bug')} planted in the code it reaches.` }));
     const leaks = test.evidence.filter(item => LEAKS.has(item.category));
     const shown = leaks.slice(0, 3).map(item => `${item.name} at ${item.path}:${item.line}`).join(', ');
     // The call graph finds the network and database calls a test can reach; the answer decides whether it makes one to a live
     // service. A test that could not be asked keeps what the call graph found, with no probability, and is listed under failures.
     if (leaks.length) own.push(add({ kind: 'infra', subject: 'test', unit: test.id, path: node.path, line: node.line, name: node.qualified_name,
       probability: said?.infra ?? null, note: `Calls a live service with nothing mocked: ${shown}.` }));
-    if (test.unresolved) own.push(add({ kind: 'unresolved', subject: 'test', unit: test.id, path: node.path, line: node.line, name: node.qualified_name, probability: said ? said.tests_nothing_here : null,
-      note: `Calls nothing in this repository${test.unresolved.length ? `: ${test.unresolved.slice(0, 6).join(', ')}` : ''}.` }));
     const run = test.run ?? null;
     // A timed test's cost is the report's seconds; an untimed one's is the tier Jev put it in.
     const cost = typeof run?.time === 'number' ? { seconds: run.time, basis: 'measured' }
       : said?.cost && likeliest(said.cost.probabilities) !== null ? { tier: likeliest(said.cost.probabilities), probabilities: said.cost.probabilities, basis: 'estimated' } : null;
     return { id: test.id, path: node.path, name: node.case.name, suite: node.case.suite, line: node.line, end_line: node.end_line, framework: node.case.framework,
       direct: test.direct, reach: test.reach, cuts: test.cuts, touches: test.touches, unresolved: test.unresolved ?? null,
-      decides: said ? { choice: said.decides.choice, probability: said.decides.probability } : null,
       infra: said?.infra ?? null, cost, run, executed_methods: test.executed_methods ?? null,
-      useful: judged.useful.has(test.id), redundant_with: keptId, redundant_basis: redundantBasis, findings: own.filter(Boolean) };
+      asked: judged.asked.get(test.id) ?? 0, kills: judged.kills.get(test.id) ?? [],
+      useful: judged.useful.has(test.id), redundant_with: keptId, findings: own.filter(Boolean) };
   });
 
   // Counted from an index of each kind's units: scanning every finding once per file was quadratic in a large repository.
@@ -1090,36 +994,24 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     if (units) for (const unit of list) total += units.get(unit) ?? 0;
     return total;
   };
-  const share = list => (anything ? mean(list.map(method => method.exercised).filter(value => value !== null)) : null);
-  // Whether a share is the report's, an estimate, or a fact of the graph: estimated when any part of it is.
-  const basisOf = list => {
-    const bases = new Set(list.filter(method => method.exercised !== null).map(method => method.exercised_basis));
-    return bases.has('estimated') ? 'estimated' : bases.has('measured') ? 'measured' : bases.has('static') ? 'static' : null;
-  };
   const measuredOf = list => {
     const counted = list.filter(method => method.measured);
     if (!counted.length) return null;
     const sum = (part, key) => counted.reduce((total, method) => total + method.measured[part][key], 0);
     return { lines: { hit: sum('lines', 'hit'), total: sum('lines', 'total') }, branches: { hit: sum('branches', 'hit'), total: sum('branches', 'total') } };
   };
-  // Summed like the measured figures, and estimated when any method's part of it is.
-  const effectiveOfAll = list => {
-    const counted = list.filter(method => method.effective);
-    if (!counted.length) return null;
-    const part = name => ({ hit: counted.reduce((total, method) => total + method.effective[name].hit, 0), total: counted.reduce((total, method) => total + method.effective[name].total, 0),
-      basis: counted.some(method => method.effective[name].total && method.effective[name].basis === 'estimated') ? 'estimated' : 'measured' });
-    return { lines: part('lines'), branches: part('branches') };
-  };
   const timeOf = list => {
     const timed = list.filter(test => typeof test.run?.time === 'number');
     return { seconds: timed.length ? timed.reduce((total, test) => total + test.run.time, 0) : null, timed: timed.length };
   };
   const totalsOf = (methodList, testList) => {
-    const testIds = new Set(testList.map(test => test.id));
+    const testIds = new Set(testList.map(test => test.id)), methodIds = new Set(methodList.map(method => method.id));
+    const planted = methodList.reduce((total, method) => total + method.planted, 0), caught = methodList.reduce((total, method) => total + method.caught, 0);
     // Reached is what ran when the coverage report measured the method, and what the call graph reaches when it did not: the same
     // rule untested follows, so the two columns never disagree about one method.
     return { methods: methodList.length, reached: methodList.filter(method => !method.untested).length, useful_reached: methodList.filter(method => method.useful.length).length,
-      exercised: share(methodList), exercised_basis: basisOf(methodList), measured: measuredOf(methodList), effective: effectiveOfAll(methodList), tests: testList.length, useful: testList.filter(test => test.useful).length,
+      planted, caught, score: planted ? caught / planted : null, uncaught: count(methodIds, 'uncaught'), measured: measuredOf(methodList),
+      tests: testList.length, useful: testList.filter(test => test.useful).length,
       redundant: testList.filter(test => test.redundant_with).length, weak: testList.filter(test => judged.checksNothing.has(test.id)).length, infra: count(testIds, 'infra'),
       ...timeOf(testList), dropped_seconds: timeOf(testList.filter(test => dropped.has(test.id))).seconds ?? 0 };
   };
@@ -1143,10 +1035,8 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
   drop.seconds = droppedTime.seconds;
   drop.timed = droppedTime.timed;
   drop.unreached = methods.filter(method => method.tests.length && method.tests.every(item => dropped.has(item.id))).map(method => method.id);
-  const methodIds = new Set(methods.map(method => method.id));
-  const totals = { ...totalsOf(methods, tests), unresolved: count(new Set(tests.map(test => test.id)), 'unresolved'),
-    untested: methods.filter(method => method.untested).length, edge_cases: count(methodIds, 'edge_case'), cost, drop, suite: measurement?.suite ?? null };
-  return { version: 1, revision, root, target: label, github, created_at: createdAt, model, depth: coverage.depth, min,
+  const totals = { ...totalsOf(methods, tests), untested: methods.filter(method => method.untested).length, cost, drop, suite: measurement?.suite ?? null };
+  return { version: 2, revision, root, target: label, github, created_at: createdAt, model, depth: coverage.depth, min,
     inputs: measurement?.inputs ?? [], measured_by: measurement?.tools ?? [], unmatched_runs: measurement?.unmatched_runs ?? [], unmatched_paths: measurement?.unmatched_paths ?? [],
     totals, files, methods, tests, findings, failed: answers.failed, closed: closedFindings, baseline: null, diff: null, usage };
 }
@@ -1180,13 +1070,11 @@ export function branchOf(report, { ref, base, files: changed }, sources) {
 const hitsOf = file => (file ? { lines: [...file.lines].sort(([a], [b]) => a - b),
   branches: [...file.branches].sort(([a], [b]) => a - b).map(([line, branch]) => [line, branch.taken, branch.total]) } : null);
 
-const DIFF_TOTALS = ['methods', 'reached', 'exercised', 'tests', 'useful', 'redundant', 'weak', 'infra', 'untested', 'edge_cases', 'unresolved'];
+const DIFF_TOTALS = ['methods', 'reached', 'planted', 'caught', 'score', 'uncaught', 'tests', 'useful', 'redundant', 'weak', 'infra', 'untested'];
 /** The measured totals a diff compares, as shares and seconds, read off a report's totals. */
 const MEASURED_TOTALS = {
   measured_lines: totals => (totals.measured?.lines.total ? totals.measured.lines.hit / totals.measured.lines.total : null),
   measured_branches: totals => (totals.measured?.branches.total ? totals.measured.branches.hit / totals.measured.branches.total : null),
-  effective_lines: totals => (totals.effective?.lines.total ? totals.effective.lines.hit / totals.effective.lines.total : null),
-  effective_branches: totals => (totals.effective?.branches.total ? totals.effective.branches.hit / totals.effective.branches.total : null),
   suite_seconds: totals => totals.suite?.seconds ?? null,
 };
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -1202,7 +1090,7 @@ export function diffReports(before, after) {
   const files = union(filesBefore.keys(), filesAfter.keys()).sort()
     .map(path => ({ path, before: filesBefore.get(path) ?? null, after: filesAfter.get(path) ?? null }))
     .filter(change => !same(change.before, change.after));
-  const state = method => (method ? { reached: !method.untested, exercised: method.exercised, executed: method.executed ?? null, measured: method.measured ?? null } : null);
+  const state = method => (method ? { reached: !method.untested, planted: method.planted ?? 0, caught: method.caught ?? 0, executed: method.executed ?? null, measured: method.measured ?? null } : null);
   const methodsBefore = new Map(before.methods.map(method => [method.id, method])), methodsAfter = new Map(after.methods.map(method => [method.id, method]));
   const methods = union(methodsBefore.keys(), methodsAfter.keys()).sort().map(id => {
     const was = methodsBefore.get(id), is = methodsAfter.get(id), either = is ?? was;

@@ -17,8 +17,7 @@ const short = revision => String(revision ?? '').slice(0, 7);
 const words = label => String(label ?? '').replaceAll('_', ' ');
 /** Each kind of problem by the name the page gives it. */
 const PROBLEM_NAMES = {
-  untested: 'No test', edge_case: 'Untested branch', redundant: 'Duplicate test', checks_nothing: 'Checks nothing',
-  infra: 'Live service', unresolved: 'Calls no repo code',
+  untested: 'No test', uncaught: 'Uncaught bug', redundant: 'Duplicate test', checks_nothing: 'Checks nothing', infra: 'Live service',
 };
 const problemName = kind => PROBLEM_NAMES[kind] ?? words(kind);
 /** A saved report's ISO timestamp, to the minute. Seconds and milliseconds only make two dates harder to compare by eye. */
@@ -42,28 +41,11 @@ function seconds(value) {
 /** The report kinds line and branch hits are read from: LCOV, Cobertura, JaCoCo or coverage.py JSON. */
 const COVERAGE_KINDS = ['lcov', 'cobertura', 'jacoco', 'contexts'];
 
-/** Where an effective figure came from: what each test ran, as the reports recorded it, or the call graph's guess at it. */
-const effectiveTag = basis => (basis === 'estimated'
-  ? '<span class="est" title="The coverage report did not say what each test ran here. A method counts not at all when only duplicate tests or tests that check nothing reach it or ran its line, and in full otherwise.">est.</span>'
-  : '<span class="msr" title="Read from the lines and branches each test ran, as the coverage report recorded them.">measured</span>');
-const EFFECTIVE_HINT = 'Run by tests worth keeping: what the coverage report counts, less what only duplicate tests and tests that check nothing ran.';
-
 /** The report files of the given kinds that the report says it read. */
 const inputsOf = (report, kinds) => (report.inputs ?? []).filter(input => kinds.includes(input.kind));
 
 /** The "measured" tag, with the reports it was read from in its tooltip; the header lists them by name. */
 const measuredBy = inputs => `<span class="msr" title="${escape(inputs.map(input => `${input.kind} ${input.path}`).join('\n'))}">measured</span>`;
-
-/**
- * The tag saying where a figure came from: the coverage report, Jev's estimate, or a rule of the graph (a method no test reaches
- * exercises nothing). A basis the report does not give gets no tag rather than a guessed one.
- */
-function basisTag(basis) {
-  if (basis === 'measured') return '<span class="msr" title="read from the coverage report">measured</span>';
-  if (basis === 'estimated') return '<span class="est" title="estimated by Jev">est.</span>';
-  if (basis === 'static') return '<span class="stc" title="from the call graph">static</span>';
-  return '';
-}
 
 /** A count of something as "n thing" or "n things". */
 const counted = (count, one, many = `${one}s`) => `${escape(count)} ${count === 1 ? one : many}`;
@@ -187,21 +169,13 @@ function headline(report) {
     tiles.push(tile('sources', 'Lines run', share(lines), `${escape(measured.lines.hit)} of ${escape(measured.lines.total)} ${from}`,
       changed([moving('measured_lines', '', { points: true })]) + bar(lines), 'Lines the coverage report shows ran, of the lines it counts. Blank lines and comments do not count.'));
   }
-  if (measured?.branches.total) {
-    const branches = ratio(measured.branches.hit, measured.branches.total);
-    tiles.push(tile('sources', 'Branches taken', share(branches), `${escape(measured.branches.hit)} of ${escape(measured.branches.total)} ${from}`,
-      changed([moving('measured_branches', '', { points: true })]) + bar(branches), 'Sides of branches the coverage report shows taken, of all sides of every branch.'));
-  } else {
-    tiles.push(tile('sources', 'Branches taken', share(totals.exercised), '<span class="est">estimated by Jev</span>',
-      changed([moving('exercised', '', { points: true })]) + bar(totals.exercised), 'With no coverage report, Jev\'s estimate of how much of each method\'s branching its tests take, averaged over the methods.'));
-  }
-  // What the tests worth keeping ran: the figure a coverage report gives, less what only duplicate tests and tests that check nothing ran.
-  const effective = totals.effective ?? null;
-  for (const [part, title, metric] of [['lines', 'Effective lines', 'effective_lines'], ['branches', 'Effective branches', 'effective_branches']]) {
-    if (!effective?.[part].total) continue;
-    const kept = ratio(effective[part].hit, effective[part].total);
-    tiles.push(tile('sources', title, share(kept), `${escape(effective[part].hit)} of ${escape(effective[part].total)} ${effectiveTag(effective[part].basis)}`,
-      changed([moving(metric, '', { points: true })]) + bar(kept), EFFECTIVE_HINT));
+  // Planted bugs the tests catch, of all planted: the number a test suite is judged by, and the uncaught ones are what to act on.
+  if (totals.planted) {
+    const score = ratio(totals.caught, totals.planted);
+    tiles.push(tile('sources', 'Bugs caught', share(score), `${escape(totals.caught)} of ${escape(totals.planted)} planted`,
+      changed([moving('score', '', { points: true })]) + bar(score), 'Planted bugs some test is predicted to fail on, of every bug planted in the methods tests reach. A bug is one line changed: a comparison moved to its boundary, a condition negated, an operator swapped.'));
+    tiles.push(tile('problems', 'Uncaught bugs', `${escape(totals.uncaught)}<span class="of"> of ${escape(totals.planted)}</span>`, 'planted bugs no test catches',
+      changed([moving('uncaught', 'bugs', { better: 'down' })]), 'Planted bugs no test reaching the method is predicted to fail on, that would change what a caller sees. Each is listed with the edit and the tests that miss it.'));
   }
   const drop = totals.drop ?? { count: 0 };
   const suite = totals.suite ?? null;
@@ -237,7 +211,7 @@ function changes(report, index) {
     const name = entry.after ? `<a href="${index.href(entry.path)}">${escape(entry.path)}</a>` : escape(entry.path);
     return `<tr><td class="path">${name}</td><td>${fromTo(entry.before && before.methods, entry.after && after.methods)}</td>`
       + `<td>${fromTo(entry.before && before.reached, entry.after && after.reached)}</td>`
-      + `<td>${fromTo(entry.before && before.exercised, entry.after && after.exercised, percent)}</td>`
+      + `<td>${fromTo(entry.before && before.score, entry.after && after.score, percent)}</td>`
       + `<td>${fromTo(entry.before && before.tests, entry.after && after.tests)}</td><td>${fromTo(entry.before && before.useful, entry.after && after.useful)}</td></tr>`;
   }).join('');
   // The measured columns are shown only when some method in the diff was measured on one side or the other.
@@ -245,7 +219,7 @@ function changes(report, index) {
   const methodRows = diff.methods.map(entry => `<tr><td>${index.methods.has(entry.id) ? unitLink(entry.id, index) : escape(entry.name)}</td>`
     + `<td class="path">${escape(entry.path)}</td><td>${fromTo(entry.before?.reached, entry.after?.reached, reachedWord)}</td>`
     + (ran ? `<td>${fromTo(entry.before?.executed, entry.after?.executed, ranWord)}</td><td>${fromTo(entry.before?.measured?.lines, entry.after?.measured?.lines, hits)}</td>` : '')
-    + `<td>${fromTo(entry.before?.exercised, entry.after?.exercised, percent)}</td></tr>`).join('');
+    + `<td>${fromTo(entry.before && `${entry.before.caught}/${entry.before.planted}`, entry.after && `${entry.after.caught}/${entry.after.planted}`)}</td></tr>`).join('');
   const added = diff.tests.added.map(id => `<li>${unitLink(id, index)}</li>`).join('');
   const removed = diff.tests.removed.map(id => `<li><code>${escape(id)}</code></li>`).join('');
   const block = (title, count, body) => `<details class="change" ${count ? 'open' : ''}><summary><h3>${title}</h3><span class="count">${count}</span></summary>${body}</details>`;
@@ -254,8 +228,8 @@ function changes(report, index) {
     // every problem it had go away as well.
     + (diff.findings.fixed.length ? `${counted(diff.findings.fixed.length, 'problem')} from that run ${diff.findings.fixed.length === 1 ? 'is' : 'are'} gone.` : ''), '<section id="changes" class="panel">'
     + block('New problems', diff.findings.new.length, diff.findings.new.length ? actionTable(diff.findings.new, index) : '<p class="muted">None.</p>')
-    + block('Files', diff.files.length, diff.files.length ? `<div class="scroll"><table class="grid"><thead><tr><th>File</th><th>Methods</th><th>Reached</th><th>Branches</th><th>Tests</th><th>Kept</th></tr></thead><tbody>${fileRows}</tbody></table></div>` : '<p class="muted">None.</p>')
-    + block('Methods that moved', diff.methods.length, diff.methods.length ? `<div class="scroll"><table class="grid"><thead><tr><th>Method</th><th>File</th><th>Reached</th>${ran ? '<th>Ran <span class="msr">measured</span></th><th>Lines <span class="msr">measured</span></th>' : ''}<th>Branches</th></tr></thead><tbody>${methodRows}</tbody></table></div>` : '<p class="muted">None.</p>')
+    + block('Files', diff.files.length, diff.files.length ? `<div class="scroll"><table class="grid"><thead><tr><th>File</th><th>Methods</th><th>Reached</th><th>Bugs caught</th><th>Tests</th><th>Kept</th></tr></thead><tbody>${fileRows}</tbody></table></div>` : '<p class="muted">None.</p>')
+    + block('Methods that moved', diff.methods.length, diff.methods.length ? `<div class="scroll"><table class="grid"><thead><tr><th>Method</th><th>File</th><th>Reached</th>${ran ? '<th>Ran <span class="msr">measured</span></th><th>Lines <span class="msr">measured</span></th>' : ''}<th>Bugs caught</th></tr></thead><tbody>${methodRows}</tbody></table></div>` : '<p class="muted">None.</p>')
     + block('Tests added', diff.tests.added.length, added ? `<ul class="ids">${added}</ul>` : '<p class="muted">None.</p>')
     + block('Tests removed', diff.tests.removed.length, removed ? `<ul class="ids">${removed}</ul>` : '<p class="muted">None.</p>')
     + '</section>');
@@ -272,11 +246,7 @@ function problemFacts(finding, index) {
   const method = index.methods.get(finding.unit), test = index.tests.get(finding.unit);
   const subject = escape(test ? testName(test) : method?.name ?? finding.name);
   let fact = escape(finding.note);
-  if (finding.kind === 'edge_case' && method?.gap) {
-    fact = escape(finding.note);
-  } else if (finding.kind === 'redundant' && test?.redundant_with) {
-    fact = `Same checks and ${test.redundant_basis === 'measured' ? 'lines' : 'calls'} as ${unitLink(test.redundant_with, index)}.`;
-  }
+  if (finding.kind === 'redundant' && test?.redundant_with) fact = `Catches the same planted bugs as ${unitLink(test.redundant_with, index)}, and no others.`;
   return { subject, fact: `${fact}${unsure(finding.probability)}` };
 }
 
@@ -325,8 +295,8 @@ function actionsView(report, index) {
   const fresh = new Set(report.branch ? [] : (report.diff?.findings?.new ?? []).map(finding => finding.id));
   const newFirst = (a, b) => Number(fresh.has(b.id)) - Number(fresh.has(a.id));
 
-  // Untested code: methods no test runs and branches no test takes, one row per method, riskiest first.
-  const missing = of(['untested', 'edge_case']);
+  // Untested code: methods no test runs and planted bugs no test catches, one row per method, riskiest first.
+  const missing = of(['untested', 'uncaught']);
   const perMethod = new Map();
   for (const finding of missing) {
     const held = perMethod.get(finding.unit);
@@ -337,11 +307,11 @@ function actionsView(report, index) {
     + `<td class="num">${escape(Math.round(risk(finding.unit)))}</td><td class="x-cell">${dismissMark}</td></tr>`);
   const methodsSection = section(`Untested code <span class="count">${escape(missing.length)}</span>${copyAll}`, '',
     methodRows.length ? table('<th>Problem</th><th>Where</th><th>Details</th><th class="num" title="How complex and hard to maintain the method is, 0 to 100.">Risk</th><th class="x-cell"></th>', methodRows) : '',
-    missing.length > TOP ? all(['untested', 'edge_case'], missing.length) : '');
+    missing.length > TOP ? all(['untested', 'uncaught'], missing.length) : '');
 
   // Test problems: duplicates, tests that check nothing, and tests that call a live service, the slowest first, since that is
   // where fixing one saves the most.
-  const testKinds = ['redundant', ...WEAK, 'infra', 'unresolved'];
+  const testKinds = ['redundant', ...WEAK, 'infra'];
   const time = finding => index.tests.get(finding.unit)?.run?.time ?? -1;
   const testProblems = of(testKinds).sort((a, b) => newFirst(a, b) || time(b) - time(a) || (b.probability ?? 2) - (a.probability ?? 2) || a.path.localeCompare(b.path));
   const testRows = testProblems.slice(0, TOP).map(finding => `<tr data-finding="${escape(finding.id)}">${actionCells(finding, index, fresh.has(finding.id))}`
@@ -393,47 +363,35 @@ const th = (name, numeric = true, bars = false, title = '') => `<th data-sort="$
 
 /** A share of lines or branches the report measured, as a bar cell: hit over all, what coverage tools print. */
 const measuredCell = part => (part?.total ? cell(part.hit / part.total, { count: `${escape(part.hit)}/${escape(part.total)}` }) : cell(null));
-/**
- * A file's or the repository's branches as a bar cell. A run that read no branch counts has only the average of each method's
- * share, from Jev or the call graph, so that is shown with the basis the report gives it.
- */
-const branchesCell = totals => (totals.measured?.branches?.total
-  ? measuredCell(totals.measured.branches) : cell(totals.exercised, { count: basisTag(totals.exercised_basis) }));
-/** Lines or branches the tests worth keeping ran, as a bar cell, tagged est. when the call graph stood in for per-test records. */
-const effectiveCell = part => (part?.total
-  ? cell(part.hit / part.total, { count: `${escape(part.hit)}/${escape(part.total)}${part.basis === 'estimated' ? ` ${effectiveTag('estimated')}` : ''}` }) : cell(null));
-const effectiveValue = part => (part?.total ? part.hit / part.total : -1);
-/** The number the branches column sorts by: the same share the cell above shows, measured or estimated as the run was. */
-const branchesValue = totals => (totals.measured?.branches?.total ? totals.measured.branches.hit / totals.measured.branches.total : totals.exercised);
+/** Planted bugs caught as a bar cell: caught over planted, or nothing for a file with nothing planted. */
+const scoreCell = totals => (totals.planted ? cell(totals.caught / totals.planted, { count: `${escape(totals.caught)}/${escape(totals.planted)}` }) : cell(null));
+const scoreValue = totals => (totals.planted ? totals.caught / totals.planted : null);
 
 /** The source files, lcov-report's shape: a row per file, worst first, bars for methods tested, lines run and branches taken. */
 function sourceTable(report, index) {
   const files = report.files.filter(file => file.kind === 'source');
-  const worst = (a, b) => (ratio(a.totals.reached, a.totals.methods) ?? 1) - (ratio(b.totals.reached, b.totals.methods) ?? 1)
-    || (branchesValue(a.totals) ?? 1) - (branchesValue(b.totals) ?? 1) || a.path.localeCompare(b.path);
+  const worst = (a, b) => (scoreValue(a.totals) ?? 1) - (scoreValue(b.totals) ?? 1)
+    || (ratio(a.totals.reached, a.totals.methods) ?? 1) - (ratio(b.totals.reached, b.totals.methods) ?? 1) || a.path.localeCompare(b.path);
+  const measured = Boolean(report.totals.measured);
   const rows = [...files].sort(worst).map(file => {
     // What changed in a file since the last run is the Changes view's to say; this table says where things stand.
-    const totals = file.totals, branches = index.kinds(file.path).edge_case ?? 0;
+    const totals = file.totals, uncaught = index.kinds(file.path).uncaught ?? 0;
     const reached = ratio(totals.reached, totals.methods);
     return `<tr data-path="${escape(file.path)}"><td class="path" data-v="${escape(file.path)}"><a href="${index.href(file.path)}">${escape(file.path)}</a></td>`
       + `<td class="bars" data-v="${reached ?? -1}">${cell(reached, { inner: ratio(totals.useful_reached, totals.methods), count: `${escape(totals.reached)}/${escape(totals.methods)}` })}</td>`
-      + `<td class="bars" data-v="${totals.measured?.lines?.total ? totals.measured.lines.hit / totals.measured.lines.total : -1}">${measuredCell(totals.measured?.lines)}</td>`
-      + `<td class="bars" data-v="${branchesValue(totals) ?? -1}">${branchesCell(totals)}</td>`
-      + `<td class="bars" data-v="${effectiveValue(totals.effective?.lines)}">${effectiveCell(totals.effective?.lines)}</td>`
-      + `<td class="bars" data-v="${effectiveValue(totals.effective?.branches)}">${effectiveCell(totals.effective?.branches)}</td>`
-      + `<td class="num${branches ? '' : ' zero'}" data-v="${branches}">${branches}</td></tr>`;
+      + (measured ? `<td class="bars" data-v="${totals.measured?.lines?.total ? totals.measured.lines.hit / totals.measured.lines.total : -1}">${measuredCell(totals.measured?.lines)}</td>` : '')
+      + `<td class="bars" data-v="${scoreValue(totals) ?? -1}">${scoreCell(totals)}</td>`
+      + `<td class="num${uncaught ? '' : ' zero'}" data-v="${uncaught}">${uncaught}</td></tr>`;
   }).join('');
   const totals = report.totals, reached = ratio(totals.reached, totals.methods);
   const foot = `<tr><td>All source files</td>`
     + `<td class="bars">${cell(reached, { inner: ratio(totals.useful_reached, totals.methods), count: `${escape(totals.reached)}/${escape(totals.methods)}` })}</td>`
-    + `<td class="bars">${measuredCell(totals.measured?.lines)}</td><td class="bars">${branchesCell(totals)}</td>`
-    + `<td class="bars">${effectiveCell(totals.effective?.lines)}</td><td class="bars">${effectiveCell(totals.effective?.branches)}</td><td class="num">${escape(totals.edge_cases)}</td></tr>`;
+    + (measured ? `<td class="bars">${measuredCell(totals.measured?.lines)}</td>` : '')
+    + `<td class="bars">${scoreCell(totals)}</td><td class="num">${escape(totals.uncaught)}</td></tr>`;
   const heads = th('File', false) + th('Methods tested', true, true, `Methods a test calls within ${report.depth} calls, or that the coverage report shows ran. The darker part is methods a test worth keeping reaches.`)
-    + th('Lines run', true, true, 'Lines the coverage report shows ran, out of the lines it counted.')
-    + th('Branches taken', true, true, 'Sides of branches the coverage report shows were taken. Without a report, Jev\'s estimate from the tests that reach each method.')
-    + th('Effective lines', true, true, `Lines run by tests worth keeping. ${EFFECTIVE_HINT}`)
-    + th('Effective branches', true, true, `Sides of branches taken by tests worth keeping. ${EFFECTIVE_HINT}`)
-    + th('Untested branches', true, false, 'Branches whose other side no test takes, listed under All problems.');
+    + (measured ? th('Lines run', true, true, 'Lines the coverage report shows ran, out of the lines it counted.') : '')
+    + th('Bugs caught', true, true, 'Planted bugs some test is predicted to fail on, of every bug planted in the file\'s reached methods.')
+    + th('Uncaught bugs', true, false, 'Planted bugs no test catches, listed under All problems.');
   return view('sources', 'Source files', '',
     `<div class="filter"><input type="search" class="filter-files" placeholder="Filter files" aria-label="Filter files"></div>`
     + `<section class="panel" id="sources"><div class="scroll"><table class="grid sortable files"><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody><tfoot>${foot}</tfoot></table></div></section>`);
@@ -545,11 +503,11 @@ function methodState(method) {
     if (!method.executed) return 'none';
     return method.measured.branches.hit < method.measured.branches.total ? 'part' : 'full';
   }
-  return !method.tests.length ? 'none' : method.useful.length && band(method.exercised) === 'high' ? 'full' : 'part';
+  return !method.tests.length ? 'none' : method.caught === method.planted ? 'full' : 'part';
 }
 
-/** A method's untaken branch is marked and noted only when it is a listed problem: one under the floor has nothing to act on. */
-const listedGap = (method, index) => Boolean(method.gap) && (method.findings ?? []).some(id => index.findings.get(id)?.kind === 'edge_case');
+/** A method's uncaught bugs that are listed problems: one under the floor has nothing to act on. */
+const listedBugs = (method, index) => (method.findings ?? []).map(id => index.findings.get(id)).filter(finding => finding?.kind === 'uncaught');
 
 /** Tint, branch markers and the gap line for each line of a file, innermost method last so a nested function wins its lines. */
 function lineMarks(file, index) {
@@ -568,7 +526,7 @@ function lineMarks(file, index) {
     at(unit.line)?.starts.push(unit);
     if (file.kind === 'test') continue;
     for (const line of unit.branches ?? []) if (at(line)) at(line).branch = true;
-    if (listedGap(unit, index) && at(unit.gap.line)) at(unit.gap.line).gap = true;
+    for (const finding of listedBugs(unit, index)) if (at(finding.line)) at(finding.line).gap = true;
   }
   return marks;
 }
@@ -584,18 +542,11 @@ function reachedBy(method, index) {
     + (rest > 0 ? `<li class="muted">${escape(rest)} more ${rest === 1 ? 'test' : 'tests'}</li>` : '');
 }
 
-/** What of a method that ran the tests worth keeping ran, when that is less than all of what ran. */
-const keptRan = method => {
-  const kept = method.effective;
-  if (!kept || (kept.lines.hit === method.measured.lines.hit && kept.branches.hit === method.measured.branches.hit)) return '';
-  return `; tests worth keeping ran ${hits(kept.lines)} lines${kept.branches.total ? `, ${hits(kept.branches)} branches` : ''} ${effectiveTag(kept.lines.basis === 'estimated' || kept.branches.basis === 'estimated' ? 'estimated' : 'measured')}`;
-};
-
 /** The line above a method: its name, whether it ran and how much of it, and how many tests reach it, with the tests one click away. */
 function methodBar(method, index) {
   const ran = method.measured
-    ? (method.executed ? `<span class="ran">Ran</span> ${hits(method.measured.lines)} lines${method.measured.branches.total ? `, ${hits(method.measured.branches)} branches` : ''}${keptRan(method)}` : '<span class="unran">Never ran</span>')
-    : method.exercised === null || method.exercised === undefined ? '' : `About ${percent(method.exercised)} of its branches tested <span class="est">estimate</span>`;
+    ? (method.executed ? `<span class="ran">Ran</span> ${hits(method.measured.lines)} lines${method.measured.branches.total ? `, ${hits(method.measured.branches)} branches` : ''}` : '<span class="unran">Never ran</span>')
+    : method.planted ? `${escape(method.caught)} of ${escape(method.planted)} planted bugs caught` : '';
   const count = method.tests.length;
   const tests = count
     ? `<details><summary>${count} ${count === 1 ? 'test reaches' : 'tests reach'} it${method.useful.length !== count ? `, ${method.useful.length} worth keeping` : ''}</summary><ul class="reach">${reachedBy(method, index)}</ul></details>`
@@ -608,10 +559,14 @@ const listed = items => (items.length < 2 ? items.join('') : `${items.slice(0, -
 /** How sure perch is, said only when it is not very: a verdict at 95% needs no number, one at 63% does. */
 const unsure = probability => (typeof probability === 'number' && probability < 0.8 ? ` <span class="unsure">${escape(percent(probability))} sure</span>` : '');
 
-/** The note under a branch no test takes: its name and the case no test covers, with its buttons. */
-function gapNote(method, finding) {
-  return `<div class="note gap" data-finding="${escape(finding.id)}"><div class="problem"><p class="verdict bad"><b>${escape(problemName('edge_case'))}</b> `
-    + `${escape(finding.note)}${unsure(method.gap.probability)}</p><div class="problem-acts">${acts()}${dismissMark}</div></div></div>`;
+/** The note under a planted bug no test catches: the line as written and as changed, and which tests miss it, with its buttons. */
+function bugNote(method, finding, index) {
+  const bug = (method.bugs ?? []).find(item => item.id === finding.bug);
+  const diff = bug ? `<pre class="diff"><del>- ${escape(bug.original.trim())}</del>\n<ins>+ ${escape(bug.mutated.trim())}</ins></pre>` : '';
+  const missed = bug ? bug.asked.filter(id => !bug.caught_by.includes(id)).map(id => unitLink(id, index)) : [];
+  return `<div class="note gap" data-finding="${escape(finding.id)}"><div class="problem"><p class="verdict bad"><b>${escape(problemName('uncaught'))}</b> `
+    + `${escape(finding.note)}${unsure(finding.probability)}</p><div class="problem-acts">${acts()}${dismissMark}</div></div>${diff}`
+    + (missed.length ? `<ul class="facts"><li>Still passes: ${listed(missed)}.</li></ul>` : '') + '</div>';
 }
 
 /** One problem in a note under the code: its name and the fact, with Copy prompt and the close mark on the right. */
@@ -621,7 +576,7 @@ function problemLine(finding, index) {
 }
 
 /** The order a test's problems are said in: what to cut first, then what to fix, then what to mock. */
-const PROBLEM_ORDER = ['redundant', ...WEAK, 'infra', 'unresolved'];
+const PROBLEM_ORDER = ['redundant', ...WEAK, 'infra'];
 
 /**
  * The note under a test with something wrong: each problem as the change it asks for, then whether it failed and what it mocks.
@@ -629,7 +584,6 @@ const PROBLEM_ORDER = ['redundant', ...WEAK, 'infra', 'unresolved'];
  */
 function testNote(test, findings, index) {
   const lines = [...findings].sort((a, b) => PROBLEM_ORDER.indexOf(a.kind) - PROBLEM_ORDER.indexOf(b.kind)).map(finding => problemLine(finding, index));
-  if (!test.decides) lines.push('<p class="verdict"><b>Not judged.</b> The error is under Run details.</p>');
   if (!lines.length) return null;
   // A test that did not pass says so; a pass, and how long it took, say nothing about the problem.
   const outcome = test.run && test.run.status !== 'passed'
@@ -656,10 +610,8 @@ function notesOf(file, index, report) {
       if (note) add(test.line, note);
     }
   } else {
-    for (const method of file.methods.map(id => index.methods.get(id)).filter(method => method && listedGap(method, index))) {
-      const findings = owned(method.findings).filter(finding => finding.kind === 'edge_case');
-      findings.forEach(finding => placed.add(finding.id));
-      add(method.gap.line, gapNote(method, findings[0]));
+    for (const method of file.methods.map(id => index.methods.get(id)).filter(Boolean)) {
+      for (const finding of listedBugs(method, index)) { placed.add(finding.id); add(finding.line, bugNote(method, finding, index)); }
     }
   }
   for (const finding of report.findings) {
@@ -681,18 +633,12 @@ function fileStats(file) {
       + (typeof totals.seconds === 'number' ? stat('time', escape(seconds(totals.seconds)), 'How long the file\'s tests ran, added up from the JUnit report.') : '');
   }
   const reached = ratio(totals.reached, totals.methods);
-  const lines = totals.measured?.lines?.total ? totals.measured.lines.hit / totals.measured.lines.total : null, branches = branchesValue(totals);
-  const branchTag = basisTag(totals.measured?.branches?.total ? 'measured' : totals.exercised_basis);
+  const lines = totals.measured?.lines?.total ? totals.measured.lines.hit / totals.measured.lines.total : null, score = scoreValue(totals);
   return stat('methods tested', `<span class="${band(reached)}-text">${percent(reached)}</span> <small>${escape(totals.reached)}/${escape(totals.methods)}</small>`,
     'Methods a test calls, or that the coverage report shows ran, of all the file\'s methods.')
     + (lines === null ? '' : stat('lines run', `<span class="${band(lines)}-text">${percent(lines)}</span>`, 'Lines the coverage report shows ran, of the lines it counts.'))
-    + stat(`branches taken ${branchTag}`, `<span class="${band(branches)}-text">${percent(branches)}</span>`, 'Sides of branches taken, of all sides of every branch in the file.')
-    + ['lines', 'branches'].map(part => {
-      const kept = totals.effective?.[part];
-      if (!kept?.total) return '';
-      const share = kept.hit / kept.total;
-      return stat(`effective ${part} ${effectiveTag(kept.basis)}`, `<span class="${band(share)}-text">${percent(share)}</span>`, EFFECTIVE_HINT);
-    }).join('');
+    + (score === null ? '' : stat('bugs caught', `<span class="${band(score)}-text">${percent(score)}</span> <small>${escape(totals.caught)}/${escape(totals.planted)}</small>`, 'Planted bugs some test is predicted to fail on, of every bug planted in the file\'s reached methods.'))
+    + stat('uncaught bugs', escape(totals.uncaught), 'Planted bugs no test catches, listed below.');
 }
 
 /** A file's problems at the top of its page, each linking to its line, so they are read without scrolling the source. */
@@ -710,8 +656,8 @@ function fileView(file, index, report) {
     : (methods.some(method => method.measured)
       ? '<span class="legend-head"><span class="msr">measured</span></span><span><i class="sw full ms"></i>ran, every measured branch taken</span><span><i class="sw part ms"></i>ran, a measured branch never taken</span><span><i class="sw none ms"></i>never ran</span>' : '')
       + (methods.some(method => !method.measured)
-        ? '<span class="legend-head"><span class="est">est.</span></span><span><i class="sw full"></i>kept test, branches 80% or more</span><span><i class="sw part"></i>reached, below that</span><span><i class="sw none"></i>not reached</span>' : '')
-      + '<span><i class="mk">◆</i>branch</span><span><i class="mk gapmk">▲</i>edge case not exercised</span>'
+        ? '<span><i class="sw full"></i>every planted bug caught</span><span><i class="sw part"></i>a planted bug uncaught</span><span><i class="sw none"></i>not reached</span>' : '')
+      + '<span><i class="mk">◆</i>branch</span><span><i class="mk gapmk">▲</i>uncaught bug</span>'
       + (index.missed(file.path).size ? '<span><i class="sw miss"></i>untested changed line</span>' : '');
   const rows = file.lines.map((text, at) => {
     const line = at + 1, mark = marks[at];
@@ -748,14 +694,12 @@ function fixSteps(finding, index) {
     const name = `"${testName(test)}" (${at(test)})`;
     if (finding.kind === 'redundant' && test.redundant_with) {
       const kept = index.tests.get(test.redundant_with);
-      lines.push(`The test ${name} ${test.redundant_basis === 'measured' ? 'runs the same lines' : 'calls the same code'} and checks the same thing as "${kept ? testName(kept) : test.redundant_with}"${kept ? ` (${at(kept)})` : ''}.`,
+      lines.push(`The test ${name} catches the same planted bugs as "${kept ? testName(kept) : test.redundant_with}"${kept ? ` (${at(kept)})` : ''}, and no others.`,
         'Compare the two. Delete this one if it asserts nothing the other does not; otherwise move what differs into the other and delete this one.');
     } else if (WEAK.has(finding.kind)) {
       lines.push(`The test ${name} has a problem: ${finding.note}`, 'Make it drive the code under test and assert on what that code returns. Delete it if nothing it checks is worth keeping.');
     } else if (finding.kind === 'infra') {
       lines.push(`The unit test ${name} leaves the process: ${finding.note}`, 'Replace those calls with fakes or mocks in the style the test file already uses, so it runs in memory. Do not change the code under test.');
-    } else if (finding.kind === 'unresolved') {
-      lines.push(`The test ${name} calls nothing in this repository${test.unresolved?.length ? `: ${test.unresolved.join(', ')}` : ''}.`, 'Find the code it was meant to test and make it call that code, or delete it if it only tests a library.');
     } else lines.push(`The test ${name}: ${finding.note}`);
     lines.push('Run that test file afterwards and make sure it passes.');
   } else {
@@ -763,9 +707,10 @@ function fixSteps(finding, index) {
     const reaching = (method?.useful ?? []).map(id => index.tests.get(id)).filter(Boolean).slice(0, 3).map(item => `"${testName(item)}" (${at(item)})`);
     if (finding.kind === 'untested') {
       lines.push(`No test runs ${name}. ${finding.note}`, 'Write a unit test for what its callers rely on. Put it in the test file that already covers that source file if there is one, in its framework and style.');
-    } else if (finding.kind === 'edge_case' && method?.gap) {
-      lines.push(`${finding.note} The branch is at ${finding.path}:${method.gap.line} in ${name}: \`${method.gap.text.trim()}\`.`,
-        `Add a test for that case.${reaching.length ? ` Tests that already reach it: ${reaching.join(', ')}. Follow their style.` : ''}`);
+    } else if (finding.kind === 'uncaught') {
+      const bug = (method?.bugs ?? []).find(item => item.id === finding.bug);
+      lines.push(`${name} has a bug no test catches. ${finding.note}${bug ? ` Line ${finding.line} reads \`${bug.original.trim()}\`; with the bug it reads \`${bug.mutated.trim()}\`.` : ''}`,
+        `Add a test with an input for which that change gives a different result, and assert on the result.${reaching.length ? ` Tests that already reach it: ${reaching.join(', ')}. Follow their style.` : ''}`);
     } else lines.push(`${name}: ${finding.note}`);
     lines.push('Run the test file afterwards and make sure it passes.');
   }
@@ -942,7 +887,7 @@ table.problems td:nth-child(3){white-space:normal;max-width:260px;overflow-wrap:
 
 /* Problem kinds, as pills. */
 .kind{display:inline-block;padding:1px 8px;border-radius:999px;font:500 11.5px/1.7 var(--mono);white-space:nowrap;background:var(--raised);color:var(--muted)}
-.k-untested,.k-edge_case{background:color-mix(in srgb,var(--low) 14%,transparent);color:var(--low-ink)}
+.k-untested,.k-uncaught{background:color-mix(in srgb,var(--low) 14%,transparent);color:var(--low-ink)}
 .k-redundant,.k-checks_nothing{background:color-mix(in srgb,var(--mid) 13%,transparent);color:var(--mid)}
 .k-infra{background:color-mix(in srgb,var(--cyan) 13%,transparent);color:var(--cyan)}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
@@ -1026,6 +971,7 @@ ul.reach{margin:6px 0 2px;padding-left:18px;font-size:13px}
 /* Notes under a line: a problem, named, with the fact and its buttons. */
 .note{margin:6px 16px 10px 76px;padding:10px 14px;border:1px solid var(--line);border-left:2px solid var(--low);border-radius:8px;background:var(--raised);font:14px/1.5 var(--sans);white-space:normal;max-width:900px}
 .note.test{border-left-color:var(--mid)}
+.diff{margin:8px 0 0;padding:8px 12px;border-radius:6px;background:var(--panel);font:12px/1.5 var(--mono);white-space:pre-wrap}.diff del{color:var(--low-ink);text-decoration:none}.diff ins{color:var(--high);text-decoration:none}
 .note-head{margin:0 0 6px;font-family:var(--mono);font-size:12.5px;color:var(--muted)}.note-head b{color:var(--ink);font-weight:500}
 .problem{display:flex;align-items:flex-start;gap:12px}.problem+.problem{margin-top:6px;padding-top:6px;border-top:1px solid var(--soft)}
 .problem>.verdict{flex:1;min-width:0;margin:3px 0}.problem-acts{display:flex;align-items:center;gap:2px;flex:none}.problem-acts .acts{margin:0}

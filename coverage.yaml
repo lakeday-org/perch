@@ -1,30 +1,32 @@
 # Questions `perch coverage` asks. Same grammar as scan.yaml.
 # Every request is shaped as a scan's is: the unit asked about, `test` or `method`, with its source under the comment above it and
-# no line numbers, then `graph`, the code around it as nodes and the calls between them as edges. A test's graph holds the code it
-# reaches, nearest first, and the helpers of its own it calls through; the test also carries its `mocks` and the network and
-# database calls perch found along its reach (`reachable_io`), with the methods that make them in its graph. A method's graph holds the useful tests that reach it, and the method carries its
-# branch lines by their text.
-# gap_line's options are the method's own branch lines, named by their place in the method and added when it is asked; `none`
-# is the only option written here.
-# infra, tests_nothing_here, repeats and needs_test are asked only of a unit the call graph or the coverage report already flagged,
-# and decide whether that problem is listed.
+# no line numbers, then `graph`, the code around it as nodes and the calls between them as edges.
+# A test's graph holds the code it reaches, nearest first, and the helpers of its own it calls through; the test also carries its
+# `mocks` and the network and database calls perch found along its reach (`reachable_io`), with the methods that make them in
+# its graph.
+# A method is asked about one planted bug at a time: `mutation` is one line of it changed, `original` as written and `mutated`
+# as changed, and its graph holds the tests that reach it, each noted `test 1`, `test 2` and so on. `catches` is asked once per
+# test shown, as `catches_1`, `catches_2` and so on, naming the test; `matters` once per mutation.
+# infra, cost and needs_test are asked only of a unit the call graph or the test report already flagged.
 
-- name: decides
-  type: choice
-  each: test
+- name: catches
+  each: method
   where: "**/*"
   ask: >
-    Which behavior of the code in `graph` does `test` decide? Read its assertions: what would have to change in the
-    code under test for this test to fail?
-  options:
-    happy_path: It checks the ordinary result for ordinary input
-    empty_or_absent_input: It checks what happens on empty, null, missing or zero input
-    boundary: It checks a value at or next to the edge of a range, a limit or a threshold
-    error_path: It checks that an error is raised, returned or reported
-    invalid_input: It checks that malformed or out-of-contract input is rejected
-    state_after_call: It checks state left behind by the call, such as a stored record or a changed field
-    ordering: It checks the order of results or of calls
-    nothing: No change to the code under test would make it fail
+    `method` is shown as written, and `mutation` is one line of it changed: `original` is the line as written and `mutated` is
+    the line as changed. Follow the inputs the named test passes through the code it reaches in `graph`. Run against the
+    changed method, would that test fail?
+  "true": "It fails: with the change, an assertion or expectation it makes no longer holds, or the call raises"
+  "false": "It still passes: with the inputs it passes, the changed line gives the same result, or nothing it checks depends on that line"
+
+- name: matters
+  each: method
+  where: "**/*"
+  ask: >
+    `mutation` is one line of `method` changed. For some input a caller could pass, does the changed method return a different
+    value, raise, or leave different state behind, so that the change is a bug a caller could observe?
+  "true": "It is a bug: for some input a caller could pass, the result, an error, or the state left behind differs"
+  "false": "Nothing a caller could observe changes: the two spellings are equivalent, or the line only affects logging or wording a caller ignores"
 
 - name: infra
   each: test
@@ -36,25 +38,6 @@
   "true": It calls a live network service or database, so it fails when that service is down and can change its data
   "false": None of those calls is made with what it passes, or each goes to something it started itself or is mocked
 
-- name: tests_nothing_here
-  each: test
-  where: "**/*"
-  ask: >
-    None of the calls `test` makes resolve to a method in this repository. Does it check nothing of this repository's own
-    code, only a library, the language, or values it built itself?
-  "true": It checks nothing this repository wrote
-  "false": It does exercise this repository's code, through calls perch could not follow
-
-- name: repeats
-  each: test
-  where: "**/*"
-  ask: >
-    `test` calls the same code as the earlier test in `graph`, and both decide the same kind of behavior. Does `test` check a case
-    the earlier one already checks, with the same kind of input and the same expected result, so deleting `test` leaves no case
-    unchecked?
-  "true": It checks a case the earlier test already checks, and deleting it loses nothing
-  "false": It checks a case the earlier test does not, such as other input, another boundary or another expected result
-
 - name: cost
   type: score
   each: test
@@ -65,42 +48,6 @@
     - Builds large fixtures, or loops over many cases
     - Touches disk, a process, or the clock
     - Touches the network or a database
-
-- name: exercised
-  type: score
-  each: method
-  where: "**/*"
-  ask: >
-    Of the branches of `method` (its `branches` lines), how many do the tests in `graph` take between them, judging from the
-    inputs each test passes?
-  levels:
-    - None of them
-    - Under half
-    - About half
-    - Most
-    - Every branch
-
-- name: gap_line
-  type: choice
-  each: method
-  where: "**/*"
-  ask: >
-    Which branch line of `method` does no test in `graph` take? Pick the one whose untaken side matters most to a caller.
-  options:
-    none: Every branch line is taken by at least one shown test
-
-- name: gap_kind
-  type: choice
-  each: method
-  where: "**/*"
-  ask: What kind of input would a test need to take the branch no test in `graph` takes?
-  options:
-    boundary: A value at or next to the edge of a range, a limit or a threshold
-    empty_or_absent_input: Empty, null, missing or zero input
-    error_path: Input or a dependency that makes the method raise, return or report an error
-    invalid_input: Malformed or out-of-contract input
-    state_after_call: A prior state that sends the call down another path
-    ordering: Calls or items in a different order
 
 - name: needs_test
   each: method

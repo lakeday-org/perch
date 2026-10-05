@@ -150,26 +150,34 @@ async function repository(files = FILES) {
   return { root, out: join(root, '.perch'), revision: await revision(root) };
 }
 
-/** What each test and method answers, by the name the state gives it. Written here, not derived from anything perch computes. */
+/**
+ * What each test answers, by the name the state gives it: whether it calls a live service, and what it costs. Written here, not
+ * derived from anything perch computes.
+ */
 const TESTS = {
-  test_discount_10: { decides: ['happy_path', 0.9] },
-  test_discount_20: { decides: ['happy_path', 0.8] },
-  test_discount_negative: { decides: ['error_path', 0.85] },
-  test_count_mocked: { decides: ['nothing', 0.8] },
-  test_rate: { decides: ['happy_path', 0.7], infra: 0.9, cost: 3 },
-  test_rate_mocked: { decides: ['invalid_input', 0.7] },
-  'cart > adds prices': { decides: ['happy_path', 0.9] },
-  'cart > rejects a negative price': { decides: ['error_path', 0.9] },
-  'cart > checks out': { decides: ['happy_path', 0.75] },
-  'saves an order': { decides: ['nothing', 0.7], infra: 0.1, cost: 2 },
-  test_restock: { decides: ['happy_path', 0.8] },
+  test_discount_10: {}, test_discount_20: {}, test_discount_negative: {}, test_count_mocked: {},
+  test_rate: { infra: 0.9, cost: 3 }, test_rate_mocked: {},
+  'cart > adds prices': {}, 'cart > rejects a negative price': {}, 'cart > checks out': {},
+  'saves an order': { infra: 0.1, cost: 2 }, test_restock: {},
 };
 /** What a test answers to the yes-or-no questions when its script does not say. */
-const NOUL_DEFAULTS = { infra: 0.05, tests_nothing_here: 0.8, repeats: 0.8 };
+const NOUL_DEFAULTS = { infra: 0.05 };
+/**
+ * What each method answers about each planted bug: whether it matters, and per test reaching it, how likely that test is to
+ * fail with it in, by the bug's kind. Chosen by hand against the fixture's methods. apply_discount: its two boundaries (`<`
+ * to `<=`, `>` to `>=`) escape every test, since none passes 0 or 100; the negated conditions and the arithmetic are caught
+ * by the two discount tests, and the negative test, which raises before the arithmetic, catches only the conditions.
+ * total: the negative-price test catches both, the plain one only the negated condition, and checkout's test catches neither.
+ */
 const METHODS = {
-  apply_discount: { exercised: { 2: 0.2, 3: 0.8 }, gap_line: ['line_4', 0.7], gap_kind: ['boundary', 0.6] },
-  total: { exercised: { 4: 1 }, gap_line: ['none', 0.9], gap_kind: ['boundary', 0.4] },
-  restock: { exercised: { 3: 1 }, gap_line: ['none', 0.8], gap_kind: ['boundary', 0.4] },
+  apply_discount: { matters: 0.9, catches: {
+    test_discount_10: { boundary: 0.1, condition: 0.95, arithmetic: 0.9 },
+    test_discount_20: { boundary: 0.1, condition: 0.95, arithmetic: 0.9 },
+    test_discount_negative: { boundary: 0.1, condition: 0.9, arithmetic: 0.05 },
+  } },
+  total: { matters: 0.85, catches: { 'cart > adds prices': { boundary: 0.1, condition: 0.95 }, 'cart > rejects a negative price': { boundary: 0.9, condition: 0.9 }, 'cart > checks out': { boundary: 0.05, condition: 0.05 } } },
+  fetch_rate: { matters: 0.8, catches: { test_rate: 0.9, test_rate_mocked: 0.9 } },
+  restock: { matters: 0.9, catches: { test_restock: { boundary: 0.1, condition: 0.9, boolean: 0.9 } } },
 };
 
 /**
@@ -178,16 +186,12 @@ const METHODS = {
  */
 function scripted({ fail = new Set(), error = name => new Error(`scripted failure for ${name}`), tests = {}, methods = {}, needs = {} } = {}) {
   const calls = [];
-  const choice = (question, [pick, p]) => {
-    const keys = Object.keys(question.criteria);
-    if (!keys.includes(pick)) throw new Error(`${pick} is not offered: ${keys.join(', ')}`);
-    return { type: 'choice', choice: pick, confidence: p, probabilities: Object.fromEntries(keys.map(key => [key, key === pick ? p : (1 - p) / (keys.length - 1)])) };
-  };
   const score = (question, given) => {
     const probabilities = Object.fromEntries(question.criteria.map((_, level) => [String(level), given[level] ?? 0]));
     return { type: 'score', probabilities, confidence: 0.8, score: Object.entries(probabilities).reduce((total, [level, p]) => total + Number(level) * p, 0) };
   };
   const tier = level => Object.fromEntries([0, 1, 2, 3].map(index => [index, index === level ? 0.85 : 0.05]));
+  const noul = p => ({ type: 'noul', noul: p });
   return {
     id: 'scripted-jev', limits: TOKEN_LIMITS, calls,
     async ask(state, questions) {
@@ -195,16 +199,20 @@ function scripted({ fail = new Set(), error = name => new Error(`scripted failur
       calls.push({ name, state, questions });
       if (fail.has(name)) throw error(name);
       // Asked only of a method no test runs: whether it needs a test. Unscripted, it does.
-      if (questions.needs_test) return { model: 'scripted-jev', answers: { needs_test: { type: 'noul', noul: needs[name] ?? 0.9 } }, usage: { input_tokens: 100, output_tokens: 0 } };
+      if (questions.needs_test) return { model: 'scripted-jev', answers: { needs_test: noul(needs[name] ?? 0.9) }, usage: { input_tokens: 100, output_tokens: 0 } };
       const script = state.test ? tests[name] ?? TESTS[name] : methods[name] ?? METHODS[name];
       if (!script) throw new Error(`no script for ${name}`);
       const answers = {};
+      // The tests a planted bug is asked over are the graph's nodes noted test 1, test 2 and so on, in that order.
+      const shown = (state.graph?.nodes ?? []).filter(node => /^test \d+$/.test(node.note ?? '')).map(node => node.id.split('::').at(-1));
       for (const [id, question] of Object.entries(questions)) {
-        if (id === 'decides') answers[id] = choice(question, script.decides);
-        else if (id in NOUL_DEFAULTS) answers[id] = { type: 'noul', noul: script[id] ?? NOUL_DEFAULTS[id] };
+        if (id in NOUL_DEFAULTS) answers[id] = noul(script[id] ?? NOUL_DEFAULTS[id]);
         else if (id === 'cost') answers[id] = score(question, tier(script.cost ?? 0));
-        else if (id === 'exercised') answers[id] = score(question, script.exercised);
-        else answers[id] = choice(question, script[id]);
+        else if (id === 'matters') answers[id] = noul(script.matters ?? 0.9);
+        else if (id.startsWith('catches_')) {
+          const given = script.catches?.[shown[Number(id.slice('catches_'.length)) - 1]];
+          answers[id] = noul(typeof given === 'number' ? given : given?.[state.method.mutation.kind] ?? script.catch ?? 0.9);
+        } else throw new Error(`no script for ${id} about ${name}`);
       }
       return { model: 'scripted-jev', answers, usage: { input_tokens: 100, output_tokens: 0 } };
     },
@@ -275,84 +283,102 @@ describe('perch coverage', () => {
     const systemOne = scripted();
     const report = await run(repo, systemOne);
     expect(report.failed).toEqual([]);
-    // Ten tests, the two methods with branches that a useful test reaches, and restock, which no test reaches, asked only whether
-    // it needs a test.
-    // test_discount_20 is asked a second time, beside test_discount_10, whether it checks a case that one does not.
-    expect(systemOne.calls.map(call => call.name).sort()).toEqual([...Object.keys(TESTS).filter(name => name !== 'test_restock'), 'test_discount_20', 'apply_discount', 'total', 'restock'].sort());
-    expect(systemOne.calls.find(call => call.questions.repeats)).toMatchObject({ name: 'test_discount_20', state: { graph: { nodes: [{ id: 'tests/test_cart.py::test_discount_10' }] } } });
+    // Ten tests asked what they cost, three of the reached methods asked about each planted bug (apply_discount has seven, total
+    // two, fetch_rate one; item_count, round_money, checkout and save have no line the table can change), and restock, which
+    // no test reaches, asked only whether it needs a test.
+    const asked = systemOne.calls.map(call => call.name);
+    expect(asked.filter(name => name in TESTS).sort()).toEqual(Object.keys(TESTS).filter(name => name !== 'test_restock').sort());
+    expect(asked.filter(name => name === 'apply_discount')).toHaveLength(7);
+    expect(asked.filter(name => name === 'total')).toHaveLength(2);
+    expect(asked.filter(name => name === 'fetch_rate')).toHaveLength(1);
     expect(Object.keys(systemOne.calls.find(call => call.name === 'restock').questions)).toEqual(['needs_test']);
+    // One request per planted bug: the method as written, the one line changed, and a yes-or-no per test reaching it.
+    const boundary = systemOne.calls.find(call => call.name === 'apply_discount' && call.state.method.mutation.kind === 'boundary');
+    expect(boundary.state.method.mutation).toEqual({ kind: 'boundary', original: 'if percent < 0:', mutated: 'if percent <= 0:' });
+    expect(boundary.state.method.source).toContain('if percent < 0:');
+    expect(boundary.state.graph.nodes.map(node => [node.id, node.note])).toEqual([
+      ['tests/test_cart.py::test_discount_10', 'test 1'], ['tests/test_cart.py::test_discount_20', 'test 2'], ['tests/test_cart.py::test_discount_negative', 'test 3']]);
+    expect(Object.keys(boundary.questions)).toEqual(['matters', 'catches_1', 'catches_2', 'catches_3']);
+    expect(boundary.questions.catches_2.instructions).toMatch(/^This question is about test 2, `tests\/test_cart.py::test_discount_20`\./);
 
     const tests = byId(report.tests);
     const twenty = tests.get('tests/test_cart.py::test_discount_20');
-    expect(twenty.useful).toBe(false);
-    expect(twenty.redundant_with).toBe('tests/test_cart.py::test_discount_10');
+    // Catches exactly the bugs test_discount_10 catches: one test written twice.
+    expect(twenty).toMatchObject({ useful: false, redundant_with: 'tests/test_cart.py::test_discount_10', asked: 7 });
+    expect(twenty.kills).toHaveLength(5);
     expect(tests.get('tests/test_cart.py::test_discount_10').useful).toBe(true);
-    // Same direct method, a different behavior decided: not the same test.
-    expect(tests.get('tests/test_cart.py::test_discount_negative').redundant_with).toBe(null);
-    expect(tests.get('tests/test_cart.py::test_discount_negative').useful).toBe(true);
-    expect(tests.get('tests/test_cart.py::test_count_mocked').useful).toBe(false);
-    expect(tests.get('test/db.test.ts::saves an order').useful).toBe(false);
+    // Catches the two negated conditions and not the arithmetic: a different test.
+    expect(tests.get('tests/test_cart.py::test_discount_negative')).toMatchObject({ useful: true, redundant_with: null });
+    expect(tests.get('tests/test_cart.py::test_discount_negative').kills).toHaveLength(2);
+    // Catches neither bug planted in total: it checks nothing.
+    expect(tests.get('test/cart.test.ts::cart > checks out')).toMatchObject({ useful: false, asked: 2, kills: [] });
+    // Reaches only item_count, which has no line to change: nothing to judge it by.
+    expect(tests.get('tests/test_cart.py::test_count_mocked')).toMatchObject({ useful: true, asked: 0 });
     expect(tests.get('tests/test_cart.py::test_rate').cost.tier).toBe(3);
     expect(tests.get('test/cart.test.ts::cart > adds prices').name).toBe('adds prices');
     expect(tests.get('test/cart.test.ts::cart > adds prices').suite).toEqual(['cart']);
 
     const findings = byId(report.findings);
     expect(kinds(report)).toEqual([
-      'checks_nothing test/db.test.ts::saves an order',
-      'checks_nothing tests/test_cart.py::test_count_mocked',
-      'edge_case cart.py::apply_discount',
+      'checks_nothing test/cart.test.ts::cart > checks out',
       'infra tests/test_cart.py::test_rate',
       'redundant tests/test_cart.py::test_discount_20',
+      'uncaught cart.py::apply_discount',
+      'uncaught cart.py::apply_discount',
       'untested cart.py::restock',
     ]);
-    const find = (kind, unit) => report.findings.find(finding => finding.kind === kind && finding.unit === unit);
-    expect(find('redundant', 'tests/test_cart.py::test_discount_20').probability).toBe(0.8);
-    expect(find('redundant', 'tests/test_cart.py::test_discount_20').note).toBe('Same checks and calls as test_discount_10 at line 9.');
-    expect(find('checks_nothing', 'tests/test_cart.py::test_count_mocked').probability).toBe(0.8);
+    const find = (kind, unit) => report.findings.filter(finding => finding.kind === kind && finding.unit === unit);
+    // As likely as test_discount_10 is to catch the bug it is least sure of among those test_discount_20 catches.
+    expect(find('redundant', 'tests/test_cart.py::test_discount_20')[0]).toMatchObject({ probability: 0.9, note: 'Catches the same planted bugs as test_discount_10 at line 9, and no others.' });
+    // The chance it misses both: 0.95 twice.
+    expect(find('checks_nothing', 'test/cart.test.ts::cart > checks out')[0]).toMatchObject({ probability: 0.95 * 0.95, note: 'Passes with every one of the 2 bugs planted in the code it reaches.' });
     // That no test reaches restock is the call graph's; how much that matters is the answer's.
-    expect(find('untested', 'cart.py::restock').probability).toBe(0.9);
-    expect(find('edge_case', 'cart.py::apply_discount')).toMatchObject({ line: 7, probability: 0.7 });
-    expect(find('infra', 'tests/test_cart.py::test_rate')).toMatchObject({ probability: 0.9,
-      note: 'Calls a live service with nothing mocked: requests.get at rates.py:5.' });
+    expect(find('untested', 'cart.py::restock')[0].probability).toBe(0.9);
+    // The two boundaries: each escapes all three tests at 0.9, and matters at 0.9.
+    const uncaught = find('uncaught', 'cart.py::apply_discount');
+    expect(uncaught.map(finding => [finding.line, finding.note])).toEqual([
+      [5, 'With `<=` instead of `<`, none of the 3 tests reaching it fails.'],
+      [7, 'With `>=` instead of `>`, none of the 3 tests reaching it fails.'],
+    ]);
+    for (const finding of uncaught) expect(finding.probability).toBeCloseTo(0.9 ** 3 * 0.9);
+    expect(new Set(uncaught.map(finding => finding.id)).size).toBe(2);
+    expect(find('infra', 'tests/test_cart.py::test_rate')[0]).toMatchObject({ probability: 0.9, note: 'Calls a live service with nothing mocked: requests.get at rates.py:5.' });
     // The model is shown the call and where it is, and the method making it is in the graph it reads.
     const rate = systemOne.calls.find(call => call.name === 'test_rate').state;
     expect(rate.test.reachable_io).toEqual(['requests.get at rates.py:5']);
     expect(rate.graph.nodes.map(item => item.id)).toContain('rates.py::fetch_rate');
-    // Said to decide nothing, at 0.7: no change to what it calls would make it fail.
-    expect(find('checks_nothing', 'test/db.test.ts::saves an order')).toMatchObject({ probability: 0.7, note: 'Passes whatever the code it calls does.' });
     // The call graph finds save writing a file with nothing mocking it. A test's disk is not a live service, so the fact stays on
     // the test, it is not asked about, and no problem is listed.
     expect(tests.get('test/db.test.ts::saves an order').touches).toEqual(['filesystem']);
     expect('infra' in systemOne.calls.find(call => call.name === 'saves an order').questions).toBe(false);
-    expect(find('infra', 'test/db.test.ts::saves an order')).toBe(undefined);
-    expect(tests.get('tests/test_cart.py::test_discount_20').findings.map(id => findings.get(id).kind).sort()).toEqual(['redundant']);
+    expect(find('infra', 'test/db.test.ts::saves an order')).toEqual([]);
+    expect(twenty.findings.map(id => findings.get(id).kind)).toEqual(['redundant']);
 
     const methods = byId(report.methods);
-    expect(methods.get('cart.py::apply_discount').exercised).toBeCloseTo(0.7);
-    expect(methods.get('cart.py::apply_discount').gap).toEqual({ line: 7, text: 'if percent > 100:', kind: 'boundary', probability: 0.7 });
-    expect(methods.get('cart.py::apply_discount').useful).toEqual(['tests/test_cart.py::test_discount_10', 'tests/test_cart.py::test_discount_negative']);
-    expect(methods.get('src/cart.ts::total').exercised).toBe(1);
-    expect(methods.get('src/cart.ts::total').gap).toBe(null);
-    expect(methods.get('pricing.py::round_money').exercised).toBe(1);
-    expect(methods.get('src/cart.ts::checkout').exercised).toBe(1);
-    // Reached only by tests that decide nothing: reached, and none of it exercised.
-    expect(methods.get('cart.py::item_count')).toMatchObject({ exercised: 0, useful: [] });
-    expect(methods.get('cart.py::item_count').tests).toEqual([{ id: 'tests/test_cart.py::test_count_mocked', depth: 1 }]);
-    expect(methods.get('src/db.ts::save').exercised).toBe(0);
-    expect(methods.get('cart.py::restock').exercised).toBe(0);
+    const discount = methods.get('cart.py::apply_discount');
+    expect(discount).toMatchObject({ planted: 7, caught: 5, useful: ['tests/test_cart.py::test_discount_10', 'tests/test_cart.py::test_discount_negative'] });
+    expect(discount.bugs.map(bug => [bug.kind, bug.line, bug.caught, bug.caught_by.length])).toEqual([
+      ['boundary', 5, false, 0], ['boundary', 7, false, 0], ['condition', 5, true, 3], ['condition', 7, true, 3],
+      ['arithmetic', 9, true, 2], ['arithmetic', 9, true, 2], ['arithmetic', 9, true, 2]]);
+    expect(discount.bugs[0]).toMatchObject({ id: '5:15:<><=', from: '<', to: '<=', original: '    if percent < 0:', mutated: '    if percent <= 0:', asked: discount.tests.map(item => item.id) });
+    expect(discount.bugs[0].survives).toBeCloseTo(0.9 ** 3);
+    // The negative-price test catches both bugs in total, so both are caught, by it.
+    expect(methods.get('src/cart.ts::total')).toMatchObject({ planted: 2, caught: 2 });
+    expect(methods.get('src/cart.ts::total').bugs.map(bug => bug.caught_by)).toEqual([['test/cart.test.ts::cart > rejects a negative price'], ['test/cart.test.ts::cart > adds prices', 'test/cart.test.ts::cart > rejects a negative price']]);
+    expect(methods.get('rates.py::fetch_rate')).toMatchObject({ planted: 1, caught: 1 });
+    expect(methods.get('cart.py::item_count')).toMatchObject({ planted: 0, caught: 0, bugs: [], tests: [{ id: 'tests/test_cart.py::test_count_mocked', depth: 1 }] });
+    expect(methods.get('cart.py::restock')).toMatchObject({ planted: 0, untested: true });
 
-    expect(report.totals).toMatchObject({ methods: 8, reached: 7, useful_reached: 5, tests: 10, useful: 7, redundant: 1, weak: 2, infra: 1,
-      untested: 1, edge_cases: 1, cost: { 0: 8, 1: 0, 2: 1, 3: 1 }, drop: { count: 3, cost: { 0: 2, 1: 0, 2: 1, 3: 0 } } });
-    expect(report.totals.exercised).toBeCloseTo(4.7 / 8);
-    // test_count_mocked is dropped for asserting its own value, and it is the only test that reaches item_count; saves an order,
-    // dropped for checking nothing, is the only one that reaches save.
-    expect(report.totals.drop.unreached).toEqual(['cart.py::item_count', 'src/db.ts::save']);
+    expect(report.totals).toMatchObject({ methods: 8, reached: 7, useful_reached: 6, planted: 10, caught: 8, score: 0.8, uncaught: 2, tests: 10, useful: 8, redundant: 1, weak: 1, infra: 1,
+      untested: 1, cost: { 0: 8, 1: 0, 2: 1, 3: 1 }, drop: { count: 2, cost: { 0: 2, 1: 0, 2: 0, 3: 0 } } });
+    // checks out is the only test reaching checkout, and it is dropped for checking nothing.
+    expect(report.totals.drop.unreached).toEqual(['src/cart.ts::checkout']);
     const cartFile = report.files.find(file => file.path === 'cart.py');
     expect(cartFile.kind).toBe('source');
-    expect(cartFile.totals).toMatchObject({ methods: 3, reached: 2, useful_reached: 1 });
-    expect(cartFile.totals.exercised).toBeCloseTo(0.7 / 3);
+    expect(cartFile.totals).toMatchObject({ methods: 3, reached: 2, useful_reached: 2, planted: 7, caught: 5, uncaught: 2 });
+    expect(cartFile.totals.score).toBeCloseTo(5 / 7);
     expect(cartFile.lines[4]).toBe('    if percent < 0:');
-    expect(report.files.find(file => file.path === 'tests/test_cart.py').totals).toMatchObject({ tests: 6, useful: 4, redundant: 1, weak: 1, infra: 1 });
+    expect(report.files.find(file => file.path === 'tests/test_cart.py').totals).toMatchObject({ tests: 6, useful: 5, redundant: 1, weak: 0, infra: 1 });
 
     // Saved where the next run and the page read it.
     // A line of everything but the lists, then a line per item, so a report of any size is written and read a line at a time.
@@ -361,9 +387,8 @@ describe('perch coverage', () => {
     expect(items.filter(([list]) => list === 'findings').map(([, finding]) => finding)).toEqual(report.findings);
     expect(items.filter(([list]) => list === 'methods')).toHaveLength(report.methods.length);
     expect(await readdir(join(repo.out, 'coverage', 'reports'))).toHaveLength(1);
-    // Ten tests, test_discount_20 asked whether it repeats test_discount_10, two methods asked about their branches, and restock
-    // asked whether it needs a test.
-    expect(systemOne.calls).toHaveLength(14);
+    // Ten tests, ten planted bugs, and restock asked whether it needs a test.
+    expect(systemOne.calls).toHaveLength(21);
     expect(report.baseline).toBe(null);
   });
 
@@ -399,38 +424,41 @@ describe('perch coverage', () => {
 
   it('shows the model a macro the test checks through', async () => {
     const repo = await repository({
-      'src/add.cc': 'int add(int a, int b) {\n  return a + b;\n}\n',
-      'test/add_test.cc': '#include <gtest/gtest.h>\n\nint add(int a, int b);\n\n#define CHECK_SUM(a, b, sum) \\\n  EXPECT_EQ(add(a, b), sum)\n\nTEST(Add, Sums) {\n  CHECK_SUM(1, 2, 3);\n}\n',
+      'src/add.h': 'inline int add(int a, int b) {\n  return a + b;\n}\n',
+      'test/add_test.cc': '#include <gtest/gtest.h>\n#include "../src/add.h"\n\n#define CHECK_SUM(actual, expected) \\\n  EXPECT_EQ(actual, expected)\n\nTEST(Add, Sums) {\n  CHECK_SUM(add(1, 2), 3);\n}\n',
     });
-    const systemOne = scripted();
+    const systemOne = scripted({ methods: { add: { matters: 0.9, catch: 0.9 } }, tests: { 'Add.Sums': {} } });
     await run(repo, systemOne);
-    const { state } = systemOne.calls.find(call => call.state.test?.name === 'Add.Sums');
-    // The assertion is inside the macro, which no call graph reaches: without it the test reads as asserting nothing.
-    expect(state.graph.nodes).toContainEqual({ id: 'test/add_test.cc::CHECK_SUM', path: 'test/add_test.cc',
-      source: '#define CHECK_SUM(a, b, sum) \\\n  EXPECT_EQ(add(a, b), sum)', note: 'a macro the test uses, which may hold its assertions' });
+    const { state } = systemOne.calls.find(call => call.state.method?.name === 'add');
+    // The assertion is inside the macro, which no call graph reaches: without it the test reads as asserting nothing. It is
+    // shown after the test, as part of the test's node in the graph.
+    expect(state.graph.nodes.map(node => [node.id, node.note])).toEqual([['test/add_test.cc::Add.Sums', 'test 1'], ['test/add_test.cc::CHECK_SUM', 'a macro the test uses, which may hold its assertions']]);
+    expect(state.graph.nodes[1]).toMatchObject({ path: 'test/add_test.cc', source: '#define CHECK_SUM(actual, expected) \\\n  EXPECT_EQ(actual, expected)' });
   });
 
   it('calls a test empty only above the floor', async () => {
-    // saves an order is scripted as deciding nothing at 0.7; at 0.45 it is under the floor.
-    const under = await run(await repository(), scripted({ tests: { 'saves an order': { decides: ['nothing', 0.45], infra: 0.1, cost: 2 } } }));
-    const saves = under.tests.find(test => test.id === 'test/db.test.ts::saves an order');
-    expect(under.findings.filter(finding => finding.unit === saves.id).map(finding => finding.kind)).toEqual([]);
-    expect(saves.useful).toBe(true);
+    // checks out is scripted to miss both bugs in total at 0.95: the chance it misses both is 0.9. At 0.3 each it is 0.49, under the floor.
+    const missing = { catches: { 'cart > adds prices': { boundary: 0.1, condition: 0.95 }, 'cart > rejects a negative price': { boundary: 0.9, condition: 0.9 }, 'cart > checks out': 0.3 } };
+    const under = await run(await repository(), scripted({ methods: { total: { ...METHODS.total, ...missing } } }));
+    const checks = under.tests.find(test => test.id === 'test/cart.test.ts::cart > checks out');
+    expect(under.findings.filter(finding => finding.unit === checks.id).map(finding => finding.kind)).toEqual([]);
+    expect(checks.useful).toBe(true);
     const over = await run(await repository(), scripted());
-    expect(over.findings.filter(finding => finding.unit === saves.id).map(finding => finding.kind)).toEqual(['checks_nothing']);
-    expect(over.tests.find(test => test.id === saves.id).useful).toBe(false);
+    expect(over.findings.filter(finding => finding.unit === checks.id).map(finding => finding.kind)).toEqual(['checks_nothing']);
+    expect(over.tests.find(test => test.id === checks.id).useful).toBe(false);
   });
 
-  it('keeps a gap on its own line when code above the method moves it down', async () => {
+  it('keeps an uncaught bug on its own line when code above the method moves it down', async () => {
     const repo = await repository();
     await run(repo, scripted());
     // Three lines above every method in cart.py: each one's text and its neighbours' are what they were, only the lines move.
     await writeFile(join(repo.root, 'cart.py'), FILES['cart.py'].replace('import pricing\n', 'import pricing\n\n# Prices are in cents.\nCURRENCY = "USD"\n'));
     await commitAll(repo.root, 'a constant above the methods');
     const second = await run({ ...repo, revision: await revision(repo.root) }, scripted());
-    // A gap still points at its own line, which moved with it.
+    // The planted bugs still point at their own lines, which moved with them, and their problems keep their ids.
     const discount = second.methods.find(method => method.id === 'cart.py::apply_discount');
-    expect(discount.gap).toMatchObject({ line: 10, text: 'if percent > 100:' });
+    expect(discount.bugs.slice(0, 2).map(bug => [bug.line, bug.original.trim()])).toEqual([[8, 'if percent < 0:'], [10, 'if percent > 100:']]);
+    expect(second.findings.filter(finding => finding.kind === 'uncaught').map(finding => finding.line)).toEqual([8, 10]);
   });
 
   it('records units it could not ask about', async () => {
@@ -439,29 +467,24 @@ describe('perch coverage', () => {
     expect(report.failed.map(unit => [unit.subject, unit.unit])).toEqual([
       ['test', 'test/cart.test.ts::cart > rejects a negative price'],
       ['method', 'src/cart.ts::total'],
+      ['method', 'src/cart.ts::total'],
     ]);
     expect(report.failed[0].error).toBe('scripted failure for cart > rejects a negative price');
     const rejects = report.tests.find(test => test.id === 'test/cart.test.ts::cart > rejects a negative price');
-    expect(rejects).toMatchObject({ decides: null, infra: null, cost: null, useful: false });
+    // Not asked what it costs; and with total's bugs unasked, nothing says whether it catches anything, so it is kept.
+    expect(rejects).toMatchObject({ infra: null, cost: null, useful: true, asked: 0 });
     const total = report.methods.find(method => method.id === 'src/cart.ts::total');
-    expect(total.exercised).toBe(null);
-    expect(total.useful).toEqual(['test/cart.test.ts::cart > adds prices', 'test/cart.test.ts::cart > checks out']);
-    expect(report.totals.useful).toBe(6);
-    expect(report.totals.exercised).toBeCloseTo(3.7 / 7);
+    expect(total).toMatchObject({ planted: 0, caught: 0, bugs: [] });
+    expect(total.useful).toEqual(['test/cart.test.ts::cart > adds prices', 'test/cart.test.ts::cart > rejects a negative price', 'test/cart.test.ts::cart > checks out']);
+    // Both of total's bugs failed, once each; the failures are listed by the method.
+    expect(report.failed.filter(unit => unit.unit === 'src/cart.ts::total')).toHaveLength(2);
+    expect(report.totals).toMatchObject({ useful: 9, planted: 8 });
   });
 
   it('stops on rejected credentials', async () => {
     const repo = await repository();
     const refused = scripted({ fail: new Set(['test_discount_10']), error: () => new AuthenticationError(401, 'bad key') });
     await expect(run(repo, refused)).rejects.toThrow(/HTTP 401/);
-  });
-
-  it('keeps a test the call graph pairs with another when it checks a case the other does not', async () => {
-    const repo = await repository();
-    const report = await run(repo, scripted({ tests: { test_discount_20: { ...TESTS.test_discount_20, repeats: 0.1 } } }));
-    const twenty = byId(report.tests).get('tests/test_cart.py::test_discount_20');
-    expect(twenty).toMatchObject({ useful: true, redundant_with: null });
-    expect(kinds(report)).not.toContain('redundant tests/test_cart.py::test_discount_20');
   });
 
   it('compares with the last run', async () => {
@@ -485,11 +508,13 @@ def tax(value):
     const { diff } = after;
     expect(diff.tests).toEqual({ added: ['tests/test_cart.py::test_restock'], removed: [] });
     const methods = byId(diff.methods);
-    expect(methods.get('cart.py::restock')).toMatchObject({ before: { reached: false, exercised: 0 }, after: { reached: true, exercised: 0.75 } });
-    expect(methods.get('pricing.py::tax')).toMatchObject({ before: null, after: { reached: false, exercised: 0 } });
+    // Four bugs planted in restock once a test reaches it; its boundary escapes that test.
+    expect(methods.get('cart.py::restock')).toMatchObject({ before: { reached: false, planted: 0, caught: 0 }, after: { reached: true, planted: 4, caught: 3 } });
+    expect(methods.get('pricing.py::tax')).toMatchObject({ before: null, after: { reached: false, planted: 0 } });
     expect(methods.has('cart.py::apply_discount')).toBe(false);
     expect(diff.findings.fixed.map(finding => `${finding.kind} ${finding.unit}`)).toEqual(['untested cart.py::restock']);
-    expect(diff.findings.new.map(finding => `${finding.kind} ${finding.unit}`)).toEqual(['untested pricing.py::tax']);
+    expect(diff.findings.new.map(finding => `${finding.kind} ${finding.unit}`).sort()).toEqual(['uncaught cart.py::restock', 'untested pricing.py::tax']);
+    expect(diff.totals.score).toEqual({ before: 0.8, after: 11 / 14 });
     expect(diff.totals.methods).toEqual({ before: 8, after: 9 });
     expect(diff.totals.tests).toEqual({ before: 10, after: 11 });
     expect(diff.files.map(file => file.path)).toEqual(['cart.py', 'pricing.py', 'tests/test_cart.py']);
@@ -522,7 +547,7 @@ it('charges the stubbed amount', () => {
 });
 `,
     });
-    TESTS['charges the stubbed amount'] = { decides: ['nothing', 0.8] };
+    TESTS['charges the stubbed amount'] = { cost: 0 };
     const systemOne = scripted();
     const report = await run(repo, systemOne);
     delete TESTS['charges the stubbed amount'];
@@ -532,13 +557,10 @@ it('charges the stubbed amount', () => {
     expect(stub.direct).toEqual([]);
     // A chained call such as expect(...).toBe is recorded as dynamic and named by nothing, and it() belongs to the file.
     expect(stub.unresolved).toEqual(['charge', 'expect', 'vi.fn']);
-    expect(stub.useful).toBe(false);
-    const own = report.findings.filter(finding => finding.unit === stub.id).map(finding => [finding.kind, finding.probability]);
-    expect(own).toEqual([['checks_nothing', 0.8], ['unresolved', 0.8]]);
-    // That none of its calls resolve is the call graph's; whether it tests nothing here is the answer's.
-    expect(own[1][1]).toBe(0.8);
-    expect('tests_nothing_here' in systemOne.calls.find(call => call.name === 'charges the stubbed amount').questions).toBe(true);
-    expect(report.totals.unresolved).toBe(1);
+    // Reaching no method, no planted bug is asked over it, so nothing says it checks nothing: it is kept, and asked only its cost.
+    expect(stub).toMatchObject({ useful: true, asked: 0, kills: [] });
+    expect(report.findings.filter(finding => finding.unit === stub.id)).toEqual([]);
+    expect(Object.keys(systemOne.calls.find(call => call.name === 'charges the stubbed amount').questions)).toEqual(['cost']);
   });
 });
 
@@ -642,17 +664,10 @@ end_of_record
 `,
 };
 const ALL_REPORTS = { junit: ['reports/junit.xml'], lcov: ['reports/lcov.info'], cobertura: ['reports/cobertura.xml'], contexts: ['reports/coverage.json'] };
-/**
- * Answers for the run with reports. test_discount_negative and the negative-price test are said to decide the ordinary result
- * here, so each shares a label and a directly called method with another test, and the reports are what tells them apart.
- */
-const MEASURED_TESTS = { test_discount_negative: { decides: ['happy_path', 0.85] }, 'cart > rejects a negative price': { decides: ['happy_path', 0.75] } };
-/** save only writes what it is given to a file, and is said not to need a test of its own. */
+/** Answers for the run with reports: the same as without, and save, which only writes what it is given to a file, is said not to need a test of its own. */
+const MEASURED_TESTS = {};
 const MEASURED_NEEDS = { save: 0.2 };
-const MEASURED_METHODS = {
-  total: { gap_line: ['line_4', 0.8], gap_kind: ['error_path', 0.7] },
-  restock: { gap_line: ['line_3', 0.65], gap_kind: ['invalid_input', 0.6] },
-};
+const MEASURED_METHODS = {};
 
 /**
  * A model endpoint on localhost that answers every question it is sent, by its type: the likeliest option, a probability, a level.
@@ -698,9 +713,9 @@ describe('perch coverage from the command line', () => {
       // The source table's rows, before the problem blocks below it name the same files as headings.
       const table = out.join('\n').split('\n\n')[0].split('\n').map(line => line.trim().split(/\s{2,}/));
       const rows = Object.fromEntries(table.map(([path, ...cells]) => [path, cells]));
-      // Vitest's LCOV has no per-test records, so what tests worth keeping ran is estimated from the call graph.
-      expect(rows['src/cart.ts']).toEqual(['1 of 2', '63%', '75%', '63% est.', '75% est.', '1']);
-      expect(rows['src/db.ts']).toEqual(['0 of 1', '0%', '0%', '0% est.', '-', '0']);
+      // The endpoint answers 0.9 to every yes-or-no, so both bugs planted in total are caught; save has no line to change.
+      expect(rows['src/cart.ts']).toEqual(['1 of 2', '63%', '100% (2 of 2)', '0']);
+      expect(rows['src/db.ts']).toEqual(['0 of 1', '0%', '-', '0']);
       const page = await readFile(join(repo.root, 'out', 'index.html'), 'utf8');
       expect(page).toMatch(/^<!doctype html>/);
       expect(page).toContain('Run details');
@@ -748,17 +763,14 @@ describe('perch coverage with test reports', () => {
   it('measures lines and branches per method', async () => {
     const { report } = await measuredRun();
     const methods = byId(report.methods);
-    expect(methods.get('cart.py::apply_discount')).toMatchObject({ measured: { lines: { hit: 4, total: 5 }, branches: { hit: 3, total: 4 } }, executed: true,
-      exercised: 0.75, exercised_basis: 'measured', untaken: [7], untested: false });
+    expect(methods.get('cart.py::apply_discount')).toMatchObject({ measured: { lines: { hit: 4, total: 5 }, branches: { hit: 3, total: 4 } }, executed: true, untested: false });
     // Reached by test_count_mocked in the call graph, and not one of its lines ran.
-    expect(methods.get('cart.py::item_count')).toMatchObject({ measured: { lines: { hit: 0, total: 1 }, branches: { hit: 0, total: 0 } }, executed: false,
-      exercised: 0, exercised_basis: 'measured', untested: true });
+    expect(methods.get('cart.py::item_count')).toMatchObject({ measured: { lines: { hit: 0, total: 1 }, branches: { hit: 0, total: 0 } }, executed: false, untested: true });
     expect(methods.get('cart.py::item_count').tests).toEqual([{ id: 'tests/test_cart.py::test_count_mocked', depth: 1 }]);
     // No test reaches restock in the call graph, and the report shows it ran.
-    expect(methods.get('cart.py::restock')).toMatchObject({ tests: [], measured: { lines: { hit: 3, total: 4 }, branches: { hit: 3, total: 4 } }, executed: true,
-      exercised: 0.75, untested: false });
-    expect(methods.get('pricing.py::round_money')).toMatchObject({ measured: { lines: { hit: 1, total: 1 }, branches: { hit: 0, total: 0 } }, exercised: 1, exercised_basis: 'measured' });
-    expect(methods.get('src/cart.ts::total')).toMatchObject({ measured: { lines: { hit: 5, total: 5 }, branches: { hit: 3, total: 4 } }, exercised: 0.75, untaken: [6] });
+    expect(methods.get('cart.py::restock')).toMatchObject({ tests: [], measured: { lines: { hit: 3, total: 4 }, branches: { hit: 3, total: 4 } }, executed: true, untested: false });
+    expect(methods.get('pricing.py::round_money')).toMatchObject({ measured: { lines: { hit: 1, total: 1 }, branches: { hit: 0, total: 0 } } });
+    expect(methods.get('src/cart.ts::total')).toMatchObject({ measured: { lines: { hit: 5, total: 5 }, branches: { hit: 3, total: 4 } } });
     expect(methods.get('src/cart.ts::checkout')).toMatchObject({ measured: { lines: { hit: 0, total: 3 } }, executed: false, untested: true });
     // Three methods never ran, and that stays their coverage whatever is asked. Whether each is a problem is the answer's: save is
     // said not to need a test, so it is not listed.
@@ -772,125 +784,26 @@ describe('perch coverage with test reports', () => {
     expect(report.measured_by).toEqual(['cobertura', 'contexts', 'lcov']);
     const cartFile = report.files.find(file => file.path === 'cart.py');
     expect(cartFile.totals.measured).toEqual({ lines: { hit: 7, total: 10 }, branches: { hit: 6, total: 8 } });
-    expect(cartFile.totals.exercised_basis).toBe('measured');
     expect(cartFile.hits.lines).toEqual([[1, 1], [4, 1], [5, 1], [6, 1], [7, 1], [8, 0], [9, 1], [12, 1], [13, 0], [16, 1], [17, 1], [18, 1], [19, 0], [20, 1]]);
     expect(cartFile.hits.branches).toEqual([[5, 2, 2], [7, 1, 2], [17, 2, 2], [18, 1, 2]]);
   });
 
   it('asks only what the reports leave open', async () => {
     const { systemOne, report } = await measuredRun();
-    const methodCalls = systemOne.calls.filter(call => call.state.method && !call.questions.needs_test);
-    // item_count, checkout and save never ran; round_money and fetch_rate took every branch they have.
-    expect(methodCalls.map(call => call.name).sort()).toEqual(['apply_discount', 'restock', 'total']);
     // The three that never ran are asked only whether they need a test, told how perch knows.
     const needCalls = systemOne.calls.filter(call => call.questions.needs_test);
     expect(needCalls.map(call => call.name).sort()).toEqual(['checkout', 'item_count', 'save']);
     for (const call of needCalls) expect(call.state.method.note).toBe('The coverage report shows none of its lines ran.');
-    for (const call of methodCalls) expect(Object.keys(call.questions).sort()).toEqual(['gap_kind', 'gap_line']);
-    const offered = name => Object.keys(methodCalls.find(call => call.name === name).questions.gap_line.criteria).sort();
-    expect(offered('apply_discount')).toEqual(['line_4', 'none']);
-    expect(offered('restock')).toEqual(['line_3', 'none']);
-    // total's branch lines are 5 and 6; the report shows both sides of 5 taken.
-    expect(offered('total')).toEqual(['line_4', 'none']);
-    const asksCost = Object.fromEntries(systemOne.calls.filter(call => call.state.test).map(call => [call.name, 'cost' in call.questions]));
-    expect(asksCost).toEqual({ test_discount_10: false, test_discount_20: false, test_discount_negative: false, test_count_mocked: false, test_rate: false,
-      test_rate_mocked: true, 'cart > adds prices': false, 'cart > rejects a negative price': false, 'cart > checks out': true, 'saves an order': true });
-    const methods = byId(report.methods);
-    expect(methods.get('src/cart.ts::total').gap).toEqual({ line: 6, text: "if (price < 0) throw new Error('negative price');", kind: 'error_path', probability: 0.8 });
-    expect(methods.get('cart.py::apply_discount').gap).toMatchObject({ line: 7, kind: 'boundary', probability: 0.7 });
-    const edge = report.findings.find(finding => finding.kind === 'edge_case' && finding.unit === 'src/cart.ts::total');
-    // Said of the method, as the case no test covers.
-    expect(edge.note).toBe('Untested case: total failing.');
+    // A test the report timed is not asked what it costs, and one with no live service in reach is not asked about that: a
+    // timed test with nothing else to ask is not asked at all.
+    const testCalls = Object.fromEntries(systemOne.calls.filter(call => call.state.test).map(call => [call.name, Object.keys(call.questions).sort()]));
+    expect(testCalls).toEqual({ test_rate: ['infra'], test_rate_mocked: ['cost'], 'cart > checks out': ['cost'], 'saves an order': ['cost'] });
     const tests = byId(report.tests);
     expect(tests.get('tests/test_cart.py::test_rate').cost).toEqual({ seconds: 2, basis: 'measured' });
     expect(tests.get('tests/test_cart.py::test_rate_mocked').cost).toMatchObject({ tier: 0, basis: 'estimated' });
     expect(tests.get('test/db.test.ts::saves an order').cost).toMatchObject({ tier: 2, basis: 'estimated' });
     // Only the three untimed tests have a tier.
     expect(report.totals.cost).toEqual({ 0: 2, 1: 0, 2: 1, 3: 0 });
-  });
-
-  it('finds duplicates by lines run, else by calls', async () => {
-    const { report } = await measuredRun();
-    const tests = byId(report.tests);
-    // Same label, same lines of apply_discount: one test written twice.
-    expect(tests.get('tests/test_cart.py::test_discount_20')).toMatchObject({ redundant_with: 'tests/test_cart.py::test_discount_10', redundant_basis: 'measured' });
-    const redundant = report.findings.find(finding => finding.kind === 'redundant' && finding.unit === 'tests/test_cart.py::test_discount_20');
-    expect(redundant.note).toBe('Same checks and lines as test_discount_10 at line 9.');
-    // Same label and the same method called, but it ran line 6 where the others ran 7 and 9: not the same test.
-    expect(tests.get('tests/test_cart.py::test_discount_negative')).toMatchObject({ redundant_with: null, redundant_basis: null, useful: true });
-    expect(tests.get('tests/test_cart.py::test_discount_negative').executed_methods).toEqual(['cart.py::apply_discount']);
-    expect(tests.get('tests/test_cart.py::test_count_mocked').executed_methods).toEqual(['cart.py::restock']);
-    // Vitest wrote no per-test lines, so the two tests calling only total with one label are compared on that.
-    expect(tests.get('test/cart.test.ts::cart > adds prices').executed_methods).toBe(null);
-    expect(tests.get('test/cart.test.ts::cart > rejects a negative price')).toMatchObject({ redundant_with: 'test/cart.test.ts::cart > adds prices', redundant_basis: 'static' });
-    // Dropped: test_count_mocked and saves an order for checking nothing, and the two redundant tests. All but saves an
-    // order were timed.
-    expect(report.totals.drop).toMatchObject({ count: 4, seconds: 0.6875, timed: 3 });
-  });
-
-  it('counts what the tests worth keeping ran', async () => {
-    const { report } = await measuredRun();
-    const methods = byId(report.methods);
-    // coverage.py's contexts say which lines each test ran. test_count_mocked, dropped for checking nothing, is the only test that ran
-    // restock, so none of it counts; its branches are estimated, since contexts say lines and not sides.
-    expect(methods.get('cart.py::restock').effective).toEqual({ lines: { hit: 0, total: 4, basis: 'measured' }, branches: { hit: 0, total: 4, basis: 'estimated' } });
-    // test_discount_10 and test_discount_negative are kept and ran lines 5, 6, 7 and 9 between them, the branch lines 5 and 7 among them.
-    expect(methods.get('cart.py::apply_discount').effective).toEqual({ lines: { hit: 4, total: 5, basis: 'measured' }, branches: { hit: 3, total: 4, basis: 'estimated' } });
-    // Vitest's LCOV has no per-test records. A kept test reaches total, so all of it counts; only saves an order, which checks
-    // nothing, reaches save, so none of it would.
-    expect(methods.get('src/cart.ts::total').effective).toEqual({ lines: { hit: 5, total: 5, basis: 'estimated' }, branches: { hit: 3, total: 4, basis: 'estimated' } });
-    expect(methods.get('src/db.ts::save').effective.lines).toEqual({ hit: 0, total: 1, basis: 'estimated' });
-    expect(report.files.find(file => file.path === 'cart.py').totals.effective).toEqual({ lines: { hit: 4, total: 10, basis: 'measured' }, branches: { hit: 3, total: 8, basis: 'estimated' } });
-    expect(report.totals.effective).toEqual({ lines: { hit: 11, total: 21, basis: 'estimated' }, branches: { hit: 6, total: 12, basis: 'estimated' } });
-  });
-
-  it('counts the branch sides each kept test took, from LCOV records per test', async () => {
-    // One TN: record per test, named by the test's id, after a record under no test name: checkout ran, under no test the report
-    // names. The weak test is the only one that took the throwing side of line 6 and the empty-loop side of line 5.
-    const lcov = `TN:
-SF:src/cart.ts
-DA:13,1
-DA:14,1
-DA:15,1
-end_of_record
-TN:test/cart.test.ts::cart > adds prices
-SF:src/cart.ts
-DA:4,1
-DA:5,1
-DA:6,2
-DA:7,2
-DA:9,1
-DA:13,0
-DA:14,0
-DA:15,0
-BRDA:5,0,0,2
-BRDA:5,0,1,0
-BRDA:6,1,0,0
-BRDA:6,1,1,2
-end_of_record
-TN:test/cart.test.ts::cart > rejects a negative price
-SF:src/cart.ts
-DA:4,1
-DA:5,1
-DA:6,1
-DA:7,0
-DA:9,0
-BRDA:5,0,0,1
-BRDA:5,0,1,1
-BRDA:6,1,0,1
-BRDA:6,1,1,0
-end_of_record
-`;
-    const repo = await repository();
-    await write(repo.root, { ...REPORTS, 'reports/lcov.info': lcov });
-    const tests = { ...MEASURED_TESTS, 'cart > rejects a negative price': { decides: ['nothing', 0.9] } };
-    const report = await run(repo, scripted({ tests, methods: MEASURED_METHODS, needs: MEASURED_NEEDS }),
-      { reportFlags: { junit: ['reports/junit.xml'], lcov: ['reports/lcov.info'] }, cwd: repo.root });
-    const total = byId(report.methods).get('src/cart.ts::total');
-    expect(total.measured).toEqual({ lines: { hit: 5, total: 5 }, branches: { hit: 4, total: 4 } });
-    expect(total.effective).toEqual({ lines: { hit: 5, total: 5, basis: 'measured' }, branches: { hit: 2, total: 4, basis: 'measured' } });
-    // No dropped test ran checkout, so all of it stays.
-    expect(byId(report.methods).get('src/cart.ts::checkout').effective.lines).toEqual({ hit: 3, total: 3, basis: 'measured' });
   });
 
   it('compares measured totals with the last run', async () => {
@@ -940,8 +853,6 @@ end_of_record
     expect(report.branch.units).toEqual(['cart.py::item_count', 'src/cart.ts::checkout', 'src/cart.ts::total', 'test/db.test.ts::saves an order']);
     const onBranch = report.findings.filter(finding => report.branch.findings.includes(finding.id)).map(finding => `${finding.kind} ${finding.unit}`).sort();
     expect(onBranch).toEqual([
-      'checks_nothing test/db.test.ts::saves an order',
-      'edge_case src/cart.ts::total',
       'untested cart.py::item_count',
       'untested src/cart.ts::checkout',
     ]);
@@ -968,8 +879,8 @@ rules: []
     // Measured by LCOV alone, which covers the TypeScript; the Python is Jev's and the graph's, and says so.
     const methods = byId(report.methods);
     expect(methods.get('src/cart.ts::checkout')).toMatchObject({ executed: false, untested: true });
-    expect(methods.get('cart.py::apply_discount')).toMatchObject({ measured: null, executed: null, exercised_basis: 'estimated' });
-    expect(methods.get('cart.py::restock')).toMatchObject({ measured: null, exercised: 0, exercised_basis: 'static', untested: true });
+    expect(methods.get('cart.py::apply_discount')).toMatchObject({ measured: null, executed: null });
+    expect(methods.get('cart.py::restock')).toMatchObject({ measured: null, untested: true });
   });
 
   it('fails fast on a missing report or unknown kind', async () => {
@@ -1063,26 +974,25 @@ describe('a JaCoCo report', () => {
       { path: 'build/jacoco.xml', reported: 'util/Strings.java' },
     ]);
     const methods = byId(coverage.methods);
-    expect(methods.get('src/main/java/shop/Cart.java::Cart.total')).toMatchObject({ measured: { lines: { hit: 2, total: 3 }, branches: { hit: 1, total: 2 } }, untaken: [5] });
+    expect(methods.get('src/main/java/shop/Cart.java::Cart.total')).toMatchObject({ measured: { lines: { hit: 2, total: 3 }, branches: { hit: 1, total: 2 } } });
     expect(methods.get('app/Pricing.java::Pricing.price').measured).toEqual({ lines: { hit: 1, total: 1 }, branches: { hit: 0, total: 0 } });
     for (const id of ['legacy/shop/Cart.java::Cart.total', 'a/Strings.java::Strings.trim', 'b/Strings.java::Strings.pad']) expect(methods.get(id).measured, id).toBe(null);
   });
 });
 
 it('finds duplicate tests among 40,000 in about linear time', () => {
-  const answered = new Map(), tests = [];
-  const said = { decides: { choice: 'happy_path', probability: 0.9, probabilities: { happy_path: 0.9 } } };
-  // Two tests for each method: the second repeats the first. Every tenth pair has a record of what ran, and those match on it.
-  for (let index = 0; index < 20000; index++) for (const copy of [0, 1]) {
-    const id = `test/t${index}.test.js::t${copy}`;
-    tests.push({ id, node: { path: `test/t${index}.test.js`, line: copy + 1 }, direct: [`src/m${index}.js::m`], executed_key: index % 10 ? undefined : `[["src/m${index}.js",[1]]]` });
-    answered.set(id, { answers: said });
+  const planted = new Map(), tests = [];
+  // Two tests for each of 20,000 methods, asked about the same three planted bugs, catching the same two: the second repeats the first.
+  for (let index = 0; index < 20000; index++) {
+    const ids = [0, 1].map(copy => `test/t${index}.test.js::t${copy}`);
+    for (const [copy, id] of ids.entries()) tests.push({ id, node: { path: `test/t${index}.test.js`, line: copy + 1 } });
+    planted.set(`src/m${index}.js::m`, [0, 1, 2].map(at => ({ mutant: { line: at + 1, column: 0, from: '<', to: '<=' }, matters: 0.9, catches: ids.map(id => [id, at < 2 ? 0.9 : 0.1]) })));
   }
   const started = performance.now();
-  const { redundantWith, redundantBasis, useful } = judgeTests(tests, answered, 0.5);
+  const { redundantWith, pairProbability, useful, checksNothing } = judgeTests(tests, planted, 0.5);
   expect(performance.now() - started).toBeLessThan(2000);
   expect(useful.size).toBe(20000);
+  expect(checksNothing.size).toBe(0);
   expect(redundantWith.get('test/t3.test.js::t1')).toBe('test/t3.test.js::t0');
-  expect(redundantBasis.get('test/t3.test.js::t1')).toBe('static');
-  expect(redundantBasis.get('test/t10.test.js::t1')).toBe('measured');
+  expect(pairProbability.get('test/t3.test.js::t1')).toBe(0.9);
 });
