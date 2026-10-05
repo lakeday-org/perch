@@ -69,6 +69,8 @@ rules:
       or appendFile on a .jsonl path here breaks this rule.
 
   - name: issues-closable
+    # The released perch that scans this repository's pull requests still requires where on every rule.
+    where: "test/**/*.js"
     each: test
     ensure_present: >-
       A call to main with close, an issue id and --reason, followed by a call to
