@@ -20,7 +20,7 @@ import { addRule, editRule, KINDS as RULE_KINDS, removeRule, ruleFile } from './
 import { allQuestions, parseQuestions, SHAPES } from './ask.js';
 import { installSkill, TARGET_NAMES, TARGETS } from './setup.js';
 import { createMeter, metered } from './meter.js';
-import { coverageFindings, coverageRepository, REPORT_KINDS, withoutSource } from './coverage.js';
+import { coverageFindings, coverageRepository, withoutSource } from './coverage.js';
 import { renderCoverageSite } from './coverage-html.js';
 import { COVERAGE_KINDS, coverageCount, coverageDetails, formatCoverage, formatCoverageDiff, listedFindings, parseCoverageFilters } from './coverage-report.js';
 import { formatDoctor, formatFilterKeys, gating, useColor, formatFinding, formatIssues, formatCheck, formatRules, formatScanReport, issueCount, relative, scanCount, scanTally, TOP, visibleFindings } from './report.js';
@@ -52,11 +52,6 @@ const options = {
   depth: ['--depth N', 'How many calls deep to follow each test (default 3)', ['coverage']],
   diff: ['--diff REF', 'Compare with the run saved at this branch or commit', ['coverage']],
   html: ['--html FILE', 'Where to write the HTML report (default coverage/index.html under --out)', ['coverage']],
-  junit: ['--junit a,b', 'JUnit XML from the test run; a glob names every file it matches', ['coverage']],
-  lcov: ['--lcov a,b', 'LCOV from the test run', ['coverage']],
-  cobertura: ['--cobertura a,b', 'Cobertura XML from the test run', ['coverage']],
-  jacoco: ['--jacoco a,b', 'JaCoCo XML from the test run', ['coverage']],
-  contexts: ['--contexts a,b', 'coverage.py JSON written with --show-contexts', ['coverage']],
   gate: ['--gate yes|no', 'Whether breaking this one fails a scan. Defaults to yes for a defect, a vulnerability or a rule', ['rules']],
   file: ['--file F', `The rule file: ${RULES_FILE} or a .yaml under ${RULES_DIR}/. add creates it; list shows only it`, ['rules']],
   types: ['--types', 'Print everything --filter accepts and stop', ['issues']],
@@ -91,7 +86,7 @@ const commandHelp = {
   login: { args: '[organization-id]', summary: 'Sign in to Perch Cloud', detail: 'Shows a device code to confirm in your browser. Stores a private login outside the repository. In CI, set PERCH_API_KEY to a CI token from the dashboard, or let a GitHub Actions job sign in with its own OIDC token.' },
   logout: { args: '', summary: 'Remove this device’s cloud login', detail: 'Removes the saved login from this device. CI credentials are revoked separately in the dashboard.' },
   scan: { args: '[target]', summary: 'Find issues', detail: `Scores every method with tree-sitter, then reads them with System One, callers and callees in view. Custom rules in ${RULES_FILE} and ${RULES_DIR}/ are asked in the same reading, so they cost nothing extra on a method perch was reading anyway.\n\nEvery run asks about every method in scope. Answers are cached by the endpoint rather than in .perch: Perch Cloud shares them across a repository's scans, locally and in CI. --force asks again and replaces what was cached.\n\ntarget is the file or directory to read, and defaults to where you are. Scans read the Git repository at HEAD. --paths and --since narrow the run, and --since origin/main is what CI wants. ignore in perch.yaml skips paths on a scan of the repository; a path you name is read anyway. Exits 3 on anything it found. Every type it asks about fails the run; scan_types in perch.yaml decides which those are, and defaults to defect and lint; --filter type=security asks about vulnerabilities. Questions go to Perch Cloud: sign in with perch login, or set PERCH_API_KEY to a CI token; a GitHub Actions job with id-token: write signs itself in. PERCH_BASE_URL sends them to another endpoint instead, with PERCH_API_KEY as its key. Defaults can be set in ~/.perch/config.toml.` },
-  coverage: { args: '[target]', summary: 'Test coverage, and which tests are worth keeping', detail: `Plants bugs in every method a test reaches, one-line edits off the syntax tree, and asks Perch Cloud whether the tests reaching the method would fail with each one in. Lists the bugs no test catches, the tests that catch none, and the tests that catch the same bugs as another, plus methods no test reaches. Runs no tests. --junit names a JUnit XML report for each test's time and result, and --lcov, --cobertura, --jacoco or --contexts a coverage report for lines run; or list them under coverage_reports in perch.yaml. A percentage is how sure the model is that a problem needs fixing.\n\n--since REF reports what a branch changed since REF: how many changed lines ran, and the problems in changed code. --diff REF compares with the run saved at REF. perch close <id> sets a problem aside.\n\ntarget is the file or directory to read, and defaults to where you are. --filter takes kind=, one of ${COVERAGE_KINDS.join(', ')}. Exits 3 when it lists a problem and 1 when it could not run. Asks Perch Cloud, the same way perch scan does. PERCH_BASE_URL sends it to another endpoint instead; PERCH_MODEL_ID selects the model.` },
+  coverage: { args: '[target]', summary: 'Test coverage, and which tests are worth keeping', detail: `Plants bugs in every method a test reaches, one-line edits off the syntax tree, and asks Perch Cloud whether the tests reaching the method would fail with each one in. Lists the bugs no test catches, the tests that catch none, and the tests that catch the same bugs as another, plus methods no test reaches. Runs no tests. It reads nothing a test run wrote. A percentage is how sure the model is that a problem needs fixing.\n\n--since REF reports what a branch changed since REF: how many changed lines ran, and the problems in changed code. --diff REF compares with the run saved at REF. perch close <id> sets a problem aside.\n\ntarget is the file or directory to read, and defaults to where you are. --filter takes kind=, one of ${COVERAGE_KINDS.join(', ')}. Exits 3 when it lists a problem and 1 when it could not run. Asks Perch Cloud, the same way perch scan does. PERCH_BASE_URL sends it to another endpoint instead; PERCH_MODEL_ID selects the model.` },
   rules: { args: '[list | add <name> | edit <name> | remove <name>]', summary: `Change ${RULES_FILE} without opening it`, detail: `Custom rules are questions perch asks alongside its own, written in the same grammar as the ones it ships with in scan.yaml. perch scan asks them; this writes them, keeping comments and ordering.\n\nRules live in ${RULES_FILE} or in .yaml files under ${RULES_DIR}/. add writes to ${RULES_FILE} unless --file names a split file; edit and remove find the file a rule is in; list shows every file, or one file with --file.\n\nMost are a yes-or-no, so --ensure is usually the only flag needed. It covers what a parser can't: whether a comment says why, whether a test asserts what you claim.\n\n  perch rules add no-stale-docs --where "docs/**/*.md" --ensure_absent "docs for code that was deleted"\n\nAn answer that is not yes-or-no is written out: --ask with --type and the options or levels it offers, and --issue for what an answer means. --when names a question this one is only as likely as.\n\n  perch rules add handles_absence --type choice --each method --where "src/**/*.js" \\\n    --ask "How does this method handle a value that is missing?" \\\n    --options "checks=It checks for it; ignores=It carries on with the missing value" \\\n    --issue "type=defect,label=handles_absence,except=checks"` },
   issues: { args: '[issue-id]', summary: 'List what the scan found, or show one', detail: 'Worst first. --filter narrows the list, --types prints what it accepts, --closed includes closed ones, --all lists every row. Give it an id to see everything known about that method. perch findings does the same thing.' },
   check: { args: '<path | path::method | issue-id>', summary: 'Ask about one piece of code, uncommitted', detail: 'Reads that one file off disk and asks about the point you named: every rule that covers it, plus the scan\'s own questions for a method. --rules narrows it to specific rules, or to defect, security, refactor or docs. Nothing is committed or recorded, so run it on work in progress. Exits 3 while something is still wrong. Asks Perch Cloud, the same way perch scan does. PERCH_BASE_URL sends it to another endpoint instead; PERCH_MODEL_ID selects the model.' },
@@ -146,10 +141,8 @@ ${column(own.map(([flag, text, , differs]) => [flag, differs?.[name] ?? text]))}
  */
 export const EXIT = { clean: 0, broke: 1, usage: 2, found: 3 };
 
-const valued = new Set(['paths', 'parallel', 'min', 'filter', 'depth', 'diff', 'html', 'junit', 'lcov', 'cobertura', 'jacoco', 'contexts', 'out', 'reason', 'kind', 'limit', 'page', 'since', 'rules',
+const valued = new Set(['paths', 'parallel', 'min', 'filter', 'depth', 'diff', 'html', 'out', 'reason', 'kind', 'limit', 'page', 'since', 'rules',
   'ensure', 'ensure_present', 'ensure_absent', 'where', 'except', 'each', 'sees', 'type', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', 'gate', 'file']);
-/** The flags that take a list of report files: given more than once, every value is read. */
-const LISTED = new Set(['junit', 'lcov', 'cobertura', 'jacoco', 'contexts']);
 const switches = new Set(['force', 'all', 'json', 'verbose', 'closed', 'types', 'help', 'version']);
 
 export function parseArgs(argv) {
@@ -168,10 +161,9 @@ export function parseArgs(argv) {
       // So is `--min --all`: the next flag is not a value, and taking it as one dropped the flag it was.
       const value = eq < 0 ? argv[++i] : arg.slice(eq + 1);
       if (value === undefined || value === '' || (eq < 0 && /^--[a-z]/.test(value))) throw new Error(`--${key} requires a value`);
-      // A report flag names files, and each time it is given adds to the list, as a comma does; any other flag given twice is
-      // a mistake, since keeping one of the two dropped the other without a word.
-      if (key in flags && !LISTED.has(key)) throw new Error(`--${key} is given twice`);
-      flags[key] = key in flags ? `${flags[key]},${value}` : value;
+      // A flag given twice is a mistake: keeping one of the two dropped the other without a word.
+      if (key in flags) throw new Error(`--${key} is given twice`);
+      flags[key] = value;
     } else if (switches.has(key)) flags[key] = true;
     else throw new Error(`unknown option --${key}`);
   }
@@ -199,16 +191,6 @@ const parsePaths = flags => (flags.paths ? flags.paths.split(',').map(path => pa
   return normal;
 }).filter(path => path !== '.');
 /** A report flag's paths: split at commas, except those inside a glob's `{a,b}`, which are part of the pattern. */
-const reportPaths = value => {
-  const paths = [];
-  let depth = 0, start = 0;
-  for (let at = 0; at <= value.length; at++) {
-    if (value[at] === '{') depth++;
-    else if (value[at] === '}' && depth > 0) depth--;
-    else if (at === value.length || (value[at] === ',' && depth === 0)) { paths.push(value.slice(start, at).trim()); start = at + 1; }
-  }
-  return paths.filter(Boolean);
-};
 const storeFrom = async flags => openStore(await resolveOut(flags.out));
 /**
  * Put this repository's own questions in force. Anything that names a kind, or reads one back off a finding, has to know what
@@ -581,7 +563,6 @@ const commands = {
     try { filters = parseCoverageFilters(io.flags.filter ?? ''); } catch (error) { throw new UsageError(error.message); }
     const parallel = positiveInteger('--parallel', io.flags.parallel, DEFAULT_PARALLEL);
     const depth = io.flags.depth === undefined ? undefined : positiveInteger('--depth', io.flags.depth);
-    const reportFlags = Object.fromEntries(REPORT_KINDS.filter(kind => io.flags[kind] !== undefined).map(kind => [kind, reportPaths(String(io.flags[kind]))]));
     const min = threshold(io.flags.min) / 100;
     const meter = createMeter();
     const resolved = await resolveTarget(io.argument ?? '.', { out: io.flags.out });
@@ -595,7 +576,7 @@ const commands = {
     try {
       report = await coverageRepository({ root: resolved.root, revision: await gitRevision(resolved.root), label: resolved.label, github: resolved.github,
         out: resolved.out, systemOne, analyzer: createSourceAnalyzer(), paths, named: [resolved.scope, ...parsePaths(io.flags)].filter(Boolean),
-        depth, parallel, min, diff: io.flags.diff ?? null, since: io.flags.since ?? null, reportFlags, cwd: process.cwd(), scanProgress: files.update, testProgress: tests.update, methodProgress: methods.update,
+        depth, parallel, min, diff: io.flags.diff ?? null, since: io.flags.since ?? null, scanProgress: files.update, testProgress: tests.update, methodProgress: methods.update,
         log: io.debug, debug: io.debug });
     } finally { files.clear(); tests.clear(); methods.clear(); }
     report = { ...report, usage: meter.toJSON() };

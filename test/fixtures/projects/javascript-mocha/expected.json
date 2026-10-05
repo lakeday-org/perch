@@ -1,385 +1,202 @@
 {
   "language": "javascript",
   "framework": "Mocha",
-  "reports": {
-    "junit": [
-      "reports/junit.xml"
-    ],
-    "lcov": [
-      "reports/lcov.info"
-    ]
-  },
-  "left_out": [
-    "examples/hello-world/index.js",
-    "examples/route-params/index.js",
-    "benchmark/middleware.js"
-  ],
+  "left_out": ["examples/hello-world/index.js", "examples/route-params/index.js", "benchmark/middleware.js"],
   "tests": [
     {
       "file": "test/application.spec.js",
       "name": "should start with x-powered-by and weak etags",
-      "status": "passed",
-      "reaches": [
-        "lib/application.js::createApplication",
-        "lib/application.js::Application.constructor"
-      ]
+      "reaches": ["lib/application.js::createApplication", "lib/application.js::Application.constructor"]
     },
     {
       "file": "test/application.spec.js",
       "name": "should cache views in production",
-      "status": "passed",
-      "reaches": [
-        "lib/application.js::createApplication",
-        "lib/application.js::Application.constructor",
-        "lib/application.js::Application.defaultConfiguration"
-      ]
+      "reaches": ["lib/application.js::createApplication", "lib/application.js::Application.constructor", "lib/application.js::Application.defaultConfiguration"]
     },
     {
       "file": "test/application.spec.js",
       "name": "should answer from the route that matches",
-      "status": "passed",
-      "reaches": [
-        "lib/application.js::createApplication"
-      ]
+      "reaches": ["lib/application.js::createApplication"]
     },
     {
       "file": "test/application.spec.js",
       "name": "should answer 404 when no route matches",
-      "status": "passed",
-      "reaches": [
-        "lib/application.js::createApplication"
-      ]
+      "reaches": ["lib/application.js::createApplication"]
     },
     {
       "file": "test/application.spec.js",
       "name": "should answer with the status of the error a handler throws",
-      "status": "passed",
-      "reaches": [
-        "lib/application.js::createApplication"
-      ]
+      "reaches": ["lib/application.js::createApplication"]
     },
     {
       "file": "test/layer.spec.js",
       "name": "fills params from the path, decoded",
-      "status": "passed",
-      "reaches": [
-        "lib/router/layer.js::Layer.constructor",
-        "lib/router/layer.js::Layer.match",
-        "lib/router/layer.js::decodeParam"
-      ]
+      "reaches": ["lib/router/layer.js::Layer.constructor", "lib/router/layer.js::Layer.match", "lib/router/layer.js::decodeParam"]
     },
     {
       "file": "test/layer.spec.js",
       "name": "fails a param that does not decode with a 400",
-      "status": "passed",
-      "reaches": [
-        "lib/router/layer.js::Layer.match",
-        "lib/router/layer.js::decodeParam"
-      ]
+      "reaches": ["lib/router/layer.js::Layer.match", "lib/router/layer.js::decodeParam"]
     },
     {
       "file": "test/layer.spec.js",
       "name": "passes what the handler throws to next",
-      "status": "passed",
-      "reaches": [
-        "lib/router/layer.js::Layer.constructor",
-        "lib/router/layer.js::Layer.handleRequest"
-      ]
+      "reaches": ["lib/router/layer.js::Layer.constructor", "lib/router/layer.js::Layer.handleRequest"]
     },
     {
       "file": "test/layer.spec.js",
       "name": "passes the error over a handler that takes three arguments",
-      "status": "passed",
-      "reaches": [
-        "lib/router/layer.js::Layer.handleError"
-      ]
+      "reaches": ["lib/router/layer.js::Layer.handleError"]
     },
     {
       "file": "test/middleware.spec.js",
       "name": "should collect a repeated key into an array",
-      "status": "passed",
-      "reaches": [
-        "lib/middleware/query.js::query"
-      ]
+      "reaches": ["lib/middleware/query.js::query"]
     },
     {
       "file": "test/middleware.spec.js",
       "name": "should leave a query something else parsed",
-      "status": "passed",
-      "reaches": [
-        "lib/middleware/query.js::query"
-      ]
+      "reaches": ["lib/middleware/query.js::query"]
     },
     {
       "file": "test/middleware.spec.js",
       "name": "should link the request, the response and the app",
-      "status": "passed",
-      "reaches": [
-        "lib/middleware/init.js::exports.init"
-      ]
+      "reaches": ["lib/middleware/init.js::exports.init"]
     },
     {
       "file": "test/path-to-regexp.spec.js",
       "name": "names each parameter in keys",
-      "status": "passed",
-      "reaches": [
-        "lib/path-to-regexp.js::pathToRegexp",
-        "lib/path-to-regexp.js::escapeString"
-      ]
+      "reaches": ["lib/path-to-regexp.js::pathToRegexp", "lib/path-to-regexp.js::escapeString"]
     },
     {
       "file": "test/path-to-regexp.spec.js",
       "name": "allows a trailing slash unless strict",
-      "status": "passed",
-      "reaches": [
-        "lib/path-to-regexp.js::pathToRegexp"
-      ]
+      "reaches": ["lib/path-to-regexp.js::pathToRegexp"]
     },
     {
       "file": "test/path-to-regexp.spec.js",
       "name": "matches a prefix that ends on a segment",
-      "status": "passed",
-      "reaches": [
-        "lib/path-to-regexp.js::pathToRegexp"
-      ]
+      "reaches": ["lib/path-to-regexp.js::pathToRegexp"]
     },
     {
       "file": "test/path-to-regexp.spec.js",
       "name": "numbers the groups of a regular expression",
-      "status": "passed",
-      "reaches": [
-        "lib/path-to-regexp.js::pathToRegexp"
-      ]
+      "reaches": ["lib/path-to-regexp.js::pathToRegexp"]
     },
     {
       "file": "test/request.spec.js",
       "name": "should pick the type the client prefers",
-      "status": "passed",
-      "reaches": [
-        "lib/request.js::accepts",
-        "lib/request.js::parseAccept",
-        "lib/request.js::quality"
-      ]
+      "reaches": ["lib/request.js::accepts", "lib/request.js::parseAccept", "lib/request.js::quality"]
     },
     {
       "file": "test/request.spec.js",
       "name": "should trust X-Forwarded-Proto only from a trusted proxy",
-      "status": "passed",
-      "reaches": [
-        "lib/request.js::protocol",
-        "lib/utils.js::exports.compileTrust"
-      ]
+      "reaches": ["lib/request.js::protocol", "lib/utils.js::exports.compileTrust"]
     },
     {
       "file": "test/request.spec.js",
       "name": "should drop the port but keep an IPv6 literal whole",
-      "status": "passed",
-      "reaches": [
-        "lib/request.js::hostname"
-      ]
+      "reaches": ["lib/request.js::hostname"]
     },
     {
       "file": "test/response.spec.js",
       "name": "should send an object as JSON",
-      "status": "passed",
-      "reaches": [
-        "lib/response.js::Response.constructor",
-        "lib/response.js::Response.json"
-      ]
+      "reaches": ["lib/response.js::Response.constructor", "lib/response.js::Response.json"]
     },
     {
       "file": "test/response.spec.js",
       "name": "should escape the characters that would end a script tag",
-      "status": "passed",
-      "reaches": [
-        "lib/response.js::Response.send",
-        "lib/response.js::Response.json"
-      ]
+      "reaches": ["lib/response.js::Response.send", "lib/response.js::Response.json"]
     },
     {
       "file": "test/response.spec.js",
       "name": "should set the ETag the app's etag function makes",
-      "status": "passed",
-      "reaches": [
-        "lib/response.js::Response.send",
-        "lib/application.js::createApplication"
-      ]
+      "reaches": ["lib/response.js::Response.send", "lib/application.js::createApplication"]
     },
     {
       "file": "test/response.spec.js",
       "name": "should drop the body of a 204",
-      "status": "passed",
-      "reaches": [
-        "lib/response.js::Response.status",
-        "lib/response.js::Response.send"
-      ]
+      "reaches": ["lib/response.js::Response.status", "lib/response.js::Response.send"]
     },
     {
       "file": "test/response.spec.js",
       "name": "should redirect with a 302 and a Location header",
-      "status": "passed",
-      "reaches": [
-        "lib/response.js::Response.redirect"
-      ]
+      "reaches": ["lib/response.js::Response.redirect"]
     },
     {
       "file": "test/route.spec.js",
       "name": "should run the handlers in order",
-      "status": "passed",
-      "reaches": [
-        "lib/router/route.js::Route.constructor",
-        "lib/router/route.js::Route.dispatch",
-        "lib/router/route.js::Route.dispatch.next"
-      ]
+      "reaches": ["lib/router/route.js::Route.constructor", "lib/router/route.js::Route.dispatch", "lib/router/route.js::Route.dispatch.next"]
     },
     {
       "file": "test/route.spec.js",
       "name": "should skip handlers for another method",
-      "status": "passed",
-      "reaches": [
-        "lib/router/route.js::Route.dispatch"
-      ]
+      "reaches": ["lib/router/route.js::Route.dispatch"]
     },
     {
       "file": "test/route.spec.js",
       "name": "should leave the route when a handler calls next(\"route\")",
-      "status": "passed",
-      "reaches": [
-        "lib/router/route.js::Route.all",
-        "lib/router/route.js::Route.dispatch"
-      ]
+      "reaches": ["lib/router/route.js::Route.all", "lib/router/route.js::Route.dispatch"]
     },
     {
       "file": "test/route.spec.js",
       "name": "should answer HEAD with its GET handlers",
-      "status": "passed",
-      "reaches": [
-        "lib/router/route.js::Route.handlesMethod"
-      ]
+      "reaches": ["lib/router/route.js::Route.handlesMethod"]
     },
     {
       "file": "test/router.spec.js",
       "name": "should send a request to the route that matches",
-      "status": "passed",
-      "reaches": [
-        "lib/router/index.js::Router.route",
-        "lib/router/index.js::Router.handle",
-        "lib/router/index.js::Router.handle.next",
-        "lib/router/route.js::Route.dispatch"
-      ]
+      "reaches": ["lib/router/index.js::Router.route", "lib/router/index.js::Router.handle", "lib/router/index.js::Router.handle.next", "lib/router/route.js::Route.dispatch"]
     },
     {
       "file": "test/router.spec.js",
       "name": "should hand on a request no route matches",
-      "status": "passed",
-      "reaches": [
-        "lib/router/index.js::Router.route",
-        "lib/router/index.js::Router.handle",
-        "lib/router/index.js::pathname"
-      ]
+      "reaches": ["lib/router/index.js::Router.route", "lib/router/index.js::Router.handle", "lib/router/index.js::pathname"]
     },
     {
       "file": "test/router.spec.js",
       "name": "should strip the mount path from req.url inside the middleware",
-      "status": "passed",
-      "reaches": [
-        "lib/router/index.js::Router.use",
-        "lib/router/index.js::Router.handle",
-        "lib/router/index.js::Router.handle.trimPrefix"
-      ]
+      "reaches": ["lib/router/index.js::Router.use", "lib/router/index.js::Router.handle", "lib/router/index.js::Router.handle.trimPrefix"]
     },
     {
       "file": "test/router.spec.js",
       "name": "should pass an error to the next error handler",
-      "status": "passed",
-      "reaches": [
-        "lib/router/index.js::Router.use",
-        "lib/router/index.js::Router.handle",
-        "lib/router/index.js::Router.handle.next"
-      ]
+      "reaches": ["lib/router/index.js::Router.use", "lib/router/index.js::Router.handle", "lib/router/index.js::Router.handle.next"]
     },
     {
       "file": "test/router.spec.js",
       "name": "should run a param callback once per request",
-      "status": "passed",
-      "reaches": [
-        "lib/router/index.js::Router.param",
-        "lib/router/index.js::Router.handle",
-        "lib/router/index.js::Router.processParams"
-      ]
+      "reaches": ["lib/router/index.js::Router.param", "lib/router/index.js::Router.handle", "lib/router/index.js::Router.processParams"]
     },
     {
       "file": "test/router.spec.js",
       "name": "should merge params from a parent router",
-      "status": "skipped",
-      "reaches": [
-        "lib/router/index.js::Router.constructor",
-        "lib/router/index.js::Router.use",
-        "lib/router/index.js::Router.route"
-      ]
+      "reaches": ["lib/router/index.js::Router.constructor", "lib/router/index.js::Router.use", "lib/router/index.js::Router.route"]
     },
     {
       "file": "test/utils.spec.js",
       "name": "should make a strong tag from the length and a hash",
-      "status": "passed",
-      "reaches": [
-        "lib/utils.js::exports.etag",
-        "lib/utils.js::entityTag"
-      ]
+      "reaches": ["lib/utils.js::exports.etag", "lib/utils.js::entityTag"]
     },
     {
       "file": "test/utils.spec.js",
       "name": "should make a weak tag",
-      "status": "passed",
-      "reaches": [
-        "lib/utils.js::exports.wetag",
-        "lib/utils.js::entityTag"
-      ]
+      "reaches": ["lib/utils.js::exports.wetag", "lib/utils.js::entityTag"]
     },
     {
       "file": "test/utils.spec.js",
       "name": "should normalize ${type}",
-      "status": "passed",
-      "reaches": [
-        "lib/utils.js::exports.normalizeType"
-      ]
+      "reaches": ["lib/utils.js::exports.normalizeType"]
     },
     {
       "file": "test/utils.spec.js",
       "name": "should replace a charset and keep other parameters",
-      "status": "passed",
-      "reaches": [
-        "lib/utils.js::exports.setCharset"
-      ]
+      "reaches": ["lib/utils.js::exports.setCharset"]
     },
     {
       "file": "test/utils.spec.js",
       "name": "should throw on a value it does not know",
-      "status": "passed",
-      "reaches": [
-        "lib/utils.js::exports.compileETag"
-      ]
+      "reaches": ["lib/utils.js::exports.compileETag"]
     }
-  ],
-  "untested": [
-    "lib/application.js::Application.callback",
-    "lib/application.js::Application.disable",
-    "lib/application.js::Application.disabled",
-    "lib/application.js::Application.engine",
-    "lib/application.js::Application.listen",
-    "lib/application.js::Application.param",
-    "lib/application.js::Application.render",
-    "lib/application.js::Application.route",
-    "lib/application.js::Application.use",
-    "lib/request.js::xhr",
-    "lib/response.js::Response.sendStatus",
-    "lib/router/index.js::mergeParams",
-    "lib/router/route.js::Route.allowedMethods",
-    "lib/utils.js::exports.isAbsolute",
-    "lib/view.js::View.constructor",
-    "lib/view.js::View.lookup",
-    "lib/view.js::View.render",
-    "lib/view.js::View.resolve",
-    "lib/view.js::tryStat"
   ]
 }

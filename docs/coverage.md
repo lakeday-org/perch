@@ -8,115 +8,94 @@ summary: Find unit tests of low value and discover the real coverage gaps in you
 
 # Test coverage
 
-Perch Coverage tells you which of your existing unit tests aren’t useful and
-where you have holes in test coverage. Perch reads every test and every function
-in your repository. It follows each test through the call graph to the methods
-it reaches. Then it uses a model to figure out what each test is actually
-testing.
+Perch Coverage finds the bugs your tests would not catch, and the tests that
+catch nothing. It reads every test and every function in your repository, and
+follows each test through the call graph to the methods it reaches. Then it
+plants bugs in those methods and asks a model, for each bug and each test that
+reaches the method, whether that test would fail with the bug in.
 
-If your CI writes test results and a coverage report, Perch reads those too, and
-its numbers are measured. Test results are JUnit XML, which pytest, Vitest,
-Jest, nextest, Maven, Gradle and GoogleTest can all write. The coverage report
-can be LCOV, Cobertura, JaCoCo or coverage.py's. Without them, Perch estimates
-from the call graph and marks each estimate `est.`
+A planted bug is one line changed: a comparison moved to its boundary (`<` to
+`<=`), a condition negated, `&&` swapped for `||`, a `!` dropped, `+` swapped
+for `-`, a boolean flipped, a returned number zeroed. These are the edits a
+developer makes by mistake, and the ones mutation testers have planted for
+decades. Perch runs no tests: the model reads the method with the edit marked,
+and each test with what it reaches, and says whether the test would notice.
 
-Perch will identify tests that don’t have any assertions, tests that just test
-that a mock returns what you told it to return, tests that are duplicating other
-tests, and tests that call a live network service or database without mocking.
-For each method that your tests run, Perch will tell you the most important
-branch that isn’t being tested, and what kind of input you need to write a test
-for that branch. For each method that isn’t run by any tests, Perch will tell
-you whether it needs to be tested or not.
-
-Point `perch coverage` at the JUnit XML and coverage report your CI already
-writes, and its numbers are measured:
+Point it at a repository:
 
 ```console
-$ perch coverage --junit reports/vitest/junit.xml --lcov reports/vitest/lcov.info
-Source files      Methods tested  Lines  Branches  Effective lines  Effective branches  Untested branches
-src/cart.ts               2 of 2   100%       75%        100% est.            75% est.                  1
-src/checkout.ts           1 of 1   100%       50%        100% est.            50% est.                  1
-src/inventory.ts          1 of 1   100%       75%        100% est.            75% est.                  1
-All source                4 of 4   100%       70%        100% est.            70% est.                  3
+$ perch coverage
+Source files      Methods tested     Bugs caught  Uncaught bugs
+src/cart.ts               2 of 2    71% (5 of 7)              2
+src/checkout.ts           1 of 1   100% (2 of 2)              0
+src/inventory.ts          1 of 1   100% (4 of 4)              0
+All source                4 of 4  85% (11 of 13)              2
 
-Test files                    Quality  Duplicates  Weak  Live services  Time  Time saved
-test/cart.test.ts        71% (5 of 7)           0     2              1   4ms         4ms
-test/checkout.test.ts   100% (1 of 1)           0     0              0   1ms           -
-test/inventory.test.ts   75% (3 of 4)           0     1              0   1ms         1ms
-All tests               75% (9 of 12)           0     3              1   6ms         4ms
+Test files                    Quality  Duplicates  Checks nothing  Live services
+test/cart.test.ts        43% (3 of 7)           4               0              1
+test/checkout.test.ts   100% (1 of 1)           0               0              0
+test/inventory.test.ts  100% (4 of 4)           0               0              0
+All tests               67% (8 of 12)           4               0              1
 
 src/cart.ts
-  ID        Line  Problem    Confidence  Test or method  Note
-  d0bee7da    12  edge_case        100%  applyDiscount   Untested case: applyDiscount at the edge of its range.
-
-src/checkout.ts
-  ID        Line  Problem    Confidence  Test or method  Note
-  7087f25c     6  edge_case        100%  placeOrder      Untested case: placeOrder failing.
-
-src/inventory.ts
-  ID        Line  Problem    Confidence  Test or method  Note
-  49b7e108     6  edge_case         83%  canFulfil       Untested case: canFulfil with input in another order.
+  ID        Line  Problem   Confidence  Test or method  Note
+  5463a88e    12  uncaught         60%  applyDiscount   With `>` instead of `>=`, none of the 5 tests reaching it…
+  19e3def8    12  uncaught         59%  applyDiscount   With `1` instead of `0`, none of the 5 tests reaching it …
 
 test/cart.test.ts
-  ID        Line  Problem        Confidence  Test or method            Note
-  f5aebe0a    28  no_assertion         100%  subtotal > adds up the …  Asserts nothing.
-  12d6d00b    32  mystery_guest         99%  subtotal > matches the …  Uses a file, record or service it does not…
-  472ae559    32  infra                 88%  subtotal > matches the …  Calls a live service with nothing mocked: …
-
-test/inventory.test.ts
-  ID        Line  Problem       Confidence  Test or method             Note
-  3ca3cd17    23  asserts_mock         98%  canFulfil > returns what…  Checks a value its own mock returns.
-shop at commit 14f9145: 4 methods, 12 tests, 7 problems
+  ID        Line  Problem    Confidence  Test or method              Note
+  d0eacd17    10  redundant         95%  applyDiscount > takes 20 …  Catches the same planted bugs as applyDiscou…
+  7ff46fdf    14  redundant         95%  applyDiscount > takes 25 …  Catches the same planted bugs as applyDiscou…
+  3055e1ad    18  redundant         95%  applyDiscount > takes 50 …  Catches the same planted bugs as applyDiscou…
+  427fce7a    22  redundant         95%  applyDiscount > takes 75 …  Catches the same planted bugs as applyDiscou…
+  472ae559    32  infra             88%  subtotal > matches the to…  Calls a live service with nothing mocked: fe…
+shop at commit 8680c01: 4 methods, 12 tests, 7 problems
 Report: .perch/coverage/index.html
-19 requests  13k tokens in / 2k out  $0.0025
+14 requests  0 tokens in  $0.0000
 ```
 
-Lines and Branches are what the coverage report counts. Effective lines and
-Effective branches leave out what only duplicate and weak tests ran. Time saved
-is how long those tests took. The call graph and the coverage report find each
-problem. The confidence is how sure the model is that it needs fixing. A problem
-with `-` belongs to a test or method the model could not be asked about. `--all`
-lists every row. The HTML report shows the source with each problem under its
-line. It is one file, unless the repository has more than 8 MB of source. Then
-each file gets its own page under `files/`, next to `index.html`.
+Bugs caught is the planted bugs some test is predicted to fail on, of every bug
+planted. Methods tested is how many methods some test reaches through the call
+graph. Uncaught bugs are the ones no test catches, each listed with the edit
+and how many tests miss it. The confidence is how sure the model is: that no
+test catches the bug, and that the bug would change what a caller sees. Checks
+nothing is a test that catches none of the bugs planted in the code it reaches.
+Duplicates are tests that catch exactly the bugs an earlier test catches. A
+problem with `-` belongs to a test or method the model could not be asked
+about. `--all` lists every row. The HTML report shows the source with each
+problem under its line: an uncaught bug is shown as the line as written and as
+changed, with the tests that still pass. It is one file, unless the repository
+has more than 8 MB of source. Then each file gets its own page under `files/`,
+next to `index.html`.
 
 ## How it differs from a coverage report
 
-A coverage report just tells you what lines were run by your tests. But just
-because a line was run doesn’t mean it was tested. It’s easy to write tests that
-will pass no matter what the code does, and get 90% coverage while testing
-nothing.
+A coverage report tells you which lines your tests ran. A line that ran is not
+a line that was checked: a test can call a method, assert nothing about the
+result, and still turn every line it touched green.
 
-Perch reads your coverage report for you, and tells you whether the lines that
-were run were actually tested. And for branches that weren’t run, Perch tells
-you which ones you should actually worry about, and what you need to do to run
-each branch. Rather than giving you a single coverage percentage, Perch gives
-you a list of specific problems, with the file and line number of each problem,
-and a confidence score for how sure it is that it’s actually a problem.
+A mutation tester such as Stryker or PIT plants bugs the way Perch does, then
+runs your whole test suite against each one, which takes hours on a large
+repository and needs the toolchain set up to run. Perch asks a model instead of
+running anything, so a run takes minutes, works on code you cannot run locally,
+and works on a pull request in CI with no test job. It reads nothing your CI
+writes: no coverage report, no test results. The model's answer is a
+prediction, and the confidence says how sure it is.
 
 Perch only considers the code that your test frameworks will actually run. It
 does this by loading your Vitest or Jest config or reading your pytest and
 coverage.py settings, and excluding things like scripts, examples and docs
-tooling that can’t be covered by tests. When run on a branch, Perch will tell
-you how many of the lines that were changed on the branch were run by tests, and
-highlight which problems were found in code that was changed on the branch.
+tooling that can't be covered by tests. When run on a branch, Perch lists the
+problems in code the branch changed.
 
-## Effective coverage
+## What gets planted
 
-A test that asserts nothing still turns the lines it runs green. Effective
-coverage is the share of lines and branches that tests worth keeping ran. It
-leaves out what only duplicate and weak tests ran.
-
-When the coverage report says which lines each test ran, the figure is
-measured. coverage.py writes that with `--cov-context=test`. LCOV writes it when
-each test has its own `TN:` record. LCOV also says which side of each branch
-each test took. coverage.py's contexts say lines but not sides, so a side counts
-unless only dropped tests ran its line.
-
-Without per-test records, the figure is estimated from the call graph and marked
-`est.` A method counts in full unless every test that reaches it is duplicate or
-weak. Vitest and Jest write no per-test records, so their figures are always
-estimated.
+Each reached method gets up to ten planted bugs, the most telling first:
+comparison boundaries, swapped connectives, negated conditions, dropped `!`,
+arithmetic operators, flipped booleans, zeroed returns. A method with no such
+line, a one-line delegate or a getter, gets none, and counts as reached with
+nothing to catch. A method no test reaches gets none either: it is listed as
+untested, and the model is asked whether it needs a test at all.
 
 ## What it reads
 
@@ -149,73 +128,37 @@ $ perch coverage --verbose
 A config that cannot load is named on the last line, and perch reads every test
 it finds instead. `--verbose` gives the error. `ignore:` in `perch.yaml` leaves out more on top.
 
-## Reading your CI's reports
-
-Name the files with flags, or list them in `perch.yaml` so every run finds them.
-A glob names every file it matches, and a glob that matches nothing is an error.
-
-```yaml
-coverage_reports:
-  junit: [reports/junit/*.xml]
-  lcov: [coverage/lcov.info]
-```
-
-| Flag | Report | What it gives |
-| --- | --- | --- |
-| `--junit` | JUnit XML | Each test's time and result |
-| `--lcov` | LCOV | Line and branch hits, and per-test lines when each test has its own `TN:` record |
-| `--cobertura` | Cobertura XML | Line and branch hits |
-| `--jacoco` | JaCoCo XML | Line and branch hits |
-| `--contexts` | coverage.py JSON from `coverage json --show-contexts` | Line and branch hits, and the lines each test ran |
-
-A run perch cannot match to a test is never guessed. `--verbose` lists each one,
-and `--json` has them under `unmatched_runs`.
-
 ## Supported languages and frameworks
 
-| Language | Framework | JUnit XML from | Coverage from | Setting perch needs |
-| --- | --- | --- | --- | --- |
-| Python | pytest | `--junitxml` | coverage.py, with `--cov-context=test` for per-test lines | |
-| Python | unittest | unittest-xml-reporting | coverage.py | `dynamic_context = test_function` for per-test lines |
-| JavaScript, TypeScript, TSX | Vitest | `--reporter=junit` | V8, as LCOV or Cobertura | |
-| JavaScript, TypeScript, TSX | Jest | jest-junit | Istanbul, as LCOV or Cobertura | jest-junit: `addFileAttribute: "true"`, `ancestorSeparator: " > "`, `classNameTemplate: "{classname}"`, `titleTemplate: "{title}"` |
-| JavaScript, TypeScript | Mocha | mocha-junit-reporter | c8, as LCOV | `jenkinsMode: true`, `suiteTitleSeparatedBy: " > "` |
-| JavaScript, TypeScript | node:test | `--test-reporter=junit` | `--test-reporter=lcov` | |
-| Rust | libtest | `-Z unstable-options --format junit --report-time` | cargo-llvm-cov, as LCOV | `--report-time`, or every time reads 0 |
-| Rust | nextest | a profile with JUnit output | cargo-llvm-cov, as LCOV | |
-| Java | JUnit 5 | Maven Surefire or Gradle | JaCoCo XML | Gradle, for a class with more than one `@ParameterizedTest`: `junit.jupiter.params.displayname.default = {displayName} [{index}] {arguments}` in `junit-platform.properties` |
-| Java | JUnit 4 | Maven Surefire | JaCoCo XML | |
-| Java | TestNG | Maven Surefire | JaCoCo XML | |
-| C++ | GoogleTest | `--gtest_output=xml` | gcovr, as Cobertura or LCOV | |
-| C++ | Catch2 v3 | `-r junit` | gcovr | `--warn NoAssertions`, or a test with no assertion has no run |
-| C++ | doctest | `-r=junit` | gcovr | |
+| Language | Frameworks |
+| --- | --- |
+| Python | pytest, unittest |
+| JavaScript, TypeScript, TSX | Vitest, Jest, Mocha, node:test |
+| Rust | libtest, nextest |
+| Java | JUnit 5, JUnit 4, TestNG |
+| C++ | GoogleTest, Catch2 v3, doctest |
 
 Other languages are not supported yet. A test in a framework perch does not
-recognize is not found, and its runs are listed as unmatched.
+recognize is not found.
 
 ## Checking a branch
 
-`--since REF` lists each source file the branch changed where the tests missed
-a changed line of code, and how many they missed. The share of changed lines of
-code that ran is patch coverage. The problems below it are the ones in methods
-and tests the branch changed:
+`--since REF` lists the problems in methods and tests the branch changed:
 
 ```console
-$ perch coverage --since main --junit reports/vitest/junit.xml --lcov reports/vitest/lcov.info
-Changed since main  Untested lines  Patch coverage
-src/main.ts                      1              0%
-All changed source               1             50%
-
+$ perch coverage --since main
 src/cart.ts
-  ID        Line  Problem    Confidence  Test or method  Note
-  d0bee7da    12  edge_case        100%  applyDiscount   Untested case: applyDiscount at the edge of its range.
-shop at commit f875f58: 4 methods, 12 tests, 1 problem in changed code, 6 elsewhere
-Report: .perch/coverage/index.html
-19 requests  5k tokens in / 860 out  $0.0010
-```
+  ID        Line  Problem   Confidence  Test or method  Note
+  5463a88e    12  uncaught         59%  applyDiscount   With `>` instead of `>=`, none of the 5 tests reaching it…
+  19e3def8    12  uncaught         57%  applyDiscount   With `1` instead of `0`, none of the 5 tests reaching it …
 
-Changed comments and blank lines are not counted. A file no coverage report
-covers shows `not measured`. Test files are left out of the table.
+test/cart.test.ts
+  ID        Line  Problem    Confidence  Test or method              Note
+  427fce7a    22  redundant         96%  applyDiscount > takes 75 …  Catches the same planted bugs as applyDiscou…
+shop at commit 76f8d50: 4 methods, 12 tests, 3 problems in changed code, 4 elsewhere
+Report: .perch/coverage/index.html
+14 requests  0 tokens in  $0.0000
+```
 
 With `--since`, perch exits 3 only for a problem in changed code. It compares
 with a saved run only when `--diff` names one.

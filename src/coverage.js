@@ -5,18 +5,17 @@
  * the call graph. Each reached method has bugs planted in it, one-token edits read off its syntax tree (mutants.js), and Jev is
  * asked, per planted bug and per test reaching the method, whether that test would fail with the bug in. A bug no test is
  * predicted to catch is a gap; a test predicted to catch none is one that checks nothing; two tests predicted to catch the same
- * bugs are one test written twice. When CI's test run wrote JUnit XML, each test's time and result are read from it. Every
- * listed problem's probability is a System One answer or computed from answers. A problem whose unit could not be asked has
- * none, and is listed with the failure.
+ * bugs are one test written twice. Nothing a test run wrote is read: no coverage report, no test results. Every listed
+ * problem's probability is a System One answer or computed from answers. A problem whose unit could not be asked has none,
+ * and is listed with the failure.
  *
  * A test or a method that cannot be asked about is recorded as failed and stays in the report as failed. It is never counted as
  * a useful test or as a covered method, since a report that quietly fills in what it could not find out reads as complete.
  */
 import { readFileSync } from 'node:fs';
-import { copyFile, glob, readdir, readFile, stat } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { copyFile, readdir } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { changedLines, listTree, readBlob, revision as commitOf } from './git.js';
-import { readCobertura, readCoverageJson, readJacoco, readJunit, readLcov, repoPath } from './test-reports.js';
 import { analyzeTree } from './analyze.js';
 import { frameworkScope } from './test-scope.js';
 import { TOP_LEVEL } from './analysis.js';
@@ -26,12 +25,9 @@ import { compile, parseQuestions, readAnswer } from './ask.js';
 import { excerpt, leadingComment, shownLines, spanOf } from './questions.js';
 import { identity, openStore, readJson } from './store.js';
 import { estimateTokens, IncompleteCheckError, TOKEN_LIMITS, withTokenRetries } from './tokens.js';
-import { matches, readCoverageReports, readIgnored } from './units.js';
+import { matches, readIgnored } from './units.js';
 import { covers } from './scan.js';
-import { namesOf, patternsOf, rootsOf, runNames } from './runs/index.js';
 import { describeMutant, mutantId, mutantsOf } from './mutants.js';
-import { languages as jvmLanguages } from './runs/jvm.js';
-import { shownPath } from './runs/paths.js';
 
 /** How many calls deep a test is followed into the code it reaches, unless --depth says otherwise. */
 export const DEFAULT_DEPTH = 3;
@@ -47,8 +43,8 @@ const QUESTIONS = parseQuestions(readFileSync(new URL('../coverage.yaml', import
 /** What is asked of tests and of methods. `catches` is a template: it is asked once per test shown, as `catches_1` and so on. */
 export const coverageQuestions = () => ({ test: QUESTIONS.filter(question => question.each === 'test'), method: QUESTIONS.filter(question => question.each === 'method') });
 const questionNamed = name => QUESTIONS.find(question => question.name === name);
-/** Whether a method is untested: measured, none of its lines ran, whatever reaches it; unmeasured, no test reaches it. */
-const isUntested = method => (method.measured ? method.measured.lines.hit === 0 : !method.tests.length);
+/** Whether a method is untested: no test reaches it through the call graph. */
+const isUntested = method => !method.tests.length;
 /** What a node in a test's request is, when it is not code the test reaches: a helper of its own. */
 const HELPER = "the test's own helper, which it calls through to the code under test";
 const MACRO = "a macro the test uses, which may hold its assertions";
@@ -70,7 +66,7 @@ function macroIn(lines, name) {
   return { line: start + 1, text: lines.slice(start, end + 1).join('\n') };
 }
 const MACRO_LANGUAGES = new Set(['c', 'cpp', 'rust']);
-/** Asked of a method only once the call graph or the report has found no test runs it, and never with the branch questions. */
+/** Asked of a method only once the call graph has found no test reaches it. */
 const NEEDS_TEST = 'needs_test';
 
 /**
@@ -224,7 +220,7 @@ const describeMock = ({ target, line }) => {
  * The walk is breadth first to `depth` calls. It does not enter anything in a test file, since a helper there is not code under
  * test, and it does not enter or pass through a method a mock of the test replaces.
  */
-export function computeCoverage({ scan, graph, depth = DEFAULT_DEPTH, inScope = () => true, runs = () => true, named = inScope, reports = null }) {
+export function computeCoverage({ scan, graph, depth = DEFAULT_DEPTH, inScope = () => true, runs = () => true, named = inScope }) {
   const nodes = [...graph.nodes.values()];
   // A file's code outside every function is the scan's to read: no test calls it, so as a method it would always be untested.
   const methods = nodes.filter(node => !node.test && node.qualified_name !== TOP_LEVEL && inScope(node.path));
@@ -294,365 +290,7 @@ export function computeCoverage({ scan, graph, depth = DEFAULT_DEPTH, inScope = 
   }
   const paths = new Set([...units.map(unit => unit.node.path), ...tests.map(test => test.node.path)]);
   const files = scan.files.filter(file => paths.has(file.path)).sort((a, b) => a.path.localeCompare(b.path));
-  const coverage = { depth, tests, methods: units, files, failed, measurement: null };
-  if (reports) coverage.measurement = measure(coverage, graph, reports);
-  return coverage;
-}
-
-// ------------------------------------------------------------------------------------------------ What CI's test run wrote
-
-/** The kinds of report perch reads, as `--junit`, `--lcov`, `--cobertura`, `--jacoco` and `--contexts` name them and perch.yaml lists them. */
-export const REPORT_KINDS = ['junit', 'lcov', 'cobertura', 'jacoco', 'contexts'];
-const REPORT_NAMES = { junit: 'JUnit XML', lcov: 'LCOV', cobertura: 'Cobertura XML', jacoco: 'JaCoCo XML', contexts: 'coverage.py JSON' };
-
-/** A report path with a glob in it: `*`, `**`, `?`, a `[...]` class or a `{a,b}` list. */
-const isPattern = path => /[*?[\]{}]/.test(path);
-
-/**
- * The report files a run reads. A flag replaces perch.yaml's list for the kind it names and leaves the other kinds alone. A
- * flag's paths are relative to where perch was run, perch.yaml's to the repository. Both are read from the working tree, since
- * these files are what CI's test run just wrote and are never committed.
- *
- * A path with a glob in it, `reports/junit/*.xml`, is every file on disk it matches, in name order. A pattern that matches no
- * file is an error naming it, as a path that is not there is when it is read: a run whose reports are missing is not a run that
- * has none.
- */
-export async function reportFiles({ root, cwd = process.cwd(), flags = {}, configured = null }) {
-  const files = [];
-  for (const kind of REPORT_KINDS) {
-    const [base, list] = flags[kind] ? [cwd, flags[kind]] : [root, configured?.[kind] ?? []];
-    for (const path of list) {
-      if (!isPattern(path)) { files.push({ kind, path: resolve(base, path) }); continue; }
-      const found = [];
-      for await (const match of glob(path, { cwd: base })) {
-        const absolute = resolve(base, match);
-        if ((await stat(absolute)).isFile()) found.push(absolute);
-      }
-      if (!found.length) throw new Error(`${path}: no ${REPORT_NAMES[kind]} report matches this pattern in ${base}; CI's test run writes them, and none was there`);
-      for (const match of found.sort()) files.push({ kind, path: match });
-    }
-  }
-  return files;
-}
-
-
-/** The phase a pytest-cov context ends in: `tests/test_x.py::test_a|run`. The three phases of one test are one test. */
-const CONTEXT_PHASE = /\|(setup|run|teardown)$/;
-
-// One file's measurement from one kind of source: hits by line, arms by line, conditions by line, and the inputs it came from.
-// `functions` is calls by a function's start line, where the report says: LCOV's FN and FNDA.
-const blank = () => ({ lines: new Map(), arms: new Map(), conditions: new Map(), functions: new Map(), inputs: new Set() });
-const fileIn = (store, path, input) => {
-  if (!store.has(path)) store.set(path, blank());
-  const file = store.get(path);
-  file.inputs.add(input);
-  return file;
-};
-const addLines = (file, lines) => { for (const [line, hits] of lines) file.lines.set(line, (file.lines.get(line) ?? 0) + hits); };
-const addArm = (file, line, key, taken) => {
-  if (!file.arms.has(line)) file.arms.set(line, new Map());
-  file.arms.get(line).set(key, (file.arms.get(line).get(key) ?? 0) + taken);
-};
-// Cobertura and JaCoCo say only how many of a line's conditions were covered, so across shards the larger count stands.
-const addConditions = (file, branches) => {
-  for (const [line, covered, total] of branches) {
-    const was = file.conditions.get(line) ?? { total: 0, taken: 0 };
-    file.conditions.set(line, { total: Math.max(was.total, total), taken: Math.max(was.taken, covered) });
-  }
-};
-
-/**
- * Read every report file into one measurement.
- *
- * Reports of one kind add up: shards of one run each write a part, so line hits are summed over every LCOV file, every Cobertura
- * or JaCoCo file and every coverage.py JSON file, and a branch line keeps each LCOV arm by its block and branch, and each
- * coverage.py arc by where it goes, so two shards taking different arms of one line take both. Cobertura and JaCoCo say only how
- * many of a line's conditions were covered, so across their shards the larger count stands: which conditions two shards took
- * cannot be told apart.
- *
- * Reports of two kinds about one file are one run written twice, since a coverage tool writes LCOV, Cobertura and JSON from the
- * same data, and adding them would count every line twice. Such a file is taken from one kind alone: coverage.py's JSON, whose
- * arcs name each arm, then LCOV, whose arms are numbered, then Cobertura, then JaCoCo. Each input the file was not taken from
- * lists it under `replaced_by` with the reports it was taken from. coverage.py's executed lines are one hit and its missing lines
- * none. That choice is made by `settleReports` once the JaCoCo files are placed, which needs the parsed source.
- *
- * A path a report names that is not a file in the repository is listed as unmatched rather than dropped or guessed at. A file
- * that does not exist, or cannot be read as its kind, is an error naming it.
- */
-export async function readReports({ root, files, paths }) {
-  const runs = [], perTest = new Map(), inputs = [], unmatchedPaths = [], jacoco = [];
-  const seenUnmatched = new Set();
-  const where = (reported, report, sources = []) => {
-    const path = repoPath(reported, { root, sources, paths });
-    if (path === null && !seenUnmatched.has(`${report}\0${reported}`)) { seenUnmatched.add(`${report}\0${reported}`); unmatchedPaths.push({ path: report, reported }); }
-    return path;
-  };
-  // Each kind's own measurement of each file, before one kind is chosen per file.
-  const byKind = { contexts: new Map(), lcov: new Map(), cobertura: new Map() };
-  // What one test ran: its lines by file, and, where the report says, the sides of branches it took, as `line\0arm`.
-  const ranIn = (key, entry, path, lines, arms = []) => {
-    if (!perTest.has(key)) perTest.set(key, { ...entry, files: new Map(), arms: new Map() });
-    const record = perTest.get(key);
-    if (!record.files.has(path)) record.files.set(path, new Set());
-    for (const line of lines) record.files.get(path).add(line);
-    if (!arms.length) return;
-    if (!record.arms.has(path)) record.arms.set(path, new Set());
-    for (const arm of arms) record.arms.get(path).add(arm);
-  };
-  for (const { kind, path } of files) {
-    const report = shownPath(root, path);
-    let text;
-    try { text = await readFile(path, 'utf8'); } catch (error) {
-      if (error.code === 'ENOENT') throw new Error(`${report}: no such ${REPORT_NAMES[kind]} report; CI's test run writes it, and it was not there`, { cause: error });
-      throw new Error(`${report}: ${error.message}`, { cause: error });
-    }
-    const input = { kind, path: report };
-    inputs.push(input);
-    if (kind === 'junit') {
-      const read = readJunit(text, report);
-      for (const run of read) runs.push({ ...run, report });
-      input.runs = read.length;
-    } else if (kind === 'lcov') {
-      const read = readLcov(text, report);
-      const named = new Set();
-      for (const test of read.tests) for (const item of test.files) {
-        named.add(item.path);
-        const at = where(item.path, report);
-        if (at === null) continue;
-        const file = fileIn(byKind.lcov, at, input);
-        addLines(file, item.lines);
-        for (const [line, calls] of item.functions ?? []) file.functions.set(line, (file.functions.get(line) ?? 0) + calls);
-        for (const [line, block, branch, taken] of item.branches) addArm(file, line, `${block}\0${branch}`, taken ?? 0);
-        // A record under a test name is what that test ran; an unnamed one is the whole run's.
-        if (test.name) ranIn(`tn\0${test.name}`, { kind: 'lcov', report, classname: '', name: test.name }, at, item.lines.filter(([, hits]) => hits > 0).map(([line]) => line),
-          item.branches.filter(([, , , taken]) => taken > 0).map(([line, block, branch]) => `${line}\0${block}\0${branch}`));
-      }
-      input.files = named.size;
-    } else if (kind === 'cobertura') {
-      const read = readCobertura(text, report);
-      for (const item of read.files) {
-        const at = where(item.path, report, read.sources);
-        if (at === null) continue;
-        const file = fileIn(byKind.cobertura, at, input);
-        addLines(file, item.lines);
-        addConditions(file, item.branches);
-      }
-      input.files = read.files.length;
-    } else if (kind === 'jacoco') {
-      // Placed by settleReports: which repository file `example/Cart.java` is depends on the package each Java file declares.
-      const read = readJacoco(text, report);
-      jacoco.push({ input, report, files: read.files });
-      input.files = new Set(read.files.map(item => item.path)).size;
-    } else if (kind === 'contexts') {
-      const read = readCoverageJson(text, report);
-      for (const item of read.files) {
-        const at = where(item.path, report);
-        if (at === null) continue;
-        const file = fileIn(byKind.contexts, at, input);
-        addLines(file, [...item.executed.map(line => [line, 1]), ...item.missing.map(line => [line, 0])]);
-        for (const [from, to, taken] of item.branches ?? []) addArm(file, from, String(to), taken ? 1 : 0);
-        for (const [line, contexts] of Object.entries(item.contexts ?? {})) for (const context of contexts) {
-          // The empty context is what ran outside any test, at import or collection, which is no one test's doing.
-          if (context === '') continue;
-          const nodeid = context.replace(CONTEXT_PHASE, '');
-          ranIn(`ctx\0${nodeid}`, { kind: 'contexts', report, context: nodeid }, at, [Number(line)]);
-        }
-      }
-      input.files = read.files.length;
-    }
-  }
-  return { root, inputs, runs, kinds: byKind, jacoco, perTest, unmatched_paths: unmatchedPaths, paths };
-}
-
-/**
- * The reports' measurement of each file, one kind per file, with the JaCoCo files placed. JaCoCo names a file by its package and its
- * name, `example/Cart.java`, and never says which source root it sits under. The file it means is the Java or Kotlin file that
- * declares that package and has that name, which the parse says; one that no parsed file is, or that several are, is unmatched.
- */
-function settleReports(reports, graph) {
-  const kinds = { ...reports.kinds, jacoco: new Map() };
-  const unmatched = [...reports.unmatched_paths];
-  if (reports.jacoco.length) {
-    const declared = new Map();
-    for (const [path, { file }] of graph.files) {
-      if (!jvmLanguages.has(file.language)) continue;
-      const name = `${file.package ? `${file.package.split('.').join('/')}/` : ''}${path.split('/').at(-1)}`;
-      declared.set(name, [...(declared.get(name) ?? []), path]);
-    }
-    const seen = new Set();
-    for (const { input, report, files } of reports.jacoco) for (const item of files) {
-      const found = declared.get(item.path) ?? [];
-      if (found.length !== 1) {
-        if (!seen.has(`${report}\0${item.path}`)) { seen.add(`${report}\0${item.path}`); unmatched.push({ path: report, reported: item.path }); }
-        continue;
-      }
-      const file = fileIn(kinds.jacoco, found[0], input);
-      addLines(file, item.lines);
-      addConditions(file, item.branches);
-    }
-  }
-  for (const input of reports.inputs) delete input.replaced_by;
-  const measured = new Map(), sourceOf = new Map();
-  for (const kind of ['contexts', 'lcov', 'cobertura', 'jacoco']) for (const [path, file] of kinds[kind]) {
-    if (!measured.has(path)) { measured.set(path, file); sourceOf.set(path, kind); continue; }
-    const supplied = [...measured.get(path).inputs].map(input => input.path);
-    for (const input of file.inputs) (input.replaced_by ??= []).push({ path, by: supplied });
-  }
-  for (const file of measured.values()) {
-    file.branches = new Map();
-    for (const line of new Set([...file.arms.keys(), ...file.conditions.keys()])) {
-      const arms = [...(file.arms.get(line)?.values() ?? [])];
-      const conditions = file.conditions.get(line) ?? { total: 0, taken: 0 };
-      file.branches.set(line, { total: Math.max(arms.length, conditions.total), taken: Math.max(arms.filter(hits => hits > 0).length, conditions.taken) });
-    }
-  }
-  return { measured, sourceOf, unmatched };
-}
-
-/** A context or a test name from a per-test coverage record, as the names a test indexes: pytest-cov's node id, or LCOV's TN. */
-const perTestNames = (key, entry) => (entry.kind === 'contexts' ? [`ctx\0${entry.context.replace(/\[.*\]$/s, '')}`] : [key]);
-
-/**
- * A coverage.py context as a classname and a name, for a report that lists it unmatched: pytest's node id is the file then the
- * test after `::`, and unittest's id is dotted, the test being its last part.
- */
-const contextParts = context => {
-  const at = context.includes('::') ? context.indexOf('::') : context.lastIndexOf('.');
-  return at < 0 ? { classname: '', name: context } : { classname: context.slice(0, at), name: context.slice(at + (context.includes('::') ? 2 : 1)) };
-};
-
-/** A statuses' worst: an error over a failure over a pass over a skip, so a test is only as good as its worst case. */
-const STATUS_ORDER = ['skipped', 'passed', 'failed', 'error'];
-const worst = statuses => statuses.reduce((a, b) => (STATUS_ORDER.indexOf(b) > STATUS_ORDER.indexOf(a) ? b : a));
-
-/**
- * The lines that say whether a method ran: those after its first. A declaration's first line runs when the declaration is
- * evaluated, which in Python is at import, so a `def` line is hit for every function in a module a test imported, called or
- * not. A method written on one line has only that line.
- */
-const bodyLines = node => (node.end_line > node.line ? { from: node.line + 1, to: node.end_line } : { from: node.line, to: node.line });
-
-/**
- * What the reports say about each test and method: the runs matched to each test, the lines each test ran, and each method's
- * measured lines and branches. A run or a per-test record that names no test perch found, or names more than one, is listed as
- * unmatched with the names it had. No run is matched by a name being like another.
- */
-function measure(coverage, graph, reports) {
-  const root = reports.root ?? '';
-  const context = { root, roots: rootsOf(reports.paths) };
-  const { measured, sourceOf, unmatched } = settleReports(reports, graph);
-  const index = new Map();
-  for (const node of graph.nodes.values()) {
-    if (!node.case) continue;
-    const file = graph.files.get(node.path)?.file;
-    if (!file) continue;
-    for (const name of new Set(namesOf(node, file, context))) {
-      if (!index.has(name)) index.set(name, new Set());
-      index.get(name).add(node.id);
-    }
-  }
-  // A parametrized test's runs carry filled-in titles, so they are found by the test's title pattern, and only when no test
-  // has the run's name exactly: an exact name always says more than a pattern that also fits it.
-  const templates = [];
-  for (const node of graph.nodes.values()) {
-    if (!node.case?.parametrized) continue;
-    const file = graph.files.get(node.path)?.file;
-    if (file) for (const { prefix, pattern } of patternsOf(node, file, context)) templates.push({ prefix, pattern, id: node.id });
-  }
-  const exactly = names => new Set(names.flatMap(name => [...(index.get(name) ?? [])]));
-  const lookup = names => {
-    const found = exactly(names);
-    if (found.size || !templates.length) return found;
-    return new Set(templates.filter(({ prefix, pattern }) => names.some(name => name.startsWith(prefix) && pattern.test(name.slice(prefix.length)))).map(({ id }) => id));
-  };
-  const unmatchedRuns = [];
-  const casesOf = new Map();
-  for (const run of reports.runs) {
-    let found = lookup(runNames(run, context));
-    // A report that says which file a testcase is in narrows it to tests in that file.
-    const file = run.file ? repoPath(run.file, { root, sources: [], paths: reports.paths }) : null;
-    if (file) found = new Set([...found].filter(id => graph.nodes.get(id).path === file));
-    if (found.size !== 1) { unmatchedRuns.push({ path: run.report, classname: run.classname, name: run.name }); continue; }
-    const [id] = found;
-    casesOf.set(id, [...(casesOf.get(id) ?? []), run]);
-  }
-  const executedBy = new Map(), armsBy = new Map();
-  for (const [key, entry] of reports.perTest) {
-    const found = lookup(perTestNames(key, entry));
-    if (found.size !== 1) {
-      unmatchedRuns.push(entry.kind === 'contexts' ? { path: entry.report, ...contextParts(entry.context) }
-        : { path: entry.report, classname: entry.classname, name: entry.name });
-      continue;
-    }
-    const [id] = found;
-    if (!executedBy.has(id)) executedBy.set(id, new Map());
-    const into = executedBy.get(id);
-    for (const [path, lines] of entry.files) {
-      if (!into.has(path)) into.set(path, new Set());
-      for (const line of lines) into.get(path).add(line);
-    }
-    if (!armsBy.has(id)) armsBy.set(id, new Map());
-    const took = armsBy.get(id);
-    for (const [path, arms] of entry.arms) {
-      if (!took.has(path)) took.set(path, new Set());
-      for (const arm of arms) took.get(path).add(arm);
-    }
-  }
-  // A file measured by a kind of report that said what each test ran is one whose lines can be put down to the tests that ran
-  // them; LCOV says which sides of its branches each test took too, and coverage.py's contexts only which lines.
-  const perTestKinds = new Set([...reports.perTest.values()].map(entry => entry.kind));
-  for (const [path, file] of measured) {
-    file.per_test = perTestKinds.has(sourceOf.get(path));
-    file.per_test_arms = file.per_test && sourceOf.get(path) === 'lcov';
-  }
-  // Which methods a set of executed lines ran, by the methods' own lines.
-  const methodsByPath = new Map();
-  for (const node of graph.nodes.values()) {
-    if (node.test) continue;
-    methodsByPath.set(node.path, [...(methodsByPath.get(node.path) ?? []), node]);
-  }
-  const testFile = path => Boolean(graph.files.get(path)?.file.test);
-  for (const test of coverage.tests) {
-    const cases = casesOf.get(test.id);
-    const timed = cases?.filter(run => typeof run.time === 'number') ?? [];
-    test.run = cases ? { time: timed.length ? timed.reduce((sum, run) => sum + run.time, 0) : null, status: worst(cases.map(run => run.status)), cases: cases.length } : null;
-    const executed = executedBy.get(test.id) ?? null;
-    test.executed = executed;
-    test.arms = armsBy.get(test.id) ?? null;
-    test.executed_methods = executed ? [...executed].flatMap(([path, lines]) => (methodsByPath.get(path) ?? [])
-      .filter(node => { const { from, to } = bodyLines(node); return [...lines].some(line => line >= from && line <= to); }).map(node => node.id)).sort() : null;
-    // What the test ran of the code under test, which is what two tests are compared on: its own lines are not, since two
-    // tests never share those.
-    test.executed_key = executed ? JSON.stringify([...executed].filter(([path]) => !testFile(path)).sort(([a], [b]) => a.localeCompare(b))
-      .map(([path, lines]) => [path, [...lines].sort((a, b) => a - b)]).filter(([, lines]) => lines.length)) : null;
-  }
-  for (const method of coverage.methods) {
-    const file = measured.get(method.node.path);
-    method.measured = null;
-    method.untaken = [];
-    if (!file) continue;
-    const { from, to } = bodyLines(method.node);
-    const lines = [...file.lines].filter(([line]) => line >= from && line <= to);
-    // A measured file with no line of this method in it has nothing to say about the method: no instrumented line is not zero.
-    if (!lines.length) continue;
-    const branches = [...file.branches].filter(([line]) => line >= method.node.line && line <= method.node.end_line).sort(([a], [b]) => a - b);
-    // A function the report says was never called never ran, though the statement declaring it did: `exports.f = function` runs
-    // when the module loads, so its first line counts a hit.
-    const called = file.functions?.get(method.node.line);
-    method.measured = {
-      lines: { hit: called === 0 ? 0 : lines.filter(([, hits]) => hits > 0).length, total: lines.length },
-      branches: { hit: branches.reduce((sum, [, branch]) => sum + branch.taken, 0), total: branches.reduce((sum, [, branch]) => sum + branch.total, 0) },
-    };
-    method.untaken = branches.filter(([, branch]) => branch.taken < branch.total).map(([line]) => line);
-  }
-  const suiteRuns = reports.runs;
-  const suite = reports.inputs.some(input => input.kind === 'junit') ? {
-    seconds: suiteRuns.reduce((sum, run) => sum + (typeof run.time === 'number' ? run.time : 0), 0), runs: suiteRuns.length,
-    failed: suiteRuns.filter(run => run.status === 'failed' || run.status === 'error').length, skipped: suiteRuns.filter(run => run.status === 'skipped').length,
-  } : null;
-  // Which kinds of report the measured lines came from, for a page that says what measured them.
-  const tools = [...new Set(sourceOf.values())].sort();
-  return { inputs: reports.inputs, tools, unmatched_runs: unmatchedRuns, unmatched_paths: unmatched, suite, files: measured };
+  return { depth, tests, methods: units, files, failed };
 }
 
 /**
@@ -718,9 +356,9 @@ export function judgeTests(tests, planted, min) {
 
 /**
  * Ask System One about the tests that need asking, then about every planted bug of every reached method. A test is asked only
- * what the graph or the report left open: whether it calls a live service, when it can reach one, and what it costs, when no
- * report timed it. A method is asked once per planted bug, with the tests reaching it in view: `matters`, and `catches` for
- * each test. A method no test reaches is asked whether it needs one.
+ * what the graph left open: whether it calls a live service, when it can reach one. A method is asked once per planted bug,
+ * with the tests reaching it in view: `matters`, and `catches` for each test. A method no test reaches is asked whether it
+ * needs one.
  *
  * Every unit is asked on every run: the endpoint caches answers, perch does not. A unit that fails is recorded in `failed` with
  * its error and carries no answers; an authentication failure stops the run, since every other request would get the same
@@ -771,9 +409,9 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, paralle
 
   const neighbourSource = async ({ id }) => { const node = graph.nodes.get(id); return { node, lines: await linesOf(node) }; };
 
-  // Only a test with something left to ask is asked: one the report timed, with no live service in reach, is a fact already.
-  const testUnits = coverage.tests.map(test => ({ ...test, questions: testAsked.filter(question => (question.name === 'infra' ? test.evidence.some(item => LEAKS.has(item.category))
-    : question.name === 'cost' ? typeof test.run?.time !== 'number' : false)) })).filter(test => test.questions.length);
+  // Only a test with a network or database call in reach is asked anything: whether it makes it to a live service.
+  const testUnits = coverage.tests.map(test => ({ ...test, questions: testAsked.filter(question => question.name === 'infra' && test.evidence.some(item => LEAKS.has(item.category))) }))
+    .filter(test => test.questions.length);
   await settle(testUnits, async test => {
     const { node, questions } = test;
     const lines = await linesOf(node);
@@ -846,7 +484,7 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, paralle
   await settle(untested, async method => {
     const { node } = method;
     const lines = await linesOf(node);
-    const how = method.measured ? 'The coverage report shows none of its lines ran.' : `No test reaches it within ${coverage.depth} calls.`;
+    const how = `No test reaches it within ${coverage.depth} calls.`;
     const build = budget => fitState(() => ({
       method: { path: node.path, name: node.qualified_name, source: sourceOf(node, lines), note: how }, graph: { nodes: [], edges: [] },
     }), budget, `method ${node.qualified_name}`);
@@ -879,11 +517,6 @@ async function macrosOf(node, graph, linesOf) {
   return macros;
 }
 
-/** The level of a score most of its mass sits on. */
-const likeliest = probabilities => {
-  const top = Object.entries(probabilities ?? {}).sort((a, b) => b[1] - a[1] || Number(a[0]) - Number(b[0]))[0];
-  return top ? Number(top[0]) : null;
-};
 const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`;
 const findingIdOf = (kind, unit) => identity('coverage', kind, unit).slice(0, 8);
 
@@ -892,8 +525,6 @@ const findingIdOf = (kind, unit) => identity('coverage', kind, unit).slice(0, 8)
  * counted from the coverage, the answers and the lines it is given; nothing is looked up again.
  */
 export function buildReport({ coverage, answers, lines, revision, root, label = root, github = null, createdAt = new Date().toISOString(), model = null, min = 0.5, usage = {}, closed = new Map() }) {
-  const { test: testAsked } = coverageQuestions();
-  const costLevels = testAsked.find(question => question.name === 'cost').levels.length;
   const judged = judgeTests(coverage.tests, answers.bugs, min);
   const findings = [];
   const listed = finding => finding.probability === null || finding.probability >= min;
@@ -910,8 +541,6 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     findings.push(full);
     return full.id;
   };
-  const tiers = () => Object.fromEntries(Array.from({ length: costLevels }, (_, level) => [level, 0]));
-  const measurement = coverage.measurement;
   // The tests that could go: checking nothing, or repeating another. One whose problem was closed is one someone chose to keep,
   // and one that could not be asked about is not said to check nothing.
   const dropped = new Set(coverage.tests.filter(test => (judged.checksNothing.has(test.id) && !isClosed('checks_nothing', test.id))
@@ -920,17 +549,12 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
   const methods = coverage.methods.map(method => {
     const { node } = method;
     const usefulTests = method.tests.filter(item => judged.useful.has(item.id)).map(item => item.id);
-    const measured = method.measured ?? null;
-    const executed = measured ? measured.lines.hit > 0 : null;
-    // Measured, a method is untested when none of its lines ran, whatever the call graph says reaches it; and one the call graph
-    // misses is tested when the report shows it ran. Unmeasured, it is untested when no test reaches it.
     const untested = isUntested(method);
     const own = [];
-    // That no test runs it is the report's or the call graph's; whether that is a problem is Jev's. An unasked one stays listed.
+    // That no test reaches it is the call graph's; whether that is a problem is Jev's. An unasked one stays listed.
     const needsTest = answers.needs?.get(method.id)?.answers.needs_test ?? null;
     if (untested) own.push(add({ kind: 'untested', subject: 'method', unit: method.id, path: node.path, line: node.line, name: node.qualified_name, probability: needsTest,
-      note: measured ? `None of its lines ran.${method.tests.length ? ` ${plural(method.tests.length, 'test')} ${method.tests.length === 1 ? 'calls' : 'call'} it.` : ''}`
-        : `No test reaches it within ${plural(coverage.depth, 'call')}.` }));
+      note: `No test reaches it within ${plural(coverage.depth, 'call')}.` }));
     // Each planted bug: how likely it is that no test shown catches it, and that it is a bug at all. A bug is caught when some
     // test is likely enough to fail with it in; one no test catches, that matters, is listed.
     const planted = (answers.bugs.get(method.id) ?? []).map(({ mutant, matters, catches }) => {
@@ -946,7 +570,7 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     });
     own.push(...planted.map(bug => bug.finding));
     return { id: method.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, risk: node.metrics?.risk_score ?? null,
-      branches: method.branches, tests: method.tests, useful: usefulTests, measured, executed, untested,
+      branches: method.branches, tests: method.tests, useful: usefulTests, untested,
       bugs: planted, planted: planted.length, caught: planted.filter(bug => bug.caught).length, findings: own.filter(Boolean) };
   });
   const testById = new Map(coverage.tests.map(test => [test.id, test]));
@@ -970,13 +594,9 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     // service. A test that could not be asked keeps what the call graph found, with no probability, and is listed under failures.
     if (leaks.length) own.push(add({ kind: 'infra', subject: 'test', unit: test.id, path: node.path, line: node.line, name: node.qualified_name,
       probability: said?.infra ?? null, note: `Calls a live service with nothing mocked: ${shown}.` }));
-    const run = test.run ?? null;
-    // A timed test's cost is the report's seconds; an untimed one's is the tier Jev put it in.
-    const cost = typeof run?.time === 'number' ? { seconds: run.time, basis: 'measured' }
-      : said?.cost && likeliest(said.cost.probabilities) !== null ? { tier: likeliest(said.cost.probabilities), probabilities: said.cost.probabilities, basis: 'estimated' } : null;
     return { id: test.id, path: node.path, name: node.case.name, suite: node.case.suite, line: node.line, end_line: node.end_line, framework: node.case.framework,
       direct: test.direct, reach: test.reach, cuts: test.cuts, touches: test.touches, unresolved: test.unresolved ?? null,
-      infra: said?.infra ?? null, cost, run, executed_methods: test.executed_methods ?? null,
+      infra: said?.infra ?? null,
       asked: judged.asked.get(test.id) ?? 0, kills: judged.kills.get(test.id) ?? [],
       useful: judged.useful.has(test.id), redundant_with: keptId, findings: own.filter(Boolean) };
   });
@@ -994,89 +614,41 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     if (units) for (const unit of list) total += units.get(unit) ?? 0;
     return total;
   };
-  const measuredOf = list => {
-    const counted = list.filter(method => method.measured);
-    if (!counted.length) return null;
-    const sum = (part, key) => counted.reduce((total, method) => total + method.measured[part][key], 0);
-    return { lines: { hit: sum('lines', 'hit'), total: sum('lines', 'total') }, branches: { hit: sum('branches', 'hit'), total: sum('branches', 'total') } };
-  };
-  const timeOf = list => {
-    const timed = list.filter(test => typeof test.run?.time === 'number');
-    return { seconds: timed.length ? timed.reduce((total, test) => total + test.run.time, 0) : null, timed: timed.length };
-  };
   const totalsOf = (methodList, testList) => {
     const testIds = new Set(testList.map(test => test.id)), methodIds = new Set(methodList.map(method => method.id));
     const planted = methodList.reduce((total, method) => total + method.planted, 0), caught = methodList.reduce((total, method) => total + method.caught, 0);
-    // Reached is what ran when the coverage report measured the method, and what the call graph reaches when it did not: the same
-    // rule untested follows, so the two columns never disagree about one method.
     return { methods: methodList.length, reached: methodList.filter(method => !method.untested).length, useful_reached: methodList.filter(method => method.useful.length).length,
-      planted, caught, score: planted ? caught / planted : null, uncaught: count(methodIds, 'uncaught'), measured: measuredOf(methodList),
+      planted, caught, score: planted ? caught / planted : null, uncaught: count(methodIds, 'uncaught'),
       tests: testList.length, useful: testList.filter(test => test.useful).length,
-      redundant: testList.filter(test => test.redundant_with).length, weak: testList.filter(test => judged.checksNothing.has(test.id)).length, infra: count(testIds, 'infra'),
-      ...timeOf(testList), dropped_seconds: timeOf(testList.filter(test => dropped.has(test.id))).seconds ?? 0 };
+      redundant: testList.filter(test => test.redundant_with).length, weak: testList.filter(test => judged.checksNothing.has(test.id)).length, infra: count(testIds, 'infra') };
   };
   const methodsIn = Map.groupBy(methods, method => method.path), testsIn = Map.groupBy(tests, test => test.path);
   const files = coverage.files.map(file => {
     const own = methodsIn.get(file.path) ?? [], ownTests = testsIn.get(file.path) ?? [];
     return { path: file.path, kind: file.test ? 'test' : 'source', language: file.language, lines: lines.get(file.path) ?? [],
-      hits: hitsOf(measurement?.files?.get(file.path)),
       methods: own.map(method => method.id), tests: ownTests.map(test => test.id), totals: totalsOf(own, ownTests) };
   });
-  const cost = tiers(), drop = { count: 0, cost: tiers() };
-  // What dropping them would cost in reach: the methods only dropped tests reach. Counted, since "nothing" is a claim.
-  const droppedTests = tests.filter(test => dropped.has(test.id));
-  for (const test of tests) {
-    if (test.cost?.basis !== 'estimated') continue;
-    cost[test.cost.tier]++;
-    if (dropped.has(test.id)) drop.cost[test.cost.tier]++;
-  }
-  drop.count = droppedTests.length;
-  const droppedTime = timeOf(droppedTests);
-  drop.seconds = droppedTime.seconds;
-  drop.timed = droppedTime.timed;
-  drop.unreached = methods.filter(method => method.tests.length && method.tests.every(item => dropped.has(item.id))).map(method => method.id);
-  const totals = { ...totalsOf(methods, tests), untested: methods.filter(method => method.untested).length, cost, drop, suite: measurement?.suite ?? null };
+  // The tests that could go, and what dropping them would cost in reach: the methods only dropped tests reach. Counted, since
+  // "nothing" is a claim.
+  const drop = { count: tests.filter(test => dropped.has(test.id)).length,
+    unreached: methods.filter(method => method.tests.length && method.tests.every(item => dropped.has(item.id))).map(method => method.id) };
+  const totals = { ...totalsOf(methods, tests), untested: methods.filter(method => method.untested).length, drop };
   return { version: 2, revision, root, target: label, github, created_at: createdAt, model, depth: coverage.depth, min,
-    inputs: measurement?.inputs ?? [], measured_by: measurement?.tools ?? [], unmatched_runs: measurement?.unmatched_runs ?? [], unmatched_paths: measurement?.unmatched_paths ?? [],
     totals, files, methods, tests, findings, failed: answers.failed, closed: closedFindings, baseline: null, diff: null, usage };
 }
 
 /**
- * What a branch did, from the report and the lines it changed since its merge base: patch coverage, the share of the changed source
- * lines the coverage report counts that ran, per file and in all, and the methods and tests whose lines the branch touched with the
- * problems on them. `sources` is every source file the run read, test files left out since a test's own lines run by being the
- * test, each with the coverage report's hits for it or null; a file with no methods, such as a script, counts as much as any. A
- * changed source file no coverage report covers has no patch figure rather than a zero. Nothing here asks anything.
+ * What a branch changed since its merge base: the methods and tests whose lines it touched, and the problems on them. Nothing
+ * here asks anything.
  */
-export function branchOf(report, { ref, base, files: changed }, sources) {
+export function branchOf(report, { ref, base, files: changed }) {
   const touched = unit => (changed.get(unit.path) ?? []).some(line => line >= unit.line && line <= unit.end_line);
   const units = [...report.methods, ...report.tests].filter(touched).map(unit => unit.id).sort();
   const changedUnits = new Set(units);
-  const files = [...changed].filter(([path, lines]) => lines.length && sources.has(path)).sort(([a], [b]) => a.localeCompare(b)).map(([path, lines]) => {
-    const hits = sources.get(path);
-    if (!hits) return { path, changed: lines.length, patch: null };
-    // A line the coverage report counts is one that could have run; the rest (blank lines, comments, braces) are not code to cover.
-    const counted = new Map(hits.lines);
-    const code = lines.filter(line => counted.has(line));
-    const missed = code.filter(line => counted.get(line) === 0);
-    return { path, changed: lines.length, patch: { hit: code.length - missed.length, total: code.length }, missed };
-  });
-  const measured = files.filter(file => file.patch);
-  const patch = measured.length ? { hit: measured.reduce((sum, file) => sum + file.patch.hit, 0), total: measured.reduce((sum, file) => sum + file.patch.total, 0) } : null;
-  return { ref, base, files, patch, units, findings: report.findings.filter(finding => changedUnits.has(finding.unit)).map(finding => finding.id) };
+  return { ref, base, units, findings: report.findings.filter(finding => changedUnits.has(finding.unit)).map(finding => finding.id) };
 }
 
-/** A file's measured lines and branch lines, line by line, for a page that marks each one: `[line, hits]` and `[line, taken, total]`. */
-const hitsOf = file => (file ? { lines: [...file.lines].sort(([a], [b]) => a - b),
-  branches: [...file.branches].sort(([a], [b]) => a - b).map(([line, branch]) => [line, branch.taken, branch.total]) } : null);
-
 const DIFF_TOTALS = ['methods', 'reached', 'planted', 'caught', 'score', 'uncaught', 'tests', 'useful', 'redundant', 'weak', 'infra', 'untested'];
-/** The measured totals a diff compares, as shares and seconds, read off a report's totals. */
-const MEASURED_TOTALS = {
-  measured_lines: totals => (totals.measured?.lines.total ? totals.measured.lines.hit / totals.measured.lines.total : null),
-  measured_branches: totals => (totals.measured?.branches.total ? totals.measured.branches.hit / totals.measured.branches.total : null),
-  suite_seconds: totals => totals.suite?.seconds ?? null,
-};
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 /**
  * What changed between two saved reports, unit by unit. Methods, tests, files and findings are matched by id, so a method whose
@@ -1084,13 +656,12 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
  */
 export function diffReports(before, after) {
   const totals = Object.fromEntries(DIFF_TOTALS.map(metric => [metric, { before: before.totals[metric] ?? null, after: after.totals[metric] ?? null }]));
-  for (const [metric, read] of Object.entries(MEASURED_TOTALS)) totals[metric] = { before: read(before.totals), after: read(after.totals) };
   const union = (a, b) => [...new Set([...a, ...b])];
   const filesBefore = new Map(before.files.map(file => [file.path, file.totals])), filesAfter = new Map(after.files.map(file => [file.path, file.totals]));
   const files = union(filesBefore.keys(), filesAfter.keys()).sort()
     .map(path => ({ path, before: filesBefore.get(path) ?? null, after: filesAfter.get(path) ?? null }))
     .filter(change => !same(change.before, change.after));
-  const state = method => (method ? { reached: !method.untested, planted: method.planted ?? 0, caught: method.caught ?? 0, executed: method.executed ?? null, measured: method.measured ?? null } : null);
+  const state = method => (method ? { reached: !method.untested, planted: method.planted ?? 0, caught: method.caught ?? 0 } : null);
   const methodsBefore = new Map(before.methods.map(method => [method.id, method])), methodsAfter = new Map(after.methods.map(method => [method.id, method]));
   const methods = union(methodsBefore.keys(), methodsAfter.keys()).sort().map(id => {
     const was = methodsBefore.get(id), is = methodsAfter.get(id), either = is ?? was;
@@ -1205,16 +776,12 @@ const lineReader = (root, graph) => {
  * method inside. `named` paths are read even when perch.yaml's ignore covers them, as a scan does.
  */
 export async function coverageRepository({ root, revision, label = root, github = null, out, systemOne, analyzer, paths = [], named = [], depth, parallel = DEFAULT_PARALLEL,
-  min = 0.5, diff = null, since = null, reportFlags = {}, cwd = process.cwd(), scanProgress = () => {}, testProgress = () => {}, methodProgress = () => {}, log = () => {}, debug = () => {} }) {
+  min = 0.5, diff = null, since = null, scanProgress = () => {}, testProgress = () => {}, methodProgress = () => {}, log = () => {}, debug = () => {} }) {
   const walk = depth ?? DEFAULT_DEPTH;
   // A baseline asked for by name is found before anything is asked, so naming a commit with no report costs no requests.
   const requested = diff === null || diff === undefined ? null : await findBaseline({ out, root, revision, diff });
   // So is what the branch changed since --since: a ref git cannot find fails here, not after the questions.
   const changed = since ? await changedLines(root, since, revision) : null;
-  // So is every report file: one that is missing or unreadable fails the run before anything is parsed or asked.
-  const files = await reportFiles({ root, cwd, flags: reportFlags, configured: await readCoverageReports(root, revision) });
-  const reports = files.length ? await readReports({ root, files, paths: new Set((await listTree(root, revision)).map(item => item.path)) }) : null;
-  for (const file of files) debug(`reading ${REPORT_NAMES[file.kind]} ${file.path}`);
   const scan = await analyzeTree({ root, revision, out, analyzer, label, github, progress: scanProgress, log, debug });
   const graph = buildGraph(scan.files, { crates: scan.crates });
   const coversNamed = glob => named.some(path => matches(glob, path) || matches(glob, `${path.replace(/\/$/, '')}/file`));
@@ -1225,18 +792,15 @@ export async function coverageRepository({ root, revision, label = root, github 
   for (const framework of scope?.frameworks ?? []) if (framework.error) log(`could not load ${framework.config}: ${framework.error}`);
   const chosen = path => covered(path) && !ignored.some(glob => matches(glob, path));
   const inScope = path => chosen(path) && (!scope || scope.source(path));
-  const coverage = computeCoverage({ scan, graph, depth: walk, inScope, named: chosen, runs: path => !scope || scope.test(path), reports });
+  const coverage = computeCoverage({ scan, graph, depth: walk, inScope, named: chosen, runs: path => !scope || scope.test(path) });
   const linesOf = lineReader(root, graph);
   const answers = await askCoverage({ coverage, graph, linesOf, systemOne, min, parallel, testProgress, methodProgress, log, debug });
   const lines = new Map();
   for (const file of coverage.files) lines.set(file.path, await linesOf({ path: file.path }));
   const report = buildReport({ coverage, answers, lines, revision, root, label, github, model: systemOne.id, min, closed: await openStore(out).closures() });
   if (scope) report.scope = { frameworks: scope.frameworks, tests: scope.tests, sources: scope.sources, left_out: scope.left_out, left_out_sample: scope.left_out_sample };
-  if (changed) {
-    const sources = new Map(scan.files.filter(file => !file.test && inScope(file.path)).map(file => [file.path, hitsOf(coverage.measurement?.files?.get(file.path))]));
-    report.branch = branchOf(report, { ref: since, ...changed }, sources);
-  }
-  // --since already says what the changes did, measured from the branch point. The last saved run is some other commit, so it is
+  if (changed) report.branch = branchOf(report, { ref: since, ...changed });
+  // --since already says what the branch changed. The last saved run is some other commit, so it is
   // compared with only when --diff names it.
   const baseline = requested ?? (since ? null : await findBaseline({ out, root, revision }));
   if (baseline) { report.baseline = { revision: baseline.revision, created_at: baseline.created_at }; report.diff = diffReports(baseline, report); }

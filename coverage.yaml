@@ -7,7 +7,7 @@
 # A method is asked about one planted bug at a time: `mutation` is one line of it changed, `original` as written and `mutated`
 # as changed, and its graph holds the tests that reach it, each noted `test 1`, `test 2` and so on. `catches` is asked once per
 # test shown, as `catches_1`, `catches_2` and so on, naming the test; `matters` once per mutation.
-# infra, cost and needs_test are asked only of a unit the call graph or the test report already flagged.
+# infra and needs_test are asked only of a unit the call graph already flagged.
 
 - name: catches
   each: method
@@ -37,17 +37,6 @@
     them to a real service, rather than to a server or database it starts itself on localhost?
   "true": It calls a live network service or database, so it fails when that service is down and can change its data
   "false": None of those calls is made with what it passes, or each goes to something it started itself or is mocked
-
-- name: cost
-  type: score
-  each: test
-  where: "**/*"
-  ask: How expensive is `test` to run, from what it and the code in `graph` do?
-  levels:
-    - In memory only
-    - Builds large fixtures, or loops over many cases
-    - Touches disk, a process, or the clock
-    - Touches the network or a database
 
 - name: needs_test
   each: method

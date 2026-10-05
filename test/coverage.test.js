@@ -8,7 +8,7 @@ import { createSourceAnalyzer } from '../src/analysis.js';
 import { buildGraph } from '../src/graph.js';
 import { AuthenticationError } from '../src/systemone.js';
 import { TOKEN_LIMITS } from '../src/tokens.js';
-import { computeCoverage, coverageRepository, diffReports, judgeTests, readReports } from '../src/coverage.js';
+import { computeCoverage, coverageRepository, diffReports, judgeTests } from '../src/coverage.js';
 import { main } from '../src/cli.js';
 import { createServer } from 'node:http';
 import { commitAll, initRepo } from './helpers.js';
@@ -151,14 +151,14 @@ async function repository(files = FILES) {
 }
 
 /**
- * What each test answers, by the name the state gives it: whether it calls a live service, and what it costs. Written here, not
- * derived from anything perch computes.
+ * What each test answers, by the name the state gives it: whether it calls a live service. Written here, not derived from anything
+ * perch computes.
  */
 const TESTS = {
   test_discount_10: {}, test_discount_20: {}, test_discount_negative: {}, test_count_mocked: {},
-  test_rate: { infra: 0.9, cost: 3 }, test_rate_mocked: {},
+  test_rate: { infra: 0.9 }, test_rate_mocked: {},
   'cart > adds prices': {}, 'cart > rejects a negative price': {}, 'cart > checks out': {},
-  'saves an order': { infra: 0.1, cost: 2 }, test_restock: {},
+  'saves an order': { infra: 0.1 }, test_restock: {},
 };
 /** What a test answers to the yes-or-no questions when its script does not say. */
 const NOUL_DEFAULTS = { infra: 0.05 };
@@ -186,11 +186,6 @@ const METHODS = {
  */
 function scripted({ fail = new Set(), error = name => new Error(`scripted failure for ${name}`), tests = {}, methods = {}, needs = {} } = {}) {
   const calls = [];
-  const score = (question, given) => {
-    const probabilities = Object.fromEntries(question.criteria.map((_, level) => [String(level), given[level] ?? 0]));
-    return { type: 'score', probabilities, confidence: 0.8, score: Object.entries(probabilities).reduce((total, [level, p]) => total + Number(level) * p, 0) };
-  };
-  const tier = level => Object.fromEntries([0, 1, 2, 3].map(index => [index, index === level ? 0.85 : 0.05]));
   const noul = p => ({ type: 'noul', noul: p });
   return {
     id: 'scripted-jev', limits: TOKEN_LIMITS, calls,
@@ -205,9 +200,8 @@ function scripted({ fail = new Set(), error = name => new Error(`scripted failur
       const answers = {};
       // The tests a planted bug is asked over are the graph's nodes noted test 1, test 2 and so on, in that order.
       const shown = (state.graph?.nodes ?? []).filter(node => /^test \d+$/.test(node.note ?? '')).map(node => node.id.split('::').at(-1));
-      for (const [id, question] of Object.entries(questions)) {
+      for (const id of Object.keys(questions)) {
         if (id in NOUL_DEFAULTS) answers[id] = noul(script[id] ?? NOUL_DEFAULTS[id]);
-        else if (id === 'cost') answers[id] = score(question, tier(script.cost ?? 0));
         else if (id === 'matters') answers[id] = noul(script.matters ?? 0.9);
         else if (id.startsWith('catches_')) {
           const given = script.catches?.[shown[Number(id.slice('catches_'.length)) - 1]];
@@ -283,11 +277,11 @@ describe('perch coverage', () => {
     const systemOne = scripted();
     const report = await run(repo, systemOne);
     expect(report.failed).toEqual([]);
-    // Ten tests asked what they cost, three of the reached methods asked about each planted bug (apply_discount has seven, total
-    // two, fetch_rate one; item_count, round_money, checkout and save have no line the table can change), and restock, which
-    // no test reaches, asked only whether it needs a test.
+    // Only the test with a network call in reach is asked anything; three of the reached methods are asked about each planted bug
+    // (apply_discount has seven, total two, fetch_rate one; item_count, round_money, checkout and save have no line the table
+    // can change), and restock, which no test reaches, is asked only whether it needs a test.
     const asked = systemOne.calls.map(call => call.name);
-    expect(asked.filter(name => name in TESTS).sort()).toEqual(Object.keys(TESTS).filter(name => name !== 'test_restock').sort());
+    expect(asked.filter(name => name in TESTS)).toEqual(['test_rate']);
     expect(asked.filter(name => name === 'apply_discount')).toHaveLength(7);
     expect(asked.filter(name => name === 'total')).toHaveLength(2);
     expect(asked.filter(name => name === 'fetch_rate')).toHaveLength(1);
@@ -314,7 +308,6 @@ describe('perch coverage', () => {
     expect(tests.get('test/cart.test.ts::cart > checks out')).toMatchObject({ useful: false, asked: 2, kills: [] });
     // Reaches only item_count, which has no line to change: nothing to judge it by.
     expect(tests.get('tests/test_cart.py::test_count_mocked')).toMatchObject({ useful: true, asked: 0 });
-    expect(tests.get('tests/test_cart.py::test_rate').cost.tier).toBe(3);
     expect(tests.get('test/cart.test.ts::cart > adds prices').name).toBe('adds prices');
     expect(tests.get('test/cart.test.ts::cart > adds prices').suite).toEqual(['cart']);
 
@@ -350,7 +343,7 @@ describe('perch coverage', () => {
     // The call graph finds save writing a file with nothing mocking it. A test's disk is not a live service, so the fact stays on
     // the test, it is not asked about, and no problem is listed.
     expect(tests.get('test/db.test.ts::saves an order').touches).toEqual(['filesystem']);
-    expect('infra' in systemOne.calls.find(call => call.name === 'saves an order').questions).toBe(false);
+    expect(systemOne.calls.find(call => call.name === 'saves an order')).toBe(undefined);
     expect(find('infra', 'test/db.test.ts::saves an order')).toEqual([]);
     expect(twenty.findings.map(id => findings.get(id).kind)).toEqual(['redundant']);
 
@@ -370,7 +363,7 @@ describe('perch coverage', () => {
     expect(methods.get('cart.py::restock')).toMatchObject({ planted: 0, untested: true });
 
     expect(report.totals).toMatchObject({ methods: 8, reached: 7, useful_reached: 6, planted: 10, caught: 8, score: 0.8, uncaught: 2, tests: 10, useful: 8, redundant: 1, weak: 1, infra: 1,
-      untested: 1, cost: { 0: 8, 1: 0, 2: 1, 3: 1 }, drop: { count: 2, cost: { 0: 2, 1: 0, 2: 0, 3: 0 } } });
+      untested: 1, drop: { count: 2 } });
     // checks out is the only test reaching checkout, and it is dropped for checking nothing.
     expect(report.totals.drop.unreached).toEqual(['src/cart.ts::checkout']);
     const cartFile = report.files.find(file => file.path === 'cart.py');
@@ -387,8 +380,8 @@ describe('perch coverage', () => {
     expect(items.filter(([list]) => list === 'findings').map(([, finding]) => finding)).toEqual(report.findings);
     expect(items.filter(([list]) => list === 'methods')).toHaveLength(report.methods.length);
     expect(await readdir(join(repo.out, 'coverage', 'reports'))).toHaveLength(1);
-    // Ten tests, ten planted bugs, and restock asked whether it needs a test.
-    expect(systemOne.calls).toHaveLength(21);
+    // One test, ten planted bugs, and restock asked whether it needs a test.
+    expect(systemOne.calls).toHaveLength(12);
     expect(report.baseline).toBe(null);
   });
 
@@ -464,15 +457,15 @@ describe('perch coverage', () => {
   it('records units it could not ask about', async () => {
     const repo = await repository();
     const report = await run(repo, scripted({ fail: new Set(['cart > rejects a negative price', 'total']) }));
+    // The test is never asked, having no live service in reach, so only the method fails: once per planted bug.
     expect(report.failed.map(unit => [unit.subject, unit.unit])).toEqual([
-      ['test', 'test/cart.test.ts::cart > rejects a negative price'],
       ['method', 'src/cart.ts::total'],
       ['method', 'src/cart.ts::total'],
     ]);
-    expect(report.failed[0].error).toBe('scripted failure for cart > rejects a negative price');
+    expect(report.failed[0].error).toBe('scripted failure for total');
     const rejects = report.tests.find(test => test.id === 'test/cart.test.ts::cart > rejects a negative price');
-    // Not asked what it costs; and with total's bugs unasked, nothing says whether it catches anything, so it is kept.
-    expect(rejects).toMatchObject({ infra: null, cost: null, useful: true, asked: 0 });
+    // With total's bugs unasked, nothing says whether it catches anything, so it is kept.
+    expect(rejects).toMatchObject({ infra: null, useful: true, asked: 0 });
     const total = report.methods.find(method => method.id === 'src/cart.ts::total');
     expect(total).toMatchObject({ planted: 0, caught: 0, bugs: [] });
     expect(total.useful).toEqual(['test/cart.test.ts::cart > adds prices', 'test/cart.test.ts::cart > rejects a negative price', 'test/cart.test.ts::cart > checks out']);
@@ -483,7 +476,7 @@ describe('perch coverage', () => {
 
   it('stops on rejected credentials', async () => {
     const repo = await repository();
-    const refused = scripted({ fail: new Set(['test_discount_10']), error: () => new AuthenticationError(401, 'bad key') });
+    const refused = scripted({ fail: new Set(['apply_discount']), error: () => new AuthenticationError(401, 'bad key') });
     await expect(run(repo, refused)).rejects.toThrow(/HTTP 401/);
   });
 
@@ -547,127 +540,21 @@ it('charges the stubbed amount', () => {
 });
 `,
     });
-    TESTS['charges the stubbed amount'] = { cost: 0 };
+    TESTS['charges the stubbed amount'] = {};
     const systemOne = scripted();
     const report = await run(repo, systemOne);
     delete TESTS['charges the stubbed amount'];
-    expect(systemOne.calls.map(call => call.name)).toContain('charges the stubbed amount');
     expect(report.failed).toEqual([]);
     const stub = report.tests.find(test => test.name === 'charges the stubbed amount');
     expect(stub.direct).toEqual([]);
     // A chained call such as expect(...).toBe is recorded as dynamic and named by nothing, and it() belongs to the file.
     expect(stub.unresolved).toEqual(['charge', 'expect', 'vi.fn']);
-    // Reaching no method, no planted bug is asked over it, so nothing says it checks nothing: it is kept, and asked only its cost.
+    // Reaching no method, no planted bug is asked over it, so nothing says it checks nothing: it is kept, and never asked.
     expect(stub).toMatchObject({ useful: true, asked: 0, kills: [] });
     expect(report.findings.filter(finding => finding.unit === stub.id)).toEqual([]);
-    expect(Object.keys(systemOne.calls.find(call => call.name === 'charges the stubbed amount').questions)).toEqual(['cost']);
+    expect(systemOne.calls.find(call => call.name === 'charges the stubbed amount')).toBe(undefined);
   });
 });
-
-/**
- * What CI's test run wrote, by hand, in each format's documented shape: pytest's and Vitest's JUnit XML, Vitest's LCOV,
- * coverage.py's JSON with test contexts, and a Cobertura XML. The numbers are chosen here, line by line, against the sources in
- * FILES: cart.py's apply_discount is lines 4-9, item_count 12-13 and restock 16-20; src/cart.ts's total is 3-10 and checkout
- * 12-16; src/db.ts's save is 3-5.
- */
-const REPORTS = {
-  'reports/junit.xml': `<?xml version="1.0" encoding="utf-8"?>
-<testsuites name="all">
-  <testsuite name="pytest" tests="7" failures="2" skipped="1">
-    <testcase classname="tests.test_cart" name="test_discount_10" time="0.25"/>
-    <testcase classname="tests.test_cart" name="test_discount_20" time="0.5"/>
-    <testcase classname="tests.test_cart" name="test_discount_negative[-1]" time="0.125"/>
-    <testcase classname="tests.test_cart" name="test_discount_negative[-5]" time="0.125"><failure message="DID NOT RAISE">assert False</failure></testcase>
-    <testcase classname="tests.test_cart" name="test_count_mocked" time="0.0625"/>
-    <testcase classname="tests.test_cart" name="test_rate" time="2.0"><failure message="ConnectionError">no network</failure></testcase>
-    <testcase classname="tests.test_cart" name="test_removed_last_week" time="0.5"><skipped message="gone"/></testcase>
-  </testsuite>
-  <testsuite name="test/cart.test.ts" tests="2">
-    <testcase classname="test/cart.test.ts" name="cart &gt; adds prices" time="0.25"/>
-    <testcase classname="test/cart.test.ts" name="cart &gt; rejects a negative price" time="0.125"/>
-  </testsuite>
-</testsuites>
-`,
-  'reports/lcov.info': `TN:
-SF:src/cart.ts
-BRDA:5,0,0,3
-BRDA:5,0,1,2
-BRDA:6,1,0,1
-BRDA:6,1,1,0
-BRF:4
-BRH:3
-DA:4,3
-DA:5,3
-DA:6,4
-DA:7,3
-DA:9,2
-DA:13,0
-DA:14,0
-DA:15,0
-LF:8
-LH:5
-end_of_record
-TN:
-SF:src/db.ts
-DA:4,0
-LF:1
-LH:0
-end_of_record
-`,
-  'reports/coverage.json': JSON.stringify({
-    meta: { format: 3, version: '7.6.1', timestamp: '2026-09-28T10:00:00', branch_coverage: true, show_contexts: true },
-    files: {
-      'cart.py': {
-        executed_lines: [1, 4, 5, 6, 7, 9, 12, 16, 17, 18, 20],
-        missing_lines: [8, 13, 19],
-        excluded_lines: [],
-        executed_branches: [[5, 6], [5, 7], [7, 9], [17, 18], [17, 20], [18, 17]],
-        missing_branches: [[7, 8], [18, 19]],
-        contexts: {
-          1: [''], 4: [''], 12: [''], 16: [''],
-          5: ['tests/test_cart.py::test_discount_10|run', 'tests/test_cart.py::test_discount_20|run', 'tests/test_cart.py::test_discount_negative|run',
-            'tests/test_cart.py::test_gone|run'],
-          6: ['tests/test_cart.py::test_discount_negative|run'],
-          7: ['tests/test_cart.py::test_discount_10|run', 'tests/test_cart.py::test_discount_20|run'],
-          9: ['tests/test_cart.py::test_discount_10|setup', 'tests/test_cart.py::test_discount_10|run', 'tests/test_cart.py::test_discount_20|run'],
-          17: ['tests/test_cart.py::test_count_mocked|run'], 18: ['tests/test_cart.py::test_count_mocked|run'], 20: ['tests/test_cart.py::test_count_mocked|run'],
-        },
-      },
-    },
-  }, null, 2),
-  'reports/cobertura.xml': `<?xml version="1.0" ?>
-<coverage version="7.6.1" timestamp="1790000000000" lines-valid="6" lines-covered="5" line-rate="0.8333" branches-covered="0" branches-valid="0" branch-rate="0" complexity="0">
-  <sources><source>.</source></sources>
-  <packages>
-    <package name="." line-rate="0.8333" branch-rate="0" complexity="0">
-      <classes>
-        <class name="pricing.py" filename="pricing.py" complexity="0" line-rate="1" branch-rate="0">
-          <methods/>
-          <lines><line number="1" hits="1"/><line number="2" hits="2"/></lines>
-        </class>
-        <class name="rates.py" filename="rates.py" complexity="0" line-rate="1" branch-rate="0">
-          <methods/>
-          <lines><line number="1" hits="1"/><line number="4" hits="1"/><line number="5" hits="1"/></lines>
-        </class>
-        <class name="cart.py" filename="cart.py" complexity="0" line-rate="1" branch-rate="0">
-          <methods/>
-          <lines><line number="13" hits="5"/></lines>
-        </class>
-        <class name="gen.py" filename="build/gen.py" complexity="0" line-rate="0" branch-rate="0">
-          <methods/>
-          <lines><line number="1" hits="0"/></lines>
-        </class>
-      </classes>
-    </package>
-  </packages>
-</coverage>
-`,
-};
-const ALL_REPORTS = { junit: ['reports/junit.xml'], lcov: ['reports/lcov.info'], cobertura: ['reports/cobertura.xml'], contexts: ['reports/coverage.json'] };
-/** Answers for the run with reports: the same as without, and save, which only writes what it is given to a file, is said not to need a test of its own. */
-const MEASURED_TESTS = {};
-const MEASURED_NEEDS = { save: 0.2 };
-const MEASURED_METHODS = {};
 
 /**
  * A model endpoint on localhost that answers every question it is sent, by its type: the likeliest option, a probability, a level.
@@ -696,26 +583,22 @@ async function answeringEndpoint() {
 }
 
 describe('perch coverage from the command line', () => {
-  it('reads the reports named by flags, asks, prints, and writes the page', async () => {
+  it('asks, prints, and writes the page', async () => {
     const repo = await repository();
-    await write(repo.root, REPORTS);
     const endpoint = await answeringEndpoint();
     try {
       vi.spyOn(process, 'cwd').mockReturnValue(repo.root);
       const out = [], err = [];
       const io = { stdout: text => out.push(text), stderr: text => err.push(text), env: { PERCH_BASE_URL: endpoint.url, PERCH_API_KEY: 'local', HOME: repo.root } };
-      // A brace in a path is a glob's, so the comma inside it does not split the list.
-      const code = await main(['coverage', '--junit', 'reports/junit.xml', '--lcov', 'reports/{lcov,missing}.info,reports/lcov.info', '--html', 'out/index.html'], io);
+      const code = await main(['coverage', '--html', 'out/index.html'], io);
       expect(err.join('\n')).not.toContain('perch:');
       expect(code).toBe(3);
-      // Read off reports/lcov.info by hand: src/cart.ts has 8 DA lines, 5 of them hit, and 4 BRDA arms, 3 of them taken; checkout's
-      // lines 13-15 never ran, so one of its two methods is tested. src/db.ts's one line never ran.
       // The source table's rows, before the problem blocks below it name the same files as headings.
       const table = out.join('\n').split('\n\n')[0].split('\n').map(line => line.trim().split(/\s{2,}/));
       const rows = Object.fromEntries(table.map(([path, ...cells]) => [path, cells]));
       // The endpoint answers 0.9 to every yes-or-no, so both bugs planted in total are caught; save has no line to change.
-      expect(rows['src/cart.ts']).toEqual(['1 of 2', '63%', '100% (2 of 2)', '0']);
-      expect(rows['src/db.ts']).toEqual(['0 of 1', '0%', '-', '0']);
+      expect(rows['src/cart.ts']).toEqual(['2 of 2', '100% (2 of 2)', '0']);
+      expect(rows['src/db.ts']).toEqual(['1 of 1', '-', '0']);
       const page = await readFile(join(repo.root, 'out', 'index.html'), 'utf8');
       expect(page).toMatch(/^<!doctype html>/);
       expect(page).toContain('Run details');
@@ -726,136 +609,30 @@ describe('perch coverage from the command line', () => {
   });
 });
 
-describe('perch coverage with test reports', () => {
-  const measuredRun = async (reportFlags = ALL_REPORTS, extra = {}) => {
-    const repo = await repository();
-    await write(repo.root, REPORTS);
-    const systemOne = scripted({ tests: MEASURED_TESTS, methods: MEASURED_METHODS, needs: MEASURED_NEEDS });
-    const report = await run(repo, systemOne, { reportFlags, cwd: repo.root, ...extra });
-    return { repo, systemOne, report };
-  };
-
-  it('matches runs by framework names', async () => {
-    const { report } = await measuredRun();
-    const tests = byId(report.tests);
-    expect(tests.get('tests/test_cart.py::test_discount_10').run).toEqual({ time: 0.25, status: 'passed', cases: 1 });
-    // Two parametrized cases of one test: their times add up, and the test is as good as its worst case.
-    expect(tests.get('tests/test_cart.py::test_discount_negative').run).toEqual({ time: 0.25, status: 'failed', cases: 2 });
-    expect(tests.get('tests/test_cart.py::test_rate').run).toEqual({ time: 2, status: 'failed', cases: 1 });
-    expect(tests.get('test/cart.test.ts::cart > adds prices').run).toEqual({ time: 0.25, status: 'passed', cases: 1 });
-    expect(tests.get('tests/test_cart.py::test_rate_mocked').run).toBe(null);
-    expect(tests.get('test/cart.test.ts::cart > checks out').run).toBe(null);
-    expect(report.unmatched_runs).toEqual([
-      { path: 'reports/junit.xml', classname: 'tests.test_cart', name: 'test_removed_last_week' },
-      { path: 'reports/coverage.json', classname: 'tests/test_cart.py', name: 'test_gone' },
-    ]);
-    expect(report.unmatched_paths).toEqual([{ path: 'reports/cobertura.xml', reported: 'build/gen.py' }]);
-    expect(report.inputs).toEqual([
-      { kind: 'junit', path: 'reports/junit.xml', runs: 9 },
-      { kind: 'lcov', path: 'reports/lcov.info', files: 2 },
-      // cart.py is in coverage.json as well, and one run reported twice is read once: from coverage.json.
-      { kind: 'cobertura', path: 'reports/cobertura.xml', files: 4, replaced_by: [{ path: 'cart.py', by: ['reports/coverage.json'] }] },
-      { kind: 'contexts', path: 'reports/coverage.json', files: 1 },
-    ]);
-    expect(report.totals.suite).toEqual({ seconds: 3.9375, runs: 9, failed: 2, skipped: 1 });
-  });
-
-  it('measures lines and branches per method', async () => {
-    const { report } = await measuredRun();
-    const methods = byId(report.methods);
-    expect(methods.get('cart.py::apply_discount')).toMatchObject({ measured: { lines: { hit: 4, total: 5 }, branches: { hit: 3, total: 4 } }, executed: true, untested: false });
-    // Reached by test_count_mocked in the call graph, and not one of its lines ran.
-    expect(methods.get('cart.py::item_count')).toMatchObject({ measured: { lines: { hit: 0, total: 1 }, branches: { hit: 0, total: 0 } }, executed: false, untested: true });
-    expect(methods.get('cart.py::item_count').tests).toEqual([{ id: 'tests/test_cart.py::test_count_mocked', depth: 1 }]);
-    // No test reaches restock in the call graph, and the report shows it ran.
-    expect(methods.get('cart.py::restock')).toMatchObject({ tests: [], measured: { lines: { hit: 3, total: 4 }, branches: { hit: 3, total: 4 } }, executed: true, untested: false });
-    expect(methods.get('pricing.py::round_money')).toMatchObject({ measured: { lines: { hit: 1, total: 1 }, branches: { hit: 0, total: 0 } } });
-    expect(methods.get('src/cart.ts::total')).toMatchObject({ measured: { lines: { hit: 5, total: 5 }, branches: { hit: 3, total: 4 } } });
-    expect(methods.get('src/cart.ts::checkout')).toMatchObject({ measured: { lines: { hit: 0, total: 3 } }, executed: false, untested: true });
-    // Three methods never ran, and that stays their coverage whatever is asked. Whether each is a problem is the answer's: save is
-    // said not to need a test, so it is not listed.
-    const untested = report.findings.filter(finding => finding.kind === 'untested');
-    expect(untested.map(finding => finding.unit).sort()).toEqual(['cart.py::item_count', 'src/cart.ts::checkout']);
-    expect(untested.find(finding => finding.unit === 'cart.py::item_count')).toMatchObject({ probability: 0.9,
-      note: 'None of its lines ran. 1 test calls it.' });
-    expect(methods.get('src/db.ts::save')).toMatchObject({ untested: true, executed: false });
-    expect(report.totals.untested).toBe(3);
-    expect(report.totals.measured).toEqual({ lines: { hit: 14, total: 21 }, branches: { hit: 9, total: 12 } });
-    expect(report.measured_by).toEqual(['cobertura', 'contexts', 'lcov']);
-    const cartFile = report.files.find(file => file.path === 'cart.py');
-    expect(cartFile.totals.measured).toEqual({ lines: { hit: 7, total: 10 }, branches: { hit: 6, total: 8 } });
-    expect(cartFile.hits.lines).toEqual([[1, 1], [4, 1], [5, 1], [6, 1], [7, 1], [8, 0], [9, 1], [12, 1], [13, 0], [16, 1], [17, 1], [18, 1], [19, 0], [20, 1]]);
-    expect(cartFile.hits.branches).toEqual([[5, 2, 2], [7, 1, 2], [17, 2, 2], [18, 1, 2]]);
-  });
-
-  it('asks only what the reports leave open', async () => {
-    const { systemOne, report } = await measuredRun();
-    // The three that never ran are asked only whether they need a test, told how perch knows.
-    const needCalls = systemOne.calls.filter(call => call.questions.needs_test);
-    expect(needCalls.map(call => call.name).sort()).toEqual(['checkout', 'item_count', 'save']);
-    for (const call of needCalls) expect(call.state.method.note).toBe('The coverage report shows none of its lines ran.');
-    // A test the report timed is not asked what it costs, and one with no live service in reach is not asked about that: a
-    // timed test with nothing else to ask is not asked at all.
-    const testCalls = Object.fromEntries(systemOne.calls.filter(call => call.state.test).map(call => [call.name, Object.keys(call.questions).sort()]));
-    expect(testCalls).toEqual({ test_rate: ['infra'], test_rate_mocked: ['cost'], 'cart > checks out': ['cost'], 'saves an order': ['cost'] });
-    const tests = byId(report.tests);
-    expect(tests.get('tests/test_cart.py::test_rate').cost).toEqual({ seconds: 2, basis: 'measured' });
-    expect(tests.get('tests/test_cart.py::test_rate_mocked').cost).toMatchObject({ tier: 0, basis: 'estimated' });
-    expect(tests.get('test/db.test.ts::saves an order').cost).toMatchObject({ tier: 2, basis: 'estimated' });
-    // Only the three untimed tests have a tier.
-    expect(report.totals.cost).toEqual({ 0: 2, 1: 0, 2: 1, 3: 0 });
-  });
-
-  it('compares measured totals with the last run', async () => {
-    const { repo } = await measuredRun();
-    await write(repo.root, { 'pricing.py': `${FILES['pricing.py']}\n# later\n` });
-    await commitAll(repo.root, 'later');
-    const after = await run({ ...repo, revision: await revision(repo.root) }, scripted({ tests: MEASURED_TESTS, methods: MEASURED_METHODS, needs: MEASURED_NEEDS }),
-      { reportFlags: { junit: ['reports/junit.xml'], lcov: ['reports/lcov.info'] }, cwd: repo.root });
-    // Before: 14 of 21 lines and 9 of 12 branches over all eight methods. After, LCOV alone: total, checkout and save.
-    expect(after.diff.totals.measured_lines).toEqual({ before: 14 / 21, after: 5 / 9 });
-    expect(after.diff.totals.measured_branches).toEqual({ before: 0.75, after: 0.75 });
-    expect(after.diff.totals.suite_seconds).toEqual({ before: 3.9375, after: 3.9375 });
-    const methods = byId(after.diff.methods);
-    // Before, the report showed restock ran, which is reached whatever the call graph says; after, nothing measured it and no
-    // test reaches it.
-    expect(methods.get('cart.py::restock')).toMatchObject({ before: { reached: true, executed: true, measured: { lines: { hit: 3, total: 4 } } },
-      after: { reached: false, executed: null, measured: null } });
-    expect(methods.has('src/cart.ts::checkout')).toBe(false);
-  });
-
+describe('perch coverage on a branch', () => {
   it('reports changed code with --since', async () => {
-    const { repo } = await measuredRun();
-    // On the branch: one line of total that ran and one of checkout that did not, item_count's return, which did not, a line of a
-    // test, and a file that is not source. The coverage reports are the same run's, so their lines still line up.
+    const repo = await repository();
+    await run(repo, scripted());
+    // On the branch: a line of total and one of checkout, item_count's return, a line of a test, and a file that is not source.
     const edit = (text, from, to) => { expect(text).toContain(from); return text.replace(from, to); };
     await write(repo.root, {
       'src/cart.ts': edit(edit(FILES['src/cart.ts'], 'sum += price;', 'sum += price * 1;'), 'save(amount);', 'save(amount * 1);'),
       'cart.py': edit(FILES['cart.py'], 'return len(items)', 'return len(list(items))'),
       'test/db.test.ts': edit(FILES['test/db.test.ts'], 'expect(true).toBe(true);', 'expect(1).toBe(1);'),
       'NOTES.md': 'Not source.\n',
-      // A script with no methods of its own, new on the branch, so no coverage report has it.
+      // A script with no methods of its own, new on the branch.
       'src/main.ts': "import { total } from './cart';\n\nconsole.log(total([1, 2]));\n",
     });
     await commitAll(repo.root, 'branch');
-    const systemOne = scripted({ tests: MEASURED_TESTS, methods: MEASURED_METHODS, needs: MEASURED_NEEDS });
-    const report = await run({ ...repo, revision: await revision(repo.root) }, systemOne, { reportFlags: ALL_REPORTS, cwd: repo.root, since: 'main' });
+    const report = await run({ ...repo, revision: await revision(repo.root) }, scripted(), { since: 'main' });
     // The run on main was saved, and it is not compared with: the branch point already says what the branch did.
     expect(report.baseline).toBe(null);
     expect(report.diff).toBe(null);
-    expect(report.branch).toMatchObject({ ref: 'main', base: await revision(repo.root, 'main'), patch: { hit: 1, total: 3 } });
-    expect(report.branch.files).toEqual([
-      // Which changed lines of code did not run: item_count's return, and checkout's call to save.
-      { path: 'cart.py', changed: 1, patch: { hit: 0, total: 1 }, missed: [13] },
-      { path: 'src/cart.ts', changed: 2, patch: { hit: 1, total: 2 }, missed: [14] },
-      { path: 'src/main.ts', changed: 3, patch: null },
-    ]);
-    expect(report.branch.units).toEqual(['cart.py::item_count', 'src/cart.ts::checkout', 'src/cart.ts::total', 'test/db.test.ts::saves an order']);
+    expect(report.branch).toEqual({ ref: 'main', base: await revision(repo.root, 'main'),
+      units: ['cart.py::item_count', 'src/cart.ts::checkout', 'src/cart.ts::total', 'test/db.test.ts::saves an order'], findings: report.branch.findings });
+    // The changed code's problems: total's two bugs are caught, so there are none on it; nothing is planted in item_count or checkout.
     const onBranch = report.findings.filter(finding => report.branch.findings.includes(finding.id)).map(finding => `${finding.kind} ${finding.unit}`).sort();
-    expect(onBranch).toEqual([
-      'untested cart.py::item_count',
-      'untested src/cart.ts::checkout',
-    ]);
+    expect(onBranch).toEqual([]);
     // The whole repository was still read and asked about: the branch's tests and what they reach are mostly elsewhere.
     expect(report.findings.some(finding => finding.unit === 'tests/test_cart.py::test_discount_20')).toBe(true);
   });
@@ -867,117 +644,6 @@ describe('perch coverage with test reports', () => {
     expect(systemOne.calls).toEqual([]);
   });
 
-  it('reads reports from perch.yaml, flags first', async () => {
-    const repo = await repository({ ...FILES, 'perch.yaml': `coverage_reports:
-  junit: [reports/junit.xml]
-  lcov: [reports/lcov-from-last-month.info]
-rules: []
-` });
-    await write(repo.root, REPORTS);
-    const report = await run(repo, scripted({ tests: MEASURED_TESTS, methods: MEASURED_METHODS, needs: MEASURED_NEEDS }), { reportFlags: { lcov: ['reports/lcov.info'] }, cwd: repo.root });
-    expect(report.inputs).toEqual([{ kind: 'junit', path: 'reports/junit.xml', runs: 9 }, { kind: 'lcov', path: 'reports/lcov.info', files: 2 }]);
-    // Measured by LCOV alone, which covers the TypeScript; the Python is Jev's and the graph's, and says so.
-    const methods = byId(report.methods);
-    expect(methods.get('src/cart.ts::checkout')).toMatchObject({ executed: false, untested: true });
-    expect(methods.get('cart.py::apply_discount')).toMatchObject({ measured: null, executed: null });
-    expect(methods.get('cart.py::restock')).toMatchObject({ measured: null, untested: true });
-  });
-
-  it('fails fast on a missing report or unknown kind', async () => {
-    const repo = await repository();
-    await write(repo.root, REPORTS);
-    const systemOne = scripted();
-    await expect(run(repo, systemOne, { reportFlags: { junit: ['reports/junit.xml', 'reports/nope.xml'] }, cwd: repo.root }))
-      .rejects.toThrow('reports/nope.xml: no such JUnit XML report');
-    await write(repo.root, { 'perch.yaml': 'coverage_reports:\n  lcove: [coverage/lcov.info]\nrules: []\n' });
-    await expect(run(repo, systemOne)).rejects.toThrow('perch.yaml: coverage_reports has lcove, which is not one of junit, lcov, cobertura, jacoco, contexts');
-    expect(systemOne.calls).toEqual([]);
-  });
-
-  // One JUnit file per suite, as Surefire and Gradle write one per class, and a file beside them that is not a report.
-  const SHARDS = {
-    'reports/junit/TEST-pytest.xml': `<testsuite name="pytest" tests="2">
-  <testcase classname="tests.test_cart" name="test_discount_10" time="0.25"/>
-  <testcase classname="tests.test_cart" name="test_discount_20" time="0.5"/>
-</testsuite>
-`,
-    'reports/junit/TEST-vitest.xml': `<testsuite name="test/cart.test.ts" tests="1">
-  <testcase classname="test/cart.test.ts" name="cart &gt; adds prices" time="0.125"/>
-</testsuite>
-`,
-    'reports/junit/summary.txt': 'not a report\n',
-  };
-
-  it('expands report globs in name order', async () => {
-    const repo = await repository({ ...FILES, 'perch.yaml': 'coverage_reports:\n  junit: [reports/junit/*.xml]\nrules: []\n' });
-    await write(repo.root, SHARDS);
-    const shards = [{ kind: 'junit', path: 'reports/junit/TEST-pytest.xml', runs: 2 }, { kind: 'junit', path: 'reports/junit/TEST-vitest.xml', runs: 1 }];
-    const configured = await run(repo, scripted());
-    expect(configured.inputs).toEqual(shards);
-    const tests = byId(configured.tests);
-    expect(tests.get('tests/test_cart.py::test_discount_20').run).toEqual({ time: 0.5, status: 'passed', cases: 1 });
-    expect(tests.get('test/cart.test.ts::cart > adds prices').run).toEqual({ time: 0.125, status: 'passed', cases: 1 });
-    // A flag's comma splits paths, and one inside a {a,b} list is part of the pattern.
-    const flagged = await run(repo, scripted(), { reportFlags: { junit: ['reports/junit/TEST-{vitest,pytest}.xml'] }, cwd: repo.root });
-    expect(flagged.inputs).toEqual(shards);
-  });
-
-  it('fails fast on a glob that matches nothing', async () => {
-    const repo = await repository();
-    await write(repo.root, SHARDS);
-    const systemOne = scripted();
-    await expect(run(repo, systemOne, { reportFlags: { jacoco: ['build/jacoco/*.xml'] }, cwd: repo.root }))
-      .rejects.toThrow('build/jacoco/*.xml: no JaCoCo XML report matches this pattern');
-    await write(repo.root, { 'perch.yaml': 'coverage_reports:\n  lcov: [reports/junit/*.info]\nrules: []\n' });
-    await expect(run(repo, systemOne)).rejects.toThrow('reports/junit/*.info: no LCOV report matches this pattern');
-    expect(systemOne.calls).toEqual([]);
-  });
-});
-
-describe('a JaCoCo report', () => {
-  const source = lines => `${lines.join('\n')}\n`;
-  // JaCoCo names a file by the package its classes are in and the source file's name, never by where it sits in the repository.
-  // Pricing.java declares package shop from a directory called app; legacy/shop/Cart.java ends in shop/Cart.java and declares
-  // legacy.shop; two files declare util and are called Strings.java.
-  const JAVA = {
-    'src/main/java/shop/Cart.java': source(['package shop;', '', 'public class Cart {', '    public static int total(int a) {', '        if (a > 100) {',
-      '            return 100;', '        }', '        return a;', '    }', '}']),
-    'app/Pricing.java': source(['package shop;', '', 'public class Pricing {', '    public static int price(int a) {', '        return Cart.total(a) * 2;', '    }', '}']),
-    'legacy/shop/Cart.java': source(['package legacy.shop;', '', 'public class Cart {', '    public static int total(int a) {', '        return a;', '    }', '}']),
-    'a/Strings.java': source(['package util;', '', 'public class Strings {', '    public static String trim(String s) {', '        return s.trim();', '    }', '}']),
-    'b/Strings.java': source(['package util;', '', 'public class Strings {', '    public static String pad(String s) {', '        return s + " ";', '    }', '}']),
-    'src/test/java/shop/CartTest.java': source(['package shop;', '', 'import org.junit.jupiter.api.Test;', '', 'class CartTest {', '    @Test',
-      '    void capsTheTotal() {', '        Cart.total(500);', '    }', '}']),
-  };
-  // Written by hand in report.dtd's shape. Cart.total's lines 5-8: the if on line 5 took one of its two branches, and line 8 never
-  // ran. Pricing.price's line 5 ran.
-  const REPORT = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><!DOCTYPE report PUBLIC "-//JACOCO//DTD Report 1.1//EN" "report.dtd">'
-    + '<report name="shop"><sessioninfo id="ci" start="1727520000000" dump="1727520001000"/>'
-    + '<package name="shop">'
-    + '<sourcefile name="Cart.java"><line nr="3" mi="3" ci="0" mb="0" cb="0"/><line nr="5" mi="0" ci="3" mb="1" cb="1"/>'
-    + '<line nr="6" mi="0" ci="2" mb="0" cb="0"/><line nr="8" mi="2" ci="0" mb="0" cb="0"/></sourcefile>'
-    + '<sourcefile name="Pricing.java"><line nr="5" mi="0" ci="6" mb="0" cb="0"/></sourcefile>'
-    + '<sourcefile name="Gone.java"><line nr="4" mi="2" ci="0" mb="0" cb="0"/></sourcefile></package>'
-    + '<package name="util"><sourcefile name="Strings.java"><line nr="5" mi="0" ci="4" mb="0" cb="0"/></sourcefile></package>'
-    + '</report>';
-
-  it('places files by declared package', async () => {
-    const repo = await repository(JAVA);
-    await write(repo.root, { 'build/jacoco.xml': REPORT });
-    const scan = await analyzeTree({ root: repo.root, revision: repo.revision, out: repo.out, analyzer });
-    const reports = await readReports({ root: repo.root, files: [{ kind: 'jacoco', path: join(repo.root, 'build/jacoco.xml') }], paths: new Set(Object.keys(JAVA)) });
-    const coverage = computeCoverage({ scan, graph: buildGraph(scan.files), reports });
-    expect(coverage.measurement.inputs).toEqual([{ kind: 'jacoco', path: 'build/jacoco.xml', files: 4 }]);
-    expect(coverage.measurement.tools).toEqual(['jacoco']);
-    expect(coverage.measurement.unmatched_paths).toEqual([
-      { path: 'build/jacoco.xml', reported: 'shop/Gone.java' },
-      { path: 'build/jacoco.xml', reported: 'util/Strings.java' },
-    ]);
-    const methods = byId(coverage.methods);
-    expect(methods.get('src/main/java/shop/Cart.java::Cart.total')).toMatchObject({ measured: { lines: { hit: 2, total: 3 }, branches: { hit: 1, total: 2 } } });
-    expect(methods.get('app/Pricing.java::Pricing.price').measured).toEqual({ lines: { hit: 1, total: 1 }, branches: { hit: 0, total: 0 } });
-    for (const id of ['legacy/shop/Cart.java::Cart.total', 'a/Strings.java::Strings.trim', 'b/Strings.java::Strings.pad']) expect(methods.get(id).measured, id).toBe(null);
-  });
 });
 
 it('finds duplicate tests among 40,000 in about linear time', () => {

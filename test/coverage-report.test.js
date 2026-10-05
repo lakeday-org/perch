@@ -1,25 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { main } from '../src/cli.js';
-import { coverageCount, coverageDetails, duration, formatCoverage, formatCoverageDiff, listedFindings, parseCoverageFilters } from '../src/coverage-report.js';
+import { coverageCount, coverageDetails, formatCoverage, formatCoverageDiff, listedFindings, parseCoverageFilters } from '../src/coverage-report.js';
 
 /**
  * A report written out by hand, in the shape the contract gives it, so the formatting is checked against numbers chosen here rather
  * than numbers the engine happened to produce. Two source files, one test file, and findings of three kinds.
  */
-const totalsOf = values => ({ methods: 0, reached: 0, useful_reached: 0, planted: 0, caught: 0, score: null, uncaught: 0, measured: null, tests: 0, useful: 0, redundant: 0,
-  weak: 0, infra: 0, seconds: null, timed: 0, ...values });
+const totalsOf = values => ({ methods: 0, reached: 0, useful_reached: 0, planted: 0, caught: 0, score: null, uncaught: 0, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0, ...values });
 const report = {
   version: 1, revision: '9f8e7d6c5b4a', root: '/repo', created_at: '2026-09-28T10:00:00.000Z', model: 'jev-1', depth: 3, min: 50,
-  totals: { methods: 6, reached: 4, useful_reached: 4, planted: 12, caught: 7, score: 7 / 12, uncaught: 1, measured: { lines: { hit: 30, total: 40 }, branches: { hit: 5, total: 12 } },
-    tests: 5, useful: 3, redundant: 1, weak: 1, infra: 0, seconds: 2.5, timed: 5, dropped_seconds: 1.25,
-    untested: 2, cost: { 0: 3, 1: 2, 2: 0, 3: 0 }, drop: { count: 2, cost: { 0: 1, 1: 0, 2: 0, 3: 1 }, unreached: [], seconds: null, timed: 0 }, suite: null },
+  totals: { methods: 6, reached: 4, useful_reached: 4, planted: 12, caught: 7, score: 7 / 12, uncaught: 1,
+    tests: 5, useful: 3, redundant: 1, weak: 1, infra: 0, untested: 2, drop: { count: 2, unreached: [] } },
   files: [
     { path: 'src/tax.py', kind: 'source', language: 'python', lines: [], methods: ['m4', 'm5', 'm6'], tests: [],
       totals: totalsOf({ methods: 3, reached: 1, useful_reached: 1 }) },
     { path: 'src/cart.py', kind: 'source', language: 'python', lines: [], methods: ['m1', 'm2', 'm3'], tests: [],
-      totals: totalsOf({ methods: 3, reached: 3, useful_reached: 3, planted: 12, caught: 7, score: 7 / 12, uncaught: 1, measured: { lines: { hit: 30, total: 40 }, branches: { hit: 5, total: 12 } } }) },
+      totals: totalsOf({ methods: 3, reached: 3, useful_reached: 3, planted: 12, caught: 7, score: 7 / 12, uncaught: 1 }) },
     { path: 'tests/test_cart.py', kind: 'test', language: 'python', lines: [], methods: [], tests: ['t1', 't2', 't3', 't4', 't5'],
-      totals: totalsOf({ tests: 5, useful: 3, redundant: 1, weak: 1, infra: 0, seconds: 2.5, timed: 5, dropped_seconds: 1.25 }) },
+      totals: totalsOf({ tests: 5, useful: 3, redundant: 1, weak: 1, infra: 0 }) },
   ],
   methods: [],
   tests: [
@@ -66,19 +64,18 @@ describe('coverage report', () => {
   it('prints source and test tables with totals', () => {
     const text = formatCoverage(report, { min: 0.5, ...plain });
     const source = text.split('\n\n')[0].split('\n');
-    expect(source[0]).toMatch(/^Source files\s+Methods tested\s+Lines\s+Bugs caught\s+Uncaught bugs$/);
+    expect(source[0]).toMatch(/^Source files\s+Methods tested\s+Bugs caught\s+Uncaught bugs$/);
     // Files in path order, whatever order the report had them in.
     expect(source.slice(1).map(line => line.split(/\s{2,}/)[0])).toEqual(['src/cart.py', 'src/tax.py', 'All source']);
-    // cart.py was measured: 30 of its 40 lines ran. Of 12 bugs planted in it, 7 are caught, and one uncaught one is over the floor.
-    expect(rowOf(text, 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '3 of 3', '75%', '58% (7 of 12)', '1']);
-    // Nothing measured or planted in tax.py, which is a dash and not a zero.
-    expect(rowOf(text, 'src/tax.py').split(/\s{2,}/)).toEqual(['src/tax.py', '1 of 3', '-', '-', '0']);
-    expect(rowOf(text, 'All source').split(/\s{2,}/)).toEqual(['All source', '4 of 6', '75%', '58% (7 of 12)', '1']);
+    // Of 12 bugs planted in cart.py, 7 are caught, and one uncaught one is over the floor.
+    expect(rowOf(text, 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '3 of 3', '58% (7 of 12)', '1']);
+    // Nothing planted in tax.py, which is a dash and not a zero.
+    expect(rowOf(text, 'src/tax.py').split(/\s{2,}/)).toEqual(['src/tax.py', '1 of 3', '-', '0']);
+    expect(rowOf(text, 'All source').split(/\s{2,}/)).toEqual(['All source', '4 of 6', '58% (7 of 12)', '1']);
     // Quality is the tests worth keeping, of all of them; then why the rest are not, and what the tests touch.
-    // Time saved is what the duplicate and weak tests took.
-    expect(rowOf(text, 'Test files').split(/\s{2,}/)).toEqual(['Test files', 'Quality', 'Duplicates', 'Checks nothing', 'Live services', 'Time', 'Time saved']);
-    expect(rowOf(text, 'tests/test_cart.py ').split(/\s{2,}/)).toEqual(['tests/test_cart.py', '60% (3 of 5)', '1', '1', '0', '2.5s', '1.3s']);
-    expect(rowOf(text, 'All tests').split(/\s{2,}/)).toEqual(['All tests', '60% (3 of 5)', '1', '1', '0', '2.5s', '1.3s']);
+    expect(rowOf(text, 'Test files').split(/\s{2,}/)).toEqual(['Test files', 'Quality', 'Duplicates', 'Checks nothing', 'Live services']);
+    expect(rowOf(text, 'tests/test_cart.py ').split(/\s{2,}/)).toEqual(['tests/test_cart.py', '60% (3 of 5)', '1', '1', '0']);
+    expect(rowOf(text, 'All tests').split(/\s{2,}/)).toEqual(['All tests', '60% (3 of 5)', '1', '1', '0']);
   });
 
   it('groups problems above the floor by file', () => {
@@ -113,7 +110,7 @@ describe('coverage report', () => {
     expect(text).toContain('b7d31e22');
     expect(text).not.toContain('a91c2e0f');
     expect(text).not.toContain('d4e5f6a7');
-    expect(rowOf(text, 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '3 of 3', '75%', '58% (7 of 12)', '1']);
+    expect(rowOf(text, 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '3 of 3', '58% (7 of 12)', '1']);
     // A second value is another alternative for the same key, and a spelling with a space or a hyphen is the same kind.
     expect(parseCoverageFilters('kind=checks nothing,redundant')).toEqual([{ key: 'kind', value: 'checks_nothing' }, { key: 'kind', value: 'redundant' }]);
     expect(() => parseCoverageFilters('kind=bogus')).toThrow(/kind "bogus" is not one of untested, uncaught, redundant/);
@@ -130,16 +127,10 @@ describe('coverage report', () => {
     expect(coverageCount(broken, { min: 0.5, all: true })).toBe('/repo at commit 9f8e7d6: 6 methods, 5 tests, 12 problems, jest.config.js did not load (--verbose)');
   });
 
-  it('keeps what matched nothing for --verbose', () => {
-    const odd = { ...report, scope: { frameworks: [{ name: 'Vitest', version: '2.1.9', config: 'vitest.config.js', tests: 40 }, { name: 'Jest', config: 'jest.config.js', error: 'no jest' }], left_out: 3 },
-      unmatched_runs: [{ path: 'reports/junit.xml', classname: 'tests.test_gone', name: 'test_old' }],
-      unmatched_paths: [{ path: 'reports/lcov.info', reported: '/build/gen/parser.py' }] };
-    expect(coverageDetails(odd)).toEqual([
-      '3 files no test framework covers left out',
-      'unmatched run in reports/junit.xml: tests.test_gone test_old',
-      'unmatched path in reports/lcov.info: /build/gen/parser.py',
-    ]);
-    expect([duration(0.004), duration(0.5), duration(41.24), duration(190), duration(3599.6), duration(null)]).toEqual(['4ms', '500ms', '41.2s', '3m10s', '60m00s', '-']);
+  it('keeps what no framework covers for --verbose', () => {
+    const scoped = { ...report, scope: { frameworks: [{ name: 'Vitest', version: '2.1.9', config: 'vitest.config.js', tests: 40 }], left_out: 3 } };
+    expect(coverageDetails(scoped)).toEqual(['3 files no test framework covers left out']);
+    expect(coverageDetails(report)).toEqual([]);
   });
 
   it('prints per-file changes for --diff', () => {
@@ -156,22 +147,13 @@ describe('coverage report', () => {
 describe('coverage report with --since', () => {
   // The branch changed four lines of code in cart.py, one of which did not run, every line of code in tax.py, which all ran, and a
   // file no coverage report covers. The problems on what it changed are the edge case on apply_discount and one under the floor.
-  const branch = { ref: 'origin/main', base: '1a2b3c4d5e6f', patch: { hit: 5, total: 6 }, units: ['m1', 'm2'], findings: ['d4e5f6a7', 'e1e2e3e4'],
-    files: [{ path: 'src/cart.py', changed: 6, patch: { hit: 3, total: 4 }, missed: [12] }, { path: 'src/new.py', changed: 10, patch: null },
-      { path: 'src/tax.py', changed: 2, patch: { hit: 2, total: 2 }, missed: [] }] };
-  const onBranch = { ...report, diff: null, failed: [], branch, totals: { ...report.totals, drop: { count: 0, cost: {} } } };
+  const branch = { ref: 'origin/main', base: '1a2b3c4d5e6f', units: ['m1', 'm2'], findings: ['d4e5f6a7', 'e1e2e3e4'] };
+  const onBranch = { ...report, diff: null, failed: [], branch, totals: { ...report.totals, drop: { count: 0 } } };
 
-  it('prints changed files and their problems', () => {
+  it("prints the changed code's problems", () => {
     const text = formatCoverage(onBranch, { min: 0.5, ...plain });
-    const [table, problems, ...rest] = text.split('\n\n');
+    const [problems, ...rest] = text.split('\n\n');
     expect(rest).toEqual([]);
-    // Only the files with changed code the tests missed, and one nothing measured; tax.py ran every changed line.
-    expect(table.split('\n').map(line => line.split(/\s{2,}/))).toEqual([
-      ['Changed since origin/main', 'Untested lines', 'Patch coverage'],
-      ['src/cart.py', '1', '75%'],
-      ['src/new.py', 'not measured', '-'],
-      ['All changed source', '1', '83%'],
-    ]);
     expect(problems.split('\n')[0]).toBe('src/cart.py');
     expect(problems).toContain('d4e5f6a7');
     // Under the floor, and elsewhere in the repository: neither is listed.
@@ -183,8 +165,8 @@ describe('coverage report with --since', () => {
   });
 
   it('says when nothing changed', () => {
-    const quiet = { ...onBranch, branch: { ...branch, files: [], patch: null, units: [], findings: [] } };
-    expect(formatCoverage(quiet, { min: 0.5, ...plain })).toBe('No source files changed since origin/main.\n\nNo problems in code changed since origin/main.');
+    const quiet = { ...onBranch, branch: { ...branch, units: [], findings: [] } };
+    expect(formatCoverage(quiet, { min: 0.5, ...plain })).toBe('No problems in code changed since origin/main.');
     expect(listedFindings(quiet, { min: 0.5 })).toEqual([]);
   });
 });
