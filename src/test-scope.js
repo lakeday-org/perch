@@ -39,8 +39,8 @@ const MODULES = [
  * for tests (`tests` above, from the module's build file), pytest's conftest.py and its testpaths, and a JavaScript or Python
  * module only test code imports. Each is marked `test`, as a file of tests is.
  */
-/** The headers of C and C++ test frameworks. */
-const NATIVE_TEST_HEADERS = /^(?:gtest|gmock|catch2?|doctest|boost\/test|CppUTest|cxxtest)\/|^(?:gtest|gmock|catch|doctest)\.h(?:pp)?$/;
+/** The headers of C and C++ test frameworks: GoogleTest, Catch2, doctest, Boost.Test, CppUTest, CxxTest, Check, cmocka, Criterion, Unity. */
+const NATIVE_TEST_HEADERS = /^(?:gtest|gmock|catch2?|doctest|boost\/test|CppUTest|cxxtest|criterion)\/|^(?:gtest|gmock|catch|doctest|check|cmocka|unity|unity_fixture)\.h(?:pp)?$/;
 
 /** Languages whose imports and includes name files, so which code uses a module is known. */
 const GROUPED = new Set([...FOLLOWED, 'c', 'cpp']);

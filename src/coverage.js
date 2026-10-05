@@ -759,7 +759,7 @@ export async function coverageRepository({ root, revision, label = root, github 
   // So is what the branch changed since --since: a ref git cannot find fails here, not after the questions.
   const changed = since ? await changedLines(root, since, revision) : null;
   const scan = await analyzeTree({ root, revision, out, analyzer, label, github, progress: scanProgress, log, debug });
-  const graph = buildGraph(scan.files, { crates: scan.crates });
+  const graph = buildGraph(scan.files, { crates: scan.crates, modules: scan.modules });
   const coversNamed = glob => named.some(path => matches(glob, path) || matches(glob, `${path.replace(/\/$/, '')}/file`));
   const ignored = (await readIgnored(root, revision)).filter(glob => !coversNamed(glob));
   const covered = covers(paths);

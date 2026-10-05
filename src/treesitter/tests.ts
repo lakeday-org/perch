@@ -42,8 +42,8 @@ export interface TestScan {
   blockMacros: Set<string>;
 }
 
-const span = (node: Node) => `${node.startIndex}:${node.endIndex}`;
-const named = (node: Node, type: string) => node.namedChildren.filter(child => child.type === type);
+export const span = (node: Node) => `${node.startIndex}:${node.endIndex}`;
+export const named = (node: Node, type: string) => node.namedChildren.filter(child => child.type === type);
 const lineOf = (node: Node) => node.startPosition.row + 1;
 
 /** The declaration id a node sits in, as references.ts assigns it, or `file` at the top level. */
@@ -93,16 +93,16 @@ function unescape(sequence: string): string {
 
 /**
  * The value of a string literal with nothing interpolated into it, or null. Escapes are decoded, since a test framework reports
- * the title the program sees: `'it\'s'` is reported as `it's`. A raw string, Python's `r'...'` or C++'s `R"(...)"`, has no
- * escapes and is taken as written.
+ * the title the program sees: `'it\'s'` is reported as `it's`. A raw string, Python's `r'...'`, C++'s `R"(...)"` or Go's
+ * `` `...` ``, has no escapes and is taken as written.
  */
-function literal(node: Node | null | undefined): string | null {
+export function literal(node: Node | null | undefined): string | null {
   if (!node) return null;
   const parts = node.namedChildren;
   if (parts.some(part => ["template_substitution", "interpolation", "string_interpolation"].includes(part.type))) return null;
-  if (!["string", "template_string", "string_literal", "raw_string_literal"].includes(node.type)) return null;
+  if (!["string", "template_string", "string_literal", "raw_string_literal", "interpreted_string_literal"].includes(node.type)) return null;
   const raw = node.type === "raw_string_literal" || /^[a-zA-Z]*[rR][a-zA-Z]*["']/.test(parts.find(part => part.type === "string_start")?.text ?? "");
-  return parts.filter(part => ["string_fragment", "string_content", "escape_sequence"].includes(part.type))
+  return parts.filter(part => ["string_fragment", "string_content", "escape_sequence", "interpreted_string_literal_content", "raw_string_literal_content"].includes(part.type))
     .map(part => (part.type === "escape_sequence" && !raw ? unescape(part.text) : part.text)).join("");
 }
 
@@ -260,7 +260,7 @@ function titled(call: Node): { title: string; body: Node; computed: boolean } | 
  * `` `should normalize ${type}` `` and `t.name + " survives"` read `should normalize ${type}` and `${t.name} survives`, which is
  * how the run's own titles are matched to it.
  */
-function computedTitle(node: Node): string {
+export function computedTitle(node: Node): string {
   const written = literal(node);
   if (written !== null) return written;
   if (node.type === "template_string") {
@@ -612,18 +612,27 @@ function cppTests(index: SyntaxIndex, scan: TestScan): void {
   }
 }
 
+/** The headers a C or C++ file includes, as written between the quotes or angle brackets. */
+export function includedHeaders(index: SyntaxIndex): string[] {
+  const headers: string[] = [];
+  for (const node of index.of("preproc_include")) {
+    if (node.type !== "preproc_include") continue;
+    const path = node.childForFieldName("path");
+    const header = path?.type === "system_lib_string" ? path.text.slice(1, -1) : literal(path);
+    if (header) headers.push(header);
+  }
+  return headers;
+}
+
 /**
  * The framework whose `TEST_CASE` a C++ file uses, by the header it includes: Catch2 (`catch2/...` from v3, `catch.hpp` from v2)
  * or doctest. The two spell a test the same way and name it differently in their reports. Null when the file includes neither,
  * and its test then goes by the macro's name for a framework.
  */
 function cppLibrary(index: SyntaxIndex): "catch2" | "doctest" | null {
-  for (const node of index.of("preproc_include")) {
-    if (node.type !== "preproc_include") continue;
-    const path = node.childForFieldName("path");
-    const header = path?.type === "system_lib_string" ? path.text.slice(1, -1) : literal(path);
-    if (header?.startsWith("catch2/") || header === "catch.hpp") return "catch2";
-    if (header === "doctest.h" || header?.endsWith("/doctest.h")) return "doctest";
+  for (const header of includedHeaders(index)) {
+    if (header.startsWith("catch2/") || header === "catch.hpp") return "catch2";
+    if (header === "doctest.h" || header.endsWith("/doctest.h")) return "doctest";
   }
   return null;
 }
@@ -632,7 +641,7 @@ function cppLibrary(index: SyntaxIndex): "catch2" | "doctest" | null {
 const SCENARIO_PREFIX = { catch2: "Scenario: ", doctest: "  Scenario: " };
 
 /** A statement that is a macro call, `NAME(args)`, as the macro's name and its arguments. */
-function macroCall(item: Node): { name: string; arguments: Node[] } | null {
+export function macroCall(item: Node): { name: string; arguments: Node[] } | null {
   const call = item.type === "expression_statement" ? item.namedChildren[0] : null;
   const macro = call?.type === "call_expression" ? call.childForFieldName("function") : null;
   if (macro?.type !== "identifier") return null;

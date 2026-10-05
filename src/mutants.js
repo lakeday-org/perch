@@ -13,23 +13,30 @@ import { downloading, normalizeLanguage } from './treesitter/languages.ts';
 export const MAX_MUTANTS = 10;
 
 const COMPARISONS = { '<': '<=', '<=': '<', '>': '>=', '>=': '>', '==': '!=', '!=': '==', '===': '!==', '!==': '===' };
+/** The same comparisons as Bash's `test` spells them: `[ "$n" -ge 100 ]`. */
+const TEST_COMPARISONS = { '-eq': '-ne', '-ne': '-eq', '-lt': '-le', '-le': '-lt', '-gt': '-ge', '-ge': '-gt' };
 const ARITHMETIC = { '+': '-', '-': '+', '*': '/', '/': '*', '%': '*' };
 const LOGIC = { '&&': '||', '||': '&&', and: 'or', or: 'and' };
 /** The order mutants are kept in when a method has more than MAX_MUTANTS: what a test is likeliest to have missed first. */
 const PRIORITY = ['boundary', 'logic', 'condition', 'not', 'arithmetic', 'boolean', 'return'];
 
 // The node that holds a binary operator, by language. Where the grammar gives the operator no field, it is the unnamed child.
+// Bash's `[ a ] && [ b ]` is a `list` of two commands with the connective between them; a list is read only in Bash, since Python
+// names its list literal the same.
 const BINARY = new Set(['binary_expression', 'binary_operator', 'boolean_operator', 'comparison_operator',
   'comparison_expression', 'equality_expression', 'additive_expression', 'multiplicative_expression', 'conjunction_expression', 'disjunction_expression']);
 // A condition a statement branches on: the field that holds it, and whether it is wrapped in parentheses the grammar keeps.
 const CONDITIONS = new Set(['if_statement', 'while_statement', 'if_expression', 'while_expression']);
 const WRAPPED = new Set(['parenthesized_expression', 'condition_clause']);
-const NOT = new Set(['unary_expression', 'not_operator']);
+const NOT = new Set(['unary_expression', 'not_operator', 'negated_command']);
 const BOOLEANS = new Set(['true', 'false', 'boolean_literal']);
 const RETURNS = new Set(['return_statement', 'return_expression']);
 const NUMBERS = new Set(['number', 'integer', 'float', 'integer_literal', 'float_literal', 'decimal_integer_literal', 'int_literal', 'number_literal']);
 
 const operatorOf = node => node.childForFieldName('operator') ?? node.children.find(child => !child.isNamed && (child.text in COMPARISONS || child.text in ARITHMETIC || child.text in LOGIC)) ?? null;
+
+/** A Bash command's name and arguments: `return 1` is the command return with the argument 1. */
+const bashCommand = node => ({ name: node.childForFieldName('name')?.text, args: node.namedChildren.filter(child => child.type !== 'command_name') });
 
 /**
  * The mutants of the method at lines `line` to `end_line` of `source`, most telling first and no more than MAX_MUTANTS. Each is
@@ -47,13 +54,16 @@ export function mutantsOf({ source, language, line, end_line }) {
     const mutated = Buffer.concat([bytes.subarray(0, node.startIndex), Buffer.from(to), bytes.subarray(node.endIndex)]).toString('utf8').split('\n')[row];
     found.push({ kind, line: row + 1, column: node.startPosition.column, from: node.text, to, original: source.split('\n')[row], mutated });
   };
-  const negated = (text, python) => (python ? `not (${text})` : `!(${text})`);
+  // How each language negates a condition: Python's `not`, Bash's `!` before a command or a braced list, `!(...)` elsewhere.
+  const negated = (inner) => (normalized === 'python' ? `not (${inner.text})`
+    : normalized === 'bash' ? (inner.type === 'list' ? `! { ${inner.text}; }` : `! ${inner.text}`) : `!(${inner.text})`);
   const walk = node => {
     if (node.startPosition.row + 1 <= end_line && node.endPosition.row + 1 >= line) {
-      if (BINARY.has(node.type)) {
+      if (BINARY.has(node.type) || (normalized === 'bash' && node.type === 'list')) {
         const operator = operatorOf(node);
         const text = operator?.text;
         if (text in COMPARISONS) add('boundary', operator, COMPARISONS[text]);
+        else if (text in TEST_COMPARISONS) add('boundary', operator, TEST_COMPARISONS[text]);
         else if (text in LOGIC) add('logic', operator, LOGIC[text]);
         else if (text in ARITHMETIC) add('arithmetic', operator, ARITHMETIC[text]);
       }
@@ -62,7 +72,7 @@ export function mutantsOf({ source, language, line, end_line }) {
         // `if let` binds a pattern rather than testing a value; there is no condition to negate.
         if (condition && !/^let/.test(condition.type)) {
           const inner = WRAPPED.has(condition.type) ? condition.namedChildren[0] : condition;
-          if (inner) add('condition', inner, negated(inner.text, normalized === 'python'));
+          if (inner) add('condition', inner, negated(inner));
         }
       }
       if (NOT.has(node.type)) {
@@ -72,8 +82,15 @@ export function mutantsOf({ source, language, line, end_line }) {
       }
       if (BOOLEANS.has(node.type)) add('boolean', node, node.text.toLowerCase() === 'true' ? (node.text[0] === 'T' ? 'False' : 'false') : (node.text[0] === 'F' ? 'True' : 'true'));
       if (RETURNS.has(node.type)) {
-        const value = node.namedChildren[0];
+        // Go returns an expression_list; one number in it is the returned number.
+        const listed = node.namedChildren[0];
+        const value = listed?.type === 'expression_list' && listed.namedChildren.length === 1 ? listed.namedChildren[0] : listed;
         if (value && node.namedChildren.length === 1 && NUMBERS.has(value.type)) add('return', value, /^0+(\.0+)?$/.test(value.text) ? '1' : '0');
+      }
+      // Bash's `return 0` is the command return with one number: success, or any other number for failure.
+      if (normalized === 'bash' && node.type === 'command') {
+        const { name, args } = bashCommand(node);
+        if (name === 'return' && args.length === 1 && args[0].type === 'number') add('return', args[0], /^0+$/.test(args[0].text) ? '1' : '0');
       }
     }
     for (const child of node.children) walk(child);

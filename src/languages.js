@@ -11,7 +11,7 @@ const languages = {
   java: 'java', kt: 'kotlin', kts: 'kotlin', scala: 'scala', sc: 'scala', groovy: 'groovy', gradle: 'groovy',
   c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', cxx: 'cpp', hpp: 'cpp', hh: 'cpp', hxx: 'cpp', cs: 'c_sharp',
   rb: 'ruby', rake: 'ruby', php: 'php', phtml: 'php', lua: 'lua', swift: 'swift', zig: 'zig', sol: 'solidity',
-  sh: 'bash', bash: 'bash',
+  sh: 'bash', bash: 'bash', bats: 'bash',
 };
 /**
  * A `.h` file is C or C++ by the repository it is in: one with C++ sources writes C++ headers, and the C grammar reads a template

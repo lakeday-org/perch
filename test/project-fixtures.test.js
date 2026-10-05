@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { analyzeFiles, createSourceAnalyzer, sourceFile } from '../src/analysis.js';
-import { crateOf } from '../src/analyze.js';
+import { crateOf, goModuleOf } from '../src/analyze.js';
 import { buildGraph } from '../src/graph.js';
 import { computeCoverage } from '../src/coverage.js';
 import { frameworkScope } from '../src/test-scope.js';
@@ -46,7 +46,12 @@ async function read(project) {
     const crate = crateOf(path, await readFile(join(root, path), 'utf8'));
     if (crate) crates.push(crate);
   }
-  const graph = buildGraph(scan.files, { crates });
+  const modules = [];
+  for (const path of paths.filter(path => /(^|\/)go\.mod$/.test(path))) {
+    const module = goModuleOf(path, await readFile(join(root, path), 'utf8'));
+    if (module) modules.push(module);
+  }
+  const graph = buildGraph(scan.files, { crates, modules });
   // The fixtures are not installed, so a JavaScript config does not load here and the tests the parser found stand in for it.
   const scope = await frameworkScope({ root, tree: paths.map(path => ({ type: 'blob', path })), scan, graph });
   const coverage = computeCoverage({ scan, graph, inScope: path => !scope || scope.source(path), runs: path => !scope || scope.test(path), named: () => true });
@@ -56,8 +61,8 @@ async function read(project) {
 describe('project fixtures', () => {
   it('has a project for every supported framework', () => {
     expect(all.map(project => `${project.language} ${project.framework}`).sort()).toEqual([
-      'cpp Catch2', 'cpp GoogleTest', 'cpp doctest', 'java JUnit 4', 'java JUnit 5', 'java TestNG', 'javascript Mocha', 'javascript node:test',
-      'python pytest', 'python unittest', 'rust libtest', 'rust nextest', 'typescript Jest', 'typescript Vitest',
+      'c Check', 'c Criterion', 'c Unity', 'c cmocka', 'cpp Catch2', 'cpp GoogleTest', 'cpp doctest', 'go testing', 'java JUnit 4', 'java JUnit 5', 'java TestNG',
+      'javascript Mocha', 'javascript node:test', 'python pytest', 'python unittest', 'rust libtest', 'rust nextest', 'typescript Jest', 'typescript Vitest',
     ]);
   });
 

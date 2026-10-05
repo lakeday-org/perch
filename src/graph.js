@@ -71,11 +71,24 @@ function resolveInclude(fromPath, module, paths) {
   return found.length === 1 ? found[0] : null;
 }
 
+/**
+ * `source lib/money.sh` and bats's `load helpers`: the path as written, from the sourcing file's directory, where bats looks and
+ * where a script run from its own directory finds it, then from the repository's root, where a script run from there does.
+ * `load` adds `.bash` when the name has none, as bats does. An absolute path or one built at run time, `"$(dirname "$0")/lib.sh"`,
+ * names nothing in the tree.
+ */
+const resolveBash = (fromPath, module, paths) => {
+  if (module.startsWith('/')) return null;
+  const beside = normalize(posix.join(dirname(fromPath), module)), rooted = normalize(module);
+  return firstExisting(paths, [beside, `${beside}.bash`, `${beside}.sh`, rooted, `${rooted}.bash`, `${rooted}.sh`]);
+};
+
 export function resolveModule(fromPath, module, language, paths, crates = []) {
   if (typeof module !== 'string') return null;
   if (language === 'python') return resolvePython(fromPath, module, paths);
   if (language === 'rust') return resolveRust(fromPath, module, paths, crates);
   if (language === 'c' || language === 'cpp') return resolveInclude(fromPath, module, paths);
+  if (language === 'bash') return resolveBash(fromPath, module, paths);
   if (!module.startsWith('.')) return null;
   const base = normalize(posix.join(dirname(fromPath), module)), stem = base.replace(/\.(js|mjs|cjs|jsx)$/, '');
   return firstExisting(paths, [base, ...extensions.map(ext => `${stem}.${ext}`), ...extensions.map(ext => `${base}/index.${ext}`)]);
@@ -97,7 +110,11 @@ const IMPLICIT_THIS = new Set(['java', 'kotlin', 'cpp', 'csharp', 'scala', 'swif
 const USING_NAMESPACE = '<namespace>', USING_NAME = '<using>';
 const RECEIVERS = new Set(['this', 'self', 'cls', 'Self']);
 
-export function buildGraph(files, { crates = [] } = {}) {
+/**
+ * `modules` are the repository's Go modules, each as its go.mod's module path and the directory the go.mod is in, which is how
+ * an import path names a directory of this repository.
+ */
+export function buildGraph(files, { crates = [], modules = [] } = {}) {
   const resolveIn = (from, module, language, known) => resolveModule(from, module, language, known, crates);
   const nodes = new Map(), byPath = new Map(), paths = new Set(files.map(file => file.path));
   for (const file of files) {
@@ -192,20 +209,39 @@ export function buildGraph(files, { crates = [] } = {}) {
     const ids = new Set(paths.map(path => byPath.get(path)?.byQualified.get(qualified)).filter(Boolean));
     return ids.size === 1 ? [...ids][0] : null;
   };
-  // Unqualified Go calls resolve within a package. Index names once instead of searching the entire repository for each call.
-  // Keep file order, so the first file in the package declaring a name is the one a call finds.
-  const packages = new Map();
+  // Go finds a name in a package, whatever file of the package's directory declares it. Each package's names are indexed once, in
+  // file order, so the first file declaring a name is the one a call finds. A `_test.go` file may declare an external test
+  // package, `cart_test`, beside `cart` in the same directory: a different package, so names are kept by directory and package,
+  // and an import of the directory reaches the package that is not an external test package.
+  const packages = new Map(), importable = new Map();
+  const packageKey = (file) => `${dirname(file.path)}\0${file.package ?? ''}`;
   for (const file of files) {
     if (file.language !== 'go') continue;
-    const directory = dirname(file.path);
-    if (!packages.has(directory)) packages.set(directory, new Map());
-    const names = packages.get(directory), entry = byPath.get(file.path);
+    const key = packageKey(file), directory = dirname(file.path);
+    if (!packages.has(key)) packages.set(key, new Map());
+    if (!importable.has(directory)) importable.set(directory, new Map());
+    const names = packages.get(key), exported = importable.get(directory), entry = byPath.get(file.path);
     for (const [name, id] of entry.byQualified) {
       if (!names.has(name)) names.set(name, []);
       names.get(name).push({ file, id });
+      if (!(file.package ?? '').endsWith('_test') && !exported.has(name)) exported.set(name, id);
     }
   }
-  const sameDirectory = (file, name) => packages.get(dirname(file.path))?.get(name)?.find(entry => entry.file !== file)?.id ?? null;
+  /** A name declared in the caller's own package, in a file other than the caller's. */
+  const samePackage = (file, name) => packages.get(packageKey(file))?.get(name)?.find(entry => entry.file !== file)?.id ?? null;
+  /** A name the package in a directory declares for its importers. */
+  const inPackage = (directory, name) => importable.get(directory)?.get(name) ?? null;
+  /**
+   * The directory an import path names, by the go.mod whose module path is its longest prefix: `example.com/shop/cart` under a
+   * go.mod at the root declaring `module example.com/shop` is the package in cart/. An import no go.mod of the repository covers
+   * is another module's, and names nothing here.
+   */
+  const goPackageDir = module => {
+    const owner = modules.filter(item => module === item.path || module.startsWith(`${item.path}/`)).sort((a, b) => b.path.length - a.path.length)[0];
+    if (!owner) return null;
+    const directory = [owner.dir, module.slice(owner.path.length).replace(/^\//, '')].filter(Boolean).join('/');
+    return directory === '' ? '.' : directory;
+  };
   /**
    * The longest prefix of a dotted Python path that is a module, the way the import system finds it, and what is left over.
    * `shop.cart.Cart.total` is module shop.cart and `Cart.total` in it when shop/cart.py exists.
@@ -278,6 +314,11 @@ export function buildGraph(files, { crates = [] } = {}) {
     // A re-export passes a name on; it binds nothing this file can call.
     const imported = file.imports.find(item => item.alias === alias && !item.reexport);
     if (!imported) return null;
+    // Go: an import binds a package, and `cart.New` is New in the directory the import path names, in whichever file declares it.
+    if (file.language === 'go') {
+      const directory = rest.length ? goPackageDir(imported.module) : null;
+      return directory === null ? null : inPackage(directory, rest.join('.'));
+    }
     if (file.language === 'python' && rest.length) {
       // `import a.b` binds a module, so `a.b.f()` is f in whichever module of the path exists.
       if (imported.name === '*') {
@@ -446,7 +487,7 @@ export function buildGraph(files, { crates = [] } = {}) {
     if (parts.length === 1) {
       return viaImport(file, parts) ?? unqualified(file, name, from) ?? throughGlobs(file, name)
         ?? (file.language === 'python' && depth <= 3 ? viaBinding(file, name, '__call__', from, depth) : null)
-        ?? (file.language === 'go' ? sameDirectory(file, name) : null)
+        ?? (file.language === 'go' ? samePackage(file, name) : null)
         ?? (JVM.has(file.language) ? jvmUnqualified(file, name) ?? jvmConstructor(file, name) : null)
         ?? (file.language === 'kotlin' ? jvmExtension(file, name) : null)
         ?? (native ? linked(from, parts, file) : null);
@@ -474,6 +515,11 @@ export function buildGraph(files, { crates = [] } = {}) {
     if (RECEIVERS.has(head)) return null;
     const imported = viaImport(file, parts) ?? exact(file.path, parts.join('.'));
     if (imported) return imported;
+    // `Cart.Add` in Go, a method named through its type, is in the caller's package when another file of it declares the type.
+    if (file.language === 'go' && parts.length === 2) {
+      const own = samePackage(file, name);
+      if (own) return own;
+    }
     // `serde_json::to_string(...)` or `crate::de::from_str(...)`: the longest leading path that is a module, then the name in it.
     if (file.language === 'rust' && name.includes('::')) {
       for (let length = parts.length - 1; length >= 1; length--) {
@@ -634,6 +680,11 @@ export function buildGraph(files, { crates = [] } = {}) {
     }
     const globbed = throughGlobs(file, qualified);
     if (globbed) return globbed;
+    // A Go type's methods may sit in any file of its package: `Cart.Add` is found in the directory the type was written in.
+    if (file.language === 'go') {
+      const own = samePackage(file, qualified) ?? (full ? samePackage(file, full) : null);
+      if (own) return own;
+    }
     // `crate::money::Money` written whole names the module it is in.
     if (file.language === 'rust' && full) {
       const module = resolveIn(file.path, kind.full.split('.').slice(0, -1).join('::'), 'rust', paths);

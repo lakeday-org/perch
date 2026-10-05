@@ -685,6 +685,13 @@ function valueOf(value: Node | null, language: string): Held | null {
   if (value.type === 'new_expression') return { type: bareType(child(value, 'constructor', 'type')) };
   if (value.type === 'object_creation_expression') return { type: bareType(child(value, 'type')) };
   if (value.type === 'struct_expression') return { type: bareType(child(value, 'name')) };
+  // Go: `Cart{}` and `&Cart{}` make a Cart, and `new(Cart)` a pointer to one, which is called through the same way.
+  if (language === 'go') {
+    if (value.type === 'unary_expression' && value.children[0]?.text === '&') return valueOf(child(value, 'operand'), language);
+    const made = value.type === 'composite_literal' ? bareType(child(value, 'type'))
+      : value.type === 'call_expression' && referenceBase(value)?.text === 'new' ? bareType(child(value, 'arguments')?.namedChildren[0] ?? null) : null;
+    if (made) return { type: made };
+  }
   if (CALL_TYPES.has(value.type)) {
     const callee = callReference(value, language);
     if (callee === '<dynamic>') return null;
@@ -736,6 +743,40 @@ function bindingOf(node: Node, language: string): { name: string; held: Held } |
   return { name: written, held: declared ? { type: declared } : held! };
 }
 
+/**
+ * Go's bindings: `c := New()`, `c = New()`, `var c Cart`, `var c = New()`, and a parameter or a method's receiver, `c *Cart`.
+ * `c, err := New()` hands one call's results to every name on the left; the first takes the value, the rest an error.
+ */
+function goBindings(node: Node): Array<{ name: string; held: Held }> {
+  const bound: Array<{ name: string; held: Held }> = [];
+  const identifiers = (within: Node | null) => (within?.namedChildren ?? []).filter(item => item.type === 'identifier');
+  const assigns = node.type === 'assignment_statement' && (child(node, 'operator') ?? node.children.find(item => !item.isNamed))?.text === '=';
+  if (node.type === 'short_var_declaration' || assigns) {
+    const names = child(node, 'left')?.namedChildren ?? [], values = child(node, 'right')?.namedChildren ?? [];
+    for (const [at, name] of names.entries()) {
+      const value = values.length === names.length ? values[at] : at === 0 && values.length === 1 ? values[0] : null;
+      const held = value ? valueOf(value, 'go') : null;
+      if (name.type === 'identifier' && held) bound.push({ name: name.text, held });
+    }
+  } else if (node.type === 'var_spec') {
+    const declared = bareType(child(node, 'type'));
+    const held = declared ? { type: declared } : valueOf(child(node, 'value')?.namedChildren[0] ?? null, 'go');
+    if (held) for (const name of identifiers(node)) bound.push({ name: name.text, held });
+  } else if (node.type === 'parameter_declaration' || node.type === 'variadic_parameter_declaration') {
+    const declared = bareType(child(node, 'type'));
+    if (declared) for (const name of identifiers(node)) bound.push({ name: name.text, held: { type: declared } });
+  }
+  return bound;
+}
+
+/** A Go function's first result, `*Cart` in `func New() (*Cart, error)`: the value a caller binds first. */
+function goResult(node: Node): Node | null {
+  const result = child(node, 'result');
+  if (result?.type !== 'parameter_list') return result;
+  const first = result.namedChildren.find(item => item.type === 'parameter_declaration');
+  return first ? child(first, 'type') ?? first : null;
+}
+
 /** The classes a class extends or implements, by name: `class A(Base)`, `extends Base implements I`, `: public Base`. */
 function basesOf(node: Node): string[] {
   const names: Node[] = [];
@@ -778,7 +819,7 @@ function parameterOf(node: Node): { name: string; held: Held } | null {
 /** A function's declared return type: Python's `-> Entry`, a TypeScript annotation, Java's method type, Rust's `-> Entry`. */
 function declaredReturn(node: Node, language: string): string | null {
   if (!isFunction(node)) return null;
-  const declared = child(node, 'return_type') ?? (['java', 'cpp', 'c', 'c_sharp', 'csharp'].includes(language) ? child(node, 'type') : null);
+  const declared = child(node, 'return_type') ?? (['java', 'cpp', 'c', 'c_sharp', 'csharp'].includes(language) ? child(node, 'type') : language === 'go' ? goResult(node) : null);
   // `sort(): this` in TypeScript and `-> Self` in Rust: an instance of the class the method is in, whichever that is.
   if (declared && /^(?::|->)?\s*&?\s*(?:mut\s+)?(?:this|Self)$/.test(text(declared).trim())) return '$self';
   return bareType(declared);
@@ -786,7 +827,11 @@ function declaredReturn(node: Node, language: string): string | null {
 
 /** What a function returns, when it says: `return new Ledger()`, `return make()`, an arrow's body, a Rust block's last expression. */
 function returnOf(node: Node, language: string): Node | null {
-  if (node.type === 'return_statement' || node.type === 'return_expression') return node.namedChildren.find(item => !isComment(item)) ?? null;
+  if (node.type === 'return_statement' || node.type === 'return_expression') {
+    const value = node.namedChildren.find(item => !isComment(item)) ?? null;
+    // Go returns an expression_list; its first value is the one a caller binds first.
+    return value?.type === 'expression_list' ? value.namedChildren[0] ?? null : value;
+  }
   if (node.type === 'arrow_function') { const body = child(node, 'body'); return body && body.type !== 'statement_block' ? body : null; }
   if (language === 'rust' && node.type === 'block' && node.parent?.type === 'function_item') {
     const last = node.namedChildren.filter(item => !isComment(item)).at(-1);
@@ -814,6 +859,34 @@ function destructuredRequires(references: Reference[], taken: Node[]): Reference
   });
 }
 
+/** Bash's `source file` and `. file`, and bats's `load file`: the commands that bring another file's functions into this one. */
+const BASH_SOURCES = new Set(['source', '.', 'load']);
+/** The builtins that are the shell's own control flow and declarations, as `return` and `let` are statements elsewhere: not calls. */
+const BASH_KEYWORDS = new Set(['return', 'exit', 'break', 'continue', 'shift', 'local', 'declare', 'typeset', 'readonly', 'export', 'unset', 'set', 'true', 'false', ':']);
+
+/** A Bash string with nothing expanded in it, as written between its quotes; null when a `$var` or `$(cmd)` is inside. */
+function bashLiteral(node: Node): string | null {
+  if (node.type === 'word') return node.text;
+  if (node.type === 'raw_string') return node.text.slice(1, -1);
+  if (node.type !== 'string') return null;
+  return node.namedChildren.every(part => part.type === 'string_content') ? node.namedChildren.map(part => part.text).join('') : null;
+}
+
+/**
+ * A Bash command names what it runs: a function of this file or of one it sourced, or a program outside it. The sourcing commands
+ * are imports of the whole file they name, since every function in it becomes callable here. A command whose name is computed,
+ * `$cmd`, or a path, `./run.sh`, calls nothing the tree can name.
+ */
+function bashCommand(node: Node): Reference[] {
+  const name = child(node, 'name');
+  const word = name?.namedChildren.length === 1 && name.namedChildren[0].type === 'word' ? name.namedChildren[0].text : null;
+  if (word === null || BASH_KEYWORDS.has(word)) return [];
+  if (!BASH_SOURCES.has(word)) return [callReferenceRecord(node, 'bash')];
+  const target = child(node, 'argument');
+  const module = target ? bashLiteral(target) : null;
+  return module ? [makeReference('import', node, { name: module, reference: module, module, imported_name: '*', alias: '*' })] : [];
+}
+
 /** The references stage of the one walk: what each node calls, imports, binds, returns, extends or reads, in walk order. */
 export function referenceVisitor(language: string): Visitor & { finish(index: SyntaxIndex): Reference[] } {
   const references: Reference[] = [], taken: Node[] = [];
@@ -826,8 +899,8 @@ export function referenceVisitor(language: string): Visitor & { finish(index: Sy
     const name = text(child(node, 'name'));
     for (const base of bases) references.push(makeReference('extends', node, { name, reference: base }));
   }
-  const binding = bindingOf(node, language) ?? parameterOf(node);
-  if (binding) references.push(makeReference('bind', node, { name: binding.name, reference: binding.name, held: binding.held }));
+  const bindings = language === 'go' ? goBindings(node) : [bindingOf(node, language) ?? parameterOf(node)].filter((item): item is { name: string; held: Held } => item !== null);
+  for (const binding of bindings) references.push(makeReference('bind', node, { name: binding.name, reference: binding.name, held: binding.held }));
   // Declared first, so it is what a function returns ahead of anything its body says.
   const declared = declaredReturn(node, language);
   if (declared) references.push({ ...makeReference('returns', node, { name: 'return', reference: 'return', held: { type: declared } }), source: `function:${node.startIndex}` });
@@ -843,6 +916,8 @@ export function referenceVisitor(language: string): Visitor & { finish(index: Sy
     if (language !== "kotlin") references.push(...importReferences(node, language));
     const binding = language === "java" || language === "kotlin" ? jvmImportReference(node, language) : null;
     if (binding) references.push(binding);
+  } else if (language === 'bash' && node.type === 'command') {
+    references.push(...bashCommand(node));
   } else if (language === 'groovy' && node.type === 'func') {
     const unit = node.parent, block = unit?.parent;
     // A declaration's signature also contains a func node; only uses are calls.
