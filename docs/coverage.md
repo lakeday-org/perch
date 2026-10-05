@@ -3,16 +3,26 @@ title: Test coverage
 nav: Test coverage
 group: Using perch
 order: 5.5
-summary: perch coverage says which tests reach which methods, which tests are worth keeping, and which branches no test takes.
+summary: Find unit tests of low value and discover the real coverage gaps in your code.
 ---
 
 # Test coverage
 
-`perch coverage` maps your tests to the methods they reach, then asks which tests
-earn their place. It flags tests that repeat another, assert their own mock, or
-assert nothing. It also names the branch each method has that no test takes.
+Perch Coverage tells you which of your existing unit tests aren’t useful and
+where you have holes in test coverage. It does this by reading the JUnit and
+coverage reports your CI system already writes when it runs your tests. Perch
+traces your tests through the call graph to find all the methods that each test
+runs, then uses a model to figure out what each test is actually testing.
 
-It runs no tests. Point it at the JUnit XML and coverage report your CI already
+Perch will identify tests that don’t have any assertions, tests that just test
+that a mock returns what you told it to return, tests that are duplicating other
+tests, and tests that hit the disk or network without mocking. For each method
+that your tests run, Perch will tell you the most important branch that isn’t
+being tested, and what kind of input you need to write a test for that branch.
+For each method that isn’t run by any tests, Perch will tell you whether it
+needs to be tested or not.
+
+Point `perch coverage` at the JUnit XML and coverage report your CI already
 writes, and its numbers are measured:
 
 ```console
@@ -66,6 +76,27 @@ under `files/`, next to `index.html`.
 Without any report files, `perch coverage` still runs. It follows the call graph
 from each test and estimates branch coverage and cost instead of measuring them.
 An estimated number is marked `est.`.
+
+## How it differs from a coverage report
+
+A coverage report just tells you what lines were run by your tests. But just
+because a line was run doesn’t mean it was tested. It’s easy to write tests that
+will pass no matter what the code does, and get 90% coverage while testing
+nothing.
+
+Perch reads your coverage report for you, and tells you whether the lines that
+were run were actually tested. And for branches that weren’t run, Perch tells
+you which ones you should actually worry about, and what you need to do to run
+each branch. Rather than giving you a single coverage percentage, Perch gives
+you a list of specific problems, with the file and line number of each problem,
+and a confidence score for how sure it is that it’s actually a problem.
+
+Perch only considers the code that your test frameworks will actually run. It
+does this by loading your Vitest or Jest config or reading your pytest and
+coverage.py settings, and excluding things like scripts, examples and docs
+tooling that can’t be covered by tests. When run on a branch, Perch will tell
+you how many of the lines that were changed on the branch were run by tests, and
+highlight which problems were found in code that was changed on the branch.
 
 ## What it reads
 
