@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="28" skipped="0" failures="0" errors="0" uuid="0f1cdaac-ebcd-4f51-bd91-6c86d13cdced" timestamp="2026-10-01T11:35:13.393-07:00" time="0.015">
+    <testsuite name="relcheck-cli::commands" tests="7" skipped="0" errors="0" failures="0">
+        <testcase name="bump_minor_resets_the_patch" classname="relcheck-cli::commands" timestamp="2026-10-01T11:35:13.394-07:00" time="0.009"/>
+        <testcase name="no_command_prints_usage" classname="relcheck-cli::commands" timestamp="2026-10-01T11:35:13.394-07:00" time="0.013"/>
+        <testcase name="an_unknown_flag_is_an_error" classname="relcheck-cli::commands" timestamp="2026-10-01T11:35:13.394-07:00" time="0.012"/>
+        <testcase name="outdated_as_json" classname="relcheck-cli::commands" timestamp="2026-10-01T11:35:13.394-07:00" time="0.013"/>
+        <testcase name="outdated_lists_pins_with_a_newer_match" classname="relcheck-cli::commands" timestamp="2026-10-01T11:35:13.394-07:00" time="0.013"/>
+        <testcase name="bump_rejects_an_unknown_kind" classname="relcheck-cli::commands" timestamp="2026-10-01T11:35:13.394-07:00" time="0.014"/>
+        <testcase name="check_says_whether_a_version_satisfies" classname="relcheck-cli::commands" timestamp="2026-10-01T11:35:13.394-07:00" time="0.014"/>
+    </testsuite>
+    <testsuite name="relcheck-core::selection" tests="4" skipped="0" errors="0" failures="0">
+        <testcase name="groups_releases_by_major" classname="relcheck-core::selection" timestamp="2026-10-01T11:35:13.394-07:00" time="0.011"/>
+        <testcase name="nothing_matches_a_future_major" classname="relcheck-core::selection" timestamp="2026-10-01T11:35:13.394-07:00" time="0.012"/>
+        <testcase name="picks_the_newest_match" classname="relcheck-core::selection" timestamp="2026-10-01T11:35:13.394-07:00" time="0.013"/>
+        <testcase name="a_wildcard_skips_prereleases" classname="relcheck-core::selection" timestamp="2026-10-01T11:35:13.394-07:00" time="0.014"/>
+    </testsuite>
+    <testsuite name="relcheck-cli" tests="2" skipped="0" errors="0" failures="0">
+        <testcase name="output::tests::json_escapes_quotes" classname="relcheck-cli" timestamp="2026-10-01T11:35:13.394-07:00" time="0.011"/>
+        <testcase name="output::tests::plain_pads_to_the_longest_name" classname="relcheck-cli" timestamp="2026-10-01T11:35:13.394-07:00" time="0.013"/>
+    </testsuite>
+    <testsuite name="relcheck-cli::lockfile" tests="3" skipped="0" errors="0" failures="0">
+        <testcase name="a_line_without_a_lock_names_its_number" classname="relcheck-cli::lockfile" timestamp="2026-10-01T11:35:13.394-07:00" time="0.012"/>
+        <testcase name="reads_pins_and_skips_comments" classname="relcheck-cli::lockfile" timestamp="2026-10-01T11:35:13.394-07:00" time="0.012"/>
+        <testcase name="finds_pins_the_manifest_outgrew" classname="relcheck-cli::lockfile" timestamp="2026-10-01T11:35:13.394-07:00" time="0.014"/>
+    </testsuite>
+    <testsuite name="relcheck-core" tests="12" skipped="0" errors="0" failures="0">
+        <testcase name="req::tests::prereleases_only_match_their_own_core" classname="relcheck-core" timestamp="2026-10-01T11:35:13.394-07:00" time="0.012"/>
+        <testcase name="req::tests::a_range_needs_every_comparator" classname="relcheck-core" timestamp="2026-10-01T11:35:13.394-07:00" time="0.012"/>
+        <testcase name="req::tests::a_bare_version_is_a_caret" classname="relcheck-core" timestamp="2026-10-01T11:35:13.394-07:00" time="0.012"/>
+        <testcase name="req::tests::tilde_holds_the_minor" classname="relcheck-core" timestamp="2026-10-01T11:35:13.394-07:00" time="0.012"/>
+        <testcase name="version::tests::a_breaking_change_below_one_bumps_the_minor" classname="relcheck-core" timestamp="2026-10-01T11:35:13.394-07:00" time="0.012"/>
+        <testcase name="prerelease::tests::numeric_identifiers_sort_before_alphanumeric" classname="relcheck-core" timestamp="2026-10-01T11:35:13.394-07:00" time="0.012"/>
+        <testcase name="prerelease::tests::a_release_sorts_after_its_prereleases" classname="relcheck-core" timestamp="2026-10-01T11:35:13.394-07:00" time="0.013"/>
+        <testcase name="version::tests::a_fix_bumps_the_patch" classname="relcheck-core" timestamp="2026-10-01T11:35:13.394-07:00" time="0.013"/>
+        <testcase name="req::tests::caret_below_one_holds_the_minor" classname="relcheck-core" timestamp="2026-10-01T11:35:13.394-07:00" time="0.013"/>
+        <testcase name="prerelease::tests::rejects_a_leading_zero" classname="relcheck-core" timestamp="2026-10-01T11:35:13.394-07:00" time="0.014"/>
+        <testcase name="version::tests::parses_a_prerelease_and_drops_build_metadata" classname="relcheck-core" timestamp="2026-10-01T11:35:13.394-07:00" time="0.014"/>
+        <testcase name="version::tests::rejects_four_parts" classname="relcheck-core" timestamp="2026-10-01T11:35:13.394-07:00" time="0.015"/>
+    </testsuite>
+</testsuites>

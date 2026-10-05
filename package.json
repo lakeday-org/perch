@@ -19,6 +19,7 @@
     "LICENSE",
     "README.md",
     "bin",
+    "coverage.yaml",
     "dist",
     "docs",
     "scan.yaml",
@@ -38,6 +39,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:fixtures": "npm run build && node scripts/verify-fixtures.mjs",
+    "test:coverage": "npm run build && node scripts/verify-coverage.mjs",
     "check": "npm run lint && npm run typecheck && npm test"
   },
   "dependencies": {

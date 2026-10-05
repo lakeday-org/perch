@@ -39,13 +39,11 @@ defaults to the file as a whole. Narrow any of them when you need to:
 ```yaml
 - name: private-logs
   where: "src/**/*.ts"
-  except: "src/**/*.test.ts"
   each: method
   ensure: >
     Keep passwords and access tokens out of logs.
 
 - name: tests-assert-real-behavior
-  where: "test/**/*.test.js"
   each: test
   sees: calls
   ensure: >
@@ -112,8 +110,15 @@ where: mentions scan.jsonl     # every method whose source names that string
 
 `each: method` asks about every method separately. Use it when the claim is about
 one method's behavior. Leaving it off asks about the file as a whole, which suits
-a claim about how the file is arranged. `each: test` asks about each test
-function.
+a claim about how the file is arranged. `each: test` asks about each test case
+the parser finds: pytest and `unittest` tests, `it` and `test` in JavaScript and
+TypeScript, `#[test]` functions in Rust, JUnit's `@Test`, and GoogleTest and
+Catch2 macros in C++. A test is read from its first line to the end of its body.
+You do not need to specify `where` for a rule with `each: test`. The parser
+understands what a test looks like and will look for them in any file. `where`
+can still be used to limit the rule to only some of the tests it finds. A rule
+with `each: method` will not find tests or test helper methods that are next to
+tests.
 
 ### `sees`
 
@@ -130,7 +135,8 @@ sees: file         # the whole file it lives in
 
 `calls` and `callers` walk the call graph outward from the unit, nearest first.
 What it calls directly comes before what that calls. Eight is the cap, so it cuts
-the far edge and keeps the near one. A file walks from the methods it declares.
+the far edge and keeps the near one. A test walks from itself, so `sees: calls`
+shows the code the test calls. A file walks from the methods it declares.
 
 A file the parser does not read has no methods and no call graph. Markdown and
 YAML walk the file tree instead. `calls` is what sits under the file's directory,
@@ -145,7 +151,6 @@ any one file. They search the likeliest units first and stop at the answer.
 
 ```yaml
 - name: issues-closable
-  where: "test/**/*.js"
   each: test
   ensure_present: >
     A test that closes an issue with a reason and then asserts it is gone from
@@ -380,7 +385,7 @@ perch rules list
 perch rules list --file .perch/rules/docs.yaml
 perch rules add no-stale-docs --where "docs/**/*.md" --ensure_absent "docs for code that was deleted"
 perch rules add docs-no-rationale --file .perch/rules/docs.yaml --where "docs/**/*.md" --ensure "..."
-perch rules edit private-logs --except "src/**/*.test.ts,scripts/**"
+perch rules edit private-logs --except "src/generated/**,scripts/**"
 perch rules remove no-stale-docs
 ```
 

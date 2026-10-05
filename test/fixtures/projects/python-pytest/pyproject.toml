@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tally"
+version = "0.4.2"
+description = "Double-entry bookkeeping and invoicing for small businesses"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pytest-cov>=5"]
+docs = ["sphinx>=7", "furo"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra --strict-markers"
+markers = ["network: talks to an exchange-rate service"]
+
+[tool.coverage.run]
+source = ["tally"]
+omit = ["*/tally/_compat.py"]
+branch = true
+relative_files = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_also = ["if TYPE_CHECKING:"]

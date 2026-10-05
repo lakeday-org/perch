@@ -1,6 +1,7 @@
 import type { Node } from "./node";
 import type { ComplexityMetrics, StructureHotspot } from "./types";
 import { isFunction } from "./metrics";
+import { walk, type SyntaxIndex } from "./visit";
 
 /**
  * Complexity adapters are deliberately conservative. The grammar registry is
@@ -159,6 +160,7 @@ function unsupported(): ComplexityMetrics {
     logical_branch_count: null,
     max_nesting: null,
     structure_hotspots: [],
+    branch_lines: [],
   };
 }
 
@@ -225,14 +227,6 @@ function hasMatchGuard(node: Node): boolean {
   return pattern?.childForFieldName("condition") != null;
 }
 
-function children(node: Node): Node[] {
-  const result: Node[] = [];
-  for (let index = node.childCount - 1; index >= 0; index -= 1) {
-    const child = node.child(index);
-    if (child) result.push(child);
-  }
-  return result;
-}
 
 interface MutableHotspot extends StructureHotspot {
   index: number;
@@ -324,6 +318,7 @@ export function measureComplexity(
   root: Node,
   language: string,
   excludeNested = false,
+  index: SyntaxIndex = walk(root),
 ): ComplexityMetrics {
   if (!COMPLEXITY_LANGUAGES.has(language)) return unsupported();
 
@@ -331,13 +326,15 @@ export function measureComplexity(
   let logicalCount = 0;
   let decisionCount = 0;
   let maxNesting = 0;
-  const stack: Array<{ node: Node; ancestors: number[] }> = [{ node: root, ancestors: [] }];
-
-  while (stack.length > 0) {
-    const item = stack.pop();
-    if (!item) continue;
-    const { node, ancestors } = item;
-    if (node !== root && excludeNested && isFunction(node)) continue;
+  // The root's subtree in walk order, each node under the branches its parent is inside: an open node's frame lasts until the
+  // walk passes the end of its subtree.
+  const frames: Array<{ end: number; ancestors: number[] }> = [];
+  const all = index.all, stop = index.end(root);
+  for (let at = index.at(root); at < stop;) {
+    const node = all[at];
+    while (frames.length && frames[frames.length - 1].end <= at) frames.pop();
+    if (node !== root && excludeNested && isFunction(node)) { at = index.end(node); continue; }
+    const ancestors = frames.length ? frames[frames.length - 1].ancestors : [];
 
     const effectiveAncestors = effectiveAncestorsFor(node, ancestors, branches);
     const branch = addBranch(node, effectiveAncestors, branches);
@@ -345,11 +342,11 @@ export function measureComplexity(
     maxNesting = Math.max(maxNesting, branch.nesting);
     logicalCount += addLogicalBranch(node, effectiveAncestors, branches);
 
-    for (const child of children(node)) {
-      stack.push({ node: child, ancestors: branch.ancestors });
-    }
+    frames.push({ end: index.end(node), ancestors: branch.ancestors });
+    at += 1;
   }
 
+  const branch_lines = [...new Set(branches.map((branch) => branch.line))].sort((a, b) => a - b);
   const structure_hotspots = branches
     .sort(hotspotComparator)
     .slice(0, 24)
@@ -363,5 +360,6 @@ export function measureComplexity(
     logical_branch_count: logicalCount,
     max_nesting: maxNesting,
     structure_hotspots,
+    branch_lines,
   };
 }

@@ -1,0 +1,9 @@
+[project]
+name = "order-service"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[tool.coverage.run]
+branch = true
+source = ["."]
+dynamic_context = "test_function"

@@ -1,0 +1,328 @@
+{
+  "language": "rust",
+  "framework": "libtest",
+  "reports": {
+    "junit": [
+      "reports/junit.xml"
+    ],
+    "lcov": [
+      "reports/lcov.info"
+    ]
+  },
+  "left_out": [
+    "examples/import_csv.rs",
+    "benches/posting.rs"
+  ],
+  "tests": [
+    {
+      "file": "src/account.rs",
+      "name": "kind_comes_from_the_first_segment",
+      "status": "passed",
+      "reaches": [
+        "src/account.rs::AccountKind.from_path"
+      ]
+    },
+    {
+      "file": "src/account.rs",
+      "name": "an_unknown_root_is_an_error",
+      "status": "passed",
+      "reaches": [
+        "src/account.rs::Account.new",
+        "src/account.rs::AccountKind.from_path"
+      ]
+    },
+    {
+      "file": "src/account.rs",
+      "name": "credit_normal_accounts_flip_their_sign",
+      "status": "passed",
+      "reaches": [
+        "src/account.rs::Account.new",
+        "src/account.rs::Account.signed"
+      ]
+    },
+    {
+      "file": "src/currency.rs",
+      "name": "reads_codes_in_any_case",
+      "status": "passed",
+      "reaches": [
+        "src/currency.rs::Currency.from_code"
+      ]
+    },
+    {
+      "file": "src/currency.rs",
+      "name": "rejects_an_unknown_code",
+      "status": "passed",
+      "reaches": [
+        "src/currency.rs::Currency.from_code"
+      ]
+    },
+    {
+      "file": "src/currency.rs",
+      "name": "yen_has_no_minor_unit",
+      "status": "passed",
+      "reaches": [
+        "src/currency.rs::Currency.decimals"
+      ]
+    },
+    {
+      "file": "src/entry.rs",
+      "name": "a_balanced_entry_validates",
+      "status": "passed",
+      "reaches": [
+        "src/entry.rs::Entry.new",
+        "src/entry.rs::Entry.with",
+        "src/entry.rs::Entry.validate"
+      ]
+    },
+    {
+      "file": "src/entry.rs",
+      "name": "reports_the_residual_of_an_unbalanced_entry",
+      "status": "passed",
+      "reaches": [
+        "src/entry.rs::Entry.new",
+        "src/entry.rs::Entry.with",
+        "src/entry.rs::Entry.validate"
+      ]
+    },
+    {
+      "file": "src/entry.rs",
+      "name": "a_single_posting_never_balances",
+      "status": "passed",
+      "reaches": [
+        "src/entry.rs::Entry.new",
+        "src/entry.rs::Entry.with",
+        "src/entry.rs::Entry.validate"
+      ]
+    },
+    {
+      "file": "src/money.rs",
+      "name": "adds_amounts_in_one_currency",
+      "status": "passed",
+      "reaches": [
+        "src/money.rs::Money.new",
+        "src/money.rs::Money.checked_add"
+      ]
+    },
+    {
+      "file": "src/money.rs",
+      "name": "refuses_to_add_across_currencies",
+      "status": "passed",
+      "reaches": [
+        "src/money.rs::Money.new",
+        "src/money.rs::Money.checked_add"
+      ]
+    },
+    {
+      "file": "src/money.rs",
+      "name": "allocation_gives_the_remainder_to_the_first_parts",
+      "status": "passed",
+      "reaches": [
+        "src/money.rs::Money.new",
+        "src/money.rs::Money.allocate"
+      ]
+    },
+    {
+      "file": "src/money.rs",
+      "name": "displays_negative_cents",
+      "status": "passed",
+      "reaches": [
+        "src/money.rs::Money.new"
+      ]
+    },
+    {
+      "file": "src/parse.rs",
+      "name": "strips_trailing_comments",
+      "status": "passed",
+      "reaches": [
+        "src/parse.rs::strip_comment"
+      ]
+    },
+    {
+      "file": "src/parse.rs",
+      "name": "reads_thousands_separators",
+      "status": "passed",
+      "reaches": [
+        "src/parse.rs::parse_amount"
+      ]
+    },
+    {
+      "file": "src/parse.rs",
+      "name": "rejects_too_many_decimals",
+      "status": "passed",
+      "reaches": [
+        "src/parse.rs::parse_amount"
+      ]
+    },
+    {
+      "file": "src/parse.rs",
+      "name": "a_header_needs_a_date",
+      "status": "passed",
+      "reaches": [
+        "src/parse.rs::parse_header",
+        "src/entry.rs::Entry.new"
+      ]
+    },
+    {
+      "file": "src/rounding.rs",
+      "name": "half_even_rounds_ties_to_even",
+      "status": "passed",
+      "reaches": [
+        "src/rounding.rs::scale"
+      ]
+    },
+    {
+      "file": "src/rounding.rs",
+      "name": "half_up_rounds_ties_away_from_zero",
+      "status": "passed",
+      "reaches": [
+        "src/rounding.rs::scale"
+      ]
+    },
+    {
+      "file": "tests/ledger_flow.rs",
+      "name": "posting_moves_money_between_accounts",
+      "status": "passed",
+      "reaches": [
+        "src/ledger.rs::Ledger.new",
+        "src/ledger.rs::Ledger.open",
+        "src/ledger.rs::Ledger.post",
+        "src/ledger.rs::Ledger.balance",
+        "src/entry.rs::Entry.new",
+        "src/entry.rs::Entry.with"
+      ]
+    },
+    {
+      "file": "tests/ledger_flow.rs",
+      "name": "a_liability_reads_positive_when_owed",
+      "status": "passed",
+      "reaches": [
+        "src/ledger.rs::Ledger.post",
+        "src/ledger.rs::Ledger.balance"
+      ]
+    },
+    {
+      "file": "tests/ledger_flow.rs",
+      "name": "an_unbalanced_entry_changes_nothing",
+      "status": "passed",
+      "reaches": [
+        "src/ledger.rs::Ledger.post",
+        "src/ledger.rs::Ledger.trial_balance"
+      ]
+    },
+    {
+      "file": "tests/ledger_flow.rs",
+      "name": "posting_to_a_closed_account_fails",
+      "status": "passed",
+      "reaches": [
+        "src/ledger.rs::Ledger.close",
+        "src/ledger.rs::Ledger.post"
+      ]
+    },
+    {
+      "file": "tests/ledger_flow.rs",
+      "name": "opening_an_account_twice_fails",
+      "status": "passed",
+      "reaches": [
+        "src/ledger.rs::Ledger.new",
+        "src/ledger.rs::Ledger.open"
+      ]
+    },
+    {
+      "file": "tests/ledger_flow.rs",
+      "name": "post_all_stops_at_the_first_failure",
+      "status": "passed",
+      "reaches": [
+        "src/ledger.rs::Ledger.post_all",
+        "src/ledger.rs::Ledger.balance",
+        "src/entry.rs::Entry.with"
+      ]
+    },
+    {
+      "file": "tests/parsing.rs",
+      "name": "parses_a_journal_into_entries",
+      "status": "passed",
+      "reaches": [
+        "src/parse.rs::parse",
+        "src/parse.rs::parse_header",
+        "src/parse.rs::parse_posting"
+      ]
+    },
+    {
+      "file": "tests/parsing.rs",
+      "name": "a_parsed_journal_posts",
+      "status": "passed",
+      "reaches": [
+        "src/ledger.rs::Ledger.new",
+        "src/ledger.rs::Ledger.open",
+        "src/ledger.rs::Ledger.post_all",
+        "src/ledger.rs::Ledger.balance",
+        "src/parse.rs::parse",
+        "src/money.rs::Money.minor"
+      ]
+    },
+    {
+      "file": "tests/parsing.rs",
+      "name": "a_posting_before_any_header_names_its_line",
+      "status": "passed",
+      "reaches": [
+        "src/parse.rs::parse"
+      ]
+    },
+    {
+      "file": "tests/parsing.rs",
+      "name": "an_unknown_currency_is_a_parse_error",
+      "status": "passed",
+      "reaches": [
+        "src/parse.rs::parse",
+        "src/parse.rs::parse_posting"
+      ]
+    },
+    {
+      "file": "tests/parsing.rs",
+      "name": "entries_carry_their_month",
+      "status": "passed",
+      "reaches": [
+        "src/parse.rs::parse",
+        "src/period.rs::Period.new",
+        "src/period.rs::Period.next"
+      ]
+    },
+    {
+      "file": "tests/reports.rs",
+      "name": "trial_balance_totals_both_columns",
+      "status": "passed",
+      "reaches": [
+        "src/report.rs::TrialBalanceReport.new",
+        "src/report.rs::TrialBalanceReport.render",
+        "src/report.rs::TrialBalanceReport.title",
+        "src/ledger.rs::Ledger.post"
+      ]
+    },
+    {
+      "file": "tests/reports.rs",
+      "name": "csv_lists_one_row_per_account",
+      "status": "passed",
+      "reaches": [
+        "src/report.rs::CsvReport.render",
+        "src/report.rs::quote",
+        "src/ledger.rs::Ledger.post"
+      ]
+    }
+  ],
+  "untested": [
+    "src/account.rs::Account.parent",
+    "src/currency.rs::Currency.symbol",
+    "src/fx.rs::FxTable.new",
+    "src/fx.rs::FxTable.quote",
+    "src/fx.rs::FxTable.rate",
+    "src/fx.rs::FxTable.convert",
+    "src/ledger.rs::Ledger.entries_in",
+    "src/ledger.rs::Ledger.accounts",
+    "src/money.rs::Money.is_zero",
+    "src/money.rs::Money.neg",
+    "src/period.rs::Period.contains",
+    "src/period.rs::Period.fmt",
+    "src/report.rs::Report.title",
+    "src/rounding.rs::percent_of"
+  ]
+}

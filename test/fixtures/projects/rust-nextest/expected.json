@@ -1,0 +1,276 @@
+{
+  "language": "rust",
+  "framework": "nextest",
+  "reports": {
+    "junit": [
+      "reports/junit.xml"
+    ],
+    "lcov": [
+      "reports/lcov.info"
+    ]
+  },
+  "left_out": [],
+  "tests": [
+    {
+      "file": "crates/core/src/prerelease.rs",
+      "name": "numeric_identifiers_sort_before_alphanumeric",
+      "status": "passed",
+      "reaches": [
+        "crates/core/src/prerelease.rs::Identifier.parse"
+      ]
+    },
+    {
+      "file": "crates/core/src/prerelease.rs",
+      "name": "a_release_sorts_after_its_prereleases",
+      "status": "passed",
+      "reaches": [
+        "crates/core/src/prerelease.rs::Prerelease.parse"
+      ]
+    },
+    {
+      "file": "crates/core/src/prerelease.rs",
+      "name": "rejects_a_leading_zero",
+      "status": "passed",
+      "reaches": [
+        "crates/core/src/prerelease.rs::Identifier.parse"
+      ]
+    },
+    {
+      "file": "crates/core/src/version.rs",
+      "name": "parses_a_prerelease_and_drops_build_metadata",
+      "status": "passed",
+      "reaches": [
+        "crates/core/src/version.rs::Version.parse",
+        "crates/core/src/version.rs::number",
+        "crates/core/src/prerelease.rs::Prerelease.parse"
+      ]
+    },
+    {
+      "file": "crates/core/src/version.rs",
+      "name": "rejects_four_parts",
+      "status": "passed",
+      "reaches": [
+        "crates/core/src/version.rs::Version.parse"
+      ]
+    },
+    {
+      "file": "crates/core/src/version.rs",
+      "name": "a_breaking_change_below_one_bumps_the_minor",
+      "status": "passed",
+      "reaches": [
+        "crates/core/src/version.rs::Version.new",
+        "crates/core/src/version.rs::Version.bump"
+      ]
+    },
+    {
+      "file": "crates/core/src/version.rs",
+      "name": "a_fix_bumps_the_patch",
+      "status": "passed",
+      "reaches": [
+        "crates/core/src/version.rs::Version.new",
+        "crates/core/src/version.rs::Version.bump"
+      ]
+    },
+    {
+      "file": "crates/core/src/req.rs",
+      "name": "a_bare_version_is_a_caret",
+      "status": "passed",
+      "reaches": [
+        "crates/core/src/req.rs::Comparator.parse",
+        "crates/core/src/req.rs::Op.parse"
+      ]
+    },
+    {
+      "file": "crates/core/src/req.rs",
+      "name": "caret_below_one_holds_the_minor",
+      "status": "passed",
+      "reaches": [
+        "crates/core/src/req.rs::VersionReq.parse",
+        "crates/core/src/req.rs::VersionReq.matches"
+      ]
+    },
+    {
+      "file": "crates/core/src/req.rs",
+      "name": "tilde_holds_the_minor",
+      "status": "passed",
+      "reaches": [
+        "crates/core/src/req.rs::VersionReq.parse",
+        "crates/core/src/req.rs::VersionReq.matches"
+      ]
+    },
+    {
+      "file": "crates/core/src/req.rs",
+      "name": "a_range_needs_every_comparator",
+      "status": "passed",
+      "reaches": [
+        "crates/core/src/req.rs::VersionReq.parse",
+        "crates/core/src/req.rs::VersionReq.matches"
+      ]
+    },
+    {
+      "file": "crates/core/src/req.rs",
+      "name": "prereleases_only_match_their_own_core",
+      "status": "passed",
+      "reaches": [
+        "crates/core/src/req.rs::VersionReq.parse",
+        "crates/core/src/req.rs::VersionReq.matches"
+      ]
+    },
+    {
+      "file": "crates/core/tests/selection.rs",
+      "name": "picks_the_newest_match",
+      "status": "passed",
+      "reaches": [
+        "crates/core/src/req.rs::VersionReq.parse",
+        "crates/core/src/select.rs::max_satisfying",
+        "crates/core/src/version.rs::Version.new"
+      ]
+    },
+    {
+      "file": "crates/core/tests/selection.rs",
+      "name": "nothing_matches_a_future_major",
+      "status": "passed",
+      "reaches": [
+        "crates/core/src/req.rs::VersionReq.parse",
+        "crates/core/src/select.rs::max_satisfying"
+      ]
+    },
+    {
+      "file": "crates/core/tests/selection.rs",
+      "name": "a_wildcard_skips_prereleases",
+      "status": "passed",
+      "reaches": [
+        "crates/core/src/req.rs::VersionReq.parse",
+        "crates/core/src/select.rs::max_satisfying"
+      ]
+    },
+    {
+      "file": "crates/core/tests/selection.rs",
+      "name": "groups_releases_by_major",
+      "status": "passed",
+      "reaches": [
+        "crates/core/src/select.rs::newest_by_major",
+        "crates/core/src/version.rs::Version.new"
+      ]
+    },
+    {
+      "file": "crates/cli-lib/src/output.rs",
+      "name": "plain_pads_to_the_longest_name",
+      "status": "passed",
+      "reaches": [
+        "crates/cli-lib/src/output.rs::Plain.render"
+      ]
+    },
+    {
+      "file": "crates/cli-lib/src/output.rs",
+      "name": "json_escapes_quotes",
+      "status": "passed",
+      "reaches": [
+        "crates/cli-lib/src/output.rs::Json.render",
+        "crates/cli-lib/src/output.rs::escape"
+      ]
+    },
+    {
+      "file": "crates/cli-lib/tests/commands.rs",
+      "name": "outdated_lists_pins_with_a_newer_match",
+      "status": "passed",
+      "reaches": [
+        "crates/cli-lib/src/args.rs::Args.parse",
+        "crates/cli-lib/src/command.rs::run",
+        "crates/cli-lib/src/lockfile.rs::Lockfile.parse",
+        "crates/core/src/select.rs::max_satisfying"
+      ]
+    },
+    {
+      "file": "crates/cli-lib/tests/commands.rs",
+      "name": "outdated_as_json",
+      "status": "passed",
+      "reaches": [
+        "crates/cli-lib/src/args.rs::Args.parse",
+        "crates/cli-lib/src/command.rs::run",
+        "crates/cli-lib/src/output.rs::renderer"
+      ]
+    },
+    {
+      "file": "crates/cli-lib/tests/commands.rs",
+      "name": "check_says_whether_a_version_satisfies",
+      "status": "passed",
+      "reaches": [
+        "crates/cli-lib/src/args.rs::Args.parse",
+        "crates/cli-lib/src/command.rs::run",
+        "crates/core/src/req.rs::VersionReq.parse",
+        "crates/core/src/req.rs::VersionReq.matches"
+      ]
+    },
+    {
+      "file": "crates/cli-lib/tests/commands.rs",
+      "name": "bump_minor_resets_the_patch",
+      "status": "passed",
+      "reaches": [
+        "crates/cli-lib/src/args.rs::Args.parse",
+        "crates/cli-lib/src/command.rs::run",
+        "crates/core/src/version.rs::Version.parse",
+        "crates/core/src/version.rs::Version.bump"
+      ]
+    },
+    {
+      "file": "crates/cli-lib/tests/commands.rs",
+      "name": "bump_rejects_an_unknown_kind",
+      "status": "passed",
+      "reaches": [
+        "crates/cli-lib/src/args.rs::Args.parse",
+        "crates/cli-lib/src/command.rs::run"
+      ]
+    },
+    {
+      "file": "crates/cli-lib/tests/commands.rs",
+      "name": "an_unknown_flag_is_an_error",
+      "status": "passed",
+      "reaches": [
+        "crates/cli-lib/src/args.rs::Args.parse"
+      ]
+    },
+    {
+      "file": "crates/cli-lib/tests/commands.rs",
+      "name": "no_command_prints_usage",
+      "status": "passed",
+      "reaches": [
+        "crates/cli-lib/src/args.rs::Args.parse"
+      ]
+    },
+    {
+      "file": "crates/cli-lib/tests/lockfile.rs",
+      "name": "reads_pins_and_skips_comments",
+      "status": "passed",
+      "reaches": [
+        "crates/cli-lib/src/lockfile.rs::Lockfile.parse",
+        "crates/cli-lib/src/lockfile.rs::Lockfile.get",
+        "crates/core/src/version.rs::Version.new",
+        "crates/core/src/req.rs::VersionReq.parse"
+      ]
+    },
+    {
+      "file": "crates/cli-lib/tests/lockfile.rs",
+      "name": "a_line_without_a_lock_names_its_number",
+      "status": "passed",
+      "reaches": [
+        "crates/cli-lib/src/lockfile.rs::Lockfile.parse"
+      ]
+    },
+    {
+      "file": "crates/cli-lib/tests/lockfile.rs",
+      "name": "finds_pins_the_manifest_outgrew",
+      "status": "passed",
+      "reaches": [
+        "crates/cli-lib/src/lockfile.rs::Lockfile.parse",
+        "crates/cli-lib/src/lockfile.rs::Lockfile.stale"
+      ]
+    }
+  ],
+  "untested": [
+    "crates/cli-lib/src/bin/relcheck.rs::main",
+    "crates/cli-lib/src/bin/relcheck.rs::main.published",
+    "crates/core/src/error.rs::Error.fmt",
+    "crates/core/src/select.rs::min_satisfying"
+  ]
+}

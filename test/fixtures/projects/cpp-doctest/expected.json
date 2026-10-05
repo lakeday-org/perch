@@ -1,0 +1,246 @@
+{
+  "language": "cpp",
+  "framework": "doctest",
+  "reports": {
+    "junit": [
+      "reports/junit.xml"
+    ],
+    "cobertura": [
+      "reports/cobertura.xml"
+    ]
+  },
+  "left_out": [
+    "tools/replay.cpp",
+    "bench/admit_bench.cpp"
+  ],
+  "tests": [
+    {
+      "file": "tests/duration_test.cpp",
+      "name": "parse_duration reads each unit",
+      "status": "passed",
+      "reaches": [
+        "src/duration.cpp::throttle.parse_duration"
+      ]
+    },
+    {
+      "file": "tests/duration_test.cpp",
+      "name": "parse_duration adds the parts of a compound duration",
+      "status": "passed",
+      "reaches": [
+        "src/duration.cpp::throttle.parse_duration"
+      ]
+    },
+    {
+      "file": "tests/duration_test.cpp",
+      "name": "parse_duration rejects malformed text",
+      "status": "passed",
+      "reaches": [
+        "src/duration.cpp::throttle.parse_duration"
+      ]
+    },
+    {
+      "file": "tests/duration_test.cpp",
+      "name": "format_duration writes the shortest form",
+      "status": "passed",
+      "reaches": [
+        "src/duration.cpp::throttle.format_duration"
+      ]
+    },
+    {
+      "file": "tests/duration_test.cpp",
+      "name": "format_duration leaves out the units that are zero",
+      "status": "passed",
+      "reaches": [
+        "src/duration.cpp::throttle.format_duration"
+      ]
+    },
+    {
+      "file": "tests/duration_test.cpp",
+      "name": "format_duration reads back through parse_duration",
+      "status": "passed",
+      "reaches": [
+        "src/duration.cpp::throttle.format_duration",
+        "src/duration.cpp::throttle.parse_duration"
+      ]
+    },
+    {
+      "file": "tests/token_bucket_test.cpp",
+      "name": "a full bucket spends its burst and then refuses",
+      "status": "passed",
+      "reaches": [
+        "src/token_bucket.cpp::throttle.TokenBucket.TokenBucket",
+        "src/token_bucket.cpp::throttle.TokenBucket.try_acquire"
+      ]
+    },
+    {
+      "file": "tests/token_bucket_test.cpp",
+      "name": "tokens come back at the refill rate",
+      "status": "passed",
+      "reaches": [
+        "src/token_bucket.cpp::throttle.TokenBucket.try_acquire",
+        "src/token_bucket.cpp::throttle.TokenBucket.available",
+        "include/throttle/clock.hpp::throttle.ManualClock.advance"
+      ]
+    },
+    {
+      "file": "tests/token_bucket_test.cpp",
+      "name": "the bucket never holds more than its capacity",
+      "status": "passed",
+      "reaches": [
+        "src/token_bucket.cpp::throttle.TokenBucket.available",
+        "include/throttle/clock.hpp::throttle.ManualClock.advance"
+      ]
+    },
+    {
+      "file": "tests/token_bucket_test.cpp",
+      "name": "time_until says how long to wait",
+      "status": "passed",
+      "reaches": [
+        "src/token_bucket.cpp::throttle.TokenBucket.try_acquire",
+        "src/token_bucket.cpp::throttle.TokenBucket.time_until"
+      ]
+    },
+    {
+      "file": "tests/token_bucket_test.cpp",
+      "name": "a bucket needs a positive capacity and rate",
+      "status": "passed",
+      "reaches": [
+        "src/token_bucket.cpp::throttle.TokenBucket.TokenBucket"
+      ]
+    },
+    {
+      "file": "tests/window_test.cpp",
+      "name": "SlidingWindow admits up to its limit within the span",
+      "status": "passed",
+      "reaches": [
+        "src/window.cpp::throttle.SlidingWindow.SlidingWindow",
+        "src/window.cpp::throttle.SlidingWindow.admit"
+      ]
+    },
+    {
+      "file": "tests/window_test.cpp",
+      "name": "SlidingWindow lets events expire after the span",
+      "status": "passed",
+      "reaches": [
+        "src/window.cpp::throttle.SlidingWindow.admit"
+      ]
+    },
+    {
+      "file": "tests/window_test.cpp",
+      "name": "SlidingWindow counts without recording",
+      "status": "passed",
+      "reaches": [
+        "src/window.cpp::throttle.SlidingWindow.admit",
+        "src/window.cpp::throttle.SlidingWindow.count"
+      ]
+    },
+    {
+      "file": "tests/window_test.cpp",
+      "name": "SlidingWindow needs a limit and a span",
+      "status": "passed",
+      "reaches": [
+        "src/window.cpp::throttle.SlidingWindow.SlidingWindow"
+      ]
+    },
+    {
+      "file": "tests/policy_test.cpp",
+      "name": "decide",
+      "status": "passed",
+      "reaches": [
+        "src/policy.cpp::throttle.decide"
+      ]
+    },
+    {
+      "file": "tests/policy_test.cpp",
+      "name": "decision_name names every decision",
+      "status": "passed",
+      "reaches": [
+        "src/policy.cpp::throttle.decision_name"
+      ]
+    },
+    {
+      "file": "tests/policy_test.cpp",
+      "name": "decide treats a queue with no room as full",
+      "status": "passed",
+      "reaches": [
+        "src/policy.cpp::throttle.decide"
+      ]
+    },
+    {
+      "file": "tests/lru_cache_test.cpp",
+      "name": "LruCache forgets the least recently used key",
+      "status": "passed",
+      "reaches": [
+        "include/throttle/lru_cache.hpp::throttle.LruCache.get_or_create",
+        "include/throttle/lru_cache.hpp::throttle.LruCache.contains",
+        "include/throttle/lru_cache.hpp::throttle.LruCache.size"
+      ]
+    },
+    {
+      "file": "tests/lru_cache_test.cpp",
+      "name": "LruCache returns the value it already has",
+      "status": "passed",
+      "reaches": [
+        "include/throttle/lru_cache.hpp::throttle.LruCache.get_or_create"
+      ]
+    },
+    {
+      "file": "tests/lru_cache_test.cpp",
+      "name": "LruCache refuses a capacity of zero",
+      "status": "passed",
+      "reaches": [
+        "include/throttle/lru_cache.hpp::throttle.LruCache.LruCache"
+      ]
+    },
+    {
+      "file": "tests/lru_cache_test.cpp",
+      "name": "LruCache holds a million keys",
+      "reaches": [
+        "include/throttle/lru_cache.hpp::throttle.LruCache.get_or_create",
+        "include/throttle/lru_cache.hpp::throttle.LruCache.size"
+      ]
+    },
+    {
+      "file": "tests/limiter_test.cpp",
+      "name": "Limiter keeps a bucket for each key",
+      "status": "passed",
+      "reaches": [
+        "src/limiter.cpp::throttle.Limiter.Limiter",
+        "src/limiter.cpp::throttle.Limiter.admit",
+        "include/throttle/limiter.hpp::throttle.Limiter.tracked"
+      ]
+    },
+    {
+      "file": "tests/limiter_test.cpp",
+      "name": "Limiter queues one request with the Queue strategy",
+      "status": "passed",
+      "reaches": [
+        "src/limiter.cpp::throttle.Limiter.admit",
+        "src/limiter.cpp::throttle.Limiter.dequeue"
+      ]
+    },
+    {
+      "file": "tests/limiter_test.cpp",
+      "name": "Limiter refuses to dequeue from an empty queue",
+      "status": "passed",
+      "reaches": [
+        "src/limiter.cpp::throttle.Limiter.dequeue"
+      ]
+    },
+    {
+      "file": "tests/limiter_test.cpp",
+      "name": "Limiter starts a key idle for a minute with a full burst",
+      "status": "failed",
+      "reaches": [
+        "src/limiter.cpp::throttle.Limiter.admit",
+        "include/throttle/clock.hpp::throttle.ManualClock.advance"
+      ]
+    }
+  ],
+  "untested": [
+    "src/clock.cpp::throttle.SteadyClock.now",
+    "src/metrics.cpp::throttle.Metrics.count",
+    "src/metrics.cpp::throttle.Metrics.render",
+    "src/metrics.cpp::throttle.Metrics.total"
+  ]
+}

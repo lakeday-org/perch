@@ -1,0 +1,25 @@
+{
+  "name": "switchyard",
+  "description": "Small, fast HTTP routing for Node",
+  "version": "1.4.2",
+  "license": "MIT",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "lib/"
+  ],
+  "engines": {
+    "node": ">= 18"
+  },
+  "scripts": {
+    "test": "mocha",
+    "test-cov": "c8 mocha",
+    "bench": "node benchmark/middleware.js"
+  },
+  "devDependencies": {
+    "c8": "^10.1.3",
+    "mocha": "^11.1.0",
+    "mocha-junit-reporter": "^2.2.1",
+    "sinon": "^19.0.2"
+  }
+}

@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "governor"
+version = "1.3.0"
+description = "Rate limiting for Python services: token bucket, fixed and sliding windows"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+dependencies = []
+
+[project.optional-dependencies]
+redis = ["redis>=5"]
+test = ["coverage[toml]>=7", "unittest-xml-reporting>=3.2"]
+
+[tool.setuptools.packages.find]
+include = ["governor*"]
+
+[tool.coverage.run]
+source = ["governor"]
+branch = true
+relative_files = true
+dynamic_context = "test_function"
+
+[tool.coverage.report]
+exclude_also = ["raise NotImplementedError", "if TYPE_CHECKING:"]

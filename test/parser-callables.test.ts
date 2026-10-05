@@ -16,7 +16,7 @@ it.each(['javascript', 'typescript'])('finds expressions, generators, exports an
   const result = await createAnalyzer().analyzeSource(source, language);
   expect(result.parser_status).toBe('parsed');
   expect(result.declarations.map(item => item.qualified_name).sort()).toEqual([
-    'top', 'assigned', 'module.exports.exported', 'generate', 'sequence', 'asyncWork', 'arrow', 'property', 'outer', 'outer.inner',
+    'top', 'assigned', 'module.exports.exported', 'generate', 'sequence', 'asyncWork', 'arrow', 'object.property', 'outer', 'outer.inner',
   ].sort());
   for (const declaration of result.declarations) {
     expect(declaration.location.start.byte).toBeLessThan(declaration.location.end.byte);
@@ -102,4 +102,42 @@ it('reads a Groovy call with a trailing closure as a call, not a declaration', a
   expect(calls).toContainEqual(expect.objectContaining({ reference: 'register', line: 1 }));
   expect(calls).toContainEqual(expect.objectContaining({ reference: 'retry', source: build.id }));
   expect(calls).toContainEqual(expect.objectContaining({ reference: 'qux', source: build.id }));
+});
+
+it('reads a Python lambda as one declaration, not also its lambda keyword', async () => {
+  const source = 'def test_it():\n    patches = {"run": lambda prompt: helper(prompt)}\n    other = lambda: helper(1)\n';
+  const result = await createAnalyzer().analyzeSource(source, 'python');
+  expect(result.parser_status).toBe('parsed');
+  expect(result.declarations.map(item => item.syntax_kind)).toEqual(['function_definition', 'lambda', 'lambda']);
+  for (const declaration of result.declarations) expect(declaration.parent_id).not.toBe(declaration.id);
+});
+
+it('records CommonJS require as an import, with the names it binds', async () => {
+  const source = "const utils = require('./utils');\nconst { parse, format: fmt } = require('../lib/format');\nrequire('./setup');\nconst dynamic = require(name);\n";
+  const result = await createAnalyzer().analyzeSource(source, 'javascript');
+  expect(result.references.filter(item => item.kind === 'import').map(item => [item.module, item.imported_name, item.alias])).toEqual([
+    ['./utils', '*', 'utils'], ['../lib/format', 'parse', 'parse'], ['../lib/format', 'format', 'fmt'], ['./setup', '*', null],
+  ]);
+});
+
+it.each([
+  ['export default function combineURLs(a, b) {\n  return a + b;\n}\n', 'combineURLs'],
+  ['function helper() {\n  return 1;\n}\nexport default helper;\n', 'helper'],
+  ['function utils() {\n  return 1;\n}\nmodule.exports = utils;\n', 'utils'],
+  ['export default () => 1;\n', null],
+])('names the default export of %j', async (source, name) => {
+  expect((await createAnalyzer().analyzeSource(source, 'javascript')).default_export).toBe(name);
+});
+
+it('marks a Kotlin extension function, and names a call on a receiver the tree cannot name', async () => {
+  const lib = await createAnalyzer().analyzeSource('package okio\n\nfun String.utf8Size(): Long {\n  return 1L\n}\n\nclass Buffer {\n  fun size(): Long = 0L\n}\n', 'kotlin');
+  expect(lib.declarations.map(item => [item.qualified_name, item.extension ?? false])).toEqual([['String.utf8Size', true], ['Buffer.size', false]]);
+  const test = await createAnalyzer().analyzeSource('fun check() {\n  val s = "abc"\n  s.utf8Size()\n  "x".utf8Size()\n}\n', 'kotlin');
+  expect(test.references.filter(item => item.kind === 'call').map(item => item.name)).toEqual(['s.utf8Size', '$receiver.utf8Size']);
+});
+
+it('answers a language it has no grammar for as unsupported, with nothing read', async () => {
+  const result = await createAnalyzer().analyzeSource('x\n', 'no-such-language');
+  expect(result).toMatchObject({ parser_status: 'unsupported', declarations: [], top_level: [], references: [], package: null, mocks: [] });
+  expect(result.diagnostics).toEqual([{ kind: 'unsupported', message: 'No language-pack grammar is registered for no-such-language', location: null }]);
 });

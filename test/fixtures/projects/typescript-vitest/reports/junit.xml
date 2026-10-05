@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="68" failures="0" errors="0" time="0.030617666">
+    <testsuite name="test/encode.test.ts" timestamp="2026-10-01T18:34:07.053Z" hostname="studio.local" tests="7" failures="0" errors="0" skipped="0" time="0.00229625">
+        <testcase classname="test/encode.test.ts" name="encode &gt; encodes hello world" time="0.001002375">
+        </testcase>
+        <testcase classname="test/encode.test.ts" name="encode &gt; encodes it&apos;s (fine)*" time="0.000086416">
+        </testcase>
+        <testcase classname="test/encode.test.ts" name="encode &gt; encodes café" time="0.000050292">
+        </testcase>
+        <testcase classname="test/encode.test.ts" name="encode &gt; encodes a-b_c.d~e" time="0.000046083">
+        </testcase>
+        <testcase classname="test/encode.test.ts" name="decode &gt; turns plus signs into spaces" time="0.000086417">
+        </testcase>
+        <testcase classname="test/encode.test.ts" name="decode &gt; decodes what it can of a broken sequence" time="0.00008225">
+        </testcase>
+        <testcase classname="test/encode.test.ts" name="decode &gt; tells an encoded string from a plain one" time="0.000093458">
+        </testcase>
+    </testsuite>
+    <testsuite name="test/parse.test.ts" timestamp="2026-10-01T18:34:07.054Z" hostname="studio.local" tests="15" failures="0" errors="0" skipped="0" time="0.003534792">
+        <testcase classname="test/parse.test.ts" name="parse &gt; reads a flat query" time="0.001368">
+        </testcase>
+        <testcase classname="test/parse.test.ts" name="parse &gt; ignores a leading question mark" time="0.000102792">
+        </testcase>
+        <testcase classname="test/parse.test.ts" name="parse &gt; keeps a key with no value as null" time="0.000079125">
+        </testcase>
+        <testcase classname="test/parse.test.ts" name="parse &gt; parses a[]=1&amp;a[]=2 as brackets" time="0.000159417">
+        </testcase>
+        <testcase classname="test/parse.test.ts" name="parse &gt; parses a[0]=1&amp;a[1]=2 as indices" time="0.000078417">
+        </testcase>
+        <testcase classname="test/parse.test.ts" name="parse &gt; parses a=1,2 as comma" time="0.000060625">
+        </testcase>
+        <testcase classname="test/parse.test.ts" name="parse &gt; parses a=1&amp;a=2 as repeat" time="0.000055125">
+        </testcase>
+        <testcase classname="test/parse.test.ts" name="parse &gt; nests bracketed keys" time="0.000106458">
+        </testcase>
+        <testcase classname="test/parse.test.ts" name="parse &gt; stops nesting past the depth limit" time="0.000094958">
+        </testcase>
+        <testcase classname="test/parse.test.ts" name="parse &gt; rejects a negative depth" time="0.000142">
+        </testcase>
+        <testcase classname="test/parse.test.ts" name="parse &gt; turns numbers into numbers when asked" time="0.000116958">
+        </testcase>
+        <testcase classname="test/parse.test.ts" name="parse &gt; rejects an empty key" time="0.000095417">
+        </testcase>
+        <testcase classname="test/parse.test.ts" name="parse &gt; decodes plus signs and percent escapes" time="0.0000585">
+        </testcase>
+        <testcase classname="test/parse.test.ts" name="parse &gt; keeps a broken escape as written" time="0.000080375">
+        </testcase>
+        <testcase classname="test/parse.test.ts" name="parse &gt; leaves escapes alone with decode off" time="0.00006">
+        </testcase>
+    </testsuite>
+    <testsuite name="test/path.test.ts" timestamp="2026-10-01T18:34:07.055Z" hostname="studio.local" tests="13" failures="0" errors="0" skipped="0" time="0.00359">
+        <testcase classname="test/path.test.ts" name="joinPaths &gt; joins [&quot;/api&quot;,&quot;users&quot;] into /api/users" time="0.001086292">
+        </testcase>
+        <testcase classname="test/path.test.ts" name="joinPaths &gt; joins [&quot;/api/&quot;,&quot;/users/&quot;] into /api/users/" time="0.000079334">
+        </testcase>
+        <testcase classname="test/path.test.ts" name="joinPaths &gt; joins [&quot;api&quot;,&quot;&quot;,&quot;v2&quot;] into /api/v2" time="0.000048375">
+        </testcase>
+        <testcase classname="test/path.test.ts" name="normalizePath &gt; removes dot segments" time="0.00014175">
+        </testcase>
+        <testcase classname="test/path.test.ts" name="normalizePath &gt; collapses repeated slashes" time="0.000060084">
+        </testcase>
+        <testcase classname="test/path.test.ts" name="normalizePath &gt; upper-cases percent escapes" time="0.0000605">
+        </testcase>
+        <testcase classname="test/path.test.ts" name="PathTemplate &gt; lists its parameter names" time="0.000410708">
+        </testcase>
+        <testcase classname="test/path.test.ts" name="PathTemplate &gt; matches a path and decodes its parameters" time="0.000151042">
+        </testcase>
+        <testcase classname="test/path.test.ts" name="PathTemplate &gt; does not match a path of another shape" time="0.000111833">
+        </testcase>
+        <testcase classname="test/path.test.ts" name="PathTemplate &gt; expands parameters into a path" time="0.00012125">
+        </testcase>
+        <testcase classname="test/path.test.ts" name="PathTemplate &gt; throws when a parameter is missing" time="0.000165916">
+        </testcase>
+        <testcase classname="test/path.test.ts" name="PathTemplate &gt; matches the rest of a path with a star parameter" time="0.000129916">
+        </testcase>
+        <testcase classname="test/path.test.ts" name="PathTemplate &gt; rejects a star parameter that is not last" time="0.000064167">
+        </testcase>
+    </testsuite>
+    <testsuite name="test/relative-url.test.ts" timestamp="2026-10-01T18:34:07.055Z" hostname="studio.local" tests="2" failures="0" errors="0" skipped="0" time="0.002561125">
+        <testcase classname="test/relative-url.test.ts" name="Url in a browser &gt; resolves a relative URL against the page origin" time="0.001570166">
+        </testcase>
+        <testcase classname="test/relative-url.test.ts" name="Url in a browser &gt; resolves a protocol-relative URL" time="0.000102084">
+        </testcase>
+    </testsuite>
+    <testsuite name="test/search-params.test.ts" timestamp="2026-10-01T18:34:07.056Z" hostname="studio.local" tests="8" failures="0" errors="0" skipped="0" time="0.003386416">
+        <testcase classname="test/search-params.test.ts" name="SearchParams &gt; reads the first value of a key" time="0.001230417">
+        </testcase>
+        <testcase classname="test/search-params.test.ts" name="SearchParams &gt; reads every value of a key" time="0.000454292">
+        </testcase>
+        <testcase classname="test/search-params.test.ts" name="SearchParams &gt; decodes what it reads" time="0.000082042">
+        </testcase>
+        <testcase classname="test/search-params.test.ts" name="SearchParams &gt; replaces every value of a key with set" time="0.000232709">
+        </testcase>
+        <testcase classname="test/search-params.test.ts" name="SearchParams &gt; deletes one value or all of them" time="0.0001355">
+        </testcase>
+        <testcase classname="test/search-params.test.ts" name="SearchParams &gt; sorts by key and keeps the order of equal keys" time="0.000130125">
+        </testcase>
+        <testcase classname="test/search-params.test.ts" name="SearchParams &gt; builds from an object of lists" time="0.000100292">
+        </testcase>
+        <testcase classname="test/search-params.test.ts" name="SearchParams &gt; builds from entries" time="0.00011975">
+        </testcase>
+    </testsuite>
+    <testsuite name="test/stringify.test.ts" timestamp="2026-10-01T18:34:07.056Z" hostname="studio.local" tests="13" failures="0" errors="0" skipped="0" time="0.011943791">
+        <testcase classname="test/stringify.test.ts" name="stringify &gt; writes a flat object" time="0.001302">
+        </testcase>
+        <testcase classname="test/stringify.test.ts" name="stringify &gt; drops undefined values" time="0.000106375">
+        </testcase>
+        <testcase classname="test/stringify.test.ts" name="stringify &gt; writes null as a bare key unless skipNull is set" time="0.000097125">
+        </testcase>
+        <testcase classname="test/stringify.test.ts" name="stringify &gt; sorts keys when asked" time="0.006999417">
+        </testcase>
+        <testcase classname="test/stringify.test.ts" name="stringify &gt; encodes reserved characters in keys and values" time="0.000117792">
+        </testcase>
+        <testcase classname="test/stringify.test.ts" name="stringify &gt; writes arrays in each format" time="0.000204958">
+        </testcase>
+        <testcase classname="test/stringify.test.ts" name="stringify &gt; warns about a legacy array format name" time="0.00085825">
+        </testcase>
+        <testcase classname="test/stringify.test.ts" name="stringify &gt; rejects an unknown array format" time="0.000187875">
+        </testcase>
+        <testcase classname="test/stringify.test.ts" name="stringify &gt; round trip &gt; a flat object survives a round trip" time="0.00061475">
+        </testcase>
+        <testcase classname="test/stringify.test.ts" name="stringify &gt; round trip &gt; a nested object survives a round trip" time="0.000223333">
+        </testcase>
+        <testcase classname="test/stringify.test.ts" name="stringify &gt; round trip &gt; an array in brackets survives a round trip" time="0.00009">
+        </testcase>
+        <testcase classname="test/stringify.test.ts" name="stringify &gt; round trip &gt; an array by index survives a round trip" time="0.000087667">
+        </testcase>
+        <testcase classname="test/stringify.test.ts" name="stringify &gt; round trip &gt; reserved characters survives a round trip" time="0.000058875">
+        </testcase>
+    </testsuite>
+    <testsuite name="test/url.test.ts" timestamp="2026-10-01T18:34:07.057Z" hostname="studio.local" tests="10" failures="0" errors="0" skipped="1" time="0.003305292">
+        <testcase classname="test/url.test.ts" name="Url &gt; splits a URL into its parts" time="0.001016833">
+        </testcase>
+        <testcase classname="test/url.test.ts" name="Url &gt; keeps a port that is not the default" time="0.000164584">
+        </testcase>
+        <testcase classname="test/url.test.ts" name="Url &gt; resolves a relative path against a base" time="0.000225459">
+        </testcase>
+        <testcase classname="test/url.test.ts" name="Url &gt; replaces query parameters and leaves the original alone" time="0.000368083">
+        </testcase>
+        <testcase classname="test/url.test.ts" name="Url &gt; removes a parameter set to undefined" time="0.0001575">
+        </testcase>
+        <testcase classname="test/url.test.ts" name="Url &gt; appends path segments" time="0.000093833">
+        </testcase>
+        <testcase classname="test/url.test.ts" name="Url &gt; compares URLs after normalizing them" time="0.000074375">
+        </testcase>
+        <testcase classname="test/url.test.ts" name="Url &gt; throws on a relative URL with no base" time="0.000212">
+        </testcase>
+        <testcase classname="test/url.test.ts" name="Url &gt; throws on a port that is not a number" time="0.000097625">
+        </testcase>
+        <testcase classname="test/url.test.ts" name="Url &gt; converts an internationalized host to punycode" time="0">
+            <skipped/>
+        </testcase>
+    </testsuite>
+</testsuites>

@@ -51,7 +51,7 @@ export function createLineReader(root, graph) {
  */
 export async function methodContext({ finding, root, out, analyzer, revision = finding.revision, log = () => {} }) {
   const scan = await analyzeTree({ root, revision, out, analyzer, log });
-  const graph = buildGraph(scan.files);
+  const graph = buildGraph(scan.files, { crates: scan.crates });
   const node = graph.nodes.get(finding.method);
   if (!node) throw new Error(`${finding.method} no longer exists at ${revision.slice(0, 12)}; scan again`);
   const linesOf = createLineReader(root, graph);

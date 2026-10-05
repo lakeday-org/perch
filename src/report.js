@@ -15,7 +15,7 @@ export function wrap(text, width = 92, indent = '  ') {
 }
 
 /** Columns wide enough for their widest cell. Trailing space is trimmed so a row can be diffed and grepped. */
-function table(header, rows, align) {
+export function table(header, rows, align) {
   const all = [header, ...rows];
   const widths = header.map((_, column) => Math.max(...all.map(row => String(row[column]).length)));
   return all.map(row => row.map((cell, column) => align[column] === 'left' ? String(cell).padEnd(widths[column]) : String(cell).padStart(widths[column])).join('  ').trimEnd());
@@ -23,9 +23,9 @@ function table(header, rows, align) {
 
 const number = value => value === null || value === undefined ? '-' : Math.round(value);
 /** Absolute paths push the columns that matter off the screen, so a path is said relative to where you are standing. */
-const relative = path => (path === process.cwd() ? path.split('/').at(-1) : path.startsWith(process.cwd() + '/') ? path.slice(process.cwd().length + 1) : path);
+export const relative = path => (path === process.cwd() ? path.split('/').at(-1) : path.startsWith(process.cwd() + '/') ? path.slice(process.cwd().length + 1) : path);
 
-const percent = value => `${Math.round(value * 100)}%`;
+export const percent = value => `${Math.round(value * 100)}%`;
 const words = label;
 const shortId = id => id.split('::').at(-1);
 const short = revision => (revision ?? '?').slice(0, 7);
@@ -54,8 +54,8 @@ const issueCell = (issues, width = Infinity) => {
 /** A finding points at the method it is about. */
 const locationOf = finding => `${finding.path}:${finding.line}`;
 /** Cut to `width`, keeping the end: a path's file and line say more than the crates/ it starts with. */
-const keepEnd = (text, width) => (text.length <= width ? text : '…' + text.slice(text.length - width + 1));
-const keepStart = (text, width) => (text.length <= width ? text : text.slice(0, width - 1) + '…');
+export const keepEnd = (text, width) => (text.length <= width ? text : '…' + text.slice(text.length - width + 1));
+export const keepStart = (text, width) => (text.length <= width ? text : text.slice(0, width - 1) + '…');
 
 /** The width to lay a table out in: the terminal's, or 100 when there isn't one (a pipe, a file, a test). */
 export const WIDTH = () => (process.stdout.columns >= 60 ? process.stdout.columns : 100);
@@ -436,24 +436,3 @@ export function formatFinding(finding, { width = WIDTH(), color = COLOR() } = {}
 }
 
 
-/** What actually moved: "risk 84 -> 28, complexity 55 -> 9, 153 -> 41 lines". Numbers that did not change are left out. */
-export function metricShift(before, after) {
-  if (!before || !after) return '-';
-  const parts = [];
-  for (const [name, key] of [['risk', 'risk_score'], ['complexity', 'cyclomatic_complexity'], ['nesting', 'max_nesting']])
-    if (number(before[key]) !== number(after[key])) parts.push(`${name} ${number(before[key])} -> ${number(after[key])}`);
-  if (number(before.sloc) !== number(after.sloc)) parts.push(`${number(before.sloc)} -> ${number(after.sloc)} lines`);
-  return parts.join(', ') || 'unchanged';
-}
-
-/**
- * What became of each objective. Printing the issues before and the issues after leaves the reader to diff two lists in their head;
- * the useful reading is which ones went, which ones are still there and by how much, and which ones the rewrite introduced.
- */
-export function issueOutcome(before = [], after = []) {
-  const byLabel = new Map(after.map(issue => [issue.label, issue]));
-  const gone = before.filter(issue => !byLabel.has(issue.label));
-  const left = before.filter(issue => byLabel.has(issue.label)).map(issue => ({ ...issue, now: byLabel.get(issue.label).probability }));
-  const seen = new Set(before.map(issue => issue.label));
-  return { gone, left, added: after.filter(issue => !seen.has(issue.label)) };
-}

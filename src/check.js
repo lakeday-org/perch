@@ -9,7 +9,7 @@
  */
 import { readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
-import { analyzeFiles, languageOf, methodsOf } from './analysis.js';
+import { analyzeFiles, createSourceAnalyzer, languageOf } from './analysis.js';
 import { analyzeTree } from './analyze.js';
 import { methodContext } from './context.js';
 import { listTree } from './git.js';
@@ -20,8 +20,18 @@ import { BELIEVED, filterKeys, meaning, methodSteps, issuesOf } from './question
 import { floorFor } from './ask.js';
 import { openStore } from './store.js';
 
-/** A check reads one file off disk, so there is no graph to draw a neighbourhood from: what `sees` can reach is that file. */
+/** A file the parser does not read has no graph, so what `sees` can reach from it is that file. */
 const EMPTY_GRAPH = { nodes: new Map() };
+
+/**
+ * The one file as the parser reads it, as a graph of its own. A check reads one file off disk, so this is the whole of the graph
+ * it has: a method or a test is a node in it, and `sees: calls` walks what that file reaches of itself. Null when it does not parse.
+ */
+async function fileGraph({ path, text, analyzer }) {
+  const scan = await analyzeFiles([{ type: 'blob', path, sha: path }], { analyzer, readSource: () => text });
+  if (!scan.files.length) return { graph: null, failure: scan.coverage.parser_diagnostics[0]?.message ?? 'syntax error' };
+  return { graph: buildGraph(scan.files) };
+}
 
 /** An 8-character hex id, as `perch issues` prints it, rather than a path. */
 const looksLikeId = target => /^[0-9a-f]{4,8}$/.test(target);
@@ -30,7 +40,7 @@ const looksLikeId = target => /^[0-9a-f]{4,8}$/.test(target);
  * What to ask about: a file, or a method inside one. `src/cli.js::main` names a method, `src/cli.js` the whole file, and an issue
  * id names whatever the issue was about. A method is found by name in the file as it reads now, so it can have moved.
  */
-export async function resolveTarget({ target, root, out, analyzer }) {
+export async function resolveTarget({ target, root, out, analyzer = createSourceAnalyzer() }) {
   let path = target, name = null;
   if (looksLikeId(target)) {
     const finding = await openStore(out).findFinding(target);
@@ -50,15 +60,19 @@ export async function resolveTarget({ target, root, out, analyzer }) {
   // Why it could not be read is the difference between a typo and a permission, so the reason comes with it.
   const text = await readFile(sourcePath, 'utf8')
     .catch(error => { throw new Error(error.code === 'ENOENT' ? `${path} is not there` : `${path} could not be read: ${error.message}`); });
-  if (!name) return { path, name: path, line: 1, text, lines: text.split('\n') };
   const language = languageOf(path);
+  if (!name) return { id: path, path, name: path, line: 1, text, lines: text.split('\n'), graph: language ? (await fileGraph({ path, text, analyzer })).graph ?? EMPTY_GRAPH : EMPTY_GRAPH };
   if (!language) throw new Error(`${path} is not a language perch parses, so it has no methods to point at`);
-  const analysis = await analyzer.analyzeSource(text, language);
-  if (analysis.parser_status !== 'parsed') throw new Error(`${path} does not parse: ${analysis.parser_message ?? 'syntax error'}`);
-  const methods = methodsOf(path, analysis, text.split('\n'));
-  const found = methods.find(method => method.qualified_name === name) ?? methods.find(method => method.qualified_name.endsWith(`.${name}`));
-  if (!found) throw new Error(`no method called ${name} in ${path}${methods.length ? `; it has ${methods.slice(0, 6).map(item => item.qualified_name).join(', ')}` : ''}`);
-  return { path, name: found.qualified_name, line: found.line, end_line: found.end_line, own: found.lines, metrics: found.metrics, part: true, text, lines: text.split('\n') };
+  const { graph, failure } = await fileGraph({ path, text, analyzer });
+  if (!graph) throw new Error(`${path} does not parse: ${failure}`);
+  // A test is named by its suites and title, `cart > rejects a negative price`, and a method by its class, so either the whole
+  // name or its last part finds it.
+  const nodes = [...graph.nodes.values()];
+  const found = nodes.find(node => node.qualified_name === name)
+    ?? nodes.find(node => node.qualified_name.endsWith(`.${name}`) || node.qualified_name.endsWith(` > ${name}`));
+  if (!found) throw new Error(`no method called ${name} in ${path}${nodes.length ? `; it has ${nodes.slice(0, 6).map(item => item.qualified_name).join(', ')}` : ''}`);
+  return { id: found.id, path, name: found.qualified_name, line: found.line, end_line: found.end_line, own: found.lines, metrics: found.metrics, part: true,
+    test: found.test, case: found.case, graph, text, lines: text.split('\n') };
 }
 
 /**
@@ -138,7 +152,7 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
     contexts.get(rule.sees).push(rule);
   }
   const asked = (await Promise.all([...contexts].map(async ([sees, together]) => {
-    const prepare = budget => unitSteps({ rules: together, unit, source: body, seen: neighbourhood(sees, unit, { graph: EMPTY_GRAPH, files: new Map([[unit.path, unit.text]]) }), budget });
+    const prepare = budget => unitSteps({ rules: together, unit, source: body, seen: neighbourhood(sees, unit, { graph: unit.graph, files: new Map([[unit.path, unit.text]]) }), budget });
     const steps = prepare(systemOne.limits?.state);
     debug(`${together.map(rule => rule.name).join(', ')}: ${unit.name}`);
     const { answers } = await askUnitSteps({ systemOne, steps, prepare, rules: together });

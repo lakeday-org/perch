@@ -113,3 +113,14 @@ it('hands over what a Go assignment assigns, never the names it assigns to', asy
   expect(graph.callees('app.go::run')).toEqual(['app.go::process']);
   expect(graph.isDynamic('app.go::run', 'app.go::process')).toBe(true);
 });
+
+const reads = result => result.references.filter(ref => ref.kind === 'read').map(ref => ref.reference);
+
+it('records a member read nothing calls as the whole chain, and not the callee of a call', async () => {
+  const js = 'function key() {\n  const url = config.api.url;\n  client.send(process.env.PAYMENTS_KEY);\n  return import.meta.env.MODE;\n}\n';
+  expect(reads(await analyzer.analyzeSource(js, 'javascript'))).toEqual(['config.api.url', 'process.env.PAYMENTS_KEY', 'import.meta.env.MODE']);
+  const py = 'import os\n\ndef key():\n    token = os.environ["PAYMENTS_KEY"]\n    return os.path.join(token, "x")\n';
+  expect(reads(await analyzer.analyzeSource(py, 'python'))).toEqual(['os.environ']);
+  const scan = await analyzeFiles([{ path: 'k.py', sha: 'k' }], { analyzer, readSource: async () => py });
+  expect(buildGraph(scan.files).reads('k.py::key')).toEqual([{ name: 'os.environ', line: 4 }]);
+});

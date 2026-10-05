@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+	<testsuite name="tests.test_order_service.ApplyDiscountTest-20260928183953" tests="5" file="tests/test_order_service.py" time="0.003" timestamp="2026-09-28T18:39:53" failures="0" errors="0" skipped="0">
+		<testcase classname="tests.test_order_service.ApplyDiscountTest" name="test_apply_discount_10_percent" time="0.002" timestamp="2026-09-28T18:39:53" file="tests/test_order_service.py" line="31"/>
+		<testcase classname="tests.test_order_service.ApplyDiscountTest" name="test_apply_discount_20_percent" time="0.000" timestamp="2026-09-28T18:39:53" file="tests/test_order_service.py" line="34"/>
+		<testcase classname="tests.test_order_service.ApplyDiscountTest" name="test_apply_discount_25_percent" time="0.000" timestamp="2026-09-28T18:39:53" file="tests/test_order_service.py" line="37"/>
+		<testcase classname="tests.test_order_service.ApplyDiscountTest" name="test_apply_discount_50_percent" time="0.000" timestamp="2026-09-28T18:39:53" file="tests/test_order_service.py" line="40"/>
+		<testcase classname="tests.test_order_service.ApplyDiscountTest" name="test_apply_discount_75_percent" time="0.000" timestamp="2026-09-28T18:39:53" file="tests/test_order_service.py" line="43"/>
+	</testsuite>
+	<testsuite name="tests.test_order_service.CanFulfilTest-20260928183953" tests="4" file="tests/test_order_service.py" time="0.001" timestamp="2026-09-28T18:39:53" failures="0" errors="0" skipped="0">
+		<testcase classname="tests.test_order_service.CanFulfilTest" name="test_can_fulfil_rejects_an_empty_cart" time="0.000" timestamp="2026-09-28T18:39:53" file="tests/test_order_service.py" line="19"/>
+		<testcase classname="tests.test_order_service.CanFulfilTest" name="test_can_fulfil_stubbed" time="0.001" timestamp="2026-09-28T18:39:53" file="tests/test_order_service.py" line="25"/>
+		<testcase classname="tests.test_order_service.CanFulfilTest" name="test_can_fulfil_when_every_item_is_in_stock" time="0.000" timestamp="2026-09-28T18:39:53" file="tests/test_order_service.py" line="15"/>
+		<testcase classname="tests.test_order_service.CanFulfilTest" name="test_can_fulfil_when_quantity_equals_stock" time="0.000" timestamp="2026-09-28T18:39:53" file="tests/test_order_service.py" line="22"/>
+	</testsuite>
+	<testsuite name="tests.test_order_service.SubtotalTest-20260928183953" tests="2" file="tests/test_order_service.py" time="0.001" timestamp="2026-09-28T18:39:53" failures="0" errors="1" skipped="0">
+		<testcase classname="tests.test_order_service.SubtotalTest" name="test_subtotal_adds_up_the_cart" time="0.000" timestamp="2026-09-28T18:39:53" file="tests/test_order_service.py" line="48"/>
+		<testcase classname="tests.test_order_service.SubtotalTest" name="test_subtotal_matches_the_saved_order" time="0.001" timestamp="2026-09-28T18:39:53" file="tests/test_order_service.py" line="54">
+			<error type="OperationalError" message="no such table: lines"><![CDATA[Traceback (most recent call last):
+  File "tests/test_order_service.py", line 58, in test_subtotal_matches_the_saved_order
+    rows = connection.execute(
+           ~~~~~~~~~~~~~~~~~~^
+        "select sku, quantity, price from lines join orders on orders.id = lines.order_id where orders.token = ?",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        (token,),
+        ^^^^^^^^^
+    ).fetchall()
+    ^
+sqlite3.OperationalError: no such table: lines
+]]></error>
+		</testcase>
+	</testsuite>
+	<testsuite name="tests.test_order_service.PlaceOrderTest-20260928183953" tests="1" file="tests/test_order_service.py" time="0.001" timestamp="2026-09-28T18:39:53" failures="1" errors="0" skipped="0">
+		<testcase classname="tests.test_order_service.PlaceOrderTest" name="test_place_order_charges_the_subtotal" time="0.001" timestamp="2026-09-28T18:39:53" file="tests/test_order_service.py" line="70">
+			<failure type="AssertionError" message="Decimal('20.00') != Decimal('26.00')"><![CDATA[Traceback (most recent call last):
+  File "tests/test_order_service.py", line 78, in test_place_order_charges_the_subtotal
+    self.assertEqual(total, Decimal("26.00"))
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Decimal('20.00') != Decimal('26.00')
+]]></failure>
+		</testcase>
+	</testsuite>
+</testsuites>

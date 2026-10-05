@@ -1,0 +1,7 @@
+# cargo-nextest writes JUnit XML only for a profile that names a path for it. CI runs `cargo nextest run --profile ci`, and the
+# report lands in target/nextest/ci/junit.xml. Every test runs, including those after a failure.
+[profile.ci]
+fail-fast = false
+
+[profile.ci.junit]
+path = "junit.xml"

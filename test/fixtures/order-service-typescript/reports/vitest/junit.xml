@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="12" failures="1" errors="0" time="0.295">
+    <testsuite name="test/cart.test.ts" timestamp="2026-09-29T01:56:08.725Z" hostname="studio.local" tests="7" failures="1" errors="0" skipped="0" time="0.00507">
+        <testcase classname="test/cart.test.ts" name="applyDiscount &gt; takes 10 percent off" time="0.000639375">
+        </testcase>
+        <testcase classname="test/cart.test.ts" name="applyDiscount &gt; takes 20 percent off" time="0.000073">
+        </testcase>
+        <testcase classname="test/cart.test.ts" name="applyDiscount &gt; takes 25 percent off" time="0.000050458">
+        </testcase>
+        <testcase classname="test/cart.test.ts" name="applyDiscount &gt; takes 50 percent off" time="0.000050791">
+        </testcase>
+        <testcase classname="test/cart.test.ts" name="applyDiscount &gt; takes 75 percent off" time="0.000046375">
+        </testcase>
+        <testcase classname="test/cart.test.ts" name="subtotal &gt; adds up the cart" time="0.000059209">
+        </testcase>
+        <testcase classname="test/cart.test.ts" name="subtotal &gt; matches the total the orders API saved" time="0.003534667">
+            <failure message="Failed to parse URL from undefined/orders/1" type="TypeError">
+TypeError: Failed to parse URL from undefined/orders/1
+ ❯ test/cart.test.ts:33:22
+
+Caused by: TypeError: Invalid URL
+ ❯ test/cart.test.ts:33:28
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: &apos;ERR_INVALID_URL&apos;, input: &apos;undefined/orders/1&apos; }
+            </failure>
+        </testcase>
+    </testsuite>
+    <testsuite name="test/checkout.test.ts" timestamp="2026-09-29T01:56:08.728Z" hostname="studio.local" tests="1" failures="0" errors="0" skipped="0" time="0.001168083">
+        <testcase classname="test/checkout.test.ts" name="placeOrder &gt; returns the subtotal when every item is in stock" time="0.000649375">
+        </testcase>
+    </testsuite>
+    <testsuite name="test/inventory.test.ts" timestamp="2026-09-29T01:56:08.728Z" hostname="studio.local" tests="4" failures="0" errors="0" skipped="0" time="0.001877667">
+        <testcase classname="test/inventory.test.ts" name="canFulfil &gt; accepts a cart when every item is in stock" time="0.000634208">
+        </testcase>
+        <testcase classname="test/inventory.test.ts" name="canFulfil &gt; rejects an empty cart" time="0.000079958">
+        </testcase>
+        <testcase classname="test/inventory.test.ts" name="canFulfil &gt; accepts a quantity equal to the stock level" time="0.00005875">
+        </testcase>
+        <testcase classname="test/inventory.test.ts" name="canFulfil &gt; returns what the stub returns" time="0.000547541">
+        </testcase>
+    </testsuite>
+</testsuites>

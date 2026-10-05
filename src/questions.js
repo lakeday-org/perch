@@ -233,7 +233,7 @@ export const spanOf = (node, lines) => {
  * A neighbour as it is shown: the comment above it, which is its contract, then its lines, or a window of `limit` lines of the
  * two together. When a `focus` line is given (a call site) the window is centered there so the call is visible.
  */
-const excerpt = (node, lines, limit, focus = null) => {
+export const excerpt = (node, lines, limit, focus = null) => {
   const comment = leadingComment(lines, node.line), above = comment ? comment.split('\n') : [];
   const slice = [...above, ...spanOf(node, lines)];
   if (slice.length <= limit) return shownLines(slice);

@@ -2,18 +2,19 @@
  * The units a rule is asked about, and how one question about one unit is put and read.
  *
  * A scan reads methods, and a rule about a method rides along in that method's own request. The rest do not fit there: a rule
- * about prose is a rule about markdown, which the graph has never heard of, and a rule about a test is about one block inside a
- * file. Those are selected here and asked here.
+ * about prose is a rule about markdown, which the graph has never heard of, and a rule about a test is about one test case, which
+ * the scan does not question. Those are selected here and asked here.
  */
 import { readdir, readFile } from 'node:fs/promises';
 import { join, sep } from 'node:path';
+import { parse as parseYaml } from 'yaml';
 import { git, listTree } from './git.js';
 import { createFileSelector } from './exclusions.js';
 import { sourceChunks } from './chunks.js';
 import { TOKEN_LIMITS, estimateTokens, textTokens, questionBatches, IncompleteCheckError, ContextLimitError, withTokenRetries } from './tokens.js';
 import { appliesToLanguage, BUILTIN, compile, floorFor, installQuestions, merge, parseIgnored, parseQuestions, parseScanTypes, SEARCHES } from './ask.js';
 import { shownSource, spanOf } from './questions.js';
-import { findingId, sha256 } from './store.js';
+import { findingId } from './store.js';
 import { AuthenticationError } from './systemone.js';
 import { languageOf } from './analysis.js';
 
@@ -40,8 +41,13 @@ export const MAX_SEEN = 8;
  */
 /** The globs `perch.yaml` says not to read, from the file on disk or the one in the commit. */
 export async function readIgnored(root, revision) {
-  const text = await readFile(join(root, RULES_FILE), 'utf8')
-    .catch(() => git(['show', `${revision}:${RULES_FILE}`], root).catch(() => null));
+  // The working tree's perch.yaml, or the commit's when the tree has none, or nothing when neither has one. Any other failure
+  // to read it is an error: a report list that silently read as absent ran coverage without the reports it names.
+  const text = await readFile(join(root, RULES_FILE), 'utf8').catch(async error => {
+    if (error.code !== 'ENOENT') throw error;
+    const committed = (await listTree(root, revision)).some(item => item.path === RULES_FILE);
+    return committed ? git(['show', `${revision}:${RULES_FILE}`], root) : null;
+  });
   return text === null ? [] : parseIgnored(text, RULES_FILE);
 }
 
@@ -50,6 +56,36 @@ export async function readScanTypes(root, revision) {
   const text = await readFile(join(root, RULES_FILE), 'utf8')
     .catch(() => git(['show', `${revision}:${RULES_FILE}`], root).catch(() => null));
   return text === null ? null : parseScanTypes(text, RULES_FILE);
+}
+
+/** The report kinds `coverage_reports` in perch.yaml may list, as `perch coverage` takes them by flag. */
+export const COVERAGE_REPORT_KINDS = ['junit', 'lcov', 'cobertura', 'jacoco', 'contexts'];
+
+/**
+ * `coverage_reports` from perch.yaml: the files CI's test run writes, repository-relative, by kind. A path may be a glob. Null when the file says
+ * nothing about them. A key that is not a report kind, or a list that is not of paths, is a mistake in the file and says so,
+ * since a misspelt kind would otherwise read no report and never mention it.
+ */
+export function parseCoverageReports(text, at) {
+  const doc = text.trim() ? parseYaml(text) : null;
+  if (!doc || Array.isArray(doc) || typeof doc !== 'object' || doc.coverage_reports === undefined) return null;
+  const reports = doc.coverage_reports;
+  if (!reports || typeof reports !== 'object' || Array.isArray(reports)) throw new Error(`${at}: coverage_reports is a map of ${COVERAGE_REPORT_KINDS.join(', ')} to lists of paths`);
+  const read = {};
+  for (const [kind, list] of Object.entries(reports)) {
+    if (!COVERAGE_REPORT_KINDS.includes(kind)) throw new Error(`${at}: coverage_reports has ${kind}, which is not one of ${COVERAGE_REPORT_KINDS.join(', ')}`);
+    if (list === null) { read[kind] = []; continue; }
+    if (!Array.isArray(list) || list.some(path => typeof path !== 'string' || !path.trim())) throw new Error(`${at}: coverage_reports.${kind} is a list of repository paths`);
+    read[kind] = list.map(path => path.trim());
+  }
+  return read;
+}
+
+/** `coverage_reports` from the rule file, or null when it lists none. */
+export async function readCoverageReports(root, revision) {
+  const text = await readFile(join(root, RULES_FILE), 'utf8')
+    .catch(() => git(['show', `${revision}:${RULES_FILE}`], root).catch(() => null));
+  return text === null ? null : parseCoverageReports(text, RULES_FILE);
 }
 
 export async function readRuleFiles(root, revision) {
@@ -185,18 +221,16 @@ export function selectUnits(rule, { scan, graph, files, tree, inScope = () => tr
     const needle = mentions[1].trim();
     return [...graph.nodes.values()].filter(node => !node.test && sourceOf(node, files).includes(needle)).map(methodUnit).filter(spared);
   }
+  // A test is a node the parser marked as a test case from its syntax, in whatever language it is written, and it spans exactly
+  // its own body. Its hash is its own, so an answer about it is reused only while that test is unchanged.
   if (rule.each === 'test') {
-    return tree.filter(createFileSelector(tree)).filter(item => matches(source, item.path))
-      .flatMap(item => {
-        const text = files.get(item.path) ?? '';
-        return testBlocks(text, item.path).map(unit => ({ ...unit, hash: sha256(bodyOf(text, unit)) }));
-      }).filter(spared);
+    return [...graph.nodes.values()].filter(node => node.case && (!source || matches(source, node.path))).map(testUnit).filter(spared);
   }
   // A method comes from the scan, which only holds what tree-sitter could parse. A file comes from the git tree, because a rule
   // about prose is a rule about markdown, and markdown is not a language the scan reads.
   if (rule.each === 'method') {
     return scan.files.filter(file => (SEARCHES(rule.kind) || !file.test) && matches(source, file.path))
-      .flatMap(file => file.methods.map(method => methodUnit({ ...method, path: file.path }))).filter(spared);
+      .flatMap(file => file.methods.filter(method => SEARCHES(rule.kind) || !(method.test || method.support)).map(method => methodUnit({ ...method, path: file.path }))).filter(spared);
   }
   return tree.filter(createFileSelector(tree)).filter(item => matches(source, item.path))
     .map(item => ({ id: item.path, path: item.path, name: item.path, line: 1, hash: item.sha })).filter(spared);
@@ -209,12 +243,11 @@ export const bodyOf = (text, unit) => shownSource(unit.own ? spanLines({ line: u
  * this matches the hash it was answered about: a test deleted or moved to another file, or a method whose comment changed, is no
  * longer what the answer describes.
  */
-export function unitHash(check, { graph, files, blobs }) {
+export function unitHash(check, { graph, blobs }) {
+  // A test is a node of the graph as a method is, so a unit that is neither a node nor a file is gone.
   if (graph.nodes.has(check.unit)) return graph.nodes.get(check.unit).hash;
   if (check.unit === check.path) return blobs.get(check.path) ?? null;
-  const text = files.get(check.path);
-  const block = text === undefined ? null : testBlocks(text, check.path).find(unit => unit.id === check.unit);
-  return block ? sha256(bodyOf(text, block)) : null;
+  return null;
 }
 
 /** Returns a file's lines with the method lines inside a top-level unit blanked, so line numbers stay correct. */
@@ -224,32 +257,9 @@ const spanLines = (node, lines) => {
 };
 const spanText = (node, lines) => spanOf(node, lines).map(text => text ?? '').join('\n');
 const methodUnit = node => ({ id: node.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, own: node.lines, hash: node.hash, method: true, part: true });
+/** A test is what a person names when they say where something is asserted, so a rule about tests answers with the test. */
+const testUnit = node => ({ id: node.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, hash: node.hash, part: true });
 const sourceOf = (node, files) => spanText(node, (files.get(node.path) ?? '').split('\n'));
-
-/**
- * The tests in a file, as units. A test is what a suite is made of and what a person names when they say where something is
- * asserted, so a rule asking whether a behavior is tested answers with a test rather than the file it is somewhere inside. A
- * block runs to the line before the next one starts, which is enough to read one test and cheaper than matching braces.
- */
-export function testBlocks(text, path) {
-  const lines = text.split('\n');
-  const found = [];
-  for (const [index, line] of lines.entries()) {
-    // The name runs to the first quote that is not escaped, so `'doesn\'t'` is the whole name rather than `doesn\`.
-    const match = /^\s*(?:it|test)(?:\.\w+)*(?:\([^)]*\))?\(\s*(['"`])((?:\\.|(?!\1).)+)\1/.exec(line);
-    if (match) found.push({ line: index + 1, name: match[2].replace(/\\(['"`\\])/g, '$1') });
-  }
-  // Two tests can share a name, in different describe blocks or the same one. A unit is told apart by its id, so the second is
-  // numbered the way a second method of the same name is; under one id it was never read and the first was reported twice.
-  const seen = new Map();
-  return found.map((item, index) => {
-    const base = `${path}::${item.name}`;
-    const count = (seen.get(base) ?? 0) + 1;
-    seen.set(base, count);
-    return { id: count > 1 ? `${base}#${count}` : base, path, name: item.name, line: item.line,
-      end_line: (found[index + 1]?.line ?? lines.length + 1) - 1, part: true };
-  });
-}
 
 /** Units most likely to hold what a search is looking for, first. Shared words between the rule and the unit's name and path. */
 export function rank(rule, units) {
@@ -264,8 +274,8 @@ export function rank(rule, units) {
  * places says so, and `sees:` is how — a test rule that asks whether the code under test is really asserted needs the code under
  * test, and no amount of rewording gets it from the test alone.
  *
- * A method's neighbours come from the call graph. A file's or a test's do not, because neither is a node in it, so what they call
- * is found by name: a declaration whose short name appears in the body, riskiest first.
+ * A method's and a test's neighbours come from the call graph, walked from the unit's own node. A file the parser reads walks
+ * from the methods it declares. A file it does not read has no nodes, and walks the directory tree instead.
  */
 export function neighbourhood(sees, unit, { graph, files, max = MAX_SEEN }) {
   if (!sees || sees === 'self') return {};
@@ -273,7 +283,7 @@ export function neighbourhood(sees, unit, { graph, files, max = MAX_SEEN }) {
   if (sees === 'file') return { file_source: text };
   const show = ids => ids.slice(0, max).map(id => graph.nodes.get(id)).filter(Boolean)
     .map(node => ({ name: node.qualified_name, path: node.path, source: sourceOf(node, files) }));
-  // A method walks from itself. A file walks from the methods it declares, since a file is not a node but what it holds is.
+  // A method or a test walks from itself. A file walks from the methods it declares, since a file is not a node but what it holds is.
   const own = graph.nodes.has(unit.id) ? [unit.id] : [...graph.nodes.keys()].filter(id => graph.nodes.get(id)?.path === unit.path);
   const seeds = own;
   /**
