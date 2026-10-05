@@ -7,6 +7,18 @@ import type { Node } from "./node";
 import type { Mock, MockTarget, TestCase } from "./types";
 import { isFunction } from "./metrics";
 import type { SyntaxIndex } from "./visit";
+import { goTests } from "./tests/go";
+import { cTests } from "./tests/c";
+import { csharpTests } from "./tests/c_sharp";
+import { rubyTests } from "./tests/ruby";
+import { phpTests } from "./tests/php";
+import { luaTests } from "./tests/lua";
+import { swiftTests } from "./tests/swift";
+import { zigTests } from "./tests/zig";
+import { solidityTests } from "./tests/solidity";
+import { scalaTests } from "./tests/scala";
+import { groovyTests } from "./tests/groovy";
+import { bashTests } from "./tests/bash";
 
 /** A test case found in the tree, keyed by its declaration node, with the qualified name it is known by when that differs. */
 export interface FoundTest {
@@ -685,6 +697,21 @@ function packageOf(root: Node, language: string): string | null {
   return null;
 }
 
+/** The remaining languages, each in a module of its own under tests/. */
+const OTHERS: Record<string, (index: SyntaxIndex, scan: TestScan, path: string | null) => void> = {
+  go: goTests,
+  c_sharp: csharpTests,
+  ruby: rubyTests,
+  php: phpTests,
+  lua: luaTests,
+  swift: swiftTests,
+  zig: zigTests,
+  solidity: solidityTests,
+  scala: scalaTests,
+  groovy: groovyTests,
+  bash: bashTests,
+};
+
 /** The test cases, mocks and package of one parsed file. */
 export function findTests(root: Node, language: string, path: string | null, index: SyntaxIndex): TestScan {
   const scan: TestScan = { cases: new Map(), bodies: [], mocks: [], package: packageOf(root, language), blockMacros: new Set(), suites: [] };
@@ -693,6 +720,7 @@ export function findTests(root: Node, language: string, path: string | null, ind
   else if (language === "rust") { rustTests(index, scan); rustMocks(index, scan); }
   else if (language === "java") { jvmTests(index, language, scan); javaMocks(index, scan); }
   else if (language === "kotlin") { jvmTests(index, language, scan); kotlinMocks(index, scan); }
-  else if (language === "cpp" || language === "c") { cppTests(index, scan); cppMocks(index, scan); }
+  else if (language === "cpp" || language === "c") { cppTests(index, scan); cppMocks(index, scan); if (language === "c") cTests(index, scan, path); }
+  else if (language in OTHERS) OTHERS[language](index, scan, path);
   return scan;
 }
