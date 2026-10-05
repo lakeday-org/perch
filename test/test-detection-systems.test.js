@@ -307,10 +307,23 @@ describe('C', () => {
     '  return UNITY_END();',
     '}',
   ]);
-  const files = { 'src/cart.c': cart, 'tests/check_test.c': check, 'tests/cmocka_test.c': cmocka, 'tests/criterion_test.c': criterion, 'tests/unity_test.c': unity };
+  const header = source([
+    '#ifndef CART_H',
+    '#define CART_H',
+    'struct cart;',
+    'int discount(int total, int percent);',
+    'struct cart *cart_new(void);',
+    'void cart_add(struct cart *c, int n);',
+    'int cart_total(struct cart *c);',
+    'void cart_free(struct cart *c);',
+    '#endif',
+  ]);
+  const files = { 'src/cart.h': header, 'src/cart.c': cart, 'tests/check_test.c': check, 'tests/cmocka_test.c': cmocka, 'tests/criterion_test.c': criterion, 'tests/unity_test.c': unity };
 
   it('reads Check tests with their suite, tcase and fixture', async () => {
     const { file, method, graph } = await repository(files);
+    // A header's prototypes declare the functions; only the definitions in cart.c are methods, so each name links to its one definition.
+    expect(file('src/cart.h').methods.filter(item => item.node !== null)).toEqual([]);
     expect(tests(file('tests/check_test.c'))).toEqual([
       ['tests/check_test.c::adds_items', 8, 12, { name: 'adds_items', suite: ['Cart', 'Core'], framework: 'check' }],
       // The END_TEST closing the test before has no semicolon, so the grammar reads it as this test's type: the test starts on its line.

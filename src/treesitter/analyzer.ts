@@ -67,6 +67,9 @@ function declarationsOf(items: StructureItem[], nodes: Map<string, Node>, langua
       const span = item.span!;
       const node = nodes.get(`${span.startByte}:${span.endByte}`);
       if (!node) throw new Error(`No syntax node for declaration ${item.name} at ${span.startByte}`);
+      // A C or C++ prototype, `int parse(const char *text);` in a header, is a declaration and not a definition: it has no body
+      // to measure or ask about, and counted as a definition it made every function a header declares ambiguous to the linker.
+      if ((language === 'c' || language === 'cpp') && node.type === 'declaration') continue;
       // A declaration the parser could not read whole is not offered as a method; the ones around it still are. Nested
       // declarations are read on their own, since a broken outer function says nothing about an inner one.
       if (hasSyntaxError(node, blockMacros, index)) { result.push(...declarationsOf(item.children ?? [], nodes, language, nonblank, cases, blockMacros, held, index)); continue; }
