@@ -48,9 +48,10 @@ the code before changing it. Close what you decide is fine.
 that method alone, off disk, recording nothing, so the numbers on the issue being
 fixed do not move.
 
-**Check the tests a change needs.** After the tests run, `perch coverage --since
-origin/main` with their JUnit and coverage reports says how many changed lines ran,
-and what is wrong with the tests of the code that changed.
+**Check the tests a change needs.** `perch coverage --since origin/main` mutates
+the code the branch changed and says which mutants no test would kill. The skill
+tells the assistant how to read a survived mutant from the JSON and write the test
+that kills it.
 
 **Write a rule when a mistake repeats.** On the second correction, `perch rules
 add` catches it from then on. The skill tells the assistant to ask you first.
