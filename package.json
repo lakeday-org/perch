@@ -43,7 +43,7 @@
     "check": "npm run lint && npm run typecheck && npm test"
   },
   "dependencies": {
-    "@xberg-io/tree-sitter-language-pack": "1.20.0",
+    "@xberg-io/tree-sitter-language-pack": "1.21.0",
     "gpt-tokenizer": "4.0.0",
     "yaml": "^2.9.1"
   },
