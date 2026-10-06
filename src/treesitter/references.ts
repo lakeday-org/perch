@@ -364,13 +364,20 @@ function pathText(callee: Node | null, language: string): string {
   let written = safeNavigation(text(callee).replace(/\s*(\.|::|\?\.|&\.|->)\s*/g, '$1'));
   if (language === 'c' || language === 'cpp') written = written.replaceAll('->', '.');
   // `run_tests<true>()` in C++ and `parse::<i32>()` in Rust call the function their name is before the type arguments.
-  if (TYPE_ARGUMENTS.has(language) && written.includes('<')) {
-    written = written.replaceAll('::<', '<');
-    for (let before = ''; before !== written;) [before, written] = [written, written.replace(/<[^<>]*>/g, '')];
-  }
+  if (TYPE_ARGUMENTS.has(language) && written.includes('<')) written = withoutTypeArguments(written.replaceAll('::<', '<'));
   return written;
 }
 const TYPE_ARGUMENTS = new Set(['c', 'cpp', 'rust']);
+/** A call's name with every `<...>` taken out, nested ones included: `map<string, vector<int>>::at` is `map::at`. */
+function withoutTypeArguments(written: string): string {
+  let depth = 0, kept = '';
+  for (const char of written) {
+    if (char === '<') depth++;
+    else if (char === '>' && depth > 0) depth--;
+    else if (depth === 0) kept += char;
+  }
+  return kept;
+}
 
 /** What a call calls: its callee, or for a Java invocation, the invocation itself, which holds the object and the name. */
 const calleeOf = (node: Node): Node | null => (node.type === 'method_invocation' ? node : referenceBase(node));
