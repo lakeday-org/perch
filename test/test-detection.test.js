@@ -499,7 +499,6 @@ describe('Catch2 and doctest', () => {
     '    return total - total * percent / 100;',
     '}',
   ]);
-  // Built with Catch2 3.16.0 and run as `bdd_tests --reporter junit --order decl`; the JUnit below is what that run wrote.
   // Clause names this short are where the C++ grammar recovers `GIVEN("0") { }` as an ERROR and a block.
   const bdd = source([
       '#include "cart.hpp"',
@@ -538,32 +537,6 @@ describe('Catch2 and doctest', () => {
       '        }',
       '    }',
       '}',  ]);
-  const junit = source([
-      '<?xml version="1.0" encoding="UTF-8"?>',
-      '<testsuites>',
-      '  <testsuite name="bdd_tests" errors="0" failures="0" skipped="0" tests="9" hostname="tbd" time="0.000" timestamp="2026-09-29T01:52:17Z">',
-      '    <properties>',
-      '      <property name="random-seed" value="3873917095"/>',
-      '    </properties>',
-      '    <testcase classname="bdd_tests.global" name="Scenario: no discount" time="0.000" status="run"/>',
-      '    <testcase classname="bdd_tests.global" name="Scenario: no discount/Given: 0" time="0.000" status="run"/>',
-      '    <testcase classname="bdd_tests.global" name="Scenario: ten percent off" time="0.000" status="run"/>',
-      '    <testcase classname="bdd_tests.global" name="Scenario: ten percent off/When: 10" time="0.000" status="run"/>',
-      '    <testcase classname="bdd_tests.global" name="Scenario: ten percent off/When: 10/Then: ok" time="0.000" status="run"/>',
-      '    <testcase classname="bdd_tests.global" name="Scenario: discounts in turn" time="0.000" status="run"/>',
-      '    <testcase classname="bdd_tests.global" name="Scenario: discounts in turn/Given: a" time="0.000" status="run"/>',
-      '    <testcase classname="bdd_tests.global" name="Scenario: discounts in turn/Given: a/When: b" time="0.000" status="run"/>',
-      '    <testcase classname="bdd_tests.global" name="Scenario: discounts in turn/Given: a/And when: c" time="0.000" status="run"/>',
-      '    <testcase classname="bdd_tests.global" name="Scenario: discounts in turn/Given: a/Then: d" time="0.000" status="run"/>',
-      '    <testcase classname="bdd_tests.global" name="Scenario: discounts in turn/Given: a/And: e" time="0.000" status="run"/>',
-      '    <testcase classname="bdd_tests.global" name="apply_discount by section" time="0.000" status="run"/>',
-      '    <testcase classname="bdd_tests.global" name="apply_discount by section/a" time="0.000" status="run"/>',
-      '    <testcase classname="bdd_tests.global" name="apply_discount by section/p20" time="0.000" status="run"/>',
-      '    <testcase classname="bdd_tests.global" name="apply_discount by section/p50" time="0.000" status="run"/>',
-      '    <system-out/>',
-      '    <system-err/>',
-      '  </testsuite>',
-      '</testsuites>',  ]);
   const doctest = source([
     '#include "cart.hpp"',
     '#include <doctest/doctest.h>',
@@ -644,26 +617,6 @@ describe('Catch2 and doctest', () => {
       ]),
     });
     expect(broken.file('test/broken_test.cpp').methods.filter(item => item.node !== null).map(item => item.qualified_name)).toEqual(['reads']);
-  });
-
-  it('matches real Catch2 runs', async () => {
-    const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
-    const { tmpdir } = await import('node:os');
-    const { join } = await import('node:path');
-    const { computeCoverage, readReports } = await import('../src/coverage.js');
-    const { scan, graph } = await repository({ 'src/cart.cpp': cart, 'test/discount_test.cpp': bdd });
-    const root = await mkdtemp(join(tmpdir(), 'perch-catch2-'));
-    try {
-      await writeFile(join(root, 'junit.xml'), junit);
-      const reports = await readReports({ root, files: [{ kind: 'junit', path: join(root, 'junit.xml') }], paths: new Set(['src/cart.cpp', 'test/discount_test.cpp']) });
-      const coverage = computeCoverage({ scan, graph, reports });
-      expect(coverage.measurement.unmatched_runs).toEqual([]);
-      expect(Object.fromEntries(coverage.tests.map(test => [test.node.case.name, test.run.cases]))).toEqual({
-        'Scenario: no discount': 2, 'Scenario: ten percent off': 3, 'Scenario: discounts in turn': 6, 'apply_discount by section': 4,
-      });
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
   });
 });
 

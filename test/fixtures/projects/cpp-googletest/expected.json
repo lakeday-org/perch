@@ -1,311 +1,172 @@
 {
   "language": "cpp",
   "framework": "GoogleTest",
-  "reports": {
-    "junit": [
-      "reports/junit.xml"
-    ],
-    "cobertura": [
-      "reports/cobertura.xml"
-    ]
-  },
-  "left_out": [
-    "tools/ledger_import.cpp",
-    "bench/ledger_bench.cpp"
-  ],
+  "left_out": ["tools/ledger_import.cpp", "bench/ledger_bench.cpp"],
   "tests": [
     {
       "file": "tests/currency_test.cpp",
       "name": "YenHasNoMinorUnits",
-      "status": "passed",
-      "reaches": [
-        "src/currency.cpp::ledger.minor_units"
-      ]
+      "reaches": ["src/currency.cpp::ledger.minor_units"]
     },
     {
       "file": "tests/currency_test.cpp",
       "name": "ParsesKnownCodes",
-      "status": "passed",
-      "reaches": [
-        "src/currency.cpp::ledger.parse_currency",
-        "src/currency.cpp::ledger.currency_code"
-      ]
+      "reaches": ["src/currency.cpp::ledger.parse_currency", "src/currency.cpp::ledger.currency_code"]
     },
     {
       "file": "tests/currency_test.cpp",
       "name": "RejectsUnknownCode",
-      "status": "passed",
-      "reaches": [
-        "src/currency.cpp::ledger.parse_currency"
-      ]
+      "reaches": ["src/currency.cpp::ledger.parse_currency"]
     },
     {
       "file": "tests/money_test.cpp",
       "name": "AddsAmountsInOneCurrency",
-      "status": "passed",
-      "reaches": [
-        "src/money.cpp::ledger.Money.Money"
-      ]
+      "reaches": ["src/money.cpp::ledger.Money.Money"]
     },
     {
       "file": "tests/money_test.cpp",
       "name": "RefusesToAddAcrossCurrencies",
-      "status": "passed",
-      "reaches": [
-        "src/money.cpp::ledger.Money.Money"
-      ]
+      "reaches": ["src/money.cpp::ledger.Money.Money"]
     },
     {
       "file": "tests/money_test.cpp",
       "name": "AllocatesTheRemainderToTheFirstShares",
-      "status": "passed",
-      "reaches": [
-        "src/money.cpp::ledger.Money.allocate",
-        "include/ledger/money.hpp::ledger.Money.minor"
-      ]
+      "reaches": ["src/money.cpp::ledger.Money.allocate", "include/ledger/money.hpp::ledger.Money.minor"]
     },
     {
       "file": "tests/money_test.cpp",
       "name": "AllocatesANegativeAmount",
-      "status": "passed",
-      "reaches": [
-        "src/money.cpp::ledger.Money.allocate",
-        "include/ledger/money.hpp::ledger.Money.minor"
-      ]
+      "reaches": ["src/money.cpp::ledger.Money.allocate", "include/ledger/money.hpp::ledger.Money.minor"]
     },
     {
       "file": "tests/money_test.cpp",
       "name": "RejectsAllocationIntoZeroParts",
-      "status": "passed",
-      "reaches": [
-        "src/money.cpp::ledger.Money.allocate"
-      ]
+      "reaches": ["src/money.cpp::ledger.Money.allocate"]
     },
     {
       "file": "tests/money_test.cpp",
       "name": "FormatsCentsWithTwoDigits",
-      "status": "passed",
-      "reaches": [
-        "src/money.cpp::ledger.Money.to_string"
-      ]
+      "reaches": ["src/money.cpp::ledger.Money.to_string"]
     },
     {
       "file": "tests/money_test.cpp",
       "name": "FormatsYenWithoutDecimals",
-      "status": "passed",
-      "reaches": [
-        "src/money.cpp::ledger.Money.to_string"
-      ]
+      "reaches": ["src/money.cpp::ledger.Money.to_string"]
     },
     {
       "file": "tests/money_test.cpp",
       "name": "FormatsANegativeAmountInParentheses",
-      "status": "failed",
-      "reaches": [
-        "src/money.cpp::ledger.Money.to_string"
-      ]
+      "reaches": ["src/money.cpp::ledger.Money.to_string"]
     },
     {
       "file": "tests/money_test.cpp",
       "name": "DISABLED_RoundsHalfToEven",
-      "status": "skipped",
-      "reaches": [
-        "src/money.cpp::ledger.Money.allocate"
-      ]
+      "reaches": ["src/money.cpp::ledger.Money.allocate"]
     },
     {
       "file": "tests/transaction_test.cpp",
       "name": "BalancesWhenDebitsEqualCredits",
-      "status": "passed",
-      "reaches": [
-        "src/transaction.cpp::ledger.Transaction.Transaction",
-        "src/transaction.cpp::ledger.Transaction.debit",
-        "src/transaction.cpp::ledger.Transaction.credit",
-        "src/transaction.cpp::ledger.Transaction.is_balanced"
-      ]
+      "reaches": ["src/transaction.cpp::ledger.Transaction.Transaction", "src/transaction.cpp::ledger.Transaction.debit", "src/transaction.cpp::ledger.Transaction.credit", "src/transaction.cpp::ledger.Transaction.is_balanced"]
     },
     {
       "file": "tests/transaction_test.cpp",
       "name": "OneSidedIsNotBalanced",
-      "status": "passed",
-      "reaches": [
-        "src/transaction.cpp::ledger.Transaction.debit",
-        "src/transaction.cpp::ledger.Transaction.is_balanced"
-      ]
+      "reaches": ["src/transaction.cpp::ledger.Transaction.debit", "src/transaction.cpp::ledger.Transaction.is_balanced"]
     },
     {
       "file": "tests/transaction_test.cpp",
       "name": "RejectsAZeroAmount",
-      "status": "passed",
-      "reaches": [
-        "src/transaction.cpp::ledger.Transaction.debit"
-      ]
+      "reaches": ["src/transaction.cpp::ledger.Transaction.debit"]
     },
     {
       "file": "tests/transaction_test.cpp",
       "name": "RejectsMixedCurrencies",
-      "status": "passed",
-      "reaches": [
-        "src/transaction.cpp::ledger.Transaction.debit",
-        "src/transaction.cpp::ledger.Transaction.credit"
-      ]
+      "reaches": ["src/transaction.cpp::ledger.Transaction.debit", "src/transaction.cpp::ledger.Transaction.credit"]
     },
     {
       "file": "tests/transaction_test.cpp",
       "name": "TotalsOneSide",
-      "status": "passed",
-      "reaches": [
-        "src/transaction.cpp::ledger.Transaction.total"
-      ]
+      "reaches": ["src/transaction.cpp::ledger.Transaction.total"]
     },
     {
       "file": "tests/ledger_test.cpp",
       "name": "PostsABalancedTransaction",
-      "status": "passed",
-      "reaches": [
-        "src/ledger.cpp::ledger.Ledger.open",
-        "src/ledger.cpp::ledger.Ledger.post",
-        "src/ledger.cpp::ledger.Ledger.balance",
-        "include/ledger/ledger.hpp::ledger.Ledger.posted"
-      ]
+      "reaches": ["src/ledger.cpp::ledger.Ledger.open", "src/ledger.cpp::ledger.Ledger.post", "src/ledger.cpp::ledger.Ledger.balance", "include/ledger/ledger.hpp::ledger.Ledger.posted"]
     },
     {
       "file": "tests/ledger_test.cpp",
       "name": "RejectsAnUnbalancedTransaction",
-      "status": "passed",
-      "reaches": [
-        "src/ledger.cpp::ledger.Ledger.post"
-      ]
+      "reaches": ["src/ledger.cpp::ledger.Ledger.post"]
     },
     {
       "file": "tests/ledger_test.cpp",
       "name": "LeavesEveryAccountAloneWhenOneIsUnknown",
-      "status": "passed",
-      "reaches": [
-        "src/ledger.cpp::ledger.Ledger.post",
-        "src/ledger.cpp::ledger.Ledger.balance"
-      ]
+      "reaches": ["src/ledger.cpp::ledger.Ledger.post", "src/ledger.cpp::ledger.Ledger.balance"]
     },
     {
       "file": "tests/ledger_test.cpp",
       "name": "TrialBalanceIsZeroAfterPosting",
-      "status": "passed",
-      "reaches": [
-        "src/ledger.cpp::ledger.Ledger.post",
-        "src/ledger.cpp::ledger.Ledger.trial_balance"
-      ]
+      "reaches": ["src/ledger.cpp::ledger.Ledger.post", "src/ledger.cpp::ledger.Ledger.trial_balance"]
     },
     {
       "file": "tests/ledger_test.cpp",
       "name": "RefusesToOpenAnAccountTwice",
-      "status": "passed",
-      "reaches": [
-        "src/ledger.cpp::ledger.Ledger.open"
-      ]
+      "reaches": ["src/ledger.cpp::ledger.Ledger.open"]
     },
     {
       "file": "tests/ledger_test.cpp",
       "name": "ReportsAnUnknownAccountsBalance",
-      "status": "passed",
-      "reaches": [
-        "src/ledger.cpp::ledger.Ledger.balance"
-      ]
+      "reaches": ["src/ledger.cpp::ledger.Ledger.balance"]
     },
     {
       "file": "tests/ledger_test.cpp",
       "name": "AssetsAndExpensesIncreaseOnTheDebitSide",
-      "status": "passed",
-      "reaches": [
-        "src/account.cpp::ledger.normal_side"
-      ]
+      "reaches": ["src/account.cpp::ledger.normal_side"]
     },
     {
       "file": "tests/parse_test.cpp",
       "name": "ParsesToMinorUnits",
-      "status": "passed",
-      "reaches": [
-        "src/parse.cpp::ledger.parse_amount"
-      ]
+      "reaches": ["src/parse.cpp::ledger.parse_amount"]
     },
     {
       "file": "tests/parse_test.cpp",
       "name": "Throws",
-      "status": "passed",
-      "reaches": [
-        "src/parse.cpp::ledger.parse_amount"
-      ]
+      "reaches": ["src/parse.cpp::ledger.parse_amount"]
     },
     {
       "file": "tests/parse_test.cpp",
       "name": "ReadsAnImportLine",
-      "status": "passed",
-      "reaches": [
-        "src/parse.cpp::ledger.parse_posting",
-        "src/parse.cpp::ledger.split_fields",
-        "src/parse.cpp::ledger.parse_amount",
-        "src/currency.cpp::ledger.parse_currency"
-      ]
+      "reaches": ["src/parse.cpp::ledger.parse_posting", "src/parse.cpp::ledger.split_fields", "src/parse.cpp::ledger.parse_amount", "src/currency.cpp::ledger.parse_currency"]
     },
     {
       "file": "tests/parse_test.cpp",
       "name": "RejectsAnUnknownSide",
-      "status": "passed",
-      "reaches": [
-        "src/parse.cpp::ledger.parse_posting"
-      ]
+      "reaches": ["src/parse.cpp::ledger.parse_posting"]
     },
     {
       "file": "tests/parse_test.cpp",
       "name": "RejectsAnUnknownCurrency",
-      "status": "passed",
-      "reaches": [
-        "src/parse.cpp::ledger.parse_posting",
-        "src/currency.cpp::ledger.parse_currency"
-      ]
+      "reaches": ["src/parse.cpp::ledger.parse_posting", "src/currency.cpp::ledger.parse_currency"]
     },
     {
       "file": "tests/parse_test.cpp",
       "name": "CollapsesRunsOfWhitespace",
-      "status": "passed",
-      "reaches": [
-        "src/parse.cpp::ledger.split_fields"
-      ]
+      "reaches": ["src/parse.cpp::ledger.split_fields"]
     },
     {
       "file": "tests/stats_test.cpp",
       "name": "TracksTheMeanAndTheLargest",
-      "status": "passed",
-      "reaches": [
-        "include/ledger/stats.hpp::ledger.RunningAverage.add",
-        "include/ledger/stats.hpp::ledger.RunningAverage.mean",
-        "include/ledger/stats.hpp::ledger.RunningAverage.max"
-      ]
+      "reaches": ["include/ledger/stats.hpp::ledger.RunningAverage.add", "include/ledger/stats.hpp::ledger.RunningAverage.mean", "include/ledger/stats.hpp::ledger.RunningAverage.max"]
     },
     {
       "file": "tests/stats_test.cpp",
       "name": "HasNoLargestWhenEmpty",
-      "status": "passed",
-      "reaches": [
-        "include/ledger/stats.hpp::ledger.RunningAverage.mean",
-        "include/ledger/stats.hpp::ledger.RunningAverage.max"
-      ]
+      "reaches": ["include/ledger/stats.hpp::ledger.RunningAverage.mean", "include/ledger/stats.hpp::ledger.RunningAverage.max"]
     },
     {
       "file": "tests/stats_test.cpp",
       "name": "FindsTheFirstOfTheLargest",
-      "status": "passed",
-      "reaches": [
-        "include/ledger/stats.hpp::ledger.largest_by"
-      ]
+      "reaches": ["include/ledger/stats.hpp::ledger.largest_by"]
     }
-  ],
-  "untested": [
-    "include/ledger/ledger.hpp::ledger.Ledger.accounts",
-    "src/account.cpp::ledger.Account.is_contra",
-    "src/money.cpp::ledger.Money.negated",
-    "src/money.cpp::ledger.operator!=",
-    "src/report.cpp::ledger.kind_label",
-    "src/report.cpp::ledger.pad_right",
-    "src/report.cpp::ledger.render_trial_balance"
   ]
 }

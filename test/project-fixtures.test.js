@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { analyzeFiles, createSourceAnalyzer, sourceFile } from '../src/analysis.js';
 import { crateOf } from '../src/analyze.js';
 import { buildGraph } from '../src/graph.js';
-import { computeCoverage, readReports } from '../src/coverage.js';
+import { computeCoverage } from '../src/coverage.js';
 import { frameworkScope } from '../src/test-scope.js';
 
 const projects = fileURLToPath(new URL('./fixtures/projects/', import.meta.url));
@@ -35,7 +35,7 @@ for (const name of named) {
   if (text) all.push({ name, ...JSON.parse(text) });
 }
 
-/** The project read as a coverage run reads it: parsed, its graph built, its scope found, its reports matched. */
+/** The project read as a coverage run reads it: parsed, its graph built, its scope found. */
 async function read(project) {
   const root = join(projects, project.name);
   const paths = await tracked(root);
@@ -49,9 +49,7 @@ async function read(project) {
   const graph = buildGraph(scan.files, { crates });
   // The fixtures are not installed, so a JavaScript config does not load here and the tests the parser found stand in for it.
   const scope = await frameworkScope({ root, tree: paths.map(path => ({ type: 'blob', path })), scan, graph });
-  const files = Object.entries(project.reports).flatMap(([kind, list]) => list.map(path => ({ kind, path: join(root, path) })));
-  const reports = await readReports({ root, files, paths: new Set(paths) });
-  const coverage = computeCoverage({ scan, graph, reports, inScope: path => !scope || scope.source(path), runs: path => !scope || scope.test(path), named: () => true });
+  const coverage = computeCoverage({ scan, graph, inScope: path => !scope || scope.source(path), runs: path => !scope || scope.test(path), named: () => true });
   return { scope, coverage };
 }
 
@@ -67,32 +65,19 @@ describe('project fixtures', () => {
     let read$;
     const once = () => (read$ ??= read(project));
 
-    it('matches every run in its reports to a test, and every report path to a file', async () => {
-      const { coverage } = await once();
-      expect(coverage.measurement.unmatched_runs).toEqual([]);
-      expect(coverage.measurement.unmatched_paths).toEqual([]);
-    }, 60000);
-
     it('leaves out the files no test framework covers', async () => {
       const { scope } = await once();
       for (const path of project.left_out) expect(scope.source(path) || scope.test(path), `${path} is left out`).toBe(false);
     }, 60000);
 
-    it('finds each test, with its run and what it reaches', async () => {
+    it('finds each test and what it reaches', async () => {
       const { coverage } = await once();
       for (const want of project.tests) {
         const test = coverage.tests.find(item => item.node.path === want.file && item.node.case.name === want.name);
         const at = `${want.file} ${want.name}`;
         expect(test, `${at} is found`).toBeDefined();
-        expect(test.run?.status, `${at} ran`).toBe(want.status);
         expect(test.reach.map(item => item.id), `${at} reaches`).toEqual(expect.arrayContaining(want.reaches));
       }
-    }, 60000);
-
-    it('says which methods the coverage report shows never ran', async () => {
-      const { coverage } = await once();
-      const unran = coverage.methods.filter(method => method.measured && method.measured.lines.hit === 0).map(method => method.id).sort();
-      expect(unran).toEqual([...project.untested].sort());
     }, 60000);
   });
 });

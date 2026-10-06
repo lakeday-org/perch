@@ -1,7 +1,8 @@
 /** `perch scan`: analyze every tracked source file at a revision and rank the files by risk. No model. */
 import { availableParallelism } from 'node:os';
 import { git, listTree, readBlobs } from './git.js';
-import { analyzeFiles, METHOD_HASH, sourceFile } from './analysis.js';
+import { analyzeFiles, languageOf, METHOD_HASH, sourceFile } from './analysis.js';
+import { headerLanguage } from './languages.js';
 import { createFileSelector, EXCLUSIONS_PROFILE } from './exclusions.js';
 import { PARSE_VERSION } from './treesitter/types.ts';
 import { identity, openStore, readScan, writeScan } from './store.js';
@@ -51,7 +52,8 @@ export async function analyzeTree({ root, revision, out, analyzer, label = root,
   }
   await store.exclude(root);
   const tree = await listTree(root, revision);
-  const sources = tree.filter(createFileSelector(tree)).filter(sourceFile).filter(selected(paths));
+  const header = headerLanguage(tree.map(item => item.path));
+  const sources = tree.filter(createFileSelector(tree)).filter(sourceFile).filter(selected(paths)).map(file => ({ ...file, language: languageOf(file.path, header) }));
   // A repository with no code still has files a rule can be about: a docs-only repository scans zero methods, not an error.
   debug(`analyzing ${sources.length} source files`);
   // Blobs stream from one git process while the analyzer works through them in order.
