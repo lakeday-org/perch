@@ -1,7 +1,7 @@
 /** Use Perch Cloud as a System One endpoint and stream scan results while work continues. */
 import { randomUUID } from 'node:crypto';
 import { git } from './git.js';
-import { createSystemOne } from './systemone.js';
+import { createSystemOne, endpointKey } from './systemone.js';
 import {
   actionsCanSignIn, actionsToken, CLOUD_ORIGIN, cloudRequest, jsonBody, readCloudLogin, sessionToken,
 } from './cloud-auth.js';
@@ -171,7 +171,7 @@ export async function configuredSystemOne({ env, root, log, command, version, fo
   if (source.kind === 'none') throw new Error('Not signed in to Perch Cloud. Run perch login, or set PERCH_API_KEY to a CI token from the dashboard.');
   if (source.kind === 'direct') {
     const limits = limitsFrom(env);
-    return createSystemOne({ apiKey: env.PERCH_API_KEY || env.TYPESAFE_API_KEY, baseUrl: env.PERCH_BASE_URL, model: env.PERCH_MODEL_ID, log, fetchImpl,
+    return createSystemOne({ apiKey: env[endpointKey(env)], baseUrl: env.PERCH_BASE_URL, model: env.PERCH_MODEL_ID, log, fetchImpl,
       limits, firstQuestions: limits.questions ?? FIRST_QUESTIONS });
   }
   const cloudFetch = sendingAs(fetchImpl, command, version);

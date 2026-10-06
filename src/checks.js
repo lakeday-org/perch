@@ -12,6 +12,7 @@ import { access, constants, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseQuestions } from './ask.js';
 import { git } from './git.js';
+import { endpointKey } from './systemone.js';
 import { RULES_FILE } from './units.js';
 
 /** Node has to be new enough for what the parser and the client use. package.json says so; this is the same number. */
@@ -33,7 +34,7 @@ export async function runChecks({ root, out, env, versions, credential = 'none' 
     : bad('node', versions.node, `perch needs node ${NEEDS_NODE} or newer`));
 
   // Which credential scans will use, as credentialSource decided it, and never its value.
-  const keyName = env.PERCH_API_KEY ? 'PERCH_API_KEY' : 'TYPESAFE_API_KEY';
+  const keyName = endpointKey(env);
   const signIn = 'run perch login, or set PERCH_API_KEY to a CI token from the dashboard';
   checks.push({
     token: ok('key', `PERCH_API_KEY, ${env.PERCH_API_KEY?.length} characters, for Perch Cloud`),
