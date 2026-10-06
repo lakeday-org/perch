@@ -156,13 +156,13 @@ export function fileRecord(file, source, analysis) {
   // module-level `vi.mock`, a `@Mock` field, or a `beforeEach` callback, applies to every test in the file.
   const mocks = (analysis.mocks ?? []).map(mock => ({ owner: mock.owner === 'file' ? 'file' : ownerOf(mock.owner, null, null) ?? 'file', target: mock.target, line: mock.line }));
   const test = holdsOnlyTests(methods);
-  return { path: file.path, blob: file.sha, language: languageOf(file.path), test, metrics: trim(analysis.metrics), methods, calls, values, reads, imports, package: analysis.package ?? null, mocks,
+  return { path: file.path, blob: file.sha, language: file.language ?? languageOf(file.path), test, metrics: trim(analysis.metrics), methods, calls, values, reads, imports, package: analysis.package ?? null, mocks,
     ...(analysis.default_export ? { default_export: analysis.default_export } : {}), ...(binds.length ? { binds } : {}), ...(Object.keys(extended).length ? { bases: extended } : {}) };
 }
 
 /** Parse one file and read it: its record, or why it could not be read. What a worker thread runs for each file it is given. */
 export async function parseFile(file, source, analyzer) {
-  const analysis = await analyzer.analyzeSource(source, languageOf(file.path), { path: file.path });
+  const analysis = await analyzer.analyzeSource(source, file.language ?? languageOf(file.path), { path: file.path });
   const diagnostic = { path: file.path, status: analysis.parser_status, message: analysis.parser_message, diagnostics: analysis.diagnostics?.slice(0, 8) };
   if (analysis.parser_status !== 'parsed') return { failed: diagnostic };
   return { record: fileRecord(file, source, analysis), functions: analysis.declarations.length, risk: analysis.metrics?.risk_score ?? null,

@@ -365,3 +365,39 @@ describe('a method called on what a variable holds', () => {
     expect(graph.callees('src/test/kotlin/okio/SourceTest.kt::SourceTest.buffers')).toContain('src/main/kotlin/okio/Okio.kt::Source.buffer');
   });
 });
+
+describe('a call through the package the repository is', () => {
+  it("follows a package's star imports to the module that defines the name", async () => {
+    const graph = await graphOf({
+      'pkg/__init__.py': 'from ._models import *\n',
+      'pkg/_models.py': 'class Response:\n    def __init__(self, text):\n        self.text = text\n\ndef make():\n    return 1\n',
+      'tests/test_models.py': 'import pkg\n\ndef test_response():\n    assert pkg.Response("a").text == "a"\n    assert pkg.make() == 1\n',
+      // A bare name a star import brought in is the module's too.
+      'tests/test_bare.py': 'from pkg._models import *\n\ndef test_bare():\n    assert make() == 1\n',
+    });
+    expect(graph.callees('tests/test_models.py::test_response').sort()).toEqual(['pkg/_models.py::Response.__init__', 'pkg/_models.py::make']);
+    expect(graph.callees('tests/test_bare.py::test_bare')).toEqual(['pkg/_models.py::make']);
+  });
+
+  it('takes a module that passes another on whole for that module', async () => {
+    const graph = await graphOf({
+      'index.js': "module.exports = require('./lib/app');\n",
+      'lib/app.js': 'function createApp() {\n  return {};\n}\ncreateApp.version = 1;\nmodule.exports = createApp;\n',
+      'test/app.test.js': "const app = require('..');\nit('makes one', () => {\n  app();\n});\nit('has a version', () => {\n  expect(typeof app.version).toBe('number');\n});\n",
+    });
+    expect(graph.callees('test/app.test.js::makes one')).toEqual(['lib/app.js::createApp']);
+    // Reading what the package exports uses the repository, though nothing is called.
+    expect(graph.callees('test/app.test.js::has a version')).toEqual([]);
+    expect(graph.usesRepository('test/app.test.js::has a version')).toBe(true);
+  });
+
+  it('calls a C++ template and a Rust function by the name before their type arguments', async () => {
+    const graph = await graphOf({
+      'src/add.hpp': 'template <bool Twice> int add(int a) {\n  return Twice ? a + a : a;\n}\n',
+      'test/add_test.cc': '#include "../src/add.hpp"\n#include <gtest/gtest.h>\n\nTEST(Add, Twice) {\n  EXPECT_EQ(add<true>(1), 2);\n}\n',
+      'src/lib.rs': 'pub fn parse<T: Default>(text: &str) -> T {\n    T::default()\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn parses() {\n        assert_eq!(parse::<i32>("1"), 0);\n    }\n}\n',
+    });
+    expect(graph.callees('test/add_test.cc::Add.Twice')).toEqual(['src/add.hpp::add']);
+    expect(graph.callees('src/lib.rs::parses')).toEqual(['src/lib.rs::parse']);
+  });
+});

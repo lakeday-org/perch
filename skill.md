@@ -124,38 +124,39 @@ Always give a reason. That is what the next person reads instead of reopening it
 
 ## Check the tests a change needs
 
-Run the tests with a JUnit reporter and a coverage report, then point perch at both.
+`perch coverage --since main` runs predictive mutation testing over the branch. It
+mutates one line at a time in every method a test reaches and asks which tests would
+fail against each mutant. It runs no tests and reads nothing a test run wrote.
 
 ```console
-$ perch coverage --since main --junit reports/vitest/junit.xml --lcov reports/vitest/lcov.info
-Changed since main  Untested lines  Patch coverage
-src/main.ts                      1              0%
-All changed source               1             50%
-
+$ perch coverage --since main
 src/cart.ts
-  ID        Line  Problem    Confidence  Test or method  Note
-  d0bee7da    12  edge_case        100%  applyDiscount   Untested case: applyDiscount at the edge…
+  ID        Line  Problem   Confidence  Test or method  Note
+  3945b1f7    12  survived         60%  applyDiscount   With `>` instead of `>=`, none of the 5 tests reaching it…
+  d6f68653    12  survived         58%  applyDiscount   With `1` instead of `0`, none of the 5 tests reaching it …
 
 test/cart.test.ts
-  ID        Line  Problem    Confidence  Test or method        Note
-  427fce7a    22  redundant         99%  applyDiscount > tak…  Same checks and calls as applyDisc…
-Dropping 7 redundant or smelly tests saves 4ms of 6ms and leaves every method reached.
-Whole repository: 4 of 4 methods reached, 100% of lines ran, 9 problems in code this branch did not change
-.perch/coverage/index.html
-6 requests  6k tokens in / 1k out  $0.0003
+  ID        Line  Problem    Confidence  Test or method              Note
+  427fce7a    22  redundant         96%  applyDiscount > takes 75 …  Kills the same mutants as applyDiscount > ta…
+shop at commit 861c607: 4 methods, 12 tests, 3 problems in changed code, 4 elsewhere
+Report: .perch/coverage/index.html
+14 requests  12k tokens in / 666 out  $0.0036
 ```
 
-Untested lines counts the changed lines of code no test ran, in each file where there
-are any. Under the table are the problems
-in what the branch changed: a method no test runs, a branch no test takes, and a test
-that repeats another, checks nothing, or touches the disk or network unmocked. It exits
-`3` when there are any.
+A `survived` mutant is a line the tests run but never check. `--json` gives each one
+in full: the finding names its `mutant`, and the method's `mutants` entry with that id
+has the line as written (`original`), as mutated (`mutated`), and the tests that were
+asked (`asked`). Write a test in one of those test files with an input for which the
+two lines give different results, and assert on the result. For `if (percent >= 100)`
+against `if (percent > 100)`, that input is `percent` of exactly `100`.
 
-Without report files it still runs, and marks what it estimated `est.`. List the
-files under `coverage_reports` in `perch.yaml` to stop naming them each time.
+A `redundant` test kills exactly the mutants an earlier test kills: compare the two
+and delete one. `checks_nothing` kills no mutant in the code it reaches: make it
+assert on what that code returns. `infra` calls a live service: mock it.
 
-`--json` gives every problem with its file, line and evidence. Fix each one, or close
-it with `perch close <id> --reason "..."` when the test is right as it is.
+Run `perch coverage --since main` again afterwards; the mutant should be gone from the
+list. It exits `3` while a problem remains in changed code. Close a problem with
+`perch close <id> --reason "..."` when the test is right as it is.
 
 ## Write a rule when a mistake repeats
 

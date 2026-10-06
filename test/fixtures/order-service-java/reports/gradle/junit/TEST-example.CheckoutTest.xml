@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuite name="example.CheckoutTest" tests="1" skipped="0" failures="0" errors="0" timestamp="2026-09-29T01:54:09.092Z" hostname="studio.local" time="0.001">
-  <properties/>
-  <testcase name="placeOrderReturnsTheSubtotal()" classname="example.CheckoutTest" time="0.001"/>
-  <system-out><![CDATA[]]></system-out>
-  <system-err><![CDATA[]]></system-err>
-</testsuite>

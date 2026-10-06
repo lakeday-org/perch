@@ -17,48 +17,11 @@ const short = revision => String(revision ?? '').slice(0, 7);
 const words = label => String(label ?? '').replaceAll('_', ' ');
 /** Each kind of problem by the name the page gives it. */
 const PROBLEM_NAMES = {
-  untested: 'No test', edge_case: 'Untested branch', redundant: 'Duplicate test', checks_nothing: 'Checks nothing',
-  asserts_mock: 'Checks its own mock', no_assertion: 'No assertion', tautology: 'Restates the code', assertion_roulette: 'Too many checks',
-  mystery_guest: 'Hidden dependency', eager: 'Checks one of many', dead_setup: 'Unused setup', infra: 'Unmocked I/O', unresolved: 'Calls no repo code',
+  survived: 'Survived mutant', redundant: 'Duplicate test', checks_nothing: 'Checks nothing', infra: 'Live service',
 };
 const problemName = kind => PROBLEM_NAMES[kind] ?? words(kind);
 /** A saved report's ISO timestamp, to the minute. Seconds and milliseconds only make two dates harder to compare by eye. */
 const when = stamp => String(stamp ?? '').replace('T', ' ').replace(/:\d\d(\.\d+)?Z$/, ' UTC');
-
-/**
- * A duration the report holds in seconds, the way a test runner prints one: 41.2s under a minute, 3m10s over it, and
- * milliseconds for a time too short to show a tenth of a second.
- */
-function seconds(value) {
-  if (value === null || value === undefined) return '–';
-  const size = Math.abs(value);
-  if (size < 0.1) return `${Math.round(value * 1000)}ms`;
-  if (size < 60) return `${value.toFixed(1)}s`;
-  const whole = Math.round(value), hours = Math.floor(whole / 3600), minutes = Math.floor((whole % 3600) / 60), rest = whole % 60;
-  return hours ? `${hours}h${String(minutes).padStart(2, '0')}m${String(rest).padStart(2, '0')}s` : `${minutes}m${String(rest).padStart(2, '0')}s`;
-}
-
-/** What each cost tier means, in the order the `cost` question's four levels are asked. */
-
-/** The report kinds line and branch hits are read from: LCOV, Cobertura, JaCoCo or coverage.py JSON. */
-const COVERAGE_KINDS = ['lcov', 'cobertura', 'jacoco', 'contexts'];
-
-/** The report files of the given kinds that the report says it read. */
-const inputsOf = (report, kinds) => (report.inputs ?? []).filter(input => kinds.includes(input.kind));
-
-/** The "measured" tag, with the reports it was read from in its tooltip; the header lists them by name. */
-const measuredBy = inputs => `<span class="msr" title="${escape(inputs.map(input => `${input.kind} ${input.path}`).join('\n'))}">measured</span>`;
-
-/**
- * The tag saying where a figure came from: the coverage report, Jev's estimate, or a rule of the graph (a method no test reaches
- * exercises nothing). A basis the report does not give gets no tag rather than a guessed one.
- */
-function basisTag(basis) {
-  if (basis === 'measured') return '<span class="msr" title="read from the coverage report">measured</span>';
-  if (basis === 'estimated') return '<span class="est" title="estimated by Jev">est.</span>';
-  if (basis === 'static') return '<span class="stc" title="from the call graph">static</span>';
-  return '';
-}
 
 /** A count of something as "n thing" or "n things". */
 const counted = (count, one, many = `${one}s`) => `${escape(count)} ${count === 1 ? one : many}`;
@@ -122,10 +85,7 @@ function lookups(report, page = null) {
     kinds[finding.kind] = (kinds[finding.kind] ?? 0) + 1;
   }
   const diffFiles = new Map((report.diff?.files ?? []).map(entry => [entry.path, entry]));
-  // With --since, the changed lines of code in each file that the tests did not run.
-  const missed = new Map((report.branch?.files ?? []).map(file => [file.path, new Set(file.missed ?? [])]));
-  return { methods, tests, findings, counted, diffFiles, kinds: path => counted.get(path) ?? {}, findingsIn: path => inFile.get(path) ?? [], missed: path => missed.get(path) ?? new Set(),
-    href: linkTo(page), home: '' };
+  return { methods, tests, findings, counted, diffFiles, kinds: path => counted.get(path) ?? {}, findingsIn: path => inFile.get(path) ?? [], href: linkTo(page), home: '' };
 }
 
 /** A link to a method or a test by id, named as the report names it. An id the report does not hold is shown as the id. */
@@ -149,8 +109,8 @@ function header(report, home = '') {
 }
 
 /**
- * Four numbers, each linking to the view that breaks it down: how many methods have a test, how many lines ran and branches were
- * taken, and how many tests are worth keeping. A figure a report measured says so; one Jev estimated says that instead.
+ * Four numbers, each linking to the view that breaks it down: how many methods have a test, the mutation score and how many
+ * mutants survived, and how many tests are worth keeping.
  */
 function headline(report) {
   const totals = report.totals, moved = report.diff?.totals ?? {};
@@ -165,42 +125,27 @@ function headline(report) {
   const moving = (metric, unit, options = {}) => delta(was(metric), now(metric), { unit, ...options });
   const tile = (view, title, big, sub, extra = '', hint = '') => `<a class="card" href="#view=${view}"><div class="card-title"${hint ? ` title="${escape(hint)}"` : ''}>${title}</div><div class="big">${big}</div><div class="sub">${sub}</div>${extra}</a>`;
   const share = value => `<span class="${band(value)}-text">${percent(value)}</span>`;
-  const measured = totals.measured ?? null, from = measuredBy(inputsOf(report, COVERAGE_KINDS));
   const tiles = [];
-
-  // With --since, how much of the branch's changed code ran comes first: it is the number the branch is judged by.
-  const patch = report.branch?.patch;
-  if (patch?.total) {
-    const ran = ratio(patch.hit, patch.total);
-    tiles.push(tile('summary', 'Changed lines run', share(ran), `${escape(patch.hit)} of ${escape(patch.total)} changed since ${escape(report.branch.ref)}`, bar(ran), '', 'Changed lines of code the tests ran, of all changed lines of code since the branch left its base. Blank lines and comments do not count.'));
-  }
   const reached = ratio(totals.reached, totals.methods);
   tiles.push(tile('sources', 'Methods tested', share(reached), `${escape(totals.reached)} of ${escape(totals.methods)} have a test`,
-    changed([moving('reached', 'methods')]) + bar(reached), `Methods a test calls, directly or within ${report.depth} calls, or that the coverage report shows ran, of all methods.`));
-  if (measured) {
-    const lines = ratio(measured.lines.hit, measured.lines.total);
-    tiles.push(tile('sources', 'Lines run', share(lines), `${escape(measured.lines.hit)} of ${escape(measured.lines.total)} ${from}`,
-      changed([moving('measured_lines', '', { points: true })]) + bar(lines), 'Lines the coverage report shows ran, of the lines it counts. Blank lines and comments do not count.'));
-  }
-  if (measured?.branches.total) {
-    const branches = ratio(measured.branches.hit, measured.branches.total);
-    tiles.push(tile('sources', 'Branches taken', share(branches), `${escape(measured.branches.hit)} of ${escape(measured.branches.total)} ${from}`,
-      changed([moving('measured_branches', '', { points: true })]) + bar(branches), 'Sides of branches the coverage report shows taken, of all sides of every branch.'));
-  } else {
-    tiles.push(tile('sources', 'Branches taken', share(totals.exercised), '<span class="est">estimated by Jev</span>',
-      changed([moving('exercised', '', { points: true })]) + bar(totals.exercised), 'With no coverage report, Jev\'s estimate of how much of each method\'s branching its tests take, averaged over the methods.'));
+    changed([moving('reached', 'methods')]) + bar(reached), `Methods a test calls, directly or within ${report.depth} calls, of all methods.`));
+  // The mutation score, mutants killed of all mutants: the number a test suite is judged by, and the survivors are what to act on.
+  if (totals.mutants) {
+    const score = ratio(totals.killed, totals.mutants);
+    tiles.push(tile('sources', 'Mutation score', share(score), `${escape(totals.killed)} of ${escape(totals.mutants)} mutants killed`,
+      changed([moving('score', '', { points: true })]) + bar(score), 'Mutants some test is predicted to fail against, of every mutant in the methods tests reach. A mutant is one line changed: a comparison moved to its boundary, a condition negated, an operator swapped.'));
+    tiles.push(tile('problems', 'Survived', `${escape(totals.survived)}<span class="of"> of ${escape(totals.mutants)}</span>`, 'mutants no test kills',
+      changed([moving('survived', 'mutants', { better: 'down' })]), 'Mutants no test reaching the method is predicted to fail against, that would change what a caller sees. Each is listed with the edit and the tests that miss it.'));
   }
   const drop = totals.drop ?? { count: 0 };
-  const suite = totals.suite ?? null;
-  // The tests that repeat another or check nothing, and what cutting them saves: the number a person acts on. More is worse, so
-  // the bar is toned by the share that stays.
-  const timed = typeof drop.seconds === 'number' && drop.count;
-  const saving = timed ? `Saves ${escape(seconds(drop.seconds))}${suite ? ` of ${escape(seconds(suite.seconds))}` : ''}` : drop.count ? 'Time not measured' : 'Every test is worth keeping';
-  const cut = side => (moved.redundant?.[side] ?? null) === null || (moved.smelly?.[side] ?? null) === null ? null : moved.redundant[side] + moved.smelly[side];
+  // The tests that repeat another or check nothing: the number a person acts on. More is worse, so the bar is toned by the
+  // share that stays.
+  const saving = drop.count ? `${counted(drop.count, 'test')} could go` : 'Every test is worth keeping';
+  const cut = side => (moved.redundant?.[side] ?? null) === null || (moved.weak?.[side] ?? null) === null ? null : moved.redundant[side] + moved.weak[side];
   const going = ratio(drop.count, totals.tests);
   tiles.push(tile('tests', 'Redundant tests', `${escape(drop.count)}<span class="of"> of ${escape(totals.tests)}</span>`, saving,
     changed([delta(cut('before'), cut('after'), { unit: 'tests', better: 'down' })]) + bar(going, null, band(going === null ? null : 1 - going)),
-    'The number of tests that are duplicate or weak out of the total number of tests, and the time they took, pulled from the JUnit test report.'));
+    'The number of tests that are duplicates or check nothing, out of the total number of tests.'));
   return `<section class="cards">${tiles.join('')}</section>`;
 }
 
@@ -210,10 +155,6 @@ const fromTo = (before, after, show = value => escape(value)) =>
   `<span class="was">${before === null || before === undefined ? '—' : show(before)}</span> → <b>${after === null || after === undefined ? '—' : show(after)}</b>`;
 /** Whether a method in the diff is reached, as a word. */
 const reachedWord = reached => (reached ? 'yes' : 'no');
-/** Whether the coverage report shows a method's lines ran, as a word. */
-const ranWord = executed => (executed ? 'ran' : 'never ran');
-/** A measured count as hit/total. */
-const hits = count => `${escape(count.hit)}/${escape(count.total)}`;
 
 /** Changes since the compared report, per file, per method, per test and per finding, as the diff lists them. */
 function changes(report, index) {
@@ -224,15 +165,12 @@ function changes(report, index) {
     const name = entry.after ? `<a href="${index.href(entry.path)}">${escape(entry.path)}</a>` : escape(entry.path);
     return `<tr><td class="path">${name}</td><td>${fromTo(entry.before && before.methods, entry.after && after.methods)}</td>`
       + `<td>${fromTo(entry.before && before.reached, entry.after && after.reached)}</td>`
-      + `<td>${fromTo(entry.before && before.exercised, entry.after && after.exercised, percent)}</td>`
+      + `<td>${fromTo(entry.before && before.score, entry.after && after.score, percent)}</td>`
       + `<td>${fromTo(entry.before && before.tests, entry.after && after.tests)}</td><td>${fromTo(entry.before && before.useful, entry.after && after.useful)}</td></tr>`;
   }).join('');
-  // The measured columns are shown only when some method in the diff was measured on one side or the other.
-  const ran = diff.methods.some(entry => [entry.before, entry.after].some(state => state?.measured));
   const methodRows = diff.methods.map(entry => `<tr><td>${index.methods.has(entry.id) ? unitLink(entry.id, index) : escape(entry.name)}</td>`
     + `<td class="path">${escape(entry.path)}</td><td>${fromTo(entry.before?.reached, entry.after?.reached, reachedWord)}</td>`
-    + (ran ? `<td>${fromTo(entry.before?.executed, entry.after?.executed, ranWord)}</td><td>${fromTo(entry.before?.measured?.lines, entry.after?.measured?.lines, hits)}</td>` : '')
-    + `<td>${fromTo(entry.before?.exercised, entry.after?.exercised, percent)}</td></tr>`).join('');
+    + `<td>${fromTo(entry.before && `${entry.before.killed}/${entry.before.mutants}`, entry.after && `${entry.after.killed}/${entry.after.mutants}`)}</td></tr>`).join('');
   const added = diff.tests.added.map(id => `<li>${unitLink(id, index)}</li>`).join('');
   const removed = diff.tests.removed.map(id => `<li><code>${escape(id)}</code></li>`).join('');
   const block = (title, count, body) => `<details class="change" ${count ? 'open' : ''}><summary><h3>${title}</h3><span class="count">${count}</span></summary>${body}</details>`;
@@ -241,15 +179,15 @@ function changes(report, index) {
     // every problem it had go away as well.
     + (diff.findings.fixed.length ? `${counted(diff.findings.fixed.length, 'problem')} from that run ${diff.findings.fixed.length === 1 ? 'is' : 'are'} gone.` : ''), '<section id="changes" class="panel">'
     + block('New problems', diff.findings.new.length, diff.findings.new.length ? actionTable(diff.findings.new, index) : '<p class="muted">None.</p>')
-    + block('Files', diff.files.length, diff.files.length ? `<div class="scroll"><table class="grid"><thead><tr><th>File</th><th>Methods</th><th>Reached</th><th>Branches</th><th>Tests</th><th>Kept</th></tr></thead><tbody>${fileRows}</tbody></table></div>` : '<p class="muted">None.</p>')
-    + block('Methods that moved', diff.methods.length, diff.methods.length ? `<div class="scroll"><table class="grid"><thead><tr><th>Method</th><th>File</th><th>Reached</th>${ran ? '<th>Ran <span class="msr">measured</span></th><th>Lines <span class="msr">measured</span></th>' : ''}<th>Branches</th></tr></thead><tbody>${methodRows}</tbody></table></div>` : '<p class="muted">None.</p>')
+    + block('Files', diff.files.length, diff.files.length ? `<div class="scroll"><table class="grid"><thead><tr><th>File</th><th>Methods</th><th>Reached</th><th>Mutation score</th><th>Tests</th><th>Kept</th></tr></thead><tbody>${fileRows}</tbody></table></div>` : '<p class="muted">None.</p>')
+    + block('Methods that moved', diff.methods.length, diff.methods.length ? `<div class="scroll"><table class="grid"><thead><tr><th>Method</th><th>File</th><th>Reached</th><th>Killed</th></tr></thead><tbody>${methodRows}</tbody></table></div>` : '<p class="muted">None.</p>')
     + block('Tests added', diff.tests.added.length, added ? `<ul class="ids">${added}</ul>` : '<p class="muted">None.</p>')
     + block('Tests removed', diff.tests.removed.length, removed ? `<ul class="ids">${removed}</ul>` : '<p class="muted">None.</p>')
     + '</section>');
 }
 
-/** The kinds of problem that say a test is not worth its keep, as the smell question names them. */
-const SMELLS = new Set(['asserts_mock', 'no_assertion', 'tautology', 'assertion_roulette', 'mystery_guest', 'eager', 'dead_setup', 'checks_nothing']);
+/** The kinds of problem that say a test is not worth its keep. */
+const WEAK = new Set(['checks_nothing']);
 
 /**
  * What a problem is about and what perch found, for the rows and notes that show it: the test or method it is on, and one fact.
@@ -259,14 +197,7 @@ function problemFacts(finding, index) {
   const method = index.methods.get(finding.unit), test = index.tests.get(finding.unit);
   const subject = escape(test ? testName(test) : method?.name ?? finding.name);
   let fact = escape(finding.note);
-  if (finding.kind === 'edge_case' && method?.gap) {
-    fact = escape(finding.note);
-  } else if (finding.kind === 'redundant' && test?.redundant_with) {
-    fact = `Same checks and ${test.redundant_basis === 'measured' ? 'lines' : 'calls'} as ${unitLink(test.redundant_with, index)}.`;
-  } else if (finding.kind === 'infra') {
-    const touched = (test?.touches ?? []).filter(category => category !== 'clock').map(category => TOUCHES[category] ?? category);
-    if (touched.length) fact = `Touches ${escape(listed(touched))}.`;
-  }
+  if (finding.kind === 'redundant' && test?.redundant_with) fact = `Kills the same mutants as ${unitLink(test.redundant_with, index)}, and no others.`;
   return { subject, fact: `${fact}${unsure(finding.probability)}` };
 }
 
@@ -293,10 +224,10 @@ const actionTable = (findings, index) => `<div class="scroll"><table class="grid
   + `<tbody>${findings.map(finding => `<tr data-finding="${escape(finding.id)}">${actionCells(finding, index)}<td class="x-cell">${dismissMark}</td></tr>`).join('')}</tbody></table></div>`;
 
 /**
- * A first review, in four short lists: the files that most need tests, the riskiest code no test covers, the test files with the
- * most to cut, and the slowest tests that reach outside the process. Each is ranked by what it costs to leave, and shows a few
- * rows with a link to every one of them under All problems. The rankings are counted from the report; nothing is added to it.
- * With --since the same lists hold only the problems in code the branch changed, under a table of how much of it ran.
+ * A first review, in two short lists: the methods with a survived mutant, riskiest first, and the tests that could go or that
+ * reach outside the process. Each is ranked by what it costs to leave, and shows a few rows
+ * with a link to every one of them under All problems. The rankings are counted from the report; nothing is added to it. With
+ * --since the same lists hold only the problems in code the branch changed.
  */
 function actionsView(report, index) {
   const TOP = 8;
@@ -308,71 +239,38 @@ function actionsView(report, index) {
   const table = (heads, rows) => `<div class="scroll"><table class="grid"><thead><tr>${heads}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
   const section = (title, lede, body, more) => (body
     ? `<section class="panel group"><div class="panel-head"><h3>${title}</h3>${lede ? `<p class="lede">${lede}</p>` : ''}</div>${body}${more ? `<div class="panel-foot">${more}</div>` : ''}</section>` : '');
-  const fileLink = path => `<a class="path" href="${index.href(path)}">${escape(path)}</a>`;
   const of = kinds => scoped.filter(finding => kinds.includes(finding.kind));
   // What the changes since the compared run brought in is marked new and put first in its list: it is what the person reading
   // this is working on now. With --since, the lists are the branch's already, and nothing is marked.
   const fresh = new Set(report.branch ? [] : (report.diff?.findings?.new ?? []).map(finding => finding.id));
   const newFirst = (a, b) => Number(fresh.has(b.id)) - Number(fresh.has(a.id));
 
-  // Untested code: methods no test runs and branches no test takes, one row per method, riskiest first.
-  const missing = of(['untested', 'edge_case']);
+  // Survived mutants, one row per method, riskiest first.
+  const missing = of(['survived']);
   const perMethod = new Map();
-  for (const finding of missing) {
-    const held = perMethod.get(finding.unit);
-    if (!held || finding.kind === 'untested') perMethod.set(finding.unit, finding);
-  }
+  for (const finding of missing) if (!perMethod.has(finding.unit)) perMethod.set(finding.unit, finding);
   const riskiest = [...perMethod.values()].sort((a, b) => newFirst(a, b) || risk(b.unit) - risk(a.unit) || a.path.localeCompare(b.path));
   const methodRows = riskiest.slice(0, TOP).map(finding => `<tr data-finding="${escape(finding.id)}">${actionCells(finding, index, fresh.has(finding.id))}`
     + `<td class="num">${escape(Math.round(risk(finding.unit)))}</td><td class="x-cell">${dismissMark}</td></tr>`);
-  const methodsSection = section(`Untested code <span class="count">${escape(missing.length)}</span>${copyAll}`, '',
+  const methodsSection = section(`Survived mutants <span class="count">${escape(missing.length)}</span>${copyAll}`, '',
     methodRows.length ? table('<th>Problem</th><th>Where</th><th>Details</th><th class="num" title="How complex and hard to maintain the method is, 0 to 100.">Risk</th><th class="x-cell"></th>', methodRows) : '',
-    missing.length > TOP ? all(['untested', 'edge_case'], missing.length) : '');
+    missing.length > TOP ? all(['survived'], missing.length) : '');
 
-  // Test problems: duplicates, tests that check nothing or smell, and tests that leave the process, the slowest first, since
-  // that is where fixing one saves the most.
-  const testKinds = ['redundant', ...SMELLS, 'infra', 'unresolved'];
-  const time = finding => index.tests.get(finding.unit)?.run?.time ?? -1;
-  const testProblems = of(testKinds).sort((a, b) => newFirst(a, b) || time(b) - time(a) || (b.probability ?? 2) - (a.probability ?? 2) || a.path.localeCompare(b.path));
-  const testRows = testProblems.slice(0, TOP).map(finding => `<tr data-finding="${escape(finding.id)}">${actionCells(finding, index, fresh.has(finding.id))}`
-    + `<td class="num">${time(finding) >= 0 ? escape(seconds(time(finding))) : '<span class="muted">–</span>'}</td><td class="x-cell">${dismissMark}</td></tr>`);
+  // Test problems: duplicates, tests that check nothing, and tests that call a live service, the surest first.
+  const testKinds = ['redundant', ...WEAK, 'infra'];
+  const testProblems = of(testKinds).sort((a, b) => newFirst(a, b) || (b.probability ?? 2) - (a.probability ?? 2) || a.path.localeCompare(b.path));
+  const testRows = testProblems.slice(0, TOP).map(finding => `<tr data-finding="${escape(finding.id)}">${actionCells(finding, index, fresh.has(finding.id))}<td class="x-cell">${dismissMark}</td></tr>`);
   const testsSection = section(`Test problems <span class="count">${escape(testProblems.length)}</span>${copyAll}`, '',
-    testRows.length ? table('<th>Problem</th><th>Where</th><th>Details</th><th class="num" title="How long the test ran, from the JUnit report.">Time</th><th class="x-cell"></th>', testRows) : '',
+    testRows.length ? table('<th>Problem</th><th>Where</th><th>Details</th><th class="x-cell"></th>', testRows) : '',
     testProblems.length > TOP ? all(testKinds, testProblems.length) : '');
 
   const lists = methodsSection + testsSection;
   if (report.branch) {
     const ref = escape(report.branch.ref);
     return view('summary', 'Summary', '',
-      branchSection(report, section, table, fileLink, index) + (lists || `<p class="empty">No problems in code changed since ${ref}.</p>`));
+      lists || `<p class="empty">No problems in code changed since ${ref}.</p>`);
   }
   return view('summary', 'Summary', '', lists || '<p class="empty">No problems.</p>');
-}
-
-/**
- * What --since puts at the top of the Summary: each source file the branch changed and how many of its changed lines of code ran,
- * the most that never ran first, with a link to every problem in the changed code.
- */
-function branchSection(report, section, table, fileLink, index) {
-  const branch = report.branch, ref = escape(branch.ref);
-  // The files with changed code the tests missed, most missed first, then any no report covers. A file where every changed line
-  // ran has nothing to look at, so it is not listed.
-  const missed = file => (file.patch ? file.patch.total - file.patch.hit : null);
-  const listed = branch.files.filter(file => missed(file) !== 0).sort((a, b) => (missed(b) ?? -1) - (missed(a) ?? -1) || a.path.localeCompare(b.path));
-  // A changed file with no methods or tests, a script say, has no view of its own to open.
-  const viewed = new Set(report.files.map(file => file.path));
-  const row = file => {
-    const name = viewed.has(file.path) ? fileLink(file.path) : `<span class="path">${escape(file.path)}</span>`;
-    const count = missed(file);
-    const lines = count === null ? '<span class="muted" title="No coverage report covers this file.">not measured</span>'
-      : viewed.has(file.path) ? `<a href="${index.href(file.path, file.missed[0])}" title="Open the file at the first one">${escape(count)}</a>` : escape(count);
-    const share = file.patch ? `<span class="${band(ratio(file.patch.hit, file.patch.total))}-text">${percent(ratio(file.patch.hit, file.patch.total))}</span>` : '<span class="muted">–</span>';
-    return `<tr><td>${name}</td><td class="num">${lines}</td><td class="num">${share}</td></tr>`;
-  };
-  const files = !branch.files.length ? `<p class="muted pad">No source files changed since ${ref}.</p>`
-    : listed.length ? table('<th>File</th><th class="num" title="Changed lines of code no test ran.">Untested lines</th><th class="num" title="Changed lines of code that ran, of all of them.">Patch coverage</th>', listed.map(row))
-    : `<p class="muted pad">Every changed line of code ran.</p>`;
-  return section(`Patch coverage <span class="muted">since ${ref}</span>`, '', files, '');
 }
 
 /** One view of the summary: its title, one sentence saying what it shows, and its content. */
@@ -381,69 +279,52 @@ const view = (id, title, lede, body) => `<section class="view" data-view="${id}"
 /** A sortable header cell. `numeric` sorts by the cell's data-v rather than its text; a column of bars lines up on the left. */
 const th = (name, numeric = true, bars = false, title = '') => `<th data-sort="${numeric ? 'number' : 'text'}"${bars ? ' class="bars"' : numeric ? ' class="num"' : ''}${title ? ` title="${escape(title)}"` : ''}>${name}</th>`;
 
-/** A share of lines or branches the report measured, as a bar cell: hit over all, what coverage tools print. */
-const measuredCell = part => (part?.total ? cell(part.hit / part.total, { count: `${escape(part.hit)}/${escape(part.total)}` }) : cell(null));
-/**
- * A file's or the repository's branches as a bar cell. A run that read no branch counts has only the average of each method's
- * share, from Jev or the call graph, so that is shown with the basis the report gives it.
- */
-const branchesCell = totals => (totals.measured?.branches?.total
-  ? measuredCell(totals.measured.branches) : cell(totals.exercised, { count: basisTag(totals.exercised_basis) }));
-/** The number the branches column sorts by: the same share the cell above shows, measured or estimated as the run was. */
-const branchesValue = totals => (totals.measured?.branches?.total ? totals.measured.branches.hit / totals.measured.branches.total : totals.exercised);
+/** The mutation score as a bar cell: killed over mutants, or nothing for a file with no mutants. */
+const scoreCell = totals => (totals.mutants ? cell(totals.killed / totals.mutants, { count: `${escape(totals.killed)}/${escape(totals.mutants)}` }) : cell(null));
+const scoreValue = totals => (totals.mutants ? totals.killed / totals.mutants : null);
 
-/** The source files, lcov-report's shape: a row per file, worst first, bars for methods tested, lines run and branches taken. */
+/** The source files, lcov-report's shape: a row per file, worst first, bars for methods tested and the mutation score. */
 function sourceTable(report, index) {
   const files = report.files.filter(file => file.kind === 'source');
-  const worst = (a, b) => (ratio(a.totals.reached, a.totals.methods) ?? 1) - (ratio(b.totals.reached, b.totals.methods) ?? 1)
-    || (branchesValue(a.totals) ?? 1) - (branchesValue(b.totals) ?? 1) || a.path.localeCompare(b.path);
+  const worst = (a, b) => (scoreValue(a.totals) ?? 1) - (scoreValue(b.totals) ?? 1)
+    || (ratio(a.totals.reached, a.totals.methods) ?? 1) - (ratio(b.totals.reached, b.totals.methods) ?? 1) || a.path.localeCompare(b.path);
   const rows = [...files].sort(worst).map(file => {
     // What changed in a file since the last run is the Changes view's to say; this table says where things stand.
-    const totals = file.totals, branches = index.kinds(file.path).edge_case ?? 0;
+    const totals = file.totals, survived = index.kinds(file.path).survived ?? 0;
     const reached = ratio(totals.reached, totals.methods);
     return `<tr data-path="${escape(file.path)}"><td class="path" data-v="${escape(file.path)}"><a href="${index.href(file.path)}">${escape(file.path)}</a></td>`
       + `<td class="bars" data-v="${reached ?? -1}">${cell(reached, { inner: ratio(totals.useful_reached, totals.methods), count: `${escape(totals.reached)}/${escape(totals.methods)}` })}</td>`
-      + `<td class="bars" data-v="${totals.measured?.lines?.total ? totals.measured.lines.hit / totals.measured.lines.total : -1}">${measuredCell(totals.measured?.lines)}</td>`
-      + `<td class="bars" data-v="${branchesValue(totals) ?? -1}">${branchesCell(totals)}</td>`
-      + `<td class="num${branches ? '' : ' zero'}" data-v="${branches}">${branches}</td></tr>`;
+      + `<td class="bars" data-v="${scoreValue(totals) ?? -1}">${scoreCell(totals)}</td>`
+      + `<td class="num${survived ? '' : ' zero'}" data-v="${survived}">${survived}</td></tr>`;
   }).join('');
   const totals = report.totals, reached = ratio(totals.reached, totals.methods);
   const foot = `<tr><td>All source files</td>`
     + `<td class="bars">${cell(reached, { inner: ratio(totals.useful_reached, totals.methods), count: `${escape(totals.reached)}/${escape(totals.methods)}` })}</td>`
-    + `<td class="bars">${measuredCell(totals.measured?.lines)}</td><td class="bars">${branchesCell(totals)}</td><td class="num">${escape(totals.edge_cases)}</td></tr>`;
-  const heads = th('File', false) + th('Methods tested', true, true, `Methods a test calls within ${report.depth} calls, or that the coverage report shows ran. The darker part is methods a test worth keeping reaches.`)
-    + th('Lines run', true, true, 'Lines the coverage report shows ran, out of the lines it counted.')
-    + th('Branches taken', true, true, 'Sides of branches the coverage report shows were taken. Without a report, Jev\'s estimate from the tests that reach each method.')
-    + th('Untested branches', true, false, 'Branches whose other side no test takes, listed under All problems.');
+    + `<td class="bars">${scoreCell(totals)}</td><td class="num">${escape(totals.survived)}</td></tr>`;
+  const heads = th('File', false) + th('Methods tested', true, true, `Methods a test calls within ${report.depth} calls. The darker part is methods a test worth keeping reaches.`)
+    + th('Mutation score', true, true, 'Mutants some test is predicted to fail against, of every mutant in the file\'s reached methods.')
+    + th('Survived', true, false, 'Mutants no test kills, listed under All problems.');
   return view('sources', 'Source files', '',
     `<div class="filter"><input type="search" class="filter-files" placeholder="Filter files" aria-label="Filter files"></div>`
     + `<section class="panel" id="sources"><div class="scroll"><table class="grid sortable files"><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody><tfoot>${foot}</tfoot></table></div></section>`);
 }
 
-/** The test files: how many tests each has, how many are worth keeping, why the rest are not, and how long they took. */
+/** The test files: how many tests each has, how many are worth keeping, and why the rest are not. */
 function testTable(report, index) {
   const files = report.files.filter(file => file.kind === 'test');
   const notKept = file => file.totals.tests - file.totals.useful;
-  // The time the file's duplicate and smelly tests took: what cutting them saves.
-  const cuttable = new Set(['redundant', ...SMELLS]);
-  const saved = file => file.tests.map(id => index.tests.get(id)).filter(test => typeof test?.run?.time === 'number'
-    && (test.findings ?? []).some(id => cuttable.has(index.findings.get(id)?.kind))).reduce((sum, test) => sum + test.run.time, 0);
   const rows = [...files].sort((a, b) => notKept(b) - notKept(a) || a.path.localeCompare(b.path)).map(file => {
     const totals = file.totals;
     const kept = ratio(totals.useful, totals.tests);
     const count = value => `<td class="num${value ? '' : ' zero'}" data-v="${value ?? 0}">${escape(value ?? 0)}</td>`;
-    const time = value => `<td class="num" data-v="${value ?? -1}">${value === null || value === undefined ? '<span class="muted">–</span>' : escape(seconds(value))}</td>`;
-    const timed = typeof totals.seconds === 'number';
     return `<tr data-path="${escape(file.path)}"><td class="path" data-v="${escape(file.path)}"><a href="${index.href(file.path)}">${escape(file.path)}</a></td>`
       + `<td class="bars" data-v="${kept ?? -1}">${cell(kept, { count: `${escape(totals.useful)}/${escape(totals.tests)}` })}</td>`
-      + count(totals.redundant) + count(totals.smelly) + count(totals.infra) + time(timed ? totals.seconds : null) + time(timed ? saved(file) : null) + '</tr>';
+      + count(totals.redundant) + count(totals.weak) + count(totals.infra) + '</tr>';
   }).join('');
   const heads = th('File', false) + th('Quality', true, true, 'Tests worth keeping, of all the file\'s tests: ones that check something and repeat no other test.')
     + th('Duplicates', true, false, 'Tests that check the same thing with the same code as an earlier test.')
-    + th('Weak', true, false, 'Tests that don’t check anything, check the return value of a mock created inside the test, or are weak in another way.')
-    + th('Unmocked I/O', true, false, 'Tests that touch the network, the disk, a database, other processes or environment variables with nothing mocked.')
-    + th('Time', true, false, 'How long the file\'s tests ran, added up from the JUnit report.')
-    + th('Time saved', true, false, 'The time duplicate or weak tests took to run: the time you would save if you removed them.');
+    + th('Checks nothing', true, false, 'Tests that would pass whatever the code they call does.')
+    + th('Live services', true, false, 'Tests that call a real network service or database with nothing mocked.');
   return view('tests', 'Tests', '',
     `<section class="panel" id="tests"><div class="scroll"><table class="grid sortable files"><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody></table></div></section>`);
 }
@@ -468,8 +349,8 @@ function findingTable(report, index) {
 }
 
 /**
- * How the run was made: the reports it read, the model, how deep it followed calls, its floor, and what it could not match or
- * read. None of it is a finding about the code; it says how far the rest of the page can be trusted.
+ * How the run was made: the model, how deep it followed calls, its floor, which frameworks decided what counts, and what it
+ * could not read. None of it is a finding about the code; it says how far the rest of the page can be trusted.
  */
 function details(report) {
   const facts = [
@@ -480,22 +361,9 @@ function details(report) {
     ['Call depth', `${escape(report.depth)} <span class="muted">calls followed from each test</span>`],
     ['Floor', `${escape(Math.round(report.min * 100))}% <span class="muted">problems less sure than this are not listed</span>`],
   ];
-  const reports = report.inputs?.length
-    ? report.inputs.map(input => `<tr><td>${escape(input.kind)}</td><td class="path">${escape(input.path)}</td><td class="num">${input.runs !== undefined ? counted(input.runs, 'run') : input.files !== undefined ? counted(input.files, 'file') : ''}</td></tr>`).join('')
-    : '';
-  const table = (id, title, heads, items, cells) => (items?.length
-    ? `<section class="panel" id="${id}"><div class="panel-head"><h3>${title} <span class="count">${items.length}</span></h3></div><div class="scroll"><table class="grid">`
-      + `<thead><tr>${heads.map(head => `<th>${head}</th>`).join('')}</tr></thead>`
-      + `<tbody>${items.map(item => `<tr>${cells(item).map(value => `<td class="path">${escape(value)}</td>`).join('')}</tr>`).join('')}</tbody></table></div></section>`
-    : '');
   return view('details', 'Run details', '',
     `<section class="panel"><dl class="facts-list">${facts.map(([name, value]) => `<div><dt>${name}</dt><dd>${value}</dd></div>`).join('')}</dl></section>`
-    + `<section class="panel"><div class="panel-head"><h3>Reports read <span class="count">${report.inputs?.length ?? 0}</span></h3>${reports ? '' : '<p class="lede">None.</p>'}</div>`
-    + (reports ? `<div class="scroll"><table class="grid"><thead><tr><th>Kind</th><th>File</th><th class="num">Read</th></tr></thead><tbody>${reports}</tbody></table></div>` : '') + '</section>'
-    + scopeView(report)
-    + table('unmatched-runs', 'Unmatched runs', ['Report', 'Class', 'Name'], report.unmatched_runs, run => [run.path, run.classname, run.name])
-    + table('unmatched-paths', 'Unmatched paths', ['Report', 'Path as written'], report.unmatched_paths, entry => [entry.path, entry.reported])
-    + failures(report));
+    + scopeView(report) + failures(report));
 }
 
 /** Which test frameworks decided the scope, from which config, and the files no framework covers, which this run leaves out. */
@@ -518,42 +386,30 @@ function failures(report) {
     + `<div class="scroll"><table class="grid"><thead><tr><th>Unit</th><th>Name</th><th>File</th><th>Error</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
 }
 
-/**
- * What a source method's lines are tinted as. A method the coverage report measured is tinted from what the report counted: red
- * when none of its lines ran, amber when they ran but a measured branch was never taken, green when every measured branch was.
- * Any other method is tinted from static reach and the estimate: green is a method a kept test reaches whose branch estimate is
- * in the top band, red is one no test reaches, and everything reached in between is amber, which includes a method only tests
- * not worth keeping reach.
- */
+/** What a source method's lines are tinted as: green when every mutant is killed, amber when one survived, red when no test reaches it. */
 function methodState(method) {
-  if (method.measured) {
-    if (!method.executed) return 'none';
-    return method.measured.branches.hit < method.measured.branches.total ? 'part' : 'full';
-  }
-  return !method.tests.length ? 'none' : method.useful.length && band(method.exercised) === 'high' ? 'full' : 'part';
+  return !method.tests.length ? 'none' : method.killed === method.mutants.length ? 'full' : 'part';
 }
 
-/** A method's untaken branch is marked and noted only when it is a listed problem: one under the floor has nothing to act on. */
-const listedGap = (method, index) => Boolean(method.gap) && (method.findings ?? []).some(id => index.findings.get(id)?.kind === 'edge_case');
+/** A method's survived mutants that are listed problems: one under the floor has nothing to act on. */
+const listedMutants = (method, index) => (method.findings ?? []).map(id => index.findings.get(id)).filter(finding => finding?.kind === 'survived');
 
-/** Tint, branch markers and the gap line for each line of a file, innermost method last so a nested function wins its lines. */
+/** Tint, branch markers and the survived mutants for each line of a file, innermost method last so a nested function wins its lines. */
 function lineMarks(file, index) {
-  const missed = index.missed(file.path);
-  const marks = file.lines.map((_, at) => ({ state: '', measured: false, branch: false, gap: false, missed: missed.has(at + 1), starts: [] }));
+  const marks = file.lines.map(() => ({ state: '', branch: false, gap: false, starts: [] }));
   const at = line => marks[line - 1];
   const units = file.kind === 'test' ? file.tests.map(id => index.tests.get(id)) : file.methods.map(id => index.methods.get(id));
   const spans = units.filter(Boolean).sort((a, b) => (b.end_line - b.line) - (a.end_line - a.line));
   for (const unit of spans) {
     // A test is tinted only when something is wrong with it; the ones worth keeping read as plain code.
     const state = file.kind === 'test' ? (unit.useful && !unit.findings?.length ? '' : 'weak') : methodState(unit);
-    const measured = file.kind === 'source' && Boolean(unit.measured);
-    for (let line = unit.line; line <= unit.end_line; line++) if (at(line)) Object.assign(at(line), { state, measured });
+    for (let line = unit.line; line <= unit.end_line; line++) if (at(line)) at(line).state = state;
   }
   for (const unit of units.filter(Boolean)) {
     at(unit.line)?.starts.push(unit);
     if (file.kind === 'test') continue;
     for (const line of unit.branches ?? []) if (at(line)) at(line).branch = true;
-    if (listedGap(unit, index) && at(unit.gap.line)) at(unit.gap.line).gap = true;
+    for (const finding of listedMutants(unit, index)) if (at(finding.line)) at(finding.line).gap = true;
   }
   return marks;
 }
@@ -569,11 +425,9 @@ function reachedBy(method, index) {
     + (rest > 0 ? `<li class="muted">${escape(rest)} more ${rest === 1 ? 'test' : 'tests'}</li>` : '');
 }
 
-/** The line above a method: its name, whether it ran and how much of it, and how many tests reach it, with the tests one click away. */
+/** The line above a method: its name, how many of its mutants its tests kill, and how many tests reach it, with the tests one click away. */
 function methodBar(method, index) {
-  const ran = method.measured
-    ? (method.executed ? `<span class="ran">Ran</span> ${hits(method.measured.lines)} lines${method.measured.branches.total ? `, ${hits(method.measured.branches)} branches` : ''}` : '<span class="unran">Never ran</span>')
-    : method.exercised === null || method.exercised === undefined ? '' : `About ${percent(method.exercised)} of its branches tested <span class="est">estimate</span>`;
+  const ran = method.mutants.length ? `${escape(method.killed)} of ${escape(method.mutants.length)} mutants killed` : '';
   const count = method.tests.length;
   const tests = count
     ? `<details><summary>${count} ${count === 1 ? 'test reaches' : 'tests reach'} it${method.useful.length !== count ? `, ${method.useful.length} worth keeping` : ''}</summary><ul class="reach">${reachedBy(method, index)}</ul></details>`
@@ -581,16 +435,19 @@ function methodBar(method, index) {
   return `<div class="mbar ${methodState(method)}" id="${escape(`m:${method.id}`)}"><b>${escape(method.name)}</b>${ran ? `<span>${ran}</span>` : ''}${tests}</div>`;
 }
 
-const TOUCHES = { network: 'the network', database: 'a database', filesystem: 'the disk', process: 'other processes', environment: 'environment variables', clock: 'the clock' };
 /** "a", "a and b", "a, b and c". */
 const listed = items => (items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`);
 /** How sure perch is, said only when it is not very: a verdict at 95% needs no number, one at 63% does. */
 const unsure = probability => (typeof probability === 'number' && probability < 0.8 ? ` <span class="unsure">${escape(percent(probability))} sure</span>` : '');
 
-/** The note under a branch no test takes: its name and the case no test covers, with its buttons. */
-function gapNote(method, finding) {
-  return `<div class="note gap" data-finding="${escape(finding.id)}"><div class="problem"><p class="verdict bad"><b>${escape(problemName('edge_case'))}</b> `
-    + `${escape(finding.note)}${unsure(method.gap.probability)}</p><div class="problem-acts">${acts()}${dismissMark}</div></div></div>`;
+/** The note under a survived mutant: the line as written and as changed, and which tests miss it, with its buttons. */
+function mutantNote(method, finding, index) {
+  const mutant = (method.mutants ?? []).find(item => item.id === finding.mutant);
+  const diff = mutant ? `<pre class="diff"><del>- ${escape(mutant.original.trim())}</del>\n<ins>+ ${escape(mutant.mutated.trim())}</ins></pre>` : '';
+  const missed = mutant ? mutant.asked.filter(id => !mutant.killed_by.includes(id)).map(id => unitLink(id, index)) : [];
+  return `<div class="note gap" data-finding="${escape(finding.id)}"><div class="problem"><p class="verdict bad"><b>${escape(problemName('survived'))}</b> `
+    + `${escape(finding.note)}${unsure(finding.probability)}</p><div class="problem-acts">${acts()}${dismissMark}</div></div>${diff}`
+    + (missed.length ? `<ul class="facts"><li>Still passes: ${listed(missed)}.</li></ul>` : '') + '</div>';
 }
 
 /** One problem in a note under the code: its name and the fact, with Copy prompt and the close mark on the right. */
@@ -600,21 +457,16 @@ function problemLine(finding, index) {
 }
 
 /** The order a test's problems are said in: what to cut first, then what to fix, then what to mock. */
-const PROBLEM_ORDER = ['redundant', ...SMELLS, 'infra', 'unresolved'];
+const PROBLEM_ORDER = ['redundant', ...WEAK, 'infra'];
 
 /**
- * The note under a test with something wrong: each problem as the change it asks for, then whether it failed and what it mocks.
+ * The note under a test with something wrong: each problem as the change it asks for, then what it mocks.
  * A test worth keeping with no problem gets no note: there is nothing to do about it.
  */
 function testNote(test, findings, index) {
   const lines = [...findings].sort((a, b) => PROBLEM_ORDER.indexOf(a.kind) - PROBLEM_ORDER.indexOf(b.kind)).map(finding => problemLine(finding, index));
-  if (!test.decides) lines.push('<p class="verdict"><b>Not judged.</b> The error is under Run details.</p>');
   if (!lines.length) return null;
-  // A test that did not pass says so; a pass, and how long it took, say nothing about the problem.
-  const outcome = test.run && test.run.status !== 'passed'
-    ? (test.run.status === 'skipped' ? 'Skipped' : `<span class="unran">${test.run.status === 'error' ? 'Errored' : 'Failed'}</span>`) : '';
-  const facts = [outcome ? `${outcome}${test.run.cases > 1 ? ` in ${escape(test.run.cases)} cases` : ''}.` : '',
-    test.cuts?.length ? `Mocks out ${listed(test.cuts.map(id => unitLink(id, index)))}.` : ''].filter(Boolean);
+  const facts = [test.cuts?.length ? `Mocks out ${listed(test.cuts.map(id => unitLink(id, index)))}.` : ''].filter(Boolean);
   const run = facts.length ? `<ul class="facts">${facts.map(fact => `<li>${fact}</li>`).join('')}</ul>` : '';
   return `<div class="note test weak"><div class="note-head"><b>${escape(testName(test))}</b></div>${lines.join('')}${run}</div>`;
 }
@@ -635,10 +487,8 @@ function notesOf(file, index, report) {
       if (note) add(test.line, note);
     }
   } else {
-    for (const method of file.methods.map(id => index.methods.get(id)).filter(method => method && listedGap(method, index))) {
-      const findings = owned(method.findings).filter(finding => finding.kind === 'edge_case');
-      findings.forEach(finding => placed.add(finding.id));
-      add(method.gap.line, gapNote(method, findings[0]));
+    for (const method of file.methods.map(id => index.methods.get(id)).filter(Boolean)) {
+      for (const finding of listedMutants(method, index)) { placed.add(finding.id); add(finding.line, mutantNote(method, finding, index)); }
     }
   }
   for (const finding of report.findings) {
@@ -656,16 +506,14 @@ function fileStats(file) {
     const quality = ratio(totals.useful, totals.tests);
     return stat('quality', `<span class="${band(quality)}-text">${percent(quality)}</span> <small>${escape(totals.useful)}/${escape(totals.tests)}</small>`,
       'Tests worth keeping, of all the file\'s tests: ones that check something and repeat no other test.')
-      + stat('unmocked I/O', escape(totals.infra), 'Tests that touch the network, the disk, a database, other processes or environment variables with nothing mocked.')
-      + (typeof totals.seconds === 'number' ? stat('time', escape(seconds(totals.seconds)), 'How long the file\'s tests ran, added up from the JUnit report.') : '');
+      + stat('live services', escape(totals.infra), 'Tests that call a real network service or database with nothing mocked.');
   }
   const reached = ratio(totals.reached, totals.methods);
-  const lines = totals.measured?.lines?.total ? totals.measured.lines.hit / totals.measured.lines.total : null, branches = branchesValue(totals);
-  const branchTag = basisTag(totals.measured?.branches?.total ? 'measured' : totals.exercised_basis);
+  const score = scoreValue(totals);
   return stat('methods tested', `<span class="${band(reached)}-text">${percent(reached)}</span> <small>${escape(totals.reached)}/${escape(totals.methods)}</small>`,
-    'Methods a test calls, or that the coverage report shows ran, of all the file\'s methods.')
-    + (lines === null ? '' : stat('lines run', `<span class="${band(lines)}-text">${percent(lines)}</span>`, 'Lines the coverage report shows ran, of the lines it counts.'))
-    + stat(`branches taken ${branchTag}`, `<span class="${band(branches)}-text">${percent(branches)}</span>`, 'Sides of branches taken, of all sides of every branch in the file.');
+    'Methods a test calls, of all the file\'s methods.')
+    + (score === null ? '' : stat('mutation score', `<span class="${band(score)}-text">${percent(score)}</span> <small>${escape(totals.killed)}/${escape(totals.mutants)}</small>`, 'Mutants some test is predicted to fail against, of every mutant in the file\'s reached methods.'))
+    + stat('survived', escape(totals.survived), 'Mutants no test kills, listed below.');
 }
 
 /** A file's problems at the top of its page, each linking to its line, so they are read without scrolling the source. */
@@ -680,17 +528,13 @@ function fileView(file, index, report) {
   const methods = file.methods.map(id => index.methods.get(id)).filter(Boolean);
   const legend = file.kind === 'test'
     ? '<span><i class="sw weak"></i>a test with a problem</span>'
-    : (methods.some(method => method.measured)
-      ? '<span class="legend-head"><span class="msr">measured</span></span><span><i class="sw full ms"></i>ran, every measured branch taken</span><span><i class="sw part ms"></i>ran, a measured branch never taken</span><span><i class="sw none ms"></i>never ran</span>' : '')
-      + (methods.some(method => !method.measured)
-        ? '<span class="legend-head"><span class="est">est.</span></span><span><i class="sw full"></i>kept test, branches 80% or more</span><span><i class="sw part"></i>reached, below that</span><span><i class="sw none"></i>not reached</span>' : '')
-      + '<span><i class="mk">◆</i>branch</span><span><i class="mk gapmk">▲</i>edge case not exercised</span>'
-      + (index.missed(file.path).size ? '<span><i class="sw miss"></i>untested changed line</span>' : '');
+    : (methods.length ? '<span><i class="sw full"></i>every mutant killed</span><span><i class="sw part"></i>a mutant survived</span><span><i class="sw none"></i>not reached</span>' : '')
+      + '<span><i class="mk">◆</i>branch</span><span><i class="mk gapmk">▲</i>survived mutant</span>';
   const rows = file.lines.map((text, at) => {
     const line = at + 1, mark = marks[at];
     const bars = file.kind === 'source' ? mark.starts.map(method => methodBar(method, index)).join('') : '';
     const gutter = mark.gap ? '<i class="mk gapmk">▲</i>' : mark.branch ? '<i class="mk">◆</i>' : '';
-    const classes = ['l', mark.state, mark.measured ? 'ms' : '', mark.gap ? 'gapline' : '', mark.missed ? 'miss' : ''].filter(Boolean).join(' ');
+    const classes = ['l', mark.state, mark.gap ? 'gapline' : ''].filter(Boolean).join(' ');
     const under = (notes.get(line) ?? []).join('');
     return `${bars}<div class="${classes}" data-n="${line}"><span class="n">${line}</span><span class="g">${gutter}</span><code>${escape(text) || ' '}</code></div>${under}`;
   }).join('');
@@ -721,24 +565,21 @@ function fixSteps(finding, index) {
     const name = `"${testName(test)}" (${at(test)})`;
     if (finding.kind === 'redundant' && test.redundant_with) {
       const kept = index.tests.get(test.redundant_with);
-      lines.push(`The test ${name} ${test.redundant_basis === 'measured' ? 'runs the same lines' : 'calls the same code'} and checks the same thing as "${kept ? testName(kept) : test.redundant_with}"${kept ? ` (${at(kept)})` : ''}.`,
+      lines.push(`The test ${name} kills the same mutants as "${kept ? testName(kept) : test.redundant_with}"${kept ? ` (${at(kept)})` : ''}, and no others.`,
         'Compare the two. Delete this one if it asserts nothing the other does not; otherwise move what differs into the other and delete this one.');
-    } else if (SMELLS.has(finding.kind)) {
+    } else if (WEAK.has(finding.kind)) {
       lines.push(`The test ${name} has a problem: ${finding.note}`, 'Make it drive the code under test and assert on what that code returns. Delete it if nothing it checks is worth keeping.');
     } else if (finding.kind === 'infra') {
       lines.push(`The unit test ${name} leaves the process: ${finding.note}`, 'Replace those calls with fakes or mocks in the style the test file already uses, so it runs in memory. Do not change the code under test.');
-    } else if (finding.kind === 'unresolved') {
-      lines.push(`The test ${name} calls nothing in this repository${test.unresolved?.length ? `: ${test.unresolved.join(', ')}` : ''}.`, 'Find the code it was meant to test and make it call that code, or delete it if it only tests a library.');
     } else lines.push(`The test ${name}: ${finding.note}`);
     lines.push('Run that test file afterwards and make sure it passes.');
   } else {
     const name = `${method?.name ?? finding.name} (${method ? at(method) : `${finding.path}:${finding.line}`})`;
     const reaching = (method?.useful ?? []).map(id => index.tests.get(id)).filter(Boolean).slice(0, 3).map(item => `"${testName(item)}" (${at(item)})`);
-    if (finding.kind === 'untested') {
-      lines.push(`No test runs ${name}. ${finding.note}`, 'Write a unit test for what its callers rely on. Put it in the test file that already covers that source file if there is one, in its framework and style.');
-    } else if (finding.kind === 'edge_case' && method?.gap) {
-      lines.push(`${finding.note} The branch is at ${finding.path}:${method.gap.line} in ${name}: \`${method.gap.text.trim()}\`.`,
-        `Add a test for that case.${reaching.length ? ` Tests that already reach it: ${reaching.join(', ')}. Follow their style.` : ''}`);
+    if (finding.kind === 'survived') {
+      const mutant = (method?.mutants ?? []).find(item => item.id === finding.mutant);
+      lines.push(`A mutant of ${name} survives every test. ${finding.note}${mutant ? ` Line ${finding.line} reads \`${mutant.original.trim()}\`; the mutant reads \`${mutant.mutated.trim()}\`.` : ''}`,
+        `Add a test with an input for which that change gives a different result, and assert on the result.${reaching.length ? ` Tests that already reach it: ${reaching.join(', ')}. Follow their style.` : ''}`);
     } else lines.push(`${name}: ${finding.note}`);
     lines.push('Run the test file afterwards and make sure it passes.');
   }
@@ -915,8 +756,8 @@ table.problems td:nth-child(3){white-space:normal;max-width:260px;overflow-wrap:
 
 /* Problem kinds, as pills. */
 .kind{display:inline-block;padding:1px 8px;border-radius:999px;font:500 11.5px/1.7 var(--mono);white-space:nowrap;background:var(--raised);color:var(--muted)}
-.k-untested,.k-edge_case{background:color-mix(in srgb,var(--low) 14%,transparent);color:var(--low-ink)}
-.k-redundant,.k-checks_nothing,.k-asserts_mock,.k-no_assertion,.k-tautology,.k-assertion_roulette,.k-mystery_guest,.k-eager,.k-dead_setup{background:color-mix(in srgb,var(--mid) 13%,transparent);color:var(--mid)}
+.k-survived{background:color-mix(in srgb,var(--low) 14%,transparent);color:var(--low-ink)}
+.k-redundant,.k-checks_nothing{background:color-mix(in srgb,var(--mid) 13%,transparent);color:var(--mid)}
 .k-infra{background:color-mix(in srgb,var(--cyan) 13%,transparent);color:var(--cyan)}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chip{display:inline-flex;align-items:center;gap:6px;padding:2px 10px 2px 3px;border:1px solid var(--line);border-radius:999px;background:transparent;color:var(--muted);font:500 12px var(--sans);cursor:pointer}
@@ -935,10 +776,6 @@ button{font:inherit}
 .x{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border:0;border-radius:7px;background:none;color:var(--faint);font-size:17px;line-height:1;cursor:pointer}
 .x:hover{background:var(--raised);color:var(--ink)}
 
-/* The measured, estimated and static tags. */
-.msr,.est,.stc{display:inline-block;padding:0 6px;border-radius:999px;font:500 10.5px/1.6 var(--mono);vertical-align:1px;text-transform:none;letter-spacing:0}
-.msr{background:color-mix(in srgb,var(--high) 13%,transparent);color:var(--high)}
-.est{background:var(--raised);color:var(--muted)}.stc{background:var(--raised);color:var(--faint)}
 
 /* Filters and paging. */
 .filter{margin:0 0 12px}.filter-files{width:min(320px,100%);padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font:14px var(--sans)}
@@ -975,7 +812,7 @@ section.file{padding:0 0 48px}
 .legend{display:flex;flex-wrap:wrap;gap:6px 16px;padding-bottom:10px;color:var(--muted);font-size:12px;align-items:center}
 .sw{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:6px;border:1px solid var(--line)}
 .sw.full{background:var(--t-full);box-shadow:inset 2px 0 var(--high)}.sw.part{background:var(--t-part);box-shadow:inset 2px 0 var(--mid)}.sw.none{background:var(--t-none);box-shadow:inset 2px 0 var(--low)}
-.sw.weak{background:var(--t-weak);box-shadow:inset 2px 0 var(--mid)}.sw.miss{background:var(--t-none);box-shadow:inset 3px 0 var(--low)}
+.sw.weak{background:var(--t-weak);box-shadow:inset 2px 0 var(--mid)}
 .mk{font-style:normal;color:var(--faint);font-size:10px}.gapmk{color:var(--low)}
 .code{width:calc(100% - 48px);max-width:1132px;margin:0 auto;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow-x:auto}
 .rows{min-width:max-content;padding:8px 0}
@@ -986,7 +823,6 @@ section.file{padding:0 0 48px}
 .l.part{background:var(--t-part);border-left-color:color-mix(in srgb,var(--mid) 55%,transparent)}
 .l.none{background:var(--t-none);border-left-color:color-mix(in srgb,var(--low) 55%,transparent)}
 .l.weak{background:var(--t-weak);border-left-color:color-mix(in srgb,var(--mid) 55%,transparent)}
-.l.miss{box-shadow:inset 3px 0 var(--low);background:var(--t-none)}.l.miss .n{color:var(--low);font-weight:600}
 .l.gapline code{text-decoration:underline wavy color-mix(in srgb,var(--low) 70%,transparent);text-underline-offset:4px}
 .l.flash code{animation:flash 1.6s ease-out}@keyframes flash{0%{background:var(--accent-soft)}100%{background:transparent}}
 .mbar{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin:10px 16px 2px 76px;padding:6px 12px;border-radius:8px;background:var(--raised);font:13px var(--sans);color:var(--muted);max-width:900px}
@@ -999,6 +835,7 @@ ul.reach{margin:6px 0 2px;padding-left:18px;font-size:13px}
 /* Notes under a line: a problem, named, with the fact and its buttons. */
 .note{margin:6px 16px 10px 76px;padding:10px 14px;border:1px solid var(--line);border-left:2px solid var(--low);border-radius:8px;background:var(--raised);font:14px/1.5 var(--sans);white-space:normal;max-width:900px}
 .note.test{border-left-color:var(--mid)}
+.diff{margin:8px 0 0;padding:8px 12px;border-radius:6px;background:var(--panel);font:12px/1.5 var(--mono);white-space:pre-wrap}.diff del{color:var(--low-ink);text-decoration:none}.diff ins{color:var(--high);text-decoration:none}
 .note-head{margin:0 0 6px;font-family:var(--mono);font-size:12.5px;color:var(--muted)}.note-head b{color:var(--ink);font-weight:500}
 .problem{display:flex;align-items:flex-start;gap:12px}.problem+.problem{margin-top:6px;padding-top:6px;border-top:1px solid var(--soft)}
 .problem>.verdict{flex:1;min-width:0;margin:3px 0}.problem-acts{display:flex;align-items:center;gap:2px;flex:none}.problem-acts .acts{margin:0}

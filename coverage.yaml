@@ -1,126 +1,39 @@
 # Questions `perch coverage` asks. Same grammar as scan.yaml.
 # Every request is shaped as a scan's is: the unit asked about, `test` or `method`, with its source under the comment above it and
-# no line numbers, then `graph`, the code around it as nodes and the calls between them as edges. A test's graph holds the code it
-# reaches, nearest first, and the helpers of its own it calls through; the test also carries its `mocks` and the kinds of I/O
-# perch found along its reach (`touches`). A method's graph holds the useful tests that reach it, and the method carries its
-# branch lines by their text.
-# gap_line's options are the method's own branch lines, named by their place in the method and added when it is asked; `none`
-# is the only option written here.
-# tests_nothing_here, repeats and needs_test are asked only of a unit the call graph or the coverage report already flagged,
-# and decide whether that problem is listed.
+# no line numbers, then `graph`, the code around it as nodes and the calls between them as edges.
+# A test's graph holds the code it reaches, nearest first, and the helpers of its own it calls through; the test also carries its
+# `mocks` and the network and database calls perch found along its reach (`reachable_io`), with the methods that make them in
+# its graph.
+# A method is asked about one mutant at a time: `mutation` is one line of it changed, `original` as written and `mutated` as
+# changed, and its graph holds the tests that reach it, each noted `test 1`, `test 2` and so on. `kills` is asked once per test
+# shown, as `kills_1`, `kills_2` and so on, naming the test; `matters` once per mutant.
+# infra is asked only of a test with a network or database call in reach.
 
-- name: decides
-  type: choice
-  each: test
+- name: kills
+  each: method
   where: "**/*"
   ask: >
-    Which behavior of the code in `graph` does `test` decide? Read its assertions: what would have to change in the
-    code under test for this test to fail?
-  options:
-    happy_path: It checks the ordinary result for ordinary input
-    empty_or_absent_input: It checks what happens on empty, null, missing or zero input
-    boundary: It checks a value at or next to the edge of a range, a limit or a threshold
-    error_path: It checks that an error is raised, returned or reported
-    invalid_input: It checks that malformed or out-of-contract input is rejected
-    state_after_call: It checks state left behind by the call, such as a stored record or a changed field
-    ordering: It checks the order of results or of calls
-    nothing: No change to the code under test would make it fail
+    `method` is shown as written, and `mutation` is one line of it changed: `original` is the line as written and `mutated` is
+    the line as changed. Follow the inputs the named test passes through the code it reaches in `graph`. Run against the
+    changed method, would that test fail?
+  "true": "It fails: with the change, an assertion or expectation it makes no longer holds, or the call raises"
+  "false": "It still passes: with the inputs it passes, the changed line gives the same result, or nothing it checks depends on that line"
 
-- name: smell
-  type: choice
-  each: test
+- name: matters
+  each: method
   where: "**/*"
-  ask: What is most wrong with `test` as a test of the code in `graph`, if anything?
-  options:
-    none: Nothing; it drives the code under test and asserts on what that code produced
-    asserts_mock: It asserts on a value it stubbed or mocked itself, so the code under test is not what is checked
-    no_assertion: It asserts nothing, so it passes whatever the code does, short of throwing
-    tautology: The expected value is computed by the same logic as the code under test
-    assertion_roulette: Many unrelated assertions, so a failure does not say which behavior broke
-    mystery_guest: It depends on a file, record or service that the test does not create
-    eager: It drives several methods and asserts on only one of them
-    dead_setup: It builds data that no assertion reads
+  ask: >
+    `mutation` is one line of `method` changed. For some input a caller could pass, does the changed method return a different
+    value, raise, or leave different state behind, so that the change is a defect a caller could observe?
+  "true": "It is a defect: for some input a caller could pass, the result, an error, or the state left behind differs"
+  "false": "Nothing a caller could observe changes: the two spellings are equivalent, or the line only affects logging or wording a caller ignores"
 
 - name: infra
   each: test
   where: "**/*"
   ask: >
-    Through what `test` runs and the code in `graph`, without a mock in its `mocks` cutting it off, does it open a socket, a database
-    connection, a file or a subprocess, or read a credential or setting from the environment?
-  "true": Running it touches the network, a database, the filesystem, a process or the environment
-  "false": Everything it runs stays in memory, or whatever would leave it is mocked
-
-- name: tests_nothing_here
-  each: test
-  where: "**/*"
-  ask: >
-    None of the calls `test` makes resolve to a method in this repository. Does it check nothing of this repository's own
-    code, only a library, the language, or values it built itself?
-  "true": It checks nothing this repository wrote
-  "false": It does exercise this repository's code, through calls perch could not follow
-
-- name: repeats
-  each: test
-  where: "**/*"
-  ask: >
-    `test` calls the same code as the earlier test in `graph`, and both decide the same kind of behavior. Does `test` check a case
-    the earlier one already checks, with the same kind of input and the same expected result, so deleting `test` leaves no case
-    unchecked?
-  "true": It checks a case the earlier test already checks, and deleting it loses nothing
-  "false": It checks a case the earlier test does not, such as other input, another boundary or another expected result
-
-- name: cost
-  type: score
-  each: test
-  where: "**/*"
-  ask: How expensive is `test` to run, from what it and the code in `graph` do?
-  levels:
-    - In memory only
-    - Builds large fixtures, or loops over many cases
-    - Touches disk, a process, or the clock
-    - Touches the network or a database
-
-- name: exercised
-  type: score
-  each: method
-  where: "**/*"
-  ask: >
-    Of the branches of `method` (its `branches` lines), how many do the tests in `graph` take between them, judging from the
-    inputs each test passes?
-  levels:
-    - None of them
-    - Under half
-    - About half
-    - Most
-    - Every branch
-
-- name: gap_line
-  type: choice
-  each: method
-  where: "**/*"
-  ask: >
-    Which branch line of `method` does no test in `graph` take? Pick the one whose untaken side matters most to a caller.
-  options:
-    none: Every branch line is taken by at least one shown test
-
-- name: gap_kind
-  type: choice
-  each: method
-  where: "**/*"
-  ask: What kind of input would a test need to take the branch no test in `graph` takes?
-  options:
-    boundary: A value at or next to the edge of a range, a limit or a threshold
-    empty_or_absent_input: Empty, null, missing or zero input
-    error_path: Input or a dependency that makes the method raise, return or report an error
-    invalid_input: Malformed or out-of-contract input
-    state_after_call: A prior state that sends the call down another path
-    ordering: Calls or items in a different order
-
-- name: needs_test
-  each: method
-  where: "**/*"
-  ask: >
-    No test runs `method` (its `note` says how perch knows). Would a mistake in it reach a caller or a user, so that it needs
-    a unit test?
-  "true": A mistake in it would reach a caller or a user, and a unit test would catch it
-  "false": It is trivial glue, an entry or build script, or code a test would only restate
+    `reachable_io` lists the network and database calls in the code `test` can reach; a call behind a branch its inputs do not
+    take is not made. Following what `test` passes, without a mock in its `mocks` cutting it off, does running it make one of
+    them to a real service, rather than to a server or database it starts itself on localhost?
+  "true": It calls a live network service or database, so it fails when that service is down and can change its data
+  "false": None of those calls is made with what it passes, or each goes to something it started itself or is mocked

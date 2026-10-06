@@ -142,6 +142,18 @@ export function buildGraph(files, { crates = [] } = {}) {
     return scopes;
   };
   /** A bare name called from `from`: a definition nested in a scope the caller can see, innermost first, then the file's own. */
+  /**
+   * `use super::*;` and `from shop.money import *` bring every name a module has into this one, so a name this file does not
+   * define or import by name is looked for in each.
+   */
+  const throughGlobs = (file, qualified) => {
+    for (const glob of (file.imports ?? []).filter(item => item.name === '*' && (!item.alias || item.alias === '*') && !item.reexport)) {
+      const module = resolveIn(file.path, glob.module, file.language, paths);
+      const through = module && exported(module, qualified, file.language);
+      if (through) return through;
+    }
+    return null;
+  };
   const unqualified = (file, name, from) => {
     for (const scope of scopesOf(file.path, from)) {
       if (!scope.callable && !IMPLICIT_THIS.has(file.language)) continue;
@@ -250,6 +262,17 @@ export function buildGraph(files, { crates = [] } = {}) {
     }
     return null;
   };
+  /**
+   * `module.exports = require('./lib/express')` makes a module the one it requires, so `require('..')` from a test is the
+   * express that lib/express.js defines. A module that names a default of its own, or passes on more than one, is itself.
+   */
+  const passedOn = (target, depth = 0) => {
+    const file = target && byPath.get(target)?.file;
+    if (!file || depth > 4 || !JAVASCRIPT.has(file.language) || file.default_export) return target;
+    const whole = (file.imports ?? []).filter(item => item.name === '*' && item.alias === '*' && !item.reexport)
+      .map(item => resolveIn(target, item.module, file.language, paths)).filter(Boolean);
+    return whole.length === 1 ? passedOn(whole[0], depth + 1) : target;
+  };
   const viaImport = (file, parts) => {
     const [alias, ...rest] = parts, tail = rest.at(-1) ?? null;
     // A re-export passes a name on; it binds nothing this file can call.
@@ -273,7 +296,7 @@ export function buildGraph(files, { crates = [] } = {}) {
       const module = resolveIn(file.path, `${imported.module}::${imported.name}`, 'rust', paths);
       if (module && module !== resolveIn(file.path, imported.module, 'rust', paths)) return exact(module, rest.join('.'));
     }
-    const target = resolveIn(file.path, imported.module, file.language, paths);
+    const target = passedOn(resolveIn(file.path, imported.module, file.language, paths));
     if (!target) return null;
     // A default import, or a whole CommonJS module called as a function, is whatever the module exports as its default.
     const fallback = byPath.get(target)?.file.default_export ?? null;
@@ -421,7 +444,7 @@ export function buildGraph(files, { crates = [] } = {}) {
     // `a.f` in C or C++ is a member of an object whose type the tree does not give; only `a::f` names a definition.
     const native = NATIVE.has(file.language) && !name.includes('.');
     if (parts.length === 1) {
-      return viaImport(file, parts) ?? unqualified(file, name, from)
+      return viaImport(file, parts) ?? unqualified(file, name, from) ?? throughGlobs(file, name)
         ?? (file.language === 'python' && depth <= 3 ? viaBinding(file, name, '__call__', from, depth) : null)
         ?? (file.language === 'go' ? sameDirectory(file, name) : null)
         ?? (JVM.has(file.language) ? jvmUnqualified(file, name) ?? jvmConstructor(file, name) : null)
@@ -609,12 +632,8 @@ export function buildGraph(files, { crates = [] } = {}) {
       const through = viaImport(file, [...kind.full.split('.'), member]);
       if (through) return through;
     }
-    // `use super::*;` and `from shop.money import *` bring every name a module has into this one.
-    for (const glob of (file.imports ?? []).filter(item => item.name === '*' && (!item.alias || item.alias === '*') && !item.reexport)) {
-      const module = resolveIn(file.path, glob.module, file.language, paths);
-      const through = module && exported(module, qualified, file.language);
-      if (through) return through;
-    }
+    const globbed = throughGlobs(file, qualified);
+    if (globbed) return globbed;
     // `crate::money::Money` written whole names the module it is in.
     if (file.language === 'rust' && full) {
       const module = resolveIn(file.path, kind.full.split('.').slice(0, -1).join('::'), 'rust', paths);
@@ -739,6 +758,16 @@ export function buildGraph(files, { crates = [] } = {}) {
     reads: id => readsBy.get(id) ?? [],
     /** The calls a method makes that resolve to nothing in the repository, each with its line. */
     external: id => [...(external.get(id)?.values() ?? [])],
+    /**
+     * Whether a method calls or reads a name its file imports from a file in this repository, whatever that name resolves to:
+     * `typeof axios.all` checks the repository's own export without a call perch can follow.
+     */
+    usesRepository: id => {
+      const node = nodes.get(id), file = node && byPath.get(node.path)?.file;
+      if (!file) return false;
+      const local = new Set((file.imports ?? []).filter(item => resolveIn(file.path, item.module, file.language, paths)).map(item => item.alias));
+      return [...(external.get(id)?.values() ?? []), ...(readsBy.get(id) ?? [])].some(use => local.has(String(use.name).split(/::|\./)[0]));
+    },
     /**
      * The methods a test's mocks replace: its own mocks and the file's. A target resolves by the rules a call does, so a mock
      * of something outside the repository cuts nothing.

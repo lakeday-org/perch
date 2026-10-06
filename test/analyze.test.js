@@ -1,11 +1,12 @@
-import { readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer, sourceFile } from '../src/analysis.js';
 import { analyzeTree } from '../src/analyze.js';
-import { fixtureOptions, makeFixture, makeGraphFixture } from './helpers.js';
+import { fixtureOptions, initRepo, makeFixture, makeGraphFixture } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
 const cleanups = [];
@@ -24,6 +25,26 @@ describe('source selection', () => {
       expect(sourceFile({ type: 'blob', path: `src/app.min.${extension}`, size: 100 })).toBe(false);
       expect(sourceFile({ type: 'blob', path: `src/app.${extension}`, size: 100 })).toBe(true);
     }
+  });
+});
+
+describe('a header', () => {
+  it('is C++ in a repository with C++ sources, and C in one without', async () => {
+    const header = 'namespace shop {\ntemplate <typename T> T twice(T value) {\n  return value + value;\n}\n}\n';
+    const read = async files => {
+      const root = await mkdtemp(join(tmpdir(), 'perch-header-'));
+      cleanups.push(root);
+      for (const [path, text] of Object.entries(files)) { await mkdir(join(root, dirname(path)), { recursive: true }); await writeFile(join(root, path), text); }
+      await initRepo(root);
+      const scan = await analyzeTree({ root, revision: await revision(root), out: join(root, '.perch'), analyzer });
+      return scan.files.find(file => file.path === 'include/shop.h');
+    };
+    // Read as C, the template and the namespace are errors and the function in them is lost.
+    const cpp = await read({ 'include/shop.h': header, 'src/shop.cc': '#include "../include/shop.h"\nint main() {\n  return shop::twice(1);\n}\n' });
+    expect(cpp.language).toBe('cpp');
+    expect(cpp.methods.map(method => method.qualified_name)).toContain('shop.twice');
+    const c = await read({ 'include/shop.h': 'int twice(int value);\n', 'src/shop.c': 'int twice(int value) {\n  return value + value;\n}\n' });
+    expect(c.language).toBe('c');
   });
 });
 
