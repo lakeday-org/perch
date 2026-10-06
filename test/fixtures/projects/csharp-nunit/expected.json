@@ -1,0 +1,62 @@
+{
+  "language": "c_sharp",
+  "framework": "NUnit",
+  "left_out": ["benchmarks/Stockroom.Benchmarks/ReserveBenchmark.cs"],
+  "tests": [
+    {
+      "file": "Stockroom.Tests/SkuTests.cs",
+      "name": "NormalizesTheCode",
+      "reaches": ["Stockroom/Sku.cs::Sku.Parse", "Stockroom/Sku.cs::Sku.Sku"]
+    },
+    {
+      "file": "Stockroom.Tests/SkuTests.cs",
+      "name": "RejectsCodesItCannotBook",
+      "reaches": ["Stockroom/Sku.cs::Sku.Parse"]
+    },
+    {
+      "file": "Stockroom.Tests/SkuTests.cs",
+      "name": "TwoSkusWithOneCodeAreEqual",
+      "reaches": ["Stockroom/Sku.cs::Sku.Parse"]
+    },
+    {
+      "file": "Stockroom.Tests/StockLevelTests.cs",
+      "name": "ReservingLeavesLessAvailable",
+      "reaches": ["Stockroom/StockLevel.cs::StockLevel.StockLevel", "Stockroom/StockLevel.cs::StockLevel.Reserve", "Stockroom/StockLevel.cs::StockLevel.Available", "Stockroom/Sku.cs::Sku.Parse"]
+    },
+    {
+      "file": "Stockroom.Tests/StockLevelTests.cs",
+      "name": "CannotReserveMoreThanIsAvailable",
+      "reaches": ["Stockroom/StockLevel.cs::StockLevel.Reserve", "Stockroom/StockLevel.cs::StockLevel.Available"]
+    },
+    {
+      "file": "Stockroom.Tests/StockLevelTests.cs",
+      "name": "ShippingTakesFromBothCounts",
+      "reaches": ["Stockroom/StockLevel.cs::StockLevel.Reserve", "Stockroom/StockLevel.cs::StockLevel.Ship"]
+    },
+    {
+      "file": "Stockroom.Tests/StockLevelTests.cs",
+      "name": "NeedsReorderAtThePoint",
+      "reaches": ["Stockroom/StockLevel.cs::StockLevel.Reserve", "Stockroom/StockLevel.cs::StockLevel.NeedsReorder", "Stockroom/StockLevel.cs::StockLevel.Available"]
+    },
+    {
+      "file": "Stockroom.Tests/StockLevelTests.cs",
+      "name": "StockOnHandCannotStartNegative",
+      "reaches": ["Stockroom/StockLevel.cs::StockLevel.StockLevel", "Stockroom/Sku.cs::Sku.Parse"]
+    },
+    {
+      "file": "Stockroom.Tests/WarehouseTests.cs",
+      "name": "ReservesEveryLineOrNone",
+      "reaches": ["Stockroom/Warehouse.cs::Warehouse.Warehouse", "Stockroom/Warehouse.cs::Warehouse.Stock", "Stockroom/Warehouse.cs::Warehouse.Reserve", "Stockroom/Warehouse.cs::Warehouse.LevelOf", "Stockroom/StockLevel.cs::StockLevel.Available"]
+    },
+    {
+      "file": "Stockroom.Tests/WarehouseTests.cs",
+      "name": "ReportsWhatIsAtItsReorderPoint",
+      "reaches": ["Stockroom/Warehouse.cs::Warehouse.Reorders", "Stockroom/Reporting/ReorderReport.cs::ReorderReport.Render", "Stockroom/Reporting/ReorderReport.cs::ReorderReport.ReorderReport", "Stockroom/Reporting/ReorderReport.cs::ReorderReport.Add"]
+    },
+    {
+      "file": "Stockroom.Tests/WarehouseTests.cs",
+      "name": "SuggestsEnoughToDoubleTheReorderPoint",
+      "reaches": ["Stockroom/Reporting/ReorderReport.cs::ReorderReport.SuggestedOrder", "Stockroom/Warehouse.cs::Warehouse.LevelOf"]
+    }
+  ]
+}

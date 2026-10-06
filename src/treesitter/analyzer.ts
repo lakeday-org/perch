@@ -21,13 +21,18 @@ function unavailable(language: string, status: 'unsupported' | 'resource-unavail
  * `#[cfg(test)] mod tests`. What holds tests makes what holds it test code too, a test class its file, except a Rust module:
  * a file with a test module in it is a source file with its tests inside.
  */
-const CONTAINERS = new Set(['class_definition', 'class_declaration', 'class_specifier', 'struct_specifier', 'object_declaration', 'record_declaration',
-  'enum_declaration', 'interface_declaration', 'namespace_definition', 'impl_item', 'mod_item', 'object_literal', 'protocol_declaration', 'extension_declaration']);
+const CONTAINERS = new Set(['class_definition', 'class_declaration', 'class_specifier', 'struct_specifier', 'object_declaration', 'object_definition', 'trait_definition',
+  'record_declaration', 'enum_declaration', 'interface_declaration', 'namespace_definition', 'impl_item', 'mod_item', 'object_literal', 'protocol_declaration', 'extension_declaration',
+  // Ruby's class and module.
+  'class', 'module']);
 
 function testHolders(root: Node, cases: Map<string, FoundTest>, suites: Array<{ start: number; end: number }>, index: SyntaxIndex): Set<string> {
   const key = (node: Node) => `${node.startIndex}:${node.endIndex}`;
   const suite = new Set(suites.map(item => `${item.start}:${item.end}`));
   const holderOf = (node: Node): Node => {
+    // A Zig test block sits beside the code it tests, at the top of the file or in a struct, as Zig writes them. It holds its own
+    // test code and makes nothing around it test code.
+    if (node.type === 'TestDecl') return node;
     for (let parent = node.parent; parent; parent = parent.parent) if (!parent.parent || CONTAINERS.has(parent.type) || suite.has(key(parent))) return parent;
     return root;
   };
@@ -67,12 +72,15 @@ function declarationsOf(items: StructureItem[], nodes: Map<string, Node>, langua
       const span = item.span!;
       const node = nodes.get(`${span.startByte}:${span.endByte}`);
       if (!node) throw new Error(`No syntax node for declaration ${item.name} at ${span.startByte}`);
+      // A C or C++ prototype, `int parse(const char *text);` in a header, is a declaration and not a definition: it has no body
+      // to measure or ask about, and counted as a definition it made every function a header declares ambiguous to the linker.
+      if ((language === 'c' || language === 'cpp') && node.type === 'declaration') continue;
       // A declaration the parser could not read whole is not offered as a method; the ones around it still are. Nested
       // declarations are read on their own, since a broken outer function says nothing about an inner one.
       if (hasSyntaxError(node, blockMacros, index)) { result.push(...declarationsOf(item.children ?? [], nodes, language, nonblank, cases, blockMacros, held, index)); continue; }
       const test = found(node);
       result.push({ id: `function:${node.startIndex}`, kind: 'function', syntax_kind: node.type,
-        name: test?.test.name ?? (['kotlin', 'cpp'].includes(language) ? functionName(node) : item.name ?? '<anonymous>'),
+        name: test?.test.name ?? (['kotlin', 'cpp', 'solidity', 'lua'].includes(language) ? functionName(node) : item.name ?? '<anonymous>'),
         qualified_name: qualifiedFunctionName(node, renamed), parent_function: parentFunctionName(node, renamed), parent_id: parentId(node),
         function_depth: functionDepth(node), line: span.startLine! + 1,
         end_line: Math.max(span.startLine! + 1, span.endLine! + (span.endColumn! > 0 ? 1 : 0)),
@@ -181,8 +189,13 @@ const NAMED_DECLARATIONS = new Set(['function_declaration', 'generator_function_
 /**
  * The name a JavaScript module's default export is defined under: `export default function f`, `export default f`, or CommonJS's
  * `module.exports = f`. `import f from "./m"` and `const f = require("./m")` bind this, whatever name the importer gives it.
+ * A Lua module is what its chunk returns: `return M` after `function M.total()` makes `require("cart").total` that function.
  */
 function defaultExport(root: Node, language: string): string | null {
+  if (language === 'lua') {
+    const returned = root.namedChildren.filter(item => item.type === 'return_statement').at(-1)?.namedChildren[0]?.namedChildren[0];
+    return returned?.type === 'identifier' ? returned.text : null;
+  }
   if (!DEFAULT_EXPORTERS.has(language)) return null;
   const named = (node: Node | null) => (node?.type === 'identifier' ? node.text
     : node && NAMED_DECLARATIONS.has(node.type) ? node.childForFieldName('name')?.text ?? null : null);

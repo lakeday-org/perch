@@ -1,0 +1,52 @@
+{
+  "language": "lua",
+  "framework": "luaunit",
+  "left_out": ["examples/rotate.lua"],
+  "tests": [
+    {
+      "file": "test/test_vector.lua",
+      "name": "testAddsComponentwise",
+      "reaches": ["src/vec/vector.lua::Vector.new", "src/vec/vector.lua::Vector.add"]
+    },
+    {
+      "file": "test/test_vector.lua",
+      "name": "testLengthIsEuclidean",
+      "reaches": ["src/vec/vector.lua::Vector.new", "src/vec/vector.lua::Vector.length"]
+    },
+    {
+      "file": "test/test_vector.lua",
+      "name": "testNormalizedHasLengthOne",
+      "reaches": ["src/vec/vector.lua::Vector.new", "src/vec/vector.lua::Vector.normalized", "src/vec/vector.lua::Vector.equals", "src/vec/vector.lua::Vector.scale", "src/vec/vector.lua::Vector.length"]
+    },
+    {
+      "file": "test/test_vector.lua",
+      "name": "testZeroVectorCannotBeNormalized",
+      "reaches": ["src/vec/vector.lua::Vector.new", "src/vec/vector.lua::Vector.normalized"]
+    },
+    {
+      "file": "test/test_matrix.lua",
+      "name": "testIdentityLeavesAVectorAlone",
+      "reaches": ["src/vec/matrix.lua::Matrix.identity", "src/vec/matrix.lua::Matrix.apply", "src/vec/matrix.lua::Matrix.rotation", "src/vec/vector.lua::Vector.new"]
+    },
+    {
+      "file": "test/test_matrix.lua",
+      "name": "testRotationTurnsAQuarter",
+      "reaches": ["src/vec/matrix.lua::Matrix.rotation", "src/vec/matrix.lua::Matrix.apply", "src/vec/util.lua::util.near", "src/vec/vector.lua::Vector.new"]
+    },
+    {
+      "file": "test/test_matrix.lua",
+      "name": "testInverseUndoesTheRotation",
+      "reaches": ["src/vec/matrix.lua::Matrix.rotation", "src/vec/matrix.lua::Matrix.multiply", "src/vec/matrix.lua::Matrix.inverse", "src/vec/matrix.lua::Matrix.determinant", "src/vec/util.lua::util.near"]
+    },
+    {
+      "file": "test/test_matrix.lua",
+      "name": "testASingularMatrixHasNoInverse",
+      "reaches": ["src/vec/matrix.lua::Matrix.new", "src/vec/matrix.lua::Matrix.inverse"]
+    },
+    {
+      "file": "test/test_matrix.lua",
+      "name": "testClampKeepsAValueInRange",
+      "reaches": ["src/vec/util.lua::util.clamp"]
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "language": "c",
+  "framework": "Criterion",
+  "left_out": ["examples/parse_line.c"],
+  "tests": [
+    {
+      "file": "tests/amount_test.c",
+      "name": "parses_dollars_and_cents",
+      "reaches": ["src/amount.c::parse_amount"]
+    },
+    {
+      "file": "tests/amount_test.c",
+      "name": "parses_a_whole_number",
+      "reaches": ["src/amount.c::parse_amount"]
+    },
+    {
+      "file": "tests/amount_test.c",
+      "name": "parses_a_negative_amount",
+      "reaches": ["src/amount.c::parse_amount"]
+    },
+    {
+      "file": "tests/amount_test.c",
+      "name": "rejects_three_decimal_places",
+      "reaches": ["src/amount.c::parse_amount"]
+    },
+    {
+      "file": "tests/amount_test.c",
+      "name": "rejects_an_empty_string",
+      "reaches": ["src/amount.c::parse_amount"]
+    },
+    {
+      "file": "tests/amount_test.c",
+      "name": "rejects_a_bad_sign",
+      "reaches": ["src/amount.c::parse_amount"]
+    },
+    {
+      "file": "tests/amount_test.c",
+      "name": "formats_cents_with_two_digits",
+      "reaches": ["src/amount.c::format_amount"]
+    },
+    {
+      "file": "tests/amount_test.c",
+      "name": "formats_a_negative_amount",
+      "reaches": ["src/amount.c::format_amount"]
+    },
+    {
+      "file": "tests/posting_test.c",
+      "name": "reads_an_import_line",
+      "reaches": ["src/posting.c::parse_posting", "src/fields.c::split_fields", "src/fields.c::trim", "src/amount.c::parse_amount"]
+    },
+    {
+      "file": "tests/posting_test.c",
+      "name": "collapses_runs_of_whitespace",
+      "reaches": ["src/posting.c::parse_posting", "src/fields.c::split_fields", "src/fields.c::trim", "src/amount.c::parse_amount"]
+    },
+    {
+      "file": "tests/posting_test.c",
+      "name": "rejects_an_unknown_side",
+      "reaches": ["src/posting.c::parse_posting"]
+    },
+    {
+      "file": "tests/posting_test.c",
+      "name": "rejects_a_missing_amount",
+      "reaches": ["src/posting.c::parse_posting"]
+    },
+    {
+      "file": "tests/posting_test.c",
+      "name": "splits_on_whitespace",
+      "reaches": ["src/fields.c::split_fields"]
+    },
+    {
+      "file": "tests/posting_test.c",
+      "name": "trims_both_ends",
+      "reaches": ["src/fields.c::trim"]
+    }
+  ]
+}

@@ -1,0 +1,92 @@
+{
+  "language": "solidity",
+  "framework": "forge",
+  "left_out": ["script/Deploy.s.sol", "lib/forge-std/src/Test.sol", "lib/forge-std/src/Script.sol", "lib/forge-std/src/Vm.sol"],
+  "tests": [
+    {
+      "file": "test/Pricing.t.sol",
+      "name": "test_DiscountTakesTenPercentOff",
+      "reaches": ["src/Pricing.sol::Pricing.discount"]
+    },
+    {
+      "file": "test/Pricing.t.sol",
+      "name": "test_DiscountOfZeroPercentLeavesTheAmount",
+      "reaches": ["src/Pricing.sol::Pricing.discount"]
+    },
+    {
+      "file": "test/Pricing.t.sol",
+      "name": "test_RevertWhen_DiscountOver100",
+      "reaches": ["src/Pricing.sol::Pricing.discount"]
+    },
+    {
+      "file": "test/Pricing.t.sol",
+      "name": "testFuzz_DiscountNeverExceedsTheAmount",
+      "reaches": ["src/Pricing.sol::Pricing.discount"]
+    },
+    {
+      "file": "test/Pricing.t.sol",
+      "name": "test_TaxRoundsToTheNearestCent",
+      "reaches": ["src/Pricing.sol::Pricing.tax"]
+    },
+    {
+      "file": "test/Pricing.t.sol",
+      "name": "test_BulkPercentStepsAtADozenAndAGross",
+      "reaches": ["src/Pricing.sol::Pricing.bulkPercent"]
+    },
+    {
+      "file": "test/Cart.t.sol",
+      "name": "test_SubtotalAddsEveryLine",
+      "reaches": ["src/Cart.sol::Cart.constructor", "src/Cart.sol::Cart.add", "src/Cart.sol::Cart.subtotal", "src/Cart.sol::Cart.count", "src/Sku.sol::Sku.isValid"]
+    },
+    {
+      "file": "test/Cart.t.sol",
+      "name": "test_AddMergesARepeatedSku",
+      "reaches": ["src/Cart.sol::Cart.add", "src/Cart.sol::Cart.count", "src/Cart.sol::Cart.subtotal"]
+    },
+    {
+      "file": "test/Cart.t.sol",
+      "name": "test_RevertWhen_SkuIsInvalid",
+      "reaches": ["src/Cart.sol::Cart.add", "src/Sku.sol::Sku.isValid"]
+    },
+    {
+      "file": "test/Cart.t.sol",
+      "name": "test_TotalDiscountsADozenAndAddsTax",
+      "reaches": ["src/Cart.sol::Cart.add", "src/Cart.sol::Cart.total", "src/Cart.sol::Cart.discounted", "src/Pricing.sol::Pricing.tax", "src/Pricing.sol::Pricing.discount", "src/Pricing.sol::Pricing.bulkPercent"]
+    },
+    {
+      "file": "test/Cart.t.sol",
+      "name": "testFuzz_TotalNeverExceedsSubtotalPlusTax",
+      "reaches": ["src/Cart.sol::Cart.total", "src/Cart.sol::Cart.subtotal"]
+    },
+    {
+      "file": "test/Inventory.t.sol",
+      "name": "test_RestockAddsToWhatIsOnTheShelf",
+      "reaches": ["src/Inventory.sol::Inventory.constructor", "src/Inventory.sol::Inventory.restock", "src/Inventory.sol::Inventory.onHand", "src/Sku.sol::Sku.isValid", "src/Pausable.sol::Pausable.whenNotPaused", "src/Pausable.sol::Pausable._requireNotPaused"]
+    },
+    {
+      "file": "test/Inventory.t.sol",
+      "name": "test_ReserveHoldsStockAgainstAnOrder",
+      "reaches": ["src/Inventory.sol::Inventory.reserve", "src/Inventory.sol::Inventory.available", "src/Inventory.sol::Inventory.onHand"]
+    },
+    {
+      "file": "test/Inventory.t.sol",
+      "name": "test_PickTakesReservedStockOffTheShelf",
+      "reaches": ["src/Inventory.sol::Inventory.reserve", "src/Inventory.sol::Inventory.pick", "src/Inventory.sol::Inventory.onHand"]
+    },
+    {
+      "file": "test/Inventory.t.sol",
+      "name": "test_RevertWhen_PausedByTheOwner",
+      "reaches": ["src/Inventory.sol::Inventory.pause", "src/Inventory.sol::Inventory.onlyOwner", "src/Pausable.sol::Pausable.paused", "src/Pausable.sol::Pausable._pause", "src/Inventory.sol::Inventory.restock"]
+    },
+    {
+      "file": "test/Inventory.t.sol",
+      "name": "test_RevertWhen_AClerkPauses",
+      "reaches": ["src/Inventory.sol::Inventory.pause"]
+    },
+    {
+      "file": "test/Inventory.t.sol",
+      "name": "invariant_ReservedNeverExceedsOnHand",
+      "reaches": ["src/Inventory.sol::Inventory.onHand", "src/Inventory.sol::Inventory.available"]
+    }
+  ]
+}

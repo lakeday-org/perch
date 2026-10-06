@@ -515,6 +515,17 @@ def tax(value):
     expect(named.baseline.revision).toBe(before.revision);
   });
 
+  it('does not compare with a report another perch saved', async () => {
+    const repo = await repository();
+    // A report in the shape an earlier perch wrote, saved at another commit: its methods count other things, so it is no baseline.
+    const older = { version: 2, revision: 'a'.repeat(40), created_at: '2026-01-01T00:00:00.000Z', root: repo.root, totals: {}, files: [], methods: [{ id: 'cart.py::apply_discount', planted: 3, caught: 1 }], tests: [], findings: [], closed: [], failed: [] };
+    await mkdir(join(repo.out, 'coverage', 'reports'), { recursive: true });
+    await writeFile(join(repo.out, 'coverage', 'reports', `2026-01-01T00-00-00-000Z-${older.revision.slice(0, 7)}.jsonl`), `${JSON.stringify(older)}\n`);
+    const report = await run(repo, scripted());
+    expect(report.baseline).toBe(null);
+    expect(report.diff).toBe(null);
+  });
+
   it('fails fast on an unsaved baseline', async () => {
     const repo = await repository();
     await write(repo.root, { 'pricing.py': `${FILES['pricing.py']}\n# later\n` });
