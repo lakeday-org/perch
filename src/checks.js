@@ -11,8 +11,8 @@
 import { access, constants, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseQuestions } from './ask.js';
+import { endpointKey } from './cloud-client.js';
 import { git } from './git.js';
-import { endpointKey } from './systemone.js';
 import { RULES_FILE } from './units.js';
 
 /** Node has to be new enough for what the parser and the client use. package.json says so; this is the same number. */

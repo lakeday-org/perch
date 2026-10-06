@@ -20,7 +20,8 @@ rules:
     where: src/cloud-client.js
     ensure: >-
       When PERCH_BASE_URL is set, scans use PERCH_API_KEY, falling back to
-      TYPESAFE_API_KEY, and pass PERCH_BASE_URL and PERCH_MODEL_ID to
+      OPENAI_API_KEY when PERCH_BASE_URL ends in /decisions and to
+      TYPESAFE_API_KEY otherwise, and pass PERCH_BASE_URL and PERCH_MODEL_ID to
       createSystemOne. PERCH_BASE_URL takes precedence over a saved Cloud login.
   - name: configured-endpoint-is-exact
     where: src/systemone.js

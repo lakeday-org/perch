@@ -15,9 +15,6 @@ export class AuthenticationError extends Error {
 /** A URL whose path ends in /decisions is OpenAI's Decisions API, which asks the same questions in its own format. */
 export const speaksDecisions = url => /\/decisions\/?(?:[?#]|$)/.test(String(url ?? ''));
 
-/** The variable holding the key for PERCH_BASE_URL: PERCH_API_KEY, else the one its provider documents. */
-export const endpointKey = env => (env.PERCH_API_KEY ? 'PERCH_API_KEY' : speaksDecisions(env.PERCH_BASE_URL) ? 'OPENAI_API_KEY' : 'TYPESAFE_API_KEY');
-
 /** System One's format is perch's own, so it goes out and comes back as it is. */
 const SYSTEM_ONE = { service: 'System One', model: DEFAULT_SYSTEM_ONE_MODEL, body: request => request, reply: answer => answer };
 

@@ -1,7 +1,7 @@
 /** Use Perch Cloud as a System One endpoint and stream scan results while work continues. */
 import { randomUUID } from 'node:crypto';
 import { git } from './git.js';
-import { createSystemOne, endpointKey } from './systemone.js';
+import { createSystemOne, speaksDecisions } from './systemone.js';
 import {
   actionsCanSignIn, actionsToken, CLOUD_ORIGIN, cloudRequest, jsonBody, readCloudLogin, sessionToken,
 } from './cloud-auth.js';
@@ -137,6 +137,9 @@ export async function credentialSource(env) {
   if (actionsCanSignIn(env)) return { kind: 'actions' };
   return { kind: 'none' };
 }
+
+/** The variable holding the key for PERCH_BASE_URL: PERCH_API_KEY, else OPENAI_API_KEY for the Decisions API and TYPESAFE_API_KEY for any other. */
+export const endpointKey = env => (env.PERCH_API_KEY ? 'PERCH_API_KEY' : speaksDecisions(env.PERCH_BASE_URL) ? 'OPENAI_API_KEY' : 'TYPESAFE_API_KEY');
 
 /**
  * What a model takes in one request, when it does not say. PERCH_MAX_QUESTIONS and PERCH_MAX_OPTIONS set the limits for an
