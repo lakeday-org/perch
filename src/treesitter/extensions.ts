@@ -27,8 +27,21 @@ const SIGNATURE_WORDS = new Set(['public', 'protected', 'private', 'static', 'fi
  */
 const signatureWord = (word: string): boolean => SIGNATURE_WORDS.has(/^\w+/.exec(word)?.[0] ?? '') || /^([a-z_]\w*\.)*[A-Z]/.test(word);
 
+/**
+ * The name a Zig container is declared under: `const Cart = struct { ... }` reads as a VarDecl whose value is the ContainerDecl, two
+ * expression nodes down. A container written anywhere else, returned from a generic function or passed as an argument, has none.
+ */
+export function zigContainerName(node: Node): Node | null {
+  if (node.type !== 'ContainerDecl') return null;
+  const suffix = node.parent, union = suffix?.parent, declaration = union?.parent;
+  if (suffix?.type !== 'SuffixExpr' || union?.type !== 'ErrorUnionExpr' || declaration?.type !== 'VarDecl') return null;
+  return declaration.childForFieldName('variable_type_function');
+}
+
 export function callableName(node: Node): Node | null {
   if (node.type === 'Decl') return node.namedChildren.find(child => child.type === 'FnProto')?.childForFieldName('function') ?? null;
+  // A Solidity constructor has no name node; the keyword that declares it is what `new Cart()` runs, as `constructor` is in JavaScript.
+  if (node.type === 'constructor_definition') return node.children.find(child => !child.isNamed && child.type === 'constructor') ?? null;
   if (node.type === 'lambda_literal') {
     let parent = node.parent;
     while (parent?.type === 'parenthesized_expression') parent = parent.parent;
@@ -42,6 +55,7 @@ export function callableName(node: Node): Node | null {
 }
 
 export function extraScopeName(node: Node): Node | null {
+  if (node.type === 'ContainerDecl') return zigContainerName(node);
   if (groovyPrefix(node).some(word => ['class', 'interface', 'trait', 'enum'].includes(word)))
     return node.namedChildren[0]?.namedChildren.find(child => child.type === 'identifier') ?? null;
   // The Kotlin grammar represents a same-line object body as a lambda in an infix expression.

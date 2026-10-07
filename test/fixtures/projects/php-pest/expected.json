@@ -1,0 +1,62 @@
+{
+  "language": "php",
+  "framework": "Pest",
+  "left_out": ["examples/demo.php"],
+  "tests": [
+    {
+      "file": "tests/Unit/ReservationTest.php",
+      "name": "counts the nights of a stay",
+      "reaches": ["src/Reservation.php::Reservation.__construct", "src/Reservation.php::Reservation.nights", "src/Room.php::Room.__construct", "src/Room.php::Room.fits"]
+    },
+    {
+      "file": "tests/Unit/ReservationTest.php",
+      "name": "rejects a stay that ends before it starts",
+      "reaches": ["src/Reservation.php::Reservation.__construct", "src/Room.php::Room.__construct"]
+    },
+    {
+      "file": "tests/Unit/ReservationTest.php",
+      "name": "charges the nightly rate per night",
+      "reaches": ["src/Reservation.php::Reservation.__construct", "src/Reservation.php::Reservation.priceCents", "src/Reservation.php::Reservation.nights"]
+    },
+    {
+      "file": "tests/Unit/ReservationTest.php",
+      "name": "overlapping stays in the same room",
+      "reaches": ["src/Reservation.php::Reservation.__construct", "src/Reservation.php::Reservation.overlaps"]
+    },
+    {
+      "file": "tests/Unit/CalendarTest.php",
+      "name": "books a free room",
+      "reaches": ["src/Calendar.php::Calendar.book", "src/Calendar.php::Calendar.isFree", "src/Reservation.php::Reservation.__construct", "src/Reservation.php::Reservation.nights", "src/Room.php::Room.__construct"]
+    },
+    {
+      "file": "tests/Unit/CalendarTest.php",
+      "name": "refuses a room already taken on those nights",
+      "reaches": ["src/Calendar.php::Calendar.book", "src/Calendar.php::Calendar.isFree", "src/Reservation.php::Reservation.overlaps"]
+    },
+    {
+      "file": "tests/Unit/CalendarTest.php",
+      "name": "tells whether a room is free",
+      "reaches": ["src/Calendar.php::Calendar.book", "src/Calendar.php::Calendar.isFree", "src/Room.php::Room.__construct"]
+    },
+    {
+      "file": "tests/Unit/CalendarTest.php",
+      "name": "adds up the revenue of every stay",
+      "reaches": ["src/Calendar.php::Calendar.book", "src/Calendar.php::Calendar.revenueCents", "src/Reservation.php::Reservation.priceCents"]
+    },
+    {
+      "file": "tests/Unit/PolicyTest.php",
+      "name": "allows a stay within its limits",
+      "reaches": ["src/Policy.php::Policy.__construct", "src/Policy.php::Policy.allows", "src/Reservation.php::Reservation.__construct", "src/Reservation.php::Reservation.nights"]
+    },
+    {
+      "file": "tests/Unit/PolicyTest.php",
+      "name": "refunds everything two weeks ahead",
+      "reaches": ["src/Policy.php::Policy.refundPercent"]
+    },
+    {
+      "file": "tests/Unit/PolicyTest.php",
+      "name": "refund percentages",
+      "reaches": ["src/Policy.php::Policy.refundPercent"]
+    }
+  ]
+}

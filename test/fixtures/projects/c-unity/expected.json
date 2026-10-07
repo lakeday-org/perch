@@ -1,0 +1,77 @@
+{
+  "language": "c",
+  "framework": "Unity",
+  "left_out": ["examples/blink.c"],
+  "tests": [
+    {
+      "file": "test/test_ring.c",
+      "name": "test_a_new_ring_is_empty",
+      "reaches": ["src/ring.c::ring_init", "src/ring.c::ring_count", "src/ring.c::ring_is_full"]
+    },
+    {
+      "file": "test/test_ring.c",
+      "name": "test_push_then_pop_returns_the_value",
+      "reaches": ["src/ring.c::ring_init", "src/ring.c::ring_push", "src/ring.c::ring_pop", "src/ring.c::ring_is_full"]
+    },
+    {
+      "file": "test/test_ring.c",
+      "name": "test_pop_on_empty_fails",
+      "reaches": ["src/ring.c::ring_init", "src/ring.c::ring_pop"]
+    },
+    {
+      "file": "test/test_ring.c",
+      "name": "test_push_fails_when_full",
+      "reaches": ["src/ring.c::ring_init", "src/ring.c::ring_push", "src/ring.c::ring_is_full"]
+    },
+    {
+      "file": "test/test_ring.c",
+      "name": "test_wraps_around",
+      "reaches": ["src/ring.c::ring_init", "src/ring.c::ring_push", "src/ring.c::ring_pop", "src/ring.c::ring_count"]
+    },
+    {
+      "file": "test/test_crc.c",
+      "name": "test_crc_of_nothing_is_zero",
+      "reaches": ["src/crc.c::crc8"]
+    },
+    {
+      "file": "test/test_crc.c",
+      "name": "test_crc_of_a_known_vector",
+      "reaches": ["src/crc.c::crc8"]
+    },
+    {
+      "file": "test/test_crc.c",
+      "name": "test_check_accepts_a_good_frame",
+      "reaches": ["src/crc.c::crc8", "src/crc.c::crc8_check"]
+    },
+    {
+      "file": "test/test_crc.c",
+      "name": "test_check_rejects_a_corrupted_frame",
+      "reaches": ["src/crc.c::crc8", "src/crc.c::crc8_check"]
+    },
+    {
+      "file": "test/test_crc.c",
+      "name": "test_check_needs_a_payload_and_a_crc",
+      "reaches": ["src/crc.c::crc8_check"]
+    },
+    {
+      "file": "test/test_filter.c",
+      "name": "test_mean_of_nothing_is_zero",
+      "reaches": ["src/filter.c::filter_init", "src/filter.c::filter_mean"]
+    },
+    {
+      "file": "test/test_filter.c",
+      "name": "test_mean_of_a_partial_window",
+      "reaches": ["src/filter.c::filter_init", "src/filter.c::filter_add", "src/filter.c::filter_mean"]
+    },
+    {
+      "file": "test/test_filter.c",
+      "name": "test_mean_forgets_the_oldest_sample",
+      "reaches": ["src/filter.c::filter_init", "src/filter.c::filter_add", "src/filter.c::filter_mean"]
+    },
+    {
+      "file": "test/test_filter.c",
+      "name": "test_clamp_keeps_a_reading_in_range",
+      "reaches": ["src/filter.c::filter_init", "src/filter.c::clamp_reading"]
+    }
+  ]
+}

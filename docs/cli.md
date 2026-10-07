@@ -211,8 +211,9 @@ it includes the end of `.perch/scan.log`.
 | Variable | Read by |
 | --- | --- |
 | `PERCH_API_KEY` | `scan`, `check`: bearer token for the System One endpoint. |
-| `PERCH_BASE_URL` | `scan`, `check`: complete System One request URL. |
-| `PERCH_MODEL_ID` | `scan`, `check`: model ID; defaults to `jev-latest`. Set it to the endpoint's model, such as `d1:free` on Liquid AI. |
+| `PERCH_BASE_URL` | `scan`, `check`: complete System One request URL, or OpenAI's Decisions API URL. |
+| `PERCH_MODEL_ID` | `scan`, `check`: model ID; defaults to `jev-latest`, or `gpt-6-luna` on the Decisions API. Set it to the endpoint's model, such as `d1:free` on Liquid AI. |
+| `OPENAI_API_KEY` | `scan`, `check`: the Decisions API key, when `PERCH_API_KEY` is not set. |
 | `PERCH_MAX_QUESTIONS` | `scan`, `check`: most questions in one request to `PERCH_BASE_URL`, for a model that does not report it. |
 | `PERCH_MAX_OPTIONS` | `scan`, `check`: most options in one choice question, likewise. |
 
@@ -234,9 +235,20 @@ export PERCH_API_KEY='paste-your-Liquid-key-here'
 export PERCH_MODEL_ID=d1:free
 ```
 
-The endpoint must support the System One request and response format: typed
-questions over a state, answered with probabilities. An OpenAI-compatible chat
-endpoint alone does not provide that contract.
+To use OpenAI's [Decisions API](https://developers.openai.com/api/docs/guides/decisions):
+
+```sh
+export PERCH_BASE_URL=https://api.openai.com/v1/decisions
+export OPENAI_API_KEY='paste-your-OpenAI-key-here'
+```
+
+perch recognizes a URL whose path ends in `/decisions` and translates its
+questions and answers to and from that API's format. The model defaults to
+`gpt-6-luna`.
+
+Any other endpoint must support the System One request and response format:
+typed questions over a state, answered with probabilities. An OpenAI-compatible
+chat endpoint alone does not provide that contract.
 
 Models take different numbers of questions in one request. A model that reports
 `max_questions` in its answers gets requests of that size: the first request is
