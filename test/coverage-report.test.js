@@ -118,7 +118,7 @@ describe('coverage report', () => {
     expect(rowOf(text, 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '3 of 3', '58% (7 of 12)', '1']);
     // A second value is another alternative for the same key, and a spelling with a space or a hyphen is the same kind.
     expect(parseCoverageFilters('kind=checks nothing,redundant')).toEqual([{ key: 'kind', value: 'checks_nothing' }, { key: 'kind', value: 'redundant' }]);
-    expect(() => parseCoverageFilters('kind=bogus')).toThrow(/kind "bogus" is not one of survived, redundant/);
+    expect(() => parseCoverageFilters('kind=bogus')).toThrow(/kind "bogus" is not one of survived, redundant, checks_nothing, mocked, infra/);
     expect(() => parseCoverageFilters('type=defect')).toThrow(/filters on kind, not "type"/);
   });
 
@@ -195,7 +195,7 @@ describe('perch coverage', () => {
   it('rejects an unknown kind', async () => {
     const { err, io } = capture();
     expect(await main(['coverage', '--filter', 'kind=bogus'], io)).toBe(2);
-    expect(err.join('\n')).toContain('kind "bogus" is not one of survived, redundant, checks_nothing, infra');
+    expect(err.join('\n')).toContain('kind "bogus" is not one of survived, redundant, checks_nothing, mocked, infra');
     expect(err.join('\n')).toContain('perch coverage --help');
     expect(await main(['coverage', '--depth', '0'], io)).toBe(2);
     expect(err.join('\n')).toContain('--depth must be a positive integer');

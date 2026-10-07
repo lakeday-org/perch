@@ -4,12 +4,14 @@
  * method would fail against it. They are the operators Stryker and PIT use: a comparison moved to its boundary or flipped, a
  * connective swapped, a condition forced true or false, an `if` body emptied, a call statement removed, a `!` or a minus
  * dropped, an arithmetic or update operator changed, a boolean flipped, a string emptied, a number moved by one, a returned
- * value replaced. Every mutant a method has is made; none is left out for being the eleventh.
+ * value replaced, and the whole body emptied, which asks the oldest question about a test: does it notice when the function does
+ * nothing? Every mutant a method has is made; none is left out for being the eleventh.
  */
 import { createHash } from 'node:crypto';
 import pack from '@xberg-io/tree-sitter-language-pack';
 import { Node } from './treesitter/node.ts';
 import { downloading, normalizeLanguage } from './treesitter/languages.ts';
+import { FUNCTION_TYPES } from './treesitter/metrics.ts';
 
 const COMPARISONS = { '<': '<=', '<=': '<', '>': '>=', '>=': '>', '==': '!=', '!=': '==', '===': '!==', '!==': '===', '~=': '==' };
 /** The same comparisons as Bash's `test` spells them: `[ "$n" -ge 100 ]`. */
@@ -61,6 +63,22 @@ const EMPTIES = { array: '[]', list: '[]', object: '{}', dictionary: '{}', hash:
 const WRAPPERS = new Set(['expression', 'ErrorUnionExpr', 'SuffixExpr', 'await_expression']);
 /** The null a dynamic language returns when a method returns nothing it meant to; a typed language has no value that compiles. */
 const NULLS = { javascript: 'null', python: 'None', ruby: 'nil', lua: 'nil', php: 'null' };
+/** Languages whose functions carry no return type, so an emptied body is the whole edit. */
+const UNTYPED = new Set(['javascript', 'python', 'ruby', 'lua']);
+/** The zero of a declared return type, where the type has one every language spells alike; anything else gets no body mutant. */
+const ZEROS = {
+  number: '0', int: '0', long: '0', short: '0', byte: '0', double: '0', float: '0', decimal: '0', Int: '0', Double: '0', Float: '0', Long: '0',
+  i8: '0', i16: '0', i32: '0', i64: '0', i128: '0', u8: '0', u16: '0', u32: '0', u64: '0', u128: '0', usize: '0', isize: '0', f32: '0', f64: '0',
+  int8: '0', int16: '0', int32: '0', int64: '0', uint: '0', uint8: '0', uint16: '0', uint32: '0', uint64: '0', uint128: '0', uint256: '0', int256: '0',
+  bool: 'false', boolean: 'false', Bool: 'false', Boolean: 'false',
+  string: '""', String: '""', str: '""', '&str': '""',
+};
+/** The types a function returns nothing under. */
+const NOTHING = new Set(['', 'void', 'Unit', '()', 'None', 'Promise<void>']);
+/** How each language writes a return of a value in a one-statement body, and an empty body. */
+const RETURN_STYLE = {
+  tail: new Set(['rust', 'scala']), bare: new Set(['go', 'swift', 'kotlin']),
+};
 
 /** Languages where a block's last expression is its value: a call there is a return, not a statement to remove. */
 const TAIL_VALUES = new Set(['rust', 'scala', 'kotlin', 'ruby']);
@@ -139,6 +157,57 @@ function consequenceOf(node) {
   if (held) return held.type === 'BlockExpr' ? held.namedChildren[0] ?? held : held;
   if (node.type === 'IfPrefix' && node.parent?.type === 'IfStatement') return node.parent.namedChildren.find(child => child.type === 'BlockExpr')?.namedChildren[0] ?? null;
   return node.namedChildren.find(child => ['statements', 'then', 'block', 'statement_block', 'compound_statement', 'control_structure_body', 'block_statement'].includes(child.type)) ?? null;
+}
+
+/** The declared return type of a function, as written, or null where the language declares none. */
+function returnTypeOf(fn, language) {
+  if (UNTYPED.has(language)) return '';
+  if (language === 'zig') {
+    const last = fn.namedChildren.find(item => item.type === 'FnProto')?.namedChildren.at(-1);
+    return last && !['IDENTIFIER', 'ParamDeclList'].includes(last.type) ? last.text : null;
+  }
+  if (language === 'solidity') return fn.namedChildren.find(item => item.type === 'return_type_definition')?.text ?? '';
+  if (language === 'kotlin' || language === 'swift') {
+    // The type sits between the parameters and the body, with no field of its own; a function without one returns nothing.
+    const typed = fn.namedChildren.find(item => ['user_type', 'nullable_type', 'optional_type', 'tuple_type', 'function_type'].includes(item.type) && item.startIndex > (fn.childForFieldName('parameters')?.endIndex ?? fn.namedChildren.find(child => child.type === 'function_value_parameters' || child.type === 'parameter')?.endIndex ?? 0));
+    return typed?.text ?? '';
+  }
+  const declared = fn.childForFieldName('return_type') ?? fn.childForFieldName('result') ?? fn.childForFieldName('returns')
+    ?? (['java', 'c', 'cpp'].includes(language) ? fn.childForFieldName('type') : null);
+  return declared?.text ?? '';
+}
+
+/** A return type's text reduced to the name the tables know: `: number`, `-> i32`, `returns (uint256)`, `string memory`. */
+const typeName = text => text.replace(/^(:|->|returns)\s*/, '').replace(/^\((.*)\)$/, '$1').replace(/\b(memory|calldata|storage)\b/g, '').trim();
+
+/** The body a function runs, as the grammar holds it. */
+const bodyOf = fn => fn.childForFieldName('body')
+  ?? fn.namedChildren.find(item => ['function_body', 'Block', 'block', 'statement_block', 'compound_statement', 'body_statement'].includes(item.type)) ?? null;
+
+/**
+ * The function at exactly these lines with its body replaced: emptied, or returning its type's zero. Null when the body is empty
+ * already, or the type has no zero every test would compile against.
+ */
+function bodyMutant(root, language, line, end_line) {
+  let fn = null;
+  const find = node => {
+    if (fn) return;
+    if ((FUNCTION_TYPES.has(node.type) || node.type === 'Decl') && node.startPosition.row + 1 === line && node.endPosition.row + 1 === end_line) { fn = node; return; }
+    for (const child of node.children) find(child);
+  };
+  find(root);
+  const body = fn && bodyOf(fn);
+  if (!body || !body.namedChildren.some(child => !child.type.includes('comment'))) return null;
+  const declared = returnTypeOf(fn, language);
+  if (declared === null) return null;
+  const name = typeName(declared);
+  const braced = body.text.startsWith('{');
+  if (NOTHING.has(name)) return { body, to: braced ? '{}' : language === 'python' ? 'pass' : '' };
+  if (language === 'rust' && name === 'String') return { body, to: '{ String::new() }' };
+  const zero = ZEROS[name];
+  if (zero === undefined || !braced) return null;
+  const value = language === 'php' && zero === '""' ? "''" : zero;
+  return { body, to: RETURN_STYLE.tail.has(language) ? `{ ${value} }` : RETURN_STYLE.bare.has(language) ? `{ return ${value} }` : `{ return ${value}; }` };
 }
 
 /**
@@ -233,11 +302,13 @@ export function mutantsOf({ source, language, line, end_line }) {
     for (const child of node.children) walk(child);
   };
   walk(root);
+  const whole = bodyMutant(root, normalized, line, end_line);
+  if (whole) add('body', whole.body, whole.to);
   return found.sort((a, b) => a.line - b.line || a.column - b.column || KINDS.indexOf(a.kind) - KINDS.indexOf(b.kind));
 }
 
 /** Every kind of mutant, in the order two at the same place are listed. */
-export const KINDS = ['boundary', 'logic', 'arithmetic', 'update', 'condition', 'block', 'removal', 'not', 'negative', 'boolean', 'return', 'string', 'number'];
+export const KINDS = ['body', 'boundary', 'logic', 'arithmetic', 'update', 'condition', 'block', 'removal', 'not', 'negative', 'boolean', 'return', 'string', 'number'];
 
 /** A mutant's id within its method: where it is and what it does, stable across runs. */
 export const mutantId = mutant => `${mutant.line}:${mutant.column}:${mutant.kind}:${createHash('sha1').update(`${mutant.from}>${mutant.to}`).digest('hex').slice(0, 8)}`;
@@ -247,6 +318,7 @@ const shown = text => { const flat = text.trim().replace(/\s+/g, ' '); return fl
 export function describeMutant(mutant) {
   if (mutant.kind === 'removal') return `the call \`${shown(mutant.from)}\` removed`;
   if (mutant.kind === 'block') return 'the branch\'s body emptied';
+  if (mutant.kind === 'body') return /return|^\{ \S/.test(mutant.to) ? `the body replaced by \`${shown(mutant.to.replace(/^\{ | \}$/g, ''))}\`` : 'the body emptied';
   if (mutant.kind === 'condition') return `\`${mutant.to}\` as the condition`;
   return `\`${shown(mutant.to)}\` instead of \`${shown(mutant.from)}\``;
 }

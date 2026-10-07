@@ -17,7 +17,7 @@ const short = revision => String(revision ?? '').slice(0, 7);
 const words = label => String(label ?? '').replaceAll('_', ' ');
 /** Each kind of problem by the name the page gives it. */
 const PROBLEM_NAMES = {
-  survived: 'Survived mutant', redundant: 'Duplicate test', checks_nothing: 'Checks nothing', infra: 'Live service',
+  survived: 'Survived mutant', redundant: 'Duplicate test', checks_nothing: 'Checks nothing', mocked: 'Mocks what it tests', infra: 'Live service',
 };
 const problemName = kind => PROBLEM_NAMES[kind] ?? words(kind);
 /** A saved report's ISO timestamp, to the minute. Seconds and milliseconds only make two dates harder to compare by eye. */
@@ -187,7 +187,7 @@ function changes(report, index) {
 }
 
 /** The kinds of problem that say a test is not worth its keep. */
-const WEAK = new Set(['checks_nothing']);
+const WEAK = new Set(['checks_nothing', 'mocked']);
 
 /**
  * What a problem is about and what perch found, for the rows and notes that show it: the test or method it is on, and one fact.
@@ -567,6 +567,8 @@ function fixSteps(finding, index) {
       const kept = index.tests.get(test.redundant_with);
       lines.push(`The test ${name} kills the same mutants as "${kept ? testName(kept) : test.redundant_with}"${kept ? ` (${at(kept)})` : ''}, and no others.`,
         'Compare the two. Delete this one if it asserts nothing the other does not; otherwise move what differs into the other and delete this one.');
+    } else if (finding.kind === 'mocked') {
+      lines.push(`The test ${name} mocks every method it calls, so it tests its own mocks: ${finding.note}`, 'Call the real code under test and keep mocks only for what leaves the process: the network, the database, the clock. Delete the test if nothing it checks is worth keeping.');
     } else if (WEAK.has(finding.kind)) {
       lines.push(`The test ${name} has a problem: ${finding.note}`, 'Make it drive the code under test and assert on what that code returns. Delete it if nothing it checks is worth keeping.');
     } else if (finding.kind === 'infra') {

@@ -28,22 +28,21 @@ Point it at a repository:
 ```console
 $ perch coverage
 Source files      Methods tested  Mutation score  Survived
-src/cart.ts               2 of 2   67% (8 of 12)         4
-src/checkout.ts           1 of 1    50% (2 of 4)         2
-src/inventory.ts          1 of 1    86% (6 of 7)         1
-All source                4 of 4  70% (16 of 23)         7
+src/cart.ts               2 of 2  71% (10 of 14)         4
+src/checkout.ts           1 of 1    60% (3 of 5)         2
+src/inventory.ts          1 of 1    88% (7 of 8)         1
+All source                4 of 4  74% (20 of 27)         7
 
 Test files                    Quality  Duplicates  Checks nothing  Live services
 test/cart.test.ts        43% (3 of 7)           4               0              1
 test/checkout.test.ts   100% (1 of 1)           0               0              0
-test/inventory.test.ts  100% (4 of 4)           0               0              0
-All tests               67% (8 of 12)           4               0              1
+test/inventory.test.ts   75% (3 of 4)           0               1              0
+All tests               58% (7 of 12)           4               1              1
 
 src/cart.ts
   ID        Line  Problem   Confidence  Test or method  Note
   0399f832    12  survived         61%  applyDiscount   With `101` instead of `100`, none of the …
   1be27338    12  survived         61%  applyDiscount   With `>` instead of `>=`, none of the 5 t…
-  20fb814a    12  survived         59%  applyDiscount   With `1` instead of `0`, none of the 5 te…
 
 src/checkout.ts
   ID        Line  Problem   Confidence  Test or method  Note
@@ -57,9 +56,13 @@ test/cart.test.ts
   3055e1ad    18  redundant         94%  applyDiscount > tak…  Kills the same mutants as applyDis…
   427fce7a    22  redundant         94%  applyDiscount > tak…  Kills the same mutants as applyDis…
   472ae559    32  infra             88%  subtotal > matches …  Calls a live service with nothing …
-shop at commit 0ade512: 4 methods, 12 tests, 12 problems, 10 shown, --all for the rest
+
+test/inventory.test.ts
+  ID        Line  Problem  Confidence  Test or method         Note
+  98a1a024    23  mocked            -  canFulfil > returns …  Mocks every method it calls: canFul…
+shop at commit 0ade512: 4 methods, 12 tests, 13 problems, 10 shown, --all for the rest
 Report: .perch/coverage/index.html
-24 requests  0 tokens in  $0.0000
+28 requests  6k tokens in / 318 out  $0.0017
 ```
 
 The mutation score is the share of mutants killed by at least one test. Methods
@@ -68,8 +71,11 @@ graph. Perch lists each survived mutant with the edit it made and the number of
 tests that miss it. The confidence is how sure Perch is that no test kills the
 mutant and that the mutant changes what a caller sees. A test that checks
 nothing kills no mutant in the code it reaches. A duplicate kills exactly the
-mutants an earlier test kills. A problem with a `-` for confidence is on a test
-or method the model couldn't be asked about. Use `--all` to see every row.
+mutants an earlier test kills. A test that mocks what it tests calls only
+methods it has replaced with its own mocks, so it checks the mocks; that is a
+fact of the call graph and is listed with `-` for confidence, as is a problem on
+a test or method the model couldn't be asked about. Use `--all` to see every
+row.
 
 Perch also writes an HTML report. It shows each line of source with its problems
 under it. For a survived mutant, it shows the original and the mutated version
@@ -203,9 +209,9 @@ src/cart.ts
 test/cart.test.ts
   ID        Line  Problem    Confidence  Test or method        Note
   427fce7a    22  redundant         76%  applyDiscount > tak…  Kills the same mutants as applyDis…
-shop at commit 6fe98ce: 4 methods, 12 tests, 4 problems in changed code, 7 elsewhere
+shop at commit 6fe98ce: 4 methods, 12 tests, 4 problems in changed code, 8 elsewhere
 Report: .perch/coverage/index.html
-24 requests  18k tokens in / 999 out  $0.0054
+28 requests  2k tokens in / 111 out  $0.0006
 ```
 
 With `--since`, perch exits 3 only when it finds a problem in changed code. It

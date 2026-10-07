@@ -440,7 +440,7 @@ describe('Bash', () => {
 });
 
 describe('mutants for the systems languages', () => {
-  const edits = mutants => mutants.map(mutant => `${mutant.kind} ${mutant.line} ${mutant.from}>${mutant.to}`);
+  const edits = mutants => mutants.filter(mutant => mutant.kind !== 'body').map(mutant => `${mutant.kind} ${mutant.line} ${mutant.from}>${mutant.to}`);
 
   it('plants boundary, condition, arithmetic and return mutants in a Go function', () => {
     const go = source(['package cart', '', 'func Discount(total, percent int) int {', '\tif percent >= 100 || total <= 0 {', '\t\treturn 0', '\t}', '\treturn total - total*percent/100', '}']);

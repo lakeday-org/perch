@@ -180,7 +180,7 @@ const METHODS = {
   item_count: { matters: 0.9, kills: { test_count_mocked: 0.9 } },
   round_money: { matters: 0.9, kills: { test_discount_10: 0.9, test_discount_20: 0.9, test_discount_negative: 0.05 } },
   total: { matters: 0.85, kills: { 'cart > adds prices': { boundary: 0.1, condition: 0.95 }, 'cart > rejects a negative price': { boundary: 0.9, condition: 0.9 }, 'cart > checks out': { '*': 0.05 } } },
-  checkout: { matters: 0.9, kills: { 'cart > checks out': 0.05 } },
+  checkout: { matters: 0.9, kills: { 'cart > checks out': { removal: 0.05, '*': 0.9 } } },
   save: { matters: 0.9, kills: { 'saves an order': 0.05 } },
   fetch_rate: { matters: 0.8, kills: { test_rate: 0.9, test_rate_mocked: 0.9 } },
   restock: { matters: 0.9, kills: { test_restock: { boundary: 0.1, condition: 0.9, boolean: 0.9 } } },
@@ -282,17 +282,17 @@ describe('perch coverage', () => {
     const report = await run(repo, systemOne);
     expect(report.failed).toEqual([]);
     // Only the test with a network call in reach is asked anything; every reached method is asked about each of its mutants
-    // (apply_discount has eighteen, total seven, fetch_rate two), and restock, which no test reaches, is asked nothing.
+    // (apply_discount has nineteen, total eight, fetch_rate three), and restock, which no test reaches, is asked nothing.
     const asked = systemOne.calls.map(call => call.name);
     expect(asked.filter(name => name in TESTS)).toEqual(['test_rate']);
-    expect(asked.filter(name => name === 'apply_discount')).toHaveLength(18);
-    expect(asked.filter(name => name === 'total')).toHaveLength(7);
-    expect(asked.filter(name => name === 'fetch_rate')).toHaveLength(2);
+    expect(asked.filter(name => name === 'apply_discount')).toHaveLength(19);
+    expect(asked.filter(name => name === 'total')).toHaveLength(8);
+    expect(asked.filter(name => name === 'fetch_rate')).toHaveLength(3);
     expect(asked).not.toContain('restock');
     // One request per mutant: the method as written, the edit in words and as code, and a yes-or-no per test reaching it.
     const boundary = systemOne.calls.find(call => call.name === 'apply_discount' && call.state.method.mutation.kind === 'boundary');
     expect(boundary.state.method.mutation).toEqual({ kind: 'boundary', edit: '`<=` instead of `<`', original: 'if percent < 0:', mutated: 'if percent <= 0:' });
-    const removal = systemOne.calls.find(call => call.name === 'checkout');
+    const removal = systemOne.calls.find(call => call.name === 'checkout' && call.state.method.mutation.kind === 'removal');
     expect(removal.state.method.mutation).toEqual({ kind: 'removal', edit: 'the call `save(amount);` removed', original: 'save(amount);', mutated: '' });
     expect(boundary.state.method.source).toContain('if percent < 0:');
     expect(boundary.state.graph.nodes.map(node => [node.id, node.note])).toEqual([
@@ -303,23 +303,25 @@ describe('perch coverage', () => {
     const tests = byId(report.tests);
     const twenty = tests.get('tests/test_cart.py::test_discount_20');
     // Kills exactly the mutants test_discount_10 kills: one test written twice.
-    expect(twenty).toMatchObject({ useful: false, redundant_with: 'tests/test_cart.py::test_discount_10', asked: 20 });
-    expect(twenty.kills).toHaveLength(18);
+    expect(twenty).toMatchObject({ useful: false, redundant_with: 'tests/test_cart.py::test_discount_10', asked: 22 });
+    expect(twenty.kills).toHaveLength(20);
     expect(tests.get('tests/test_cart.py::test_discount_10').useful).toBe(true);
     // Kills the two negated conditions and not the arithmetic: a different test.
     expect(tests.get('tests/test_cart.py::test_discount_negative')).toMatchObject({ useful: true, redundant_with: null });
-    expect(tests.get('tests/test_cart.py::test_discount_negative').kills).toHaveLength(13);
-    // Kills no mutant of total or of checkout: it checks nothing.
-    expect(tests.get('test/cart.test.ts::cart > checks out')).toMatchObject({ useful: false, asked: 8, kills: [] });
-    // Reaches only item_count, whose one mutant it kills; one mutant is too few to call a test empty over.
-    expect(tests.get('tests/test_cart.py::test_count_mocked')).toMatchObject({ useful: true, asked: 1 });
-    expect(tests.get('tests/test_cart.py::test_count_mocked').kills).toHaveLength(1);
+    expect(tests.get('tests/test_cart.py::test_discount_negative').kills).toHaveLength(14);
+    // Kills no mutant of total and only checkout's emptied body: a kill of its own, so it is kept.
+    expect(tests.get('test/cart.test.ts::cart > checks out')).toMatchObject({ useful: true, asked: 10 });
+    expect(tests.get('test/cart.test.ts::cart > checks out').kills).toHaveLength(1);
+    // Asserts nothing, so it kills none of save's three mutants: it checks nothing.
+    expect(tests.get('test/db.test.ts::saves an order')).toMatchObject({ useful: false, asked: 3, kills: [] });
+    // Reaches only item_count, whose two mutants it kills.
+    expect(tests.get('tests/test_cart.py::test_count_mocked')).toMatchObject({ useful: true, asked: 2 });
+    expect(tests.get('tests/test_cart.py::test_count_mocked').kills).toHaveLength(2);
     expect(tests.get('test/cart.test.ts::cart > adds prices').name).toBe('adds prices');
     expect(tests.get('test/cart.test.ts::cart > adds prices').suite).toEqual(['cart']);
 
     const findings = byId(report.findings);
     expect(kinds(report)).toEqual([
-      'checks_nothing test/cart.test.ts::cart > checks out',
       'checks_nothing test/db.test.ts::saves an order',
       'infra tests/test_cart.py::test_rate',
       'redundant tests/test_cart.py::test_discount_20',
@@ -330,12 +332,13 @@ describe('perch coverage', () => {
       'survived src/cart.ts::checkout',
       'survived src/db.ts::save',
       'survived src/db.ts::save',
+      'survived src/db.ts::save',
     ]);
     const find = (kind, unit) => report.findings.filter(finding => finding.kind === kind && finding.unit === unit);
     // As likely as test_discount_10 is to kill the mutant it is least sure of among those test_discount_20 kills.
     expect(find('redundant', 'tests/test_cart.py::test_discount_20')[0]).toMatchObject({ probability: 0.9, note: 'Kills the same mutants as test_discount_10 at line 9, and no others.' });
-    // The chance it misses all eight: 0.95 eight times.
-    expect(find('checks_nothing', 'test/cart.test.ts::cart > checks out')[0]).toMatchObject({ probability: 0.95 ** 8, note: 'Kills none of the 8 mutants in the code it reaches.' });
+    // The chance it misses all three: 0.95 three times.
+    expect(find('checks_nothing', 'test/db.test.ts::saves an order')[0]).toMatchObject({ probability: 0.95 ** 3, note: 'Kills none of the 3 mutants in the code it reaches.' });
     // The call checkout makes to save: removed, the one test still passes, since it asserts only on what checkout returns.
     expect(find('survived', 'src/cart.ts::checkout')[0]).toMatchObject({ line: 14, note: 'With the call `save(amount);` removed, the 1 test reaching it still passes.' });
     expect(find('survived', 'src/cart.ts::checkout')[0].probability).toBeCloseTo(0.95 * 0.9);
@@ -363,8 +366,8 @@ describe('perch coverage', () => {
 
     const methods = byId(report.methods);
     const discount = methods.get('cart.py::apply_discount');
-    expect(discount).toMatchObject({ killed: 16, useful: ['tests/test_cart.py::test_discount_10', 'tests/test_cart.py::test_discount_negative'] });
-    expect(discount.mutants).toHaveLength(18);
+    expect(discount).toMatchObject({ killed: 17, useful: ['tests/test_cart.py::test_discount_10', 'tests/test_cart.py::test_discount_negative'] });
+    expect(discount.mutants).toHaveLength(19);
     // The two boundaries survive; every condition is killed by all three tests, every arithmetic by the two discount tests.
     expect(discount.mutants.filter(mutant => !mutant.killed).map(mutant => [mutant.kind, mutant.line])).toEqual([['boundary', 5], ['boundary', 7]]);
     expect(discount.mutants.filter(mutant => mutant.kind === 'condition').map(mutant => mutant.killed_by.length)).toEqual([3, 3, 3, 3]);
@@ -375,23 +378,23 @@ describe('perch coverage', () => {
     expect(first.survives).toBeCloseTo(0.9 ** 3);
     // The negative-price test kills every mutant of total; the plain one misses only the boundary.
     const total = methods.get('src/cart.ts::total');
-    expect(total).toMatchObject({ killed: 7 });
+    expect(total).toMatchObject({ killed: 8 });
     expect(total.mutants.every(mutant => mutant.killed_by.includes('test/cart.test.ts::cart > rejects a negative price'))).toBe(true);
     expect(total.mutants.filter(mutant => !mutant.killed_by.includes('test/cart.test.ts::cart > adds prices')).map(mutant => mutant.kind)).toEqual(['boundary']);
-    expect(methods.get('rates.py::fetch_rate')).toMatchObject({ killed: 2 });
-    expect(methods.get('rates.py::fetch_rate').mutants).toHaveLength(2);
-    expect(methods.get('cart.py::item_count')).toMatchObject({ killed: 1, tests: [{ id: 'tests/test_cart.py::test_count_mocked', depth: 1 }] });
-    expect(methods.get('cart.py::item_count').mutants.map(mutant => mutant.kind)).toEqual(['return']);
+    expect(methods.get('rates.py::fetch_rate')).toMatchObject({ killed: 3 });
+    expect(methods.get('rates.py::fetch_rate').mutants).toHaveLength(3);
+    expect(methods.get('cart.py::item_count')).toMatchObject({ killed: 2, tests: [{ id: 'tests/test_cart.py::test_count_mocked', depth: 1 }] });
+    expect(methods.get('cart.py::item_count').mutants.map(mutant => mutant.kind)).toEqual(['body', 'return']);
     expect(methods.get('cart.py::restock')).toMatchObject({ killed: 0, mutants: [], tests: [] });
 
-    expect(report.totals).toMatchObject({ methods: 8, reached: 7, useful_reached: 5, mutants: 33, killed: 28, score: 28 / 33, survived: 5, tests: 10, useful: 6, redundant: 2, weak: 2, infra: 1,
-      drop: { count: 4 } });
-    // checks out is the only test reaching checkout and saves an order the only one reaching save; both are dropped for checking nothing.
-    expect(report.totals.drop.unreached).toEqual(['src/cart.ts::checkout', 'src/db.ts::save']);
+    expect(report.totals).toMatchObject({ methods: 8, reached: 7, useful_reached: 6, mutants: 40, killed: 34, score: 34 / 40, survived: 6, tests: 10, useful: 7, redundant: 2, weak: 1, infra: 1,
+      drop: { count: 3 } });
+    // saves an order is the only test reaching save, and it is dropped for checking nothing.
+    expect(report.totals.drop.unreached).toEqual(['src/db.ts::save']);
     const cartFile = report.files.find(file => file.path === 'cart.py');
     expect(cartFile.kind).toBe('source');
-    expect(cartFile.totals).toMatchObject({ methods: 3, reached: 2, useful_reached: 2, mutants: 19, killed: 17, survived: 2 });
-    expect(cartFile.totals.score).toBeCloseTo(17 / 19);
+    expect(cartFile.totals).toMatchObject({ methods: 3, reached: 2, useful_reached: 2, mutants: 21, killed: 19, survived: 2 });
+    expect(cartFile.totals.score).toBeCloseTo(19 / 21);
     expect(cartFile.lines[4]).toBe('    if percent < 0:');
     expect(report.files.find(file => file.path === 'tests/test_cart.py').totals).toMatchObject({ tests: 6, useful: 4, redundant: 2, weak: 0, infra: 1 });
 
@@ -402,8 +405,8 @@ describe('perch coverage', () => {
     expect(items.filter(([list]) => list === 'findings').map(([, finding]) => finding)).toEqual(report.findings);
     expect(items.filter(([list]) => list === 'methods')).toHaveLength(report.methods.length);
     expect(await readdir(join(repo.out, 'coverage', 'reports'))).toHaveLength(1);
-    // One test and thirty-three mutants.
-    expect(systemOne.calls).toHaveLength(34);
+    // One test and forty mutants.
+    expect(systemOne.calls).toHaveLength(41);
     expect(report.baseline).toBe(null);
   });
 
@@ -452,14 +455,14 @@ describe('perch coverage', () => {
   });
 
   it('calls a test empty only above the floor', async () => {
-    // checks out is scripted to miss all eight mutants it reaches at 0.95: the chance it misses every one is 0.66. At 0.3 each it is
-    // 0.7 to the eighth, well under the floor.
+    // checks out scripted to miss all ten mutants it reaches at 0.95: the chance it misses every one is 0.6. At 0.3 each it is
+    // 0.7 to the tenth, well under the floor.
     const missing = { kills: { 'cart > adds prices': { boundary: 0.1, condition: 0.95 }, 'cart > rejects a negative price': { boundary: 0.9, condition: 0.9 }, 'cart > checks out': 0.3 } };
     const under = await run(await repository(), scripted({ methods: { total: { ...METHODS.total, ...missing }, checkout: { matters: 0.9, kills: { 'cart > checks out': 0.3 } } } }));
     const checks = under.tests.find(test => test.id === 'test/cart.test.ts::cart > checks out');
     expect(under.findings.filter(finding => finding.unit === checks.id).map(finding => finding.kind)).toEqual([]);
     expect(checks.useful).toBe(true);
-    const over = await run(await repository(), scripted());
+    const over = await run(await repository(), scripted({ methods: { checkout: { matters: 0.9, kills: { 'cart > checks out': 0.05 } } } }));
     expect(over.findings.filter(finding => finding.unit === checks.id).map(finding => finding.kind)).toEqual(['checks_nothing']);
     expect(over.tests.find(test => test.id === checks.id).useful).toBe(false);
   });
@@ -480,8 +483,8 @@ describe('perch coverage', () => {
   it('records units it could not ask about', async () => {
     const repo = await repository();
     const report = await run(repo, scripted({ fail: new Set(['cart > rejects a negative price', 'total']) }));
-    // The test is never asked, having no live service in reach, so only the method fails: once per mutant, seven times.
-    expect(report.failed.map(unit => [unit.subject, unit.unit])).toEqual(Array(7).fill(['method', 'src/cart.ts::total']));
+    // The test is never asked, having no live service in reach, so only the method fails: once per mutant, eight times.
+    expect(report.failed.map(unit => [unit.subject, unit.unit])).toEqual(Array(8).fill(['method', 'src/cart.ts::total']));
     expect(report.failed[0].error).toBe('scripted failure for total');
     const rejects = report.tests.find(test => test.id === 'test/cart.test.ts::cart > rejects a negative price');
     // With total's mutants unasked, nothing says whether it kills anything, so it is kept.
@@ -490,8 +493,8 @@ describe('perch coverage', () => {
     expect(total).toMatchObject({ killed: 0, mutants: [] });
     expect(total.useful).toEqual(['test/cart.test.ts::cart > adds prices', 'test/cart.test.ts::cart > rejects a negative price', 'test/cart.test.ts::cart > checks out']);
     // Every one of total's mutants failed, once each; the failures are listed by the method.
-    expect(report.failed.filter(unit => unit.unit === 'src/cart.ts::total')).toHaveLength(7);
-    expect(report.totals).toMatchObject({ useful: 7, mutants: 26 });
+    expect(report.failed.filter(unit => unit.unit === 'src/cart.ts::total')).toHaveLength(8);
+    expect(report.totals).toMatchObject({ useful: 7, mutants: 32 });
   });
 
   it('stops on rejected credentials', async () => {
@@ -521,13 +524,13 @@ def tax(value):
     const { diff } = after;
     expect(diff.tests).toEqual({ added: ['tests/test_cart.py::test_restock'], removed: [] });
     const methods = byId(diff.methods);
-    // Seven mutants of restock once a test reaches it; its boundary survives that test.
-    expect(methods.get('cart.py::restock')).toMatchObject({ before: { reached: false, mutants: 0, killed: 0 }, after: { reached: true, mutants: 7, killed: 6 } });
+    // Eight mutants of restock once a test reaches it; its boundary survives that test.
+    expect(methods.get('cart.py::restock')).toMatchObject({ before: { reached: false, mutants: 0, killed: 0 }, after: { reached: true, mutants: 8, killed: 7 } });
     expect(methods.get('pricing.py::tax')).toMatchObject({ before: null, after: { reached: false, mutants: 0 } });
     expect(methods.has('cart.py::apply_discount')).toBe(false);
     expect(diff.findings.fixed).toEqual([]);
     expect(diff.findings.new.map(finding => `${finding.kind} ${finding.unit}`)).toEqual(['survived cart.py::restock']);
-    expect(diff.totals.score).toEqual({ before: 28 / 33, after: 34 / 40 });
+    expect(diff.totals.score).toEqual({ before: 34 / 40, after: 41 / 48 });
     expect(diff.totals.methods).toEqual({ before: 8, after: 9 });
     expect(diff.totals.tests).toEqual({ before: 10, after: 11 });
     expect(diff.files.map(file => file.path)).toEqual(['cart.py', 'pricing.py', 'tests/test_cart.py']);
@@ -559,6 +562,37 @@ def tax(value):
   });
 });
 
+describe('a test that mocks what it tests', () => {
+  it('is listed as a fact of the graph, asked nothing, and dropped', async () => {
+    const repo = await repository({
+      ...FILES,
+      'test/db-mocked.test.ts': `import { it, expect, vi } from 'vitest';
+import { save } from '../src/db';
+
+vi.mock('../src/db');
+
+it('saves through the mock', () => {
+  save(3);
+  expect(save).toHaveBeenCalledWith(3);
+});
+`,
+    });
+    TESTS['saves through the mock'] = {};
+    const systemOne = scripted();
+    const report = await run(repo, systemOne);
+    delete TESTS['saves through the mock'];
+    const test = report.tests.find(item => item.name === 'saves through the mock');
+    // The call resolved to save, and the test's own vi.mock cuts it: both halves are the graph's, so no model is asked.
+    expect(test).toMatchObject({ mocked: true, cuts: ['src/db.ts::save'], reach: [], useful: false, asked: 0 });
+    expect(systemOne.calls.find(call => call.name === 'saves through the mock')).toBe(undefined);
+    expect(report.findings.filter(finding => finding.unit === test.id)).toEqual([expect.objectContaining({ kind: 'mocked', probability: null, line: 6, note: 'Mocks every method it calls: save.' })]);
+    expect(report.totals.weak).toBe(2);
+    expect(report.totals.drop.count).toBe(4);
+    // checks out mocks db too, but calls checkout, which is not mocked: it tests something real.
+    expect(report.tests.find(item => item.id === 'test/cart.test.ts::cart > checks out').mocked).toBe(false);
+  });
+});
+
 describe('a test that calls no repository code', () => {
   it('is asked about, not failed', async () => {
     const repo = await repository({
@@ -581,7 +615,7 @@ it('charges the stubbed amount', () => {
     // A chained call such as expect(...).toBe is recorded as dynamic and named by nothing, and it() belongs to the file.
     expect(stub.unresolved).toEqual(['charge', 'expect', 'vi.fn']);
     // Reaching no method, no mutant is asked over it, so nothing says it checks nothing: it is kept, and never asked.
-    expect(stub).toMatchObject({ useful: true, asked: 0, kills: [] });
+    expect(stub).toMatchObject({ useful: true, asked: 0, kills: [], mocked: false });
     expect(report.findings.filter(finding => finding.unit === stub.id)).toEqual([]);
     expect(systemOne.calls.find(call => call.name === 'charges the stubbed amount')).toBe(undefined);
   });
@@ -628,8 +662,8 @@ describe('perch coverage from the command line', () => {
       const table = out.join('\n').split('\n\n')[0].split('\n').map(line => line.trim().split(/\s{2,}/));
       const rows = Object.fromEntries(table.map(([path, ...cells]) => [path, cells]));
       // The endpoint answers 0.9 to every yes-or-no, so every mutant is killed.
-      expect(rows['src/cart.ts']).toEqual(['2 of 2', '100% (8 of 8)', '0']);
-      expect(rows['src/db.ts']).toEqual(['1 of 1', '100% (2 of 2)', '0']);
+      expect(rows['src/cart.ts']).toEqual(['2 of 2', '100% (10 of 10)', '0']);
+      expect(rows['src/db.ts']).toEqual(['1 of 1', '100% (3 of 3)', '0']);
       const page = await readFile(join(repo.root, 'out', 'index.html'), 'utf8');
       expect(page).toMatch(/^<!doctype html>/);
       expect(page).toContain('Run details');

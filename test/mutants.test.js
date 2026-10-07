@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { describeMutant, KINDS, mutantId, mutantsOf } from '../src/mutants.js';
 
-const edits = mutants => mutants.map(mutant => `${mutant.kind} ${mutant.line} ${mutant.from}>${mutant.to}`);
+/** Every edit but the whole-body one, which is asserted apart: its `from` is the body. */
+const edits = mutants => mutants.filter(mutant => mutant.kind !== 'body').map(mutant => `${mutant.kind} ${mutant.line} ${mutant.from}>${mutant.to}`);
+const bodies = mutants => mutants.filter(mutant => mutant.kind === 'body').map(mutant => `${mutant.line} ${mutant.to}`);
 
 describe('mutants', () => {
   it('makes every mutant of a method, in the order they sit in it', () => {
@@ -15,9 +17,10 @@ describe('mutants', () => {
       // A returned expression that is no literal is returned as null in a language where that runs.
       'return 4 a - b * 2 ? true : false>null', 'arithmetic 4 ->+', 'arithmetic 4 *>/', 'number 4 2>3', 'boolean 4 true>false', 'boolean 4 false>true',
     ]);
-    // No cap: a method with sixteen mutants is asked about sixteen.
-    expect(mutants).toHaveLength(16);
-    expect(mutants[2]).toMatchObject({ line: 2, column: 8, original: '  if (a >= 100 && !b) return 0;', mutated: '  if (a > 100 && !b) return 0;' });
+    // No cap: a method with seventeen mutants is asked about seventeen, the whole body emptied among them.
+    expect(mutants).toHaveLength(17);
+    expect(bodies(mutants)).toEqual(['1 {}']);
+    expect(mutants[3]).toMatchObject({ line: 2, column: 8, original: '  if (a >= 100 && !b) return 0;', mutated: '  if (a > 100 && !b) return 0;' });
     for (const mutant of mutants) expect(KINDS).toContain(mutant.kind);
   });
 
@@ -32,11 +35,14 @@ describe('mutants', () => {
       // `return []` is empty already; `return { a: 1 }` empties, and the 1 in it moves.
       'return 7 { a: 1 }>{}', 'number 7 1>0',
     ]);
-    expect(mutants[0]).toMatchObject({ column: 2, original: '  save(items);', mutated: '  ' });
-    expect(describeMutant(mutants[0])).toBe('the call `save(items);` removed');
-    expect(describeMutant(mutants[9])).toBe("the branch's body emptied");
-    expect(describeMutant(mutants[5])).toBe('`true` as the condition');
-    expect(describeMutant(mutants[7])).toBe('`>=` instead of `>`');
+    const [whole, ...rest] = mutants;
+    expect(whole).toMatchObject({ kind: 'body', line: 1, column: 21, to: '{}' });
+    expect(describeMutant(whole)).toBe('the body emptied');
+    expect(rest[0]).toMatchObject({ column: 2, original: '  save(items);', mutated: '  ' });
+    expect(describeMutant(rest[0])).toBe('the call `save(items);` removed');
+    expect(describeMutant(rest[9])).toBe("the branch's body emptied");
+    expect(describeMutant(rest[5])).toBe('`true` as the condition');
+    expect(describeMutant(rest[7])).toBe('`>=` instead of `>`');
   });
 
   it('leaves names, loads and docstrings alone', () => {
@@ -50,7 +56,7 @@ describe('mutants', () => {
       'return 7 [1, -2]>[]', 'number 7 1>0', 'negative 7 -2>2', 'number 7 2>3',
     ]);
     // An emptied body spans lines: the lines it touches are given both ways.
-    expect(mutants[2]).toMatchObject({ line: 5, column: 8, original: '        save(items)\n        log("saved")', mutated: '        pass' });
+    expect(mutants.find(mutant => mutant.kind === 'block')).toMatchObject({ line: 5, column: 8, original: '        save(items)\n        log("saved")', mutated: '        pass' });
   });
 
   it('keeps a call that is a block\'s value', () => {
@@ -125,13 +131,39 @@ describe('mutants', () => {
       .toEqual(['condition 2 a == 1>true', 'condition 2 a == 1>false', 'boundary 2 ==>~=', 'number 2 1>0', 'block 2 return true>', 'boolean 2 true>false', 'boolean 3 false>true']);
   });
 
+  it('empties a method\'s body, or returns its type\'s zero', () => {
+    const body = (source, language, line, end_line) => { const found = mutantsOf({ source, language, line, end_line }).filter(mutant => mutant.kind === 'body'); return found.map(mutant => [mutant.to, describeMutant(mutant)]); };
+    // No return type to honour: the body goes, and the function returns what an empty one does.
+    expect(body('function f(a) {\n  return a + 1;\n}\n', 'javascript', 1, 3)).toEqual([['{}', 'the body emptied']]);
+    expect(body('def f(a):\n    return a + 1\n', 'python', 1, 2)).toEqual([['pass', 'the body emptied']]);
+    expect(body('def f(a)\n  a + 1\nend\n', 'ruby', 1, 3)).toEqual([['', 'the body emptied']]);
+    // A declared type with a zero every compiler accepts: that zero is returned, in the language's own spelling.
+    expect(body('export function f(a: number): number {\n  return a + 1;\n}\n', 'typescript', 1, 3)).toEqual([['{ return 0; }', 'the body replaced by `return 0;`']]);
+    expect(body('package p\nfunc f(a int) string {\n  return g(a)\n}\n', 'go', 2, 4)).toEqual([['{ return "" }', 'the body replaced by `return ""`']]);
+    expect(body('fn f(a: i32) -> bool {\n    a > 1\n}\n', 'rust', 1, 3)).toEqual([['{ false }', 'the body replaced by `false`']]);
+    expect(body('fn f(a: i32) -> String {\n    a.to_string()\n}\n', 'rust', 1, 3)).toEqual([['{ String::new() }', 'the body replaced by `String::new()`']]);
+    expect(body('class C {\n  int f(int a) {\n    return a + 1;\n  }\n}\n', 'java', 2, 4)).toEqual([['{ return 0; }', 'the body replaced by `return 0;`']]);
+    expect(body('fun f(a: Int): Int { return a + 1 }\n', 'kotlin', 1, 1)).toEqual([['{ return 0 }', 'the body replaced by `return 0`']]);
+    expect(body('func f(_ a: Int) -> Bool { return a > 1 }\n', 'swift', 1, 1)).toEqual([['{ return false }', 'the body replaced by `return false`']]);
+    expect(body('contract C {\n  function f(uint256 a) public pure returns (string memory) { return g(a); }\n}\n', 'solidity', 2, 2)).toEqual([['{ return ""; }', 'the body replaced by `return "";`']]);
+    // Nothing returned: the body is emptied, whatever the language.
+    expect(body('package p\nfunc f(a int) {\n  g(a)\n}\n', 'go', 2, 4)).toEqual([['{}', 'the body emptied']]);
+    expect(body('fun f(a: Int) { g(a) }\n', 'kotlin', 1, 1)).toEqual([['{}', 'the body emptied']]);
+    expect(body('export async function f(a: number): Promise<void> {\n  await g(a);\n}\n', 'typescript', 1, 3)).toEqual([['{}', 'the body emptied']]);
+    // A type with no zero every test would compile against gets no body mutant, and nor does a body that is empty already.
+    expect(body('class C {\n  Map<String, Integer> f(int a) {\n    return g(a);\n  }\n}\n', 'java', 2, 4)).toEqual([]);
+    expect(body('function f() {}\n', 'javascript', 1, 1)).toEqual([]);
+  });
+
   it('keeps to the method it is given, and names each mutant by where and what', () => {
     const source = 'function a() {\n  return 1 < 2;\n}\nfunction b() {\n  return 3 > 4;\n}\n';
-    const mutants = mutantsOf({ source, language: 'javascript', line: 4, end_line: 6 });
-    expect(edits(mutants)).toEqual(['return 5 3 > 4>null', 'number 5 3>4', 'boundary 5 >>>=', 'number 5 4>5']);
+    const all = mutantsOf({ source, language: 'javascript', line: 4, end_line: 6 });
+    expect(edits(all)).toEqual(['return 5 3 > 4>null', 'number 5 3>4', 'boundary 5 >>>=', 'number 5 4>5']);
+    expect(bodies(all)).toEqual(['4 {}']);
     // Line, column, kind, and a digest of the edit: two edits at one place differ, and a run tomorrow names them the same.
-    expect(mutants.map(mutantId)).toEqual(['5:9:return:' + mutantId(mutants[0]).split(':')[3], '5:9:number:' + mutantId(mutants[1]).split(':')[3], '5:11:boundary:' + mutantId(mutants[2]).split(':')[3], '5:13:number:' + mutantId(mutants[3]).split(':')[3]]);
-    expect(new Set(mutants.map(mutantId)).size).toBe(4);
+    const mutants = all.filter(mutant => mutant.kind !== 'body');
+    expect(mutants.map(mutant => mutantId(mutant).split(':').slice(0, 3).join(':'))).toEqual(['5:9:return', '5:9:number', '5:11:boundary', '5:13:number']);
+    expect(new Set(all.map(mutantId)).size).toBe(5);
     expect(mutantId(mutants[0])).toMatch(/^5:9:return:[0-9a-f]{8}$/);
   });
 });

@@ -7,7 +7,7 @@ import { BELIEVED } from './questions.js';
 import { bold, COLOR, dim, keepEnd, keepStart, percent, relative, sureness, table, TOP, WIDTH } from './report.js';
 
 /** Every kind of problem a coverage report can list, and so everything `--filter kind=` accepts. */
-export const COVERAGE_KINDS = ['survived', 'redundant', 'checks_nothing', 'infra'];
+export const COVERAGE_KINDS = ['survived', 'redundant', 'checks_nothing', 'mocked', 'infra'];
 
 const plural = (count, noun, many = `${noun}s`) => `${count} ${count === 1 ? noun : many}`;
 /** A 0..1 value as a whole percentage; null is a value nobody answered, which is a dash and not a zero. */
