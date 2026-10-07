@@ -7,44 +7,50 @@
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { CLOUD_ORIGIN } from './cloud-auth.js';
 
 /** The skill as it ships, read from the package rather than the repository being set up. */
 const source = () => readFile(new URL('../skill.md', import.meta.url), 'utf8');
+
+/**
+ * Perch Cloud's MCP server: CI runs, and Perch's review comments on a pull request. Scans of the checkout stay with the perch
+ * command, which the skill teaches.
+ */
+export const MCP_NAME = 'perch-cloud';
+export const CLOUD_MCP = `${CLOUD_ORIGIN}/mcp`;
 
 /**
  * Where each assistant looks. Codex and pi both also read `.agents/skills`, but a file in the assistant's own directory is the
  * one a person can find when they go looking for what perch installed, so that is where it goes.
  */
 export const TARGETS = {
-  'claude-code': { path: '.claude/skills/perch/SKILL.md', name: 'Claude Code', mcp: '.mcp.json' },
-  codex: { path: '.codex/skills/perch/SKILL.md', name: 'Codex', mcpCommand: 'codex mcp add perch -- perch mcp' },
+  'claude-code': { path: '.claude/skills/perch/SKILL.md', name: 'Claude Code', mcp: { path: '.mcp.json', server: { type: 'http', url: CLOUD_MCP } } },
+  codex: { path: '.codex/skills/perch/SKILL.md', name: 'Codex', mcpCommand: `codex mcp add ${MCP_NAME} --url ${CLOUD_MCP}` },
   pi: { path: '.pi/skills/perch/SKILL.md', name: 'pi' },
-  cursor: { path: '.cursor/rules/perch.mdc', name: 'Cursor', rewrite: asCursorRule, mcp: '.cursor/mcp.json' },
+  cursor: { path: '.cursor/rules/perch.mdc', name: 'Cursor', rewrite: asCursorRule, mcp: { path: '.cursor/mcp.json', server: { url: CLOUD_MCP } } },
 };
 
-/** How an assistant starts perch's MCP server, which reads what Perch Cloud's CI scans found. */
-export const MCP_SERVER = { command: 'perch', args: ['mcp'] };
-
 /**
- * Adds perch to the project's MCP servers where the assistant reads them from the repository: Claude Code's .mcp.json and
- * Cursor's .cursor/mcp.json. Codex keeps its servers in the user's own configuration, so it gets the command to run instead, and
- * pi has no MCP support. A perch entry already there is left alone, and so is a file that does not parse, rather than being
- * rewritten into something its owner did not write.
+ * Adds Perch Cloud's MCP server to the project's servers where the assistant reads them from the repository: Claude Code's
+ * .mcp.json and Cursor's .cursor/mcp.json. The assistant signs in to it itself, through Perch Cloud, so nothing secret is
+ * written. Codex keeps its servers in the user's own configuration, so it gets the command to run instead, and pi has no MCP
+ * support. An entry already there is left alone, and so is a file that does not parse, rather than being rewritten into
+ * something its owner did not write.
  */
 export async function registerMcp({ root, target }) {
   const chosen = TARGETS[target];
   if (!chosen?.mcp) return { registered: false, command: chosen?.mcpCommand ?? null };
-  const path = join(root, chosen.mcp);
+  const path = join(root, chosen.mcp.path);
   const text = await readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return null; throw error; });
   let config = {};
   if (text !== null) {
-    try { config = JSON.parse(text); } catch { return { registered: false, path: chosen.mcp, why: `${chosen.mcp} is not valid JSON, so perch left it alone` }; }
+    try { config = JSON.parse(text); } catch { return { registered: false, path: chosen.mcp.path, why: `${chosen.mcp.path} is not valid JSON, so perch left it alone` }; }
   }
-  if (config.mcpServers?.perch) return { registered: false, already: true, path: chosen.mcp };
-  config.mcpServers = { ...config.mcpServers, perch: MCP_SERVER };
+  if (config.mcpServers?.[MCP_NAME]) return { registered: false, already: true, path: chosen.mcp.path };
+  config.mcpServers = { ...config.mcpServers, [MCP_NAME]: chosen.mcp.server };
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(config, null, 2)}\n`);
-  return { registered: true, path: chosen.mcp };
+  return { registered: true, path: chosen.mcp.path };
 }
 
 export const TARGET_NAMES = Object.keys(TARGETS);

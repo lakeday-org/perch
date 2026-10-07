@@ -109,23 +109,51 @@ This reads the file off disk, so it works on uncommitted code. It records nothin
 it will not move the numbers on the issue you are fixing. It exits `3` while something
 is still wrong.
 
-## Act on what CI found
+## Read what CI found
 
-A pull request scanned in CI has its results in Perch Cloud. When the perch MCP
-server is connected, read them there instead of scanning again:
+A pull request scanned in CI has its results in Perch Cloud. Once `perch login` has
+been run, read them instead of scanning again.
 
-| Tool | |
-| --- | --- |
-| `perch_scans` | Recent CI scans of the checked-out branch, newest first. `all_branches` lists every branch; `pull_request` takes a number. |
-| `perch_scan` | One scan's issues, each with its method, line, kind and probability, and the `perch check` command for that method. |
+```console
+$ perch ci
+ID                                    Commit   Pull request  Result               When
+043812ac-ea68-4c3b-88f0-737328f62826  5d7b033  #320          clean                23h ago
+edf9f510-875c-44c8-8ff1-773e286be26e  a246d74  #320          clean                24h ago
+6323adfc-9440-4640-badf-58c8e61cd5ba  d738e69  #320          4 problems, failing  45h ago
+```
 
-Take the newest scan of the branch, then work through `perch_scan` the way you
-would a local finding: read the method, fix what is real, and run the `check`
-command it gives until it exits `0`. Without the MCP server, `perch scan --since
-origin/main --json` finds the same things on this machine.
+Those are the checked-out branch's runs, newest first, including any still going. Give
+it a run ID for that run's issues, laid out the way `perch scan` prints them:
 
-`perch setup` adds the server for Claude Code and Cursor. Elsewhere it is
-`perch mcp`, started by the assistant, signed in with `perch login`.
+```console
+$ perch ci 6323adfc-9440-4640-badf-58c8e61cd5ba
+docs/coverage.md
+  ID        Line  Severity  Type  Confidence  Problem                   Method
+  8fd1e766     1  -         lint         72%  docs-sentences-are-short  docs/coverage.md
+
+src/coverage.js
+  ID        Line  Severity  Type    Confidence  Problem             Method
+  8d9306ba   428  P1        defect         71%  wrong_return_value  askCoverage.<anonymous>.build
+  7a5c2d1b   463  P1        defect         68%  wrong_return_value  askCoverage.<anonymous>.build#2
+
+test/test-detection.test.js
+  ID        Line  Severity  Type  Confidence  Problem                     Method
+  69903bef     1  -         lint         61%  tests-assert-real-behavior  test/test-detection.test.…
+
+✖ 4 problems in 3 files, failing
+#320 at d738e69, finished 45h ago: https://dash.perchscan.com/#/scan/6323adfc-9440-4640-badf-58c8e61cd5ba
+```
+
+After a push, `perch ci --wait` waits for the run of the commit you are on and prints
+what it found. A run exits the way a scan does: `3` when it found something that fails,
+`1` when it could not finish.
+
+Fix a CI issue the way you fix a local one. With `--json`, each issue carries the
+`method` that `perch check` takes, so check it after the fix and push once it exits `0`.
+
+`perch setup` also connects the assistant to Perch Cloud's MCP server, `perch-cloud`.
+Its `cloud_runs` and `cloud_run` tools read the same runs, plus Perch's review comment
+on each finding of a pull request and the replies to it.
 
 ## Close a finding you have judged
 
@@ -238,6 +266,5 @@ rule needs another pass.
 | | |
 | --- | --- |
 | `perch doctor` | Whether perch can run here, and what the last run asked. |
-| `perch mcp` | The MCP server that reads Perch Cloud's CI scans. An assistant starts it. |
 | `perch issues --types` | Everything `--filter` accepts. |
 | `perch --version` | The version in use. |

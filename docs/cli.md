@@ -17,6 +17,7 @@ perch <command> [options]
 | [`scan`](#perch-scan) | Reads the repository at `HEAD` and writes down what it found. | `PERCH_BASE_URL` and `PERCH_API_KEY` |
 | [`issues`](#perch-issues) | The open issues, worst first. With an id, everything known about that one method. | nothing |
 | [`check`](#perch-check) | Asks about one file or method as it reads on disk. Records nothing. | `PERCH_BASE_URL` and `PERCH_API_KEY` |
+| [`ci`](#perch-ci) | The CI runs Perch Cloud has of the branch. With an id, the issues one run found. | `perch login`, or a CI token in `PERCH_API_KEY` |
 | [`rules`](#perch-rules) | `list`, `add`, `edit`, `remove`: changes `perch.yaml` without opening it. | nothing |
 | [`close`](#perch-close) | Sets issues aside so they stop being listed. | nothing |
 | [`reopen`](#perch-reopen) | Undoes `close`. | nothing |
@@ -174,6 +175,7 @@ from your repository:
 ```console
 $ perch setup claude-code
 Wrote .claude/skills/perch/SKILL.md for Claude Code.
+Added Perch Cloud's MCP server to .mcp.json. Claude Code signs in to it through Perch Cloud, in your browser.
 ```
 
 | Assistant | File |
@@ -190,32 +192,70 @@ To replace a modified or older file, use `--force`.
 | --- | --- |
 | `--force` | Replace an existing file, including any local edits. |
 
-It also adds the perch MCP server to `.mcp.json` for Claude Code and
-`.cursor/mcp.json` for Cursor, and prints `codex mcp add perch -- perch mcp` for
-Codex. An existing `perch` entry is left as it is.
+It also adds Perch Cloud's MCP server, `perch-cloud` at
+`https://dash.perchscan.com/mcp`, to `.mcp.json` for Claude Code and
+`.cursor/mcp.json` for Cursor, and prints
+`codex mcp add perch-cloud --url https://dash.perchscan.com/mcp` for Codex. An
+existing `perch-cloud` entry is left as it is.
 
 Commit the generated files to share these instructions with your team.
 See [Using Perch with coding assistants](skill.md).
 
-## perch mcp
+## perch ci
 
 ```sh
-perch mcp
+perch ci [run-id] [options]
 ```
 
-A Model Context Protocol server on standard input and output. A coding assistant
-starts it to read what Perch Cloud's CI scans found:
+The CI runs Perch Cloud has of the checked-out branch, newest first, with any
+still going:
 
-| Tool | Returns |
+```console
+$ perch ci
+ID                                    Commit   Pull request  Result               When
+043812ac-ea68-4c3b-88f0-737328f62826  5d7b033  #320          clean                23h ago
+edf9f510-875c-44c8-8ff1-773e286be26e  a246d74  #320          clean                24h ago
+6323adfc-9440-4640-badf-58c8e61cd5ba  d738e69  #320          4 problems, failing  45h ago
+```
+
+Give it a run ID for the issues that run found, laid out the way `perch scan`
+prints them:
+
+```console
+$ perch ci 6323adfc-9440-4640-badf-58c8e61cd5ba
+docs/coverage.md
+  ID        Line  Severity  Type  Confidence  Problem                   Method
+  8fd1e766     1  -         lint         72%  docs-sentences-are-short  docs/coverage.md
+
+src/coverage.js
+  ID        Line  Severity  Type    Confidence  Problem             Method
+  8d9306ba   428  P1        defect         71%  wrong_return_value  askCoverage.<anonymous>.build
+  7a5c2d1b   463  P1        defect         68%  wrong_return_value  askCoverage.<anonymous>.build#2
+
+test/test-detection.test.js
+  ID        Line  Severity  Type  Confidence  Problem                     Method
+  69903bef     1  -         lint         61%  tests-assert-real-behavior  test/test-detection.test.…
+
+✖ 4 problems in 3 files, failing
+#320 at d738e69, finished 45h ago: https://dash.perchscan.com/#/scan/6323adfc-9440-4640-badf-58c8e61cd5ba
+```
+
+With `--json`, each issue's `method` is a target `perch check` takes.
+
+It reads Perch Cloud with your `perch login`, and the repository is the one the
+`origin` remote names. A CI token in `PERCH_API_KEY` reads its own repository's
+finished runs instead.
+
+| Flag | |
 | --- | --- |
-| `perch_scans` | Recent CI scans of the checked-out branch: id, pull request, commit, result and issue counts. `all_branches` lists every branch, and `pull_request` takes a number. |
-| `perch_scan` | One scan's issues: method, line, type, kind, severity, probability and the `perch check` command for that method. |
+| `--wait` | Wait for the run of the commit you are on to finish, or the run named, then print its issues. It gives up when no run of the commit has started within 10 minutes. |
+| `--json` | Print JSON instead of a summary. |
 
-It signs in the way `perch scan` does, with `perch login` or `PERCH_API_KEY` set to
-a CI token. The repository comes from the git remote.
+Given a run, it exits as the run did: `3` when it found something that fails and
+`1` when it could not finish.
 
 ```sh
-claude mcp add perch -- perch mcp
+git push && perch ci --wait
 ```
 
 ## perch doctor
@@ -285,9 +325,9 @@ model that reports nothing, set `PERCH_MAX_QUESTIONS`.
 | Code | Meaning |
 | --- | --- |
 | `0` | Command completed successfully. |
-| `1` | Command failed, or a scan could not read some methods or rules after retrying. See the error message for details. |
+| `1` | Command failed, a scan could not read some methods or rules after retrying, or the CI run `perch ci` showed could not finish. See the error message for details. |
 | `2` | Invalid arguments, or `perch setup` requires `--force` to replace an existing file. |
-| `3` | `scan` or `check` found issues. |
+| `3` | `scan` or `check` found issues, or the CI run `perch ci` showed did. |
 
 By default, scans check for defects, security vulnerabilities, and custom rule
 violations. Use `scan_types` in `perch.yaml` to choose which issue types to check.

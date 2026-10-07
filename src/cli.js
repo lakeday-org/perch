@@ -1,4 +1,4 @@
-/** perch command line: scan, coverage, issues, check, close, rules, doctor. */
+/** perch command line: scan, coverage, issues, check, ci, close, rules, doctor. */
 import { appendFile, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join, posix, resolve } from 'node:path';
 import { git, repoRoot, revision as gitRevision } from './git.js';
@@ -19,12 +19,12 @@ import { runChecks } from './checks.js';
 import { addRule, editRule, KINDS as RULE_KINDS, removeRule, ruleFile } from './rules.js';
 import { allQuestions, parseQuestions, SHAPES } from './ask.js';
 import { installSkill, registerMcp, TARGET_NAMES, TARGETS } from './setup.js';
-import { serveMcp } from './mcp.js';
+import { createCiReader, running, waitForRun } from './ci.js';
 import { createMeter, metered } from './meter.js';
 import { coverageFindings, coverageRepository, withoutSource } from './coverage.js';
 import { renderCoverageSite } from './coverage-html.js';
 import { COVERAGE_KINDS, coverageCount, coverageDetails, formatCoverage, formatCoverageDiff, listedFindings, parseCoverageFilters } from './coverage-report.js';
-import { formatDoctor, formatFilterKeys, gating, useColor, formatFinding, formatIssues, formatCheck, formatRules, formatScanReport, issueCount, relative, scanCount, scanTally, TOP, visibleFindings } from './report.js';
+import { formatDoctor, formatFilterKeys, formatRun, formatRuns, gating, runResult, runSummary, useColor, formatFinding, formatIssues, formatCheck, formatRules, formatScanReport, issueCount, relative, scanCount, scanTally, TOP, visibleFindings } from './report.js';
 
 /**
  * Stamped into the bundle at build time, so it reports what is running rather than a number read off a package.json that may not
@@ -76,7 +76,8 @@ const options = {
   kind: ['--kind a,b', 'Only these kinds of it, e.g. docs, too_big (default: everything on it now)', ['close', 'reopen']],
   force: ['--force', 'setup: replace a skill file you have edited. scan, check: ask Perch Cloud again instead of using cached answers', ['setup', 'scan', 'check']],
   out: ['--out DIR', 'Results directory (default .perch)', ['scan', 'coverage', 'issues', 'check', 'close', 'reopen', 'doctor']],
-  json: ['--json', 'Print JSON instead of a summary', ['scan', 'coverage', 'rules', 'issues', 'check', 'close', 'reopen', 'doctor', 'setup']],
+  wait: ['--wait', 'Wait for the run of the commit you are on, or the run named, to finish', ['ci']],
+  json: ['--json', 'Print JSON instead of a summary', ['scan', 'coverage', 'rules', 'issues', 'check', 'ci', 'close', 'reopen', 'doctor', 'setup']],
   verbose: ['--verbose', 'Show every file, method, model call, and command', ['scan', 'coverage', 'issues', 'check']],
 };
 
@@ -91,10 +92,10 @@ const commandHelp = {
   rules: { args: '[list | add <name> | edit <name> | remove <name>]', summary: `Change ${RULES_FILE} without opening it`, detail: `Custom rules are questions perch asks alongside its own, written in the same grammar as the ones it ships with in scan.yaml. perch scan asks them; this writes them, keeping comments and ordering.\n\nRules live in ${RULES_FILE} or in .yaml files under ${RULES_DIR}/. add writes to ${RULES_FILE} unless --file names a split file; edit and remove find the file a rule is in; list shows every file, or one file with --file.\n\nMost are a yes-or-no, so --ensure is usually the only flag needed. It covers what a parser can't: whether a comment says why, whether a test asserts what you claim.\n\n  perch rules add no-stale-docs --where "docs/**/*.md" --ensure_absent "docs for code that was deleted"\n\nAn answer that is not yes-or-no is written out: --ask with --type and the options or levels it offers, and --issue for what an answer means. --when names a question this one is only as likely as.\n\n  perch rules add handles_absence --type choice --each method --where "src/**/*.js" \\\n    --ask "How does this method handle a value that is missing?" \\\n    --options "checks=It checks for it; ignores=It carries on with the missing value" \\\n    --issue "type=defect,label=handles_absence,except=checks"` },
   issues: { args: '[issue-id]', summary: 'List what the scan found, or show one', detail: 'Worst first. --filter narrows the list, --types prints what it accepts, --closed includes closed ones, --all lists every row. Give it an id to see everything known about that method. perch findings does the same thing.' },
   check: { args: '<path | path::method | issue-id>', summary: 'Ask about one piece of code, uncommitted', detail: 'Reads that one file off disk and asks about the point you named: every rule that covers it, plus the scan\'s own questions for a method. --rules narrows it to specific rules, or to defect, security, refactor or docs. Nothing is committed or recorded, so run it on work in progress. Exits 3 while something is still wrong. Asks Perch Cloud, the same way perch scan does. PERCH_BASE_URL sends it to another endpoint instead; PERCH_MODEL_ID selects the model.' },
+  ci: { args: '[run-id]', summary: 'What CI found, from Perch Cloud', detail: 'Lists the CI runs Perch Cloud has of the checked-out branch, newest first, with any still going. Give it a run id to list the issues that run found, laid out the way perch scan prints them. The method on each is what perch check takes to ask about it again after a fix.\n\n--wait waits for the run of the commit you are on to finish, or for the run you named, and then lists its issues. Push the commit first: it gives up when no run of it has started within 10 minutes. Given a run, it exits as the run did: 3 when it found something that fails, 1 when it could not finish.\n\nReads Perch Cloud with your perch login, or with PERCH_API_KEY set to a CI token, which sees the finished runs of its own repository.\n\n  git push && perch ci --wait' },
   close: { args: '<issue-id>...', summary: 'Set issues aside', detail: 'Stops an issue being listed: a false positive, or code you have looked at and are not changing. An id perch coverage printed closes that problem, and later coverage runs leave it out. --reason is kept and shown by perch issues <id>. It stays closed through later scans and later edits, and perch reopen is the only thing that brings it back.\n\nIt covers the kinds on that issue now, so a defect found in the method later is a new thing and is listed. --kind closes some of them and leaves the rest:\n\n  perch close 2638fb16 --kind docs' },
   reopen: { args: '<issue-id>...', summary: 'Put closed issues back', detail: 'Undoes perch close, all of it, or the kinds --kind names.' },
-  setup: { args: `<${TARGET_NAMES.join(' | ')}>`, summary: 'Teach a coding assistant to use perch', detail: `Writes the perch skill into the assistant's configuration, so it knows to scan what a branch changed, to read the JSON rather than the table, that a finding is a probability rather than a located defect, to ask about one method after a fix, and to write a rule when the same mistake comes back.\n\n${Object.entries(TARGETS).map(([name, target]) => `  perch setup ${name}`.padEnd(28) + target.path).join('\n')}\n\nThe file can be edited once written: perch will not replace an edited one unless you pass --force.\n\nIt also adds the perch MCP server, which reads what Perch Cloud's CI scans found, to .mcp.json for Claude Code and .cursor/mcp.json for Cursor, and prints the command that adds it to Codex.` },
-  mcp: { args: '', summary: 'Serve Perch Cloud CI scans to a coding assistant over MCP', detail: 'A Model Context Protocol server on stdin and stdout. A coding assistant starts it and reads what CI scans found: perch_scans lists the recent scans of the checked-out branch, and perch_scan gives one scan\'s issues with the perch check command for each. It signs in the way scans do: perch login, or PERCH_API_KEY set to a CI token. perch setup registers it with the assistant.\n\n  claude mcp add perch -- perch mcp' },
+  setup: { args: `<${TARGET_NAMES.join(' | ')}>`, summary: 'Teach a coding assistant to use perch', detail: `Writes the perch skill into the assistant's configuration, so it knows to scan what a branch changed, to read the JSON rather than the table, that a finding is a probability rather than a located defect, to ask about one method after a fix, and to write a rule when the same mistake comes back.\n\n${Object.entries(TARGETS).map(([name, target]) => `  perch setup ${name}`.padEnd(28) + target.path).join('\n')}\n\nThe file can be edited once written: perch will not replace an edited one unless you pass --force.\n\nIt also adds Perch Cloud's MCP server, which reads CI runs and Perch's review comments on a pull request, to .mcp.json for Claude Code and .cursor/mcp.json for Cursor, and prints the command that adds it to Codex. The assistant signs in to it through Perch Cloud, in a browser, so nothing secret is written.` },
   doctor: { args: '', summary: 'Check perch can run, and what the last run did', detail: 'Whether perch can run here: node, credentials, Git, the repository and commit, somewhere to write, and whether perch.yaml parses. Anything that fails says what to do about it, and the command exits 1.\n\nUnder that, the last run: every method it could not read with the error, every question it asked and what each raised, and the end of the log when a run did not finish. Names, paths, counts and error messages only, never source, so it can be pasted into a bug report as it stands.' },
 };
 
@@ -145,7 +146,7 @@ export const EXIT = { clean: 0, broke: 1, usage: 2, found: 3 };
 
 const valued = new Set(['paths', 'parallel', 'min', 'filter', 'depth', 'diff', 'html', 'out', 'reason', 'kind', 'limit', 'page', 'since', 'rules',
   'ensure', 'ensure_present', 'ensure_absent', 'where', 'except', 'each', 'sees', 'type', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', 'gate', 'file']);
-const switches = new Set(['force', 'all', 'json', 'verbose', 'closed', 'types', 'help', 'version']);
+const switches = new Set(['force', 'all', 'json', 'verbose', 'closed', 'types', 'wait', 'help', 'version']);
 
 export function parseArgs(argv) {
   const flags = {}, positional = [];
@@ -622,7 +623,38 @@ const commands = {
     io.note(issueCount({ open: visibleFindings(all).length, matched: rows.length, from, listed: page.length, size, edited,
       closed: closed ? 0 : all.length - visibleFindings(all).length, filtered: filters.length > 0 }));
   },
-  async mcp(io) { await serveMcp({ env: io.env, root: '.', version: VERSION }); },
+  /**
+   * What Perch Cloud's CI runs of this branch found. A run still going is listed and shown like one that finished, so --wait is
+   * the only thing that waits.
+   */
+  async ci(io) {
+    const root = await repoRoot(process.cwd());
+    const reader = createCiReader({ env: io.env, root });
+    const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD'], root).then(out => out.trim(), () => null);
+    const onBranch = branch && branch !== 'HEAD' ? branch : null;
+    if (!io.argument && !io.flags.wait) {
+      const listing = await reader.runs({ branch: onBranch });
+      print(io, listing, formatRuns(listing));
+      return EXIT.clean;
+    }
+    let detail;
+    if (io.flags.wait) {
+      const revision = io.argument ? null : await gitRevision(root);
+      // A commit no remote has is one CI will never scan, and waiting ten minutes to say so helps nobody.
+      if (revision && !(await git(['branch', '-r', '--contains', revision], root).catch(() => '')).trim()) {
+        throw new Error(`${revision.slice(0, 7)} is not on any remote branch, so CI has nothing to scan. Push it, then run perch ci --wait.`);
+      }
+      const line = liveCounter(io, '');
+      try {
+        detail = await waitForRun(reader, { id: io.argument ?? null, revision, branch: onBranch, sleep: ms => new Promise(done => setTimeout(done, ms)),
+          progress: run => line.say(run ? `CI is ${runResult(run)}` : `waiting for a CI run of ${revision.slice(0, 7)}`) });
+      } finally { line.clear(); }
+    } else detail = await reader.run(io.argument);
+    print(io, detail, formatRun(detail));
+    io.note(`${runSummary(detail.run)}: ${detail.url}`);
+    if (running(detail.run)) return EXIT.clean;
+    return detail.run.exit_code === 1 ? EXIT.broke : detail.run.exit_code === 3 ? EXIT.found : EXIT.clean;
+  },
   async doctor(io) {
     const store = await storeFrom(io.flags);
     const versions = { perch: VERSION, node: process.version, platform: `${process.platform} ${process.arch}` };
@@ -671,9 +703,9 @@ const commands = {
     const root = await repoRoot(process.cwd()).catch(() => process.cwd());
     const done = await installSkill({ root, target, force: Boolean(io.flags.force) });
     done.mcp = await registerMcp({ root, target });
-    const mcp = done.mcp.registered ? `Added the perch MCP server to ${done.mcp.path}, so ${done.name} can read Perch Cloud's CI scans.`
-      : done.mcp.already ? `${done.mcp.path} already starts the perch MCP server.`
-        : done.mcp.why ?? (done.mcp.command ? `To let ${done.name} read Perch Cloud's CI scans, run: ${done.mcp.command}` : null);
+    const mcp = done.mcp.registered ? `Added Perch Cloud's MCP server to ${done.mcp.path}. ${done.name} signs in to it through Perch Cloud, in your browser.`
+      : done.mcp.already ? `${done.mcp.path} already has Perch Cloud's MCP server.`
+        : done.mcp.why ?? (done.mcp.command ? `To let ${done.name} read Perch Cloud's CI runs, run: ${done.mcp.command}` : null);
     const said = [done.wrote ? `${done.replaced ? 'Replaced' : 'Wrote'} ${done.path} for ${done.name}.`
       : done.same ? `${done.path} is already this skill.` : done.why, mcp].filter(Boolean).join('\n');
     print(io, done, said);
@@ -716,7 +748,7 @@ export async function main(argv, { stdout = text => process.stdout.write(text + 
   const debug = message => { if (verbose) stderr(`[perch] ${message}`); };
   try {
     // A command that returns a number is saying what the exit code should be.
-    const configured = ['login', 'scan', 'coverage', 'check'].includes(commandName) ? await configuredEnvironment(env) : env;
+    const configured = ['login', 'scan', 'coverage', 'check', 'ci'].includes(commandName) ? await configuredEnvironment(env) : env;
     const code = await command({ argument, args: positional.slice(1), flags, env: configured, stdout, stderr, log, debug, verbose, note: noteFrom({ flags }, stderr) });
     return typeof code === 'number' ? code : EXIT.clean;
   } catch (error) {

@@ -13,6 +13,7 @@ summary: perch setup installs a skill that teaches Claude Code, Codex, pi or Cur
 ```console
 $ perch setup claude-code
 Wrote .claude/skills/perch/SKILL.md for Claude Code.
+Added Perch Cloud's MCP server to .mcp.json. Claude Code signs in to it through Perch Cloud, in your browser.
 ```
 
 `codex`, `pi` and `cursor` are the other three:
@@ -24,17 +25,19 @@ Wrote .claude/skills/perch/SKILL.md for Claude Code.
 | `pi` | `.pi/skills/perch/SKILL.md` |
 | `cursor` | `.cursor/rules/perch.mdc` |
 
-It also adds the perch MCP server, which lets the assistant read what Perch
-Cloud's CI scans found on a pull request:
+It also adds Perch Cloud's MCP server, `perch-cloud`, at
+`https://dash.perchscan.com/mcp`. Its tools read CI runs and their findings, and
+on a pull request, Perch's review comment on each finding and the replies to it:
 
 | | |
 | --- | --- |
 | `claude-code` | `.mcp.json` |
 | `cursor` | `.cursor/mcp.json` |
-| `codex` | Prints `codex mcp add perch -- perch mcp` to run. |
+| `codex` | Prints `codex mcp add perch-cloud --url https://dash.perchscan.com/mcp` to run. |
 
-The server is `perch mcp`. It signs in with `perch login`, or with `PERCH_API_KEY`
-set to a CI token.
+The assistant signs in to it through Perch Cloud in a browser, so the file holds
+an address and no credentials. Without it, `perch ci` reads the same runs with
+`perch login`.
 
 Commit the files. They are part of how the repository is worked on, the same as
 `perch.yaml`.
@@ -60,6 +63,11 @@ the code before changing it. Close what you decide is fine.
 that method alone, off disk, recording nothing, so the numbers on the issue being
 fixed do not move.
 
+**Read what CI found.** `perch ci` lists the runs Perch Cloud has of the branch,
+and `perch ci <id>` gives one run's issues. After a push, `perch ci --wait` waits
+for the run of that commit. The assistant fixes what CI found the way it fixes a
+local finding, without scanning again.
+
 **Check the tests a change needs.** `perch coverage --since origin/main` mutates
 the code the branch changed and says which mutants no test would kill. The skill
 tells the assistant how to read a survived mutant from the JSON and write the test
@@ -80,6 +88,7 @@ changed:
 ```console
 $ perch setup cursor
 .cursor/rules/perch.mdc is already there; perch setup cursor --force replaces it
+.cursor/mcp.json already has Perch Cloud's MCP server.
 ```
 
 Re-running it on an unchanged file says so and does nothing, so it is safe in a

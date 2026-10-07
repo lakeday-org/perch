@@ -135,7 +135,15 @@ export function formatScanReport(findings, { min = 0, width = WIDTH(), color = C
       name: shortId(finding.name), severity: CORRECTNESS.has(issue.type) ? severityName(finding.severity) : '-' });
   }
   if (!byFile.size) return empty;
+  const blocks = fileBlocks(byFile, { width, color });
+  return (summary ? [...blocks, scanTally(findings, min, color)] : blocks).join('\n\n');
+}
 
+/**
+ * One block per file, its name and then a row per problem, for a scan here and a run in CI alike. Rows are the problem as printed:
+ * its id, line, severity, type, how sure (`sure`), what it is (`said`) and the method's name.
+ */
+function fileBlocks(byFile, { width, color }) {
   // The id is on every row rather than once per method, so any row you are looking at is one you can act on without hunting up
   // the block for it: `perch issues <id>` opens it, and `perch close <id> --kind <problem>` sets that one problem aside.
   // How sure is its own column rather than a suffix on the problem: it is the number you sort by, argue with, and set a floor
@@ -144,7 +152,8 @@ export function formatScanReport(findings, { min = 0, width = WIDTH(), color = C
   const blocks = [];
   const paths = [...byFile.keys()].filter(key => key !== SEARCHED).sort();
   for (const path of [...paths, ...(byFile.has(SEARCHED) ? [SEARCHED] : [])]) {
-    const rows = byFile.get(path).sort((a, b) => a.line - b.line || b.sure - a.sure);
+    const rows = byFile.get(path).map(row => ({ ...row, line: row.line ?? '-' }))
+      .sort((a, b) => (Number(a.line) || 0) - (Number(b.line) || 0) || b.sure - a.sure);
     const widest = pick => Math.max(...rows.map(row => String(pick(row)).length));
     const ident = Math.max(HEAD[0].length, widest(row => row.id));
     const at = Math.max(HEAD[1].length, widest(row => row.line));
@@ -162,7 +171,7 @@ export function formatScanReport(findings, { min = 0, width = WIDTH(), color = C
     }
     blocks.push(lines.join('\n'));
   }
-  return (summary ? [...blocks, scanTally(findings, min, color)] : blocks).join('\n\n');
+  return blocks;
 }
 
 /**
@@ -255,7 +264,7 @@ export function issueCount({ open, matched, from = 0, listed, size = Infinity, c
 /** How long ago, in the largest unit that still says something. */
 function since(at) {
   if (!at) return '';
-  const seconds = Math.max(0, Math.round((Date.now() - Date.parse(at)) / 1000));
+  const seconds = Math.max(0, Math.round((Date.now() - (typeof at === 'number' ? at : Date.parse(at))) / 1000));
   if (seconds < 90) return `${seconds}s ago`;
   if (seconds < 5400) return `${Math.round(seconds / 60)}m ago`;
   if (seconds < 172800) return `${Math.round(seconds / 3600)}h ago`;
@@ -435,4 +444,42 @@ export function formatFinding(finding, { width = WIDTH(), color = COLOR() } = {}
   return lines.join('\n');
 }
 
+const problems = count => `${count} ${count === 1 ? 'problem' : 'problems'}`;
 
+/** What a CI run came to, in the words its exit code means. A run still going says how far it has got. */
+export function runResult(run) {
+  if (run.exit_code < 0) return run.phase === 'reading' && run.total_methods ? `running, ${run.completed_methods} of ${run.total_methods} methods read` : 'running';
+  if (run.exit_code === 1) return 'could not finish';
+  if (!run.open_issues) return 'clean';
+  return `${problems(run.open_issues)}, ${run.exit_code === 3 ? 'failing' : 'none failing'}`;
+}
+
+/** The runs perch ci lists, newest first. The branch is a column only when the list is of every branch. */
+export function formatRuns({ runs, branch }) {
+  if (!runs.length) return `No CI runs${branch ? ` of ${branch}` : ''} in Perch Cloud.`;
+  const header = ['ID', 'Commit', 'Pull request', ...(branch ? [] : ['Branch']), 'Result', 'When'];
+  const rows = runs.map(run => [run.id, short(run.revision), run.pull_request ? `#${run.pull_request}` : '-', ...(branch ? [] : [run.branch ?? '-']),
+    runResult(run), since(run.exit_code < 0 ? run.started_at : run.finished_at)]);
+  return table(header, rows, header.map(() => 'left')).join('\n');
+}
+
+/** "#252 at eea5f3c, finished 2h ago": which run this is, for the line under its issues. */
+export const runSummary = run => `${run.pull_request ? `#${run.pull_request}` : run.branch ?? 'run'} at ${short(run.revision)}, `
+  + (run.exit_code < 0 ? `started ${since(run.started_at)}` : `finished ${since(run.finished_at)}`);
+
+/** One CI run's issues in the layout a scan prints, then what the run came to. */
+export function formatRun({ run, findings }, { width = WIDTH(), color = COLOR() } = {}) {
+  const byFile = new Map();
+  for (const finding of findings) {
+    if (!byFile.has(finding.path)) byFile.set(finding.path, []);
+    byFile.get(finding.path).push({ id: finding.id, line: finding.line, type: finding.type, said: finding.kind, sure: finding.probability,
+      name: shortId(finding.method), severity: finding.severity ?? '-' });
+  }
+  const where = `${problems(findings.length)} in ${byFile.size} ${byFile.size === 1 ? 'file' : 'files'}`;
+  const tally = run.exit_code < 0 ? `… ${runResult(run)}${findings.length ? `, ${where} so far` : ''}`
+    : run.exit_code === 1 ? `${red('✖', color)} the run could not finish${run.error ? `: ${run.error}` : ''}`
+      : run.findings_deleted_at ? `${problems(run.open_issues)}, no longer kept in Perch Cloud`
+        : !findings.length ? '✓ nothing to report'
+          : run.exit_code === 3 ? `${red('✖', color)} ${where}, failing` : `${yellow('!', color)} ${where}, none failing`;
+  return [...fileBlocks(byFile, { width, color }), tally].join('\n\n');
+}
