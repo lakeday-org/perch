@@ -137,6 +137,7 @@ export const FUNCTION_TYPES = new Set([
   "constructor_declaration",
   "compact_constructor_declaration",
   "constructor_definition",
+  "init_declaration",
   "arrow_function",
   "function_expression",
   "generator_function",
@@ -162,6 +163,8 @@ export const FUNCTION_TYPES = new Set([
   "function_declaration_statement",
   "function_definition_statement",
   "function_def",
+  // A Solidity modifier runs around each function that names it: a callable with a body of its own.
+  "modifier_definition",
 ]);
 
 const EXCLUDED_FUNCTION_TYPES = new Set(["function_declarator"]);
@@ -206,11 +209,17 @@ const SCOPE_TYPES = new Set([
   "internal_module",
   "module_definition",
   "object_declaration",
+  "object_definition",
+  "trait_definition",
   "object",
   "enum_declaration",
   "record_declaration",
   "enum_item",
   "module",
+  "contract_declaration",
+  "library_declaration",
+  // Ruby's class, whose methods are `Shop.Cart.total`, as its module's are.
+  "class",
 ]);
 
 const NAME_TYPES = new Set([
@@ -478,6 +487,8 @@ function readFunctionName(node: Node): string {
   if (!name && !ANONYMOUS_FUNCTION_TYPES.has(node.type)) {
     name = node.namedChildren.find((child) => NAME_TYPES.has(child.type)) ?? null;
   }
+  // Lua's `function Cart:total()` declares total on Cart, as `function Cart.total(self)` does; the method goes by `Cart.total`.
+  if (name?.type === "method_index_expression") return text(name).replace(":", ".");
   return text(name) || "<anonymous>";
 }
 
@@ -545,10 +556,11 @@ function readQualifiedName(node: Node, renamed: Renamed): string {
   const parts: string[] = [];
   let parent = node.parent;
   while (parent) {
+    // A renamed ancestor already carries every scope above it: a test case, whether the grammar calls its body a function or,
+    // as with a Ruby `it "x" do ... end`, a block.
+    const known = renamed(parent);
+    if (known !== null) { parts.push(known); break; }
     if (isFunction(parent)) {
-      // A renamed ancestor already carries every scope above it.
-      const known = renamed(parent);
-      if (known !== null) { parts.push(known); break; }
       parts.push(functionName(parent));
     } else if (SCOPE_TYPES.has(parent.type) || extraScopeName(parent)) {
       const name = scopeName(parent);

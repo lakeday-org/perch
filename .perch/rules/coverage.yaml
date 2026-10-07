@@ -29,8 +29,8 @@
   each: method
   ensure: >-
     This method does not run the repository's tests, start a test runner or a
-    child process. The tests are run by CI, and perch reads the JUnit XML and
-    coverage reports that run wrote.
+    child process. perch predicts what the tests would catch; it never runs
+    them and reads nothing a test run wrote.
 
 - name: coverage-probabilities-are-answers
   where: src/coverage.js
@@ -59,9 +59,9 @@
   except: "test/**"
   each: method
   ensure: >-
-    When this method marks tests redundant, the tests reach the same methods
-    under test and System One said they decide the same behavior of them.
-    Grouping by name, by file, or by reach alone breaks this rule.
+    When this method marks tests redundant, the tests were asked about the same
+    mutants and System One predicted they kill exactly the same ones, at least
+    one. Grouping by name, by file, or by reach alone breaks this rule.
 
 - name: coverage-diff-is-per-unit
   where: mentions baseline
@@ -94,49 +94,3 @@
     or deriving the expected value by calling the code under test, breaks this
     rule. A scripted System One standing in for the model is not a stub of the
     code under test.
-
-- name: test-reports-parse-strictly
-  where: src/test-reports.js
-  each: method
-  ensure: >-
-    If this method reads the text of a JUnit, LCOV, Cobertura or coverage.py
-    report, a record it cannot read raises an error naming the file and what
-    was wrong with it. Skipping a malformed record, or returning an empty
-    result for text it could not read, breaks this rule. A method that reads
-    no report text holds this rule.
-
-- name: test-runs-match-by-framework-names
-  where: mentions testcase
-  except: "test/**"
-  each: method
-  ensure: >-
-    If this method matches a test run from a report to a test perch found, it
-    matches by that framework's own naming: pytest's module and function,
-    Vitest's file and full name, Surefire's class and method, GoogleTest's
-    suite and name, libtest's module path. A run that matches no test, or more
-    than one, is listed as unmatched. Matching because one name contains the
-    other, or picking the closest name, breaks this rule. A method that
-    matches no runs holds this rule.
-
-- name: measured-numbers-are-not-estimated
-  where: src/coverage.js
-  each: method
-  ensure: >-
-    If this method sets a method's branch share, whether it ran, or a test's
-    duration, it uses the coverage or JUnit report when that report covers the
-    unit, and labels the number measured. Asking System One for a number the
-    report already holds, or letting an estimate replace a measured number,
-    breaks this rule. A method that sets none of these holds this rule.
-
-- name: patch-coverage-is-measured
-  where: mentions patch
-  except: "test/**"
-  each: method
-  ensure: >-
-    If this method counts how many of a branch's changed lines ran, find the
-    code that picks which changed lines go into the total. A changed line the
-    coverage report's line map does not hold must be left out of the total,
-    not counted as a line that did not run. Then find what it gives a changed
-    file the coverage report has no data for: no figure at all, not a count
-    of zero. Judge what the code does, not what its comments say. A method
-    that counts no changed lines holds this rule.

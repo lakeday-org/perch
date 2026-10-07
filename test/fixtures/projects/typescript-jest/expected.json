@@ -1,104 +1,187 @@
 {
   "language": "typescript",
   "framework": "Jest",
-  "reports": {
-    "junit": ["reports/junit.xml"],
-    "lcov": ["reports/lcov.info"]
-  },
-  "left_out": [
-    "scripts/generate-currencies.ts",
-    "benchmarks/allocate.bench.ts",
-    "benchmarks/convert.bench.ts",
-    "jest.config.js"
-  ],
+  "left_out": ["scripts/generate-currencies.ts", "benchmarks/allocate.bench.ts", "benchmarks/convert.bench.ts", "jest.config.js"],
   "tests": [
-    { "file": "test/money.test.ts", "name": "reads an amount into minor units", "status": "passed",
-      "reaches": ["src/money.ts::Money.of"] },
-    { "file": "test/money.test.ts", "name": "writes the amount back with its own number of places", "status": "passed",
-      "reaches": ["src/money.ts::Money.of", "src/money.ts::Money.toDecimal", "src/decimal.ts::formatDecimal"] },
-    { "file": "test/money.test.ts", "name": "adds two amounts", "status": "passed",
-      "reaches": ["src/money.ts::Money.of", "src/money.ts::Money.add", "src/money.ts::Money.assertSameCurrency"] },
-    { "file": "test/money.test.ts", "name": "subtracts down to zero", "status": "passed",
-      "reaches": ["src/money.ts::Money.subtract", "src/money.ts::Money.isZero", "src/money.ts::Money.equals", "src/money.ts::Money.zero"] },
-    { "file": "test/money.test.ts", "name": "reads a number by its decimal digits", "status": "passed",
-      "reaches": ["src/money.ts::Money.of", "src/currency.ts::Currency.of", "src/rounding.ts::toFraction", "src/rounding.ts::divideRounded"] },
-    { "file": "test/money.test.ts", "name": "builds from minor units", "status": "passed",
-      "reaches": ["src/money.ts::Money.fromMinor", "src/money.ts::Money.constructor", "src/money.ts::Money.toString"] },
-    { "file": "test/money.test.ts", "name": "rejects minor units that are not safe integers", "status": "passed",
-      "reaches": ["src/money.ts::Money.fromMinor", "src/errors.ts::InvalidAmountError.constructor"] },
-    { "file": "test/money.test.ts", "name": "refuses more places than the currency has unless told how to round", "status": "passed",
-      "reaches": ["src/money.ts::Money.of", "src/decimal.ts::parseDecimal"] },
-    { "file": "test/money.test.ts", "name": "refuses to add two currencies", "status": "passed",
-      "reaches": ["src/money.ts::Money.of", "src/money.ts::Money.add", "src/money.ts::Money.assertSameCurrency", "src/errors.ts::CurrencyMismatchError.constructor"] },
-    { "file": "test/money.test.ts", "name": "multiplies with banker's rounding unless told otherwise", "status": "passed",
-      "reaches": ["src/money.ts::Money.of", "src/money.ts::Money.multiply"] },
-    { "file": "test/money.test.ts", "name": "splits an amount without losing a cent", "status": "passed",
-      "reaches": ["src/money.ts::Money.allocate", "src/allocate.ts::allocateMinor"] },
-    { "file": "test/money.test.ts", "name": "compares two amounts", "status": "passed",
-      "reaches": ["src/money.ts::Money.compare"] },
-    { "file": "test/money.test.ts", "name": "sums a list of amounts", "status": "passed",
-      "reaches": ["src/money.ts::Money.sum", "src/money.ts::Money.add", "src/money.ts::Money.zero", "src/money.ts::Money.toDecimal"] },
-
-    { "file": "test/currency.test.ts", "name": "looks up an ISO 4217 currency in any case", "status": "passed",
-      "reaches": ["src/currency.ts::Currency.of", "src/currency.ts::Currency.constructor"] },
-    { "file": "test/currency.test.ts", "name": "throws on a code it does not know", "status": "passed",
-      "reaches": ["src/currency.ts::Currency.of", "src/errors.ts::UnknownCurrencyError.constructor"] },
-    { "file": "test/currency.test.ts", "name": "registers a currency of its own", "status": "passed",
-      "reaches": ["src/currency.ts::Currency.register", "src/currency.ts::Currency.constructor", "src/currency.ts::Currency.of"] },
-    { "file": "test/currency.test.ts", "name": "rejects a malformed code", "status": "passed",
-      "reaches": ["src/currency.ts::Currency.constructor"] },
-
-    { "file": "test/rounding.test.ts", "name": "rounds %s: %p / 10 is %p", "status": "passed",
-      "reaches": ["src/rounding.ts::divideRounded"] },
-    { "file": "test/rounding.test.ts", "name": "reads %p exactly", "status": "passed",
-      "reaches": ["src/rounding.ts::toFraction"] },
-
-    { "file": "test/allocate.test.ts", "name": "splits a negative total", "status": "passed",
-      "reaches": ["src/allocate.ts::allocateMinor"] },
-    { "file": "test/allocate.test.ts", "name": "rejects ratios that are all zero", "status": "passed",
-      "reaches": ["src/allocate.ts::allocateMinor"] },
-
-    { "file": "test/format.test.ts", "name": "writes the symbol and groups thousands", "status": "passed",
-      "reaches": ["src/format/format.ts::formatMoney", "src/format/format.ts::groupDigits", "src/money.ts::Money.of", "src/money.ts::Money.toDecimal"] },
-    { "file": "test/format.test.ts", "name": "drops trailing zeros down to minimumDigits", "status": "passed",
-      "reaches": ["src/format/format.ts::formatMoney", "src/money.ts::Money.of"] },
-    { "file": "test/format.test.ts", "name": "groups digits the way the locale does", "status": "skipped",
-      "reaches": ["src/format/format.ts::formatMoney", "src/money.ts::Money.of"] },
-    { "file": "test/format.test.ts", "name": "groups %s as %s", "status": "passed",
-      "reaches": ["src/format/format.ts::groupDigits"] },
-
-    { "file": "test/parse.test.ts", "name": "reads %s", "status": "passed",
-      "reaches": ["src/format/parse.ts::parseMoney", "src/format/parse.ts::normalizeSeparators", "src/currency.ts::Currency.of", "src/money.ts::Money.of", "src/money.ts::Money.negate"] },
-    { "file": "test/parse.test.ts", "name": "reads a bare number in the fallback currency", "status": "passed",
-      "reaches": ["src/format/parse.ts::parseMoney", "src/money.ts::Money.toDecimal"] },
-    { "file": "test/parse.test.ts", "name": "needs a currency from somewhere", "status": "passed",
-      "reaches": ["src/format/parse.ts::parseMoney", "src/errors.ts::InvalidAmountError.constructor"] },
-    { "file": "test/parse.test.ts", "name": "treats a lone comma before three digits as grouping", "status": "passed",
-      "reaches": ["src/format/parse.ts::normalizeSeparators"] },
-
-    { "file": "test/rates.test.ts", "name": "reads its date from the JSON", "status": "passed",
-      "reaches": ["src/exchange/rates.ts::RateTable.fromJSON", "src/exchange/rates.ts::RateTable.constructor"] },
-    { "file": "test/rates.test.ts", "name": "gives a rate through the base currency", "status": "passed",
-      "reaches": ["src/exchange/rates.ts::RateTable.fromJSON", "src/exchange/rates.ts::RateTable.rate"] },
-    { "file": "test/rates.test.ts", "name": "converts an amount and rounds it to the target currency", "status": "passed",
-      "reaches": ["src/exchange/rates.ts::RateTable.convert", "src/exchange/rates.ts::RateTable.rate", "src/money.ts::Money.of", "src/money.ts::Money.toDecimal"] },
-    { "file": "test/rates.test.ts", "name": "rejects a rate that is not positive", "status": "passed",
-      "reaches": ["src/exchange/rates.ts::RateTable.constructor"] },
-
-    { "file": "test/converter.test.ts", "name": "converts with the rates it fetched", "status": "passed",
-      "reaches": ["src/exchange/converter.ts::Converter.constructor", "src/exchange/converter.ts::Converter.convert", "src/exchange/converter.ts::Converter.table", "src/exchange/rates.ts::RateTable.constructor", "src/money.ts::Money.of", "src/money.ts::Money.toDecimal"] },
-    { "file": "test/converter.test.ts", "name": "fetches again once the rates are older than maxAgeMs", "status": "passed",
-      "reaches": ["src/exchange/converter.ts::Converter.constructor", "src/exchange/converter.ts::Converter.table"] },
-    { "file": "test/converter.test.ts", "name": "converts offline with fixed rates", "status": "passed",
-      "reaches": ["src/exchange/converter.ts::Converter.withRates", "src/exchange/converter.ts::Converter.convert"] }
-  ],
-  "untested": [
-    "src/currency.ts::Currency.toString",
-    "src/money.ts::Money.isNegative",
-    "src/exchange/rates.ts::RateTable.isStale",
-    "src/exchange/provider.ts::fetchRates",
-    "src/interest.ts::compound",
-    "src/interest.ts::simpleInterest",
-    "src/interest.ts::effectiveAnnualRate"
+    {
+      "file": "test/money.test.ts",
+      "name": "reads an amount into minor units",
+      "reaches": ["src/money.ts::Money.of"]
+    },
+    {
+      "file": "test/money.test.ts",
+      "name": "writes the amount back with its own number of places",
+      "reaches": ["src/money.ts::Money.of", "src/money.ts::Money.toDecimal", "src/decimal.ts::formatDecimal"]
+    },
+    {
+      "file": "test/money.test.ts",
+      "name": "adds two amounts",
+      "reaches": ["src/money.ts::Money.of", "src/money.ts::Money.add", "src/money.ts::Money.assertSameCurrency"]
+    },
+    {
+      "file": "test/money.test.ts",
+      "name": "subtracts down to zero",
+      "reaches": ["src/money.ts::Money.subtract", "src/money.ts::Money.isZero", "src/money.ts::Money.equals", "src/money.ts::Money.zero"]
+    },
+    {
+      "file": "test/money.test.ts",
+      "name": "reads a number by its decimal digits",
+      "reaches": ["src/money.ts::Money.of", "src/currency.ts::Currency.of", "src/rounding.ts::toFraction", "src/rounding.ts::divideRounded"]
+    },
+    {
+      "file": "test/money.test.ts",
+      "name": "builds from minor units",
+      "reaches": ["src/money.ts::Money.fromMinor", "src/money.ts::Money.constructor", "src/money.ts::Money.toString"]
+    },
+    {
+      "file": "test/money.test.ts",
+      "name": "rejects minor units that are not safe integers",
+      "reaches": ["src/money.ts::Money.fromMinor", "src/errors.ts::InvalidAmountError.constructor"]
+    },
+    {
+      "file": "test/money.test.ts",
+      "name": "refuses more places than the currency has unless told how to round",
+      "reaches": ["src/money.ts::Money.of", "src/decimal.ts::parseDecimal"]
+    },
+    {
+      "file": "test/money.test.ts",
+      "name": "refuses to add two currencies",
+      "reaches": ["src/money.ts::Money.of", "src/money.ts::Money.add", "src/money.ts::Money.assertSameCurrency", "src/errors.ts::CurrencyMismatchError.constructor"]
+    },
+    {
+      "file": "test/money.test.ts",
+      "name": "multiplies with banker's rounding unless told otherwise",
+      "reaches": ["src/money.ts::Money.of", "src/money.ts::Money.multiply"]
+    },
+    {
+      "file": "test/money.test.ts",
+      "name": "splits an amount without losing a cent",
+      "reaches": ["src/money.ts::Money.allocate", "src/allocate.ts::allocateMinor"]
+    },
+    {
+      "file": "test/money.test.ts",
+      "name": "compares two amounts",
+      "reaches": ["src/money.ts::Money.compare"]
+    },
+    {
+      "file": "test/money.test.ts",
+      "name": "sums a list of amounts",
+      "reaches": ["src/money.ts::Money.sum", "src/money.ts::Money.add", "src/money.ts::Money.zero", "src/money.ts::Money.toDecimal"]
+    },
+    {
+      "file": "test/currency.test.ts",
+      "name": "looks up an ISO 4217 currency in any case",
+      "reaches": ["src/currency.ts::Currency.of", "src/currency.ts::Currency.constructor"]
+    },
+    {
+      "file": "test/currency.test.ts",
+      "name": "throws on a code it does not know",
+      "reaches": ["src/currency.ts::Currency.of", "src/errors.ts::UnknownCurrencyError.constructor"]
+    },
+    {
+      "file": "test/currency.test.ts",
+      "name": "registers a currency of its own",
+      "reaches": ["src/currency.ts::Currency.register", "src/currency.ts::Currency.constructor", "src/currency.ts::Currency.of"]
+    },
+    {
+      "file": "test/currency.test.ts",
+      "name": "rejects a malformed code",
+      "reaches": ["src/currency.ts::Currency.constructor"]
+    },
+    {
+      "file": "test/rounding.test.ts",
+      "name": "rounds %s: %p / 10 is %p",
+      "reaches": ["src/rounding.ts::divideRounded"]
+    },
+    {
+      "file": "test/rounding.test.ts",
+      "name": "reads %p exactly",
+      "reaches": ["src/rounding.ts::toFraction"]
+    },
+    {
+      "file": "test/allocate.test.ts",
+      "name": "splits a negative total",
+      "reaches": ["src/allocate.ts::allocateMinor"]
+    },
+    {
+      "file": "test/allocate.test.ts",
+      "name": "rejects ratios that are all zero",
+      "reaches": ["src/allocate.ts::allocateMinor"]
+    },
+    {
+      "file": "test/format.test.ts",
+      "name": "writes the symbol and groups thousands",
+      "reaches": ["src/format/format.ts::formatMoney", "src/format/format.ts::groupDigits", "src/money.ts::Money.of", "src/money.ts::Money.toDecimal"]
+    },
+    {
+      "file": "test/format.test.ts",
+      "name": "drops trailing zeros down to minimumDigits",
+      "reaches": ["src/format/format.ts::formatMoney", "src/money.ts::Money.of"]
+    },
+    {
+      "file": "test/format.test.ts",
+      "name": "groups digits the way the locale does",
+      "reaches": ["src/format/format.ts::formatMoney", "src/money.ts::Money.of"]
+    },
+    {
+      "file": "test/format.test.ts",
+      "name": "groups %s as %s",
+      "reaches": ["src/format/format.ts::groupDigits"]
+    },
+    {
+      "file": "test/parse.test.ts",
+      "name": "reads %s",
+      "reaches": ["src/format/parse.ts::parseMoney", "src/format/parse.ts::normalizeSeparators", "src/currency.ts::Currency.of", "src/money.ts::Money.of", "src/money.ts::Money.negate"]
+    },
+    {
+      "file": "test/parse.test.ts",
+      "name": "reads a bare number in the fallback currency",
+      "reaches": ["src/format/parse.ts::parseMoney", "src/money.ts::Money.toDecimal"]
+    },
+    {
+      "file": "test/parse.test.ts",
+      "name": "needs a currency from somewhere",
+      "reaches": ["src/format/parse.ts::parseMoney", "src/errors.ts::InvalidAmountError.constructor"]
+    },
+    {
+      "file": "test/parse.test.ts",
+      "name": "treats a lone comma before three digits as grouping",
+      "reaches": ["src/format/parse.ts::normalizeSeparators"]
+    },
+    {
+      "file": "test/rates.test.ts",
+      "name": "reads its date from the JSON",
+      "reaches": ["src/exchange/rates.ts::RateTable.fromJSON", "src/exchange/rates.ts::RateTable.constructor"]
+    },
+    {
+      "file": "test/rates.test.ts",
+      "name": "gives a rate through the base currency",
+      "reaches": ["src/exchange/rates.ts::RateTable.fromJSON", "src/exchange/rates.ts::RateTable.rate"]
+    },
+    {
+      "file": "test/rates.test.ts",
+      "name": "converts an amount and rounds it to the target currency",
+      "reaches": ["src/exchange/rates.ts::RateTable.convert", "src/exchange/rates.ts::RateTable.rate", "src/money.ts::Money.of", "src/money.ts::Money.toDecimal"]
+    },
+    {
+      "file": "test/rates.test.ts",
+      "name": "rejects a rate that is not positive",
+      "reaches": ["src/exchange/rates.ts::RateTable.constructor"]
+    },
+    {
+      "file": "test/converter.test.ts",
+      "name": "converts with the rates it fetched",
+      "reaches": ["src/exchange/converter.ts::Converter.constructor", "src/exchange/converter.ts::Converter.convert", "src/exchange/converter.ts::Converter.table", "src/exchange/rates.ts::RateTable.constructor", "src/money.ts::Money.of", "src/money.ts::Money.toDecimal"]
+    },
+    {
+      "file": "test/converter.test.ts",
+      "name": "fetches again once the rates are older than maxAgeMs",
+      "reaches": ["src/exchange/converter.ts::Converter.constructor", "src/exchange/converter.ts::Converter.table"]
+    },
+    {
+      "file": "test/converter.test.ts",
+      "name": "converts offline with fixed rates",
+      "reaches": ["src/exchange/converter.ts::Converter.withRates", "src/exchange/converter.ts::Converter.convert"]
+    }
   ]
 }

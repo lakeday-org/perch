@@ -1,0 +1,102 @@
+{
+  "language": "zig",
+  "framework": "test",
+  "left_out": ["build.zig", "examples/receipt.zig"],
+  "tests": [
+    {
+      "file": "src/money.zig",
+      "name": "applyPercent takes ten percent off",
+      "reaches": ["src/money.zig::applyPercent"]
+    },
+    {
+      "file": "src/money.zig",
+      "name": "applyPercent refuses more than everything",
+      "reaches": ["src/money.zig::applyPercent"]
+    },
+    {
+      "file": "src/money.zig",
+      "name": "roundTo rounds halves away from zero",
+      "reaches": ["src/money.zig::roundTo"]
+    },
+    {
+      "file": "src/money.zig",
+      "name": "tax rounds to the nearest cent",
+      "reaches": ["src/money.zig::tax"]
+    },
+    {
+      "file": "src/money.zig",
+      "name": "format",
+      "reaches": ["src/money.zig::format"]
+    },
+    {
+      "file": "src/sku.zig",
+      "name": "isValid accepts three letters, a dash and four digits",
+      "reaches": ["src/sku.zig::isValid"]
+    },
+    {
+      "file": "src/sku.zig",
+      "name": "family and number read a valid code",
+      "reaches": ["src/sku.zig::family", "src/sku.zig::number", "src/sku.zig::isValid"]
+    },
+    {
+      "file": "src/pricing/rules.zig",
+      "name": "bulkPercent steps at a dozen and a gross",
+      "reaches": ["src/pricing/rules.zig::bulkPercent"]
+    },
+    {
+      "file": "src/pricing/rules.zig",
+      "name": "bestPercent takes the larger discount, never both",
+      "reaches": ["src/pricing/rules.zig::bestPercent", "src/pricing/rules.zig::bulkPercent", "src/pricing/rules.zig::promotionPercent"]
+    },
+    {
+      "file": "src/pricing/rules.zig",
+      "name": "discounted applies the best percent",
+      "reaches": ["src/pricing/rules.zig::discounted", "src/pricing/rules.zig::bestPercent", "src/money.zig::applyPercent"]
+    },
+    {
+      "file": "src/cart.zig",
+      "name": "add merges a repeated SKU into one line",
+      "reaches": ["src/cart.zig::Cart.init", "src/cart.zig::Cart.deinit", "src/cart.zig::Cart.add", "src/cart.zig::Cart.count", "src/cart.zig::Cart.subtotal", "src/sku.zig::isValid"]
+    },
+    {
+      "file": "src/cart.zig",
+      "name": "add refuses an invalid SKU and an empty line",
+      "reaches": ["src/cart.zig::Cart.init", "src/cart.zig::Cart.add", "src/sku.zig::isValid"]
+    },
+    {
+      "file": "src/cart.zig",
+      "name": "total discounts each line and adds tax",
+      "reaches": ["src/cart.zig::Cart.init", "src/cart.zig::Cart.add", "src/cart.zig::Cart.total", "src/money.zig::tax"]
+    },
+    {
+      "file": "src/cart.zig",
+      "name": "Line.net applies the family promotion",
+      "reaches": ["src/cart.zig::Line.net", "src/cart.zig::Line.gross", "src/sku.zig::family", "src/pricing/rules.zig::discounted"]
+    },
+    {
+      "file": "src/shelf.zig",
+      "name": "receive adds to what is already on the shelf",
+      "reaches": ["src/shelf.zig::Shelf.init", "src/shelf.zig::Shelf.receive", "src/shelf.zig::Shelf.onHand", "src/sku.zig::isValid"]
+    },
+    {
+      "file": "src/shelf.zig",
+      "name": "pick refuses more than is on the shelf",
+      "reaches": ["src/shelf.zig::Shelf.init", "src/shelf.zig::Shelf.receive", "src/shelf.zig::Shelf.pick", "src/shelf.zig::Shelf.onHand"]
+    },
+    {
+      "file": "src/tests.zig",
+      "name": "a shopping trip: shelve, pick, and ring up",
+      "reaches": ["src/shelf.zig::Shelf.init", "src/shelf.zig::Shelf.receive", "src/shelf.zig::Shelf.pick", "src/cart.zig::Cart.init", "src/cart.zig::Cart.add", "src/cart.zig::Cart.subtotal", "src/cart.zig::Cart.total"]
+    },
+    {
+      "file": "src/tests.zig",
+      "name": "the best discount for a dozen teas is the bulk rate",
+      "reaches": ["src/pricing/rules.zig::bestPercent", "src/money.zig::applyPercent"]
+    },
+    {
+      "file": "src/root.zig",
+      "name": "test_0",
+      "reaches": []
+    }
+  ]
+}

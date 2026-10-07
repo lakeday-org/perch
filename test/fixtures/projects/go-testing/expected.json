@@ -1,0 +1,102 @@
+{
+  "language": "go",
+  "framework": "testing",
+  "left_out": ["examples/import_csv/main.go"],
+  "tests": [
+    {
+      "file": "money/money_test.go",
+      "name": "TestAdd",
+      "reaches": ["money/money.go::New", "money/money.go::Money.Add"]
+    },
+    {
+      "file": "money/money_test.go",
+      "name": "TestAddRejectsMixedCurrencies",
+      "reaches": ["money/money.go::New", "money/money.go::Money.Add"]
+    },
+    {
+      "file": "money/money_test.go",
+      "name": "${tc.name}",
+      "reaches": ["money/money.go::New", "money/money.go::Money.Allocate"]
+    },
+    {
+      "file": "money/money_test.go",
+      "name": "TestAllocateRejectsZeroParts",
+      "reaches": ["money/money.go::New", "money/money.go::Money.Allocate"]
+    },
+    {
+      "file": "money/money_test.go",
+      "name": "yen has none",
+      "reaches": ["money/currency.go::MinorUnits"]
+    },
+    {
+      "file": "money/money_test.go",
+      "name": "dollars have two",
+      "reaches": ["money/currency.go::MinorUnits"]
+    },
+    {
+      "file": "money/money_test.go",
+      "name": "TestParse",
+      "reaches": ["money/currency.go::Parse"]
+    },
+    {
+      "file": "money/money_test.go",
+      "name": "TestString",
+      "reaches": ["money/money.go::New", "money/money.go::Money.String", "money/currency.go::MinorUnits"]
+    },
+    {
+      "file": "ledger/ledger_test.go",
+      "name": "TestPostMovesBothBalances",
+      "reaches": ["ledger/ledger.go::Open", "ledger/ledger.go::Ledger.OpenAccount", "ledger/ledger.go::Ledger.Post", "ledger/ledger.go::Ledger.Balance", "ledger/ledger.go::Ledger.Posted", "ledger/entry.go::NewEntry", "ledger/entry.go::Entry.Debit", "ledger/entry.go::Entry.Credit", "ledger/entry.go::Entry.Validate", "money/money.go::New"]
+    },
+    {
+      "file": "ledger/ledger_test.go",
+      "name": "TestPostRejectsAnUnbalancedEntry",
+      "reaches": ["ledger/ledger.go::Ledger.Post", "ledger/ledger.go::Ledger.Posted", "ledger/entry.go::NewEntry", "ledger/entry.go::Entry.Debit", "ledger/entry.go::Entry.Credit", "ledger/entry.go::Entry.Validate", "ledger/entry.go::Entry.IsBalanced"]
+    },
+    {
+      "file": "ledger/ledger_test.go",
+      "name": "TestPostToAnUnknownAccountLeavesEveryBalanceAlone",
+      "reaches": ["ledger/ledger.go::Ledger.Post", "ledger/ledger.go::Ledger.Balance", "money/money.go::Money.IsZero"]
+    },
+    {
+      "file": "ledger/ledger_test.go",
+      "name": "TestOpenAccountTwice",
+      "reaches": ["ledger/ledger.go::Open", "ledger/ledger.go::Ledger.OpenAccount"]
+    },
+    {
+      "file": "ledger/ledger_test.go",
+      "name": "TestTrialBalanceIsZeroAfterPosting",
+      "reaches": ["ledger/ledger.go::Ledger.Post", "ledger/ledger.go::Ledger.TrialBalance"]
+    },
+    {
+      "file": "ledger/ledger_test.go",
+      "name": "needs two lines",
+      "reaches": ["ledger/entry.go::NewEntry", "ledger/entry.go::Entry.Debit", "ledger/entry.go::Entry.Validate"]
+    },
+    {
+      "file": "ledger/ledger_test.go",
+      "name": "balanced",
+      "reaches": ["ledger/entry.go::NewEntry", "ledger/entry.go::Entry.Debit", "ledger/entry.go::Entry.Credit", "ledger/entry.go::Entry.IsBalanced", "ledger/entry.go::Entry.Totals"]
+    },
+    {
+      "file": "ledger/ledger_test.go",
+      "name": "rejects a zero line",
+      "reaches": ["ledger/entry.go::NewEntry", "ledger/entry.go::Entry.Debit", "ledger/entry.go::Entry.Credit", "ledger/entry.go::Entry.Validate", "money/money.go::New"]
+    },
+    {
+      "file": "report/report_test.go",
+      "name": "${name}",
+      "reaches": ["report/report.go::AgingBucket"]
+    },
+    {
+      "file": "report/report_test.go",
+      "name": "TestBalancesReadsEveryAccount",
+      "reaches": ["report/report.go::Balances", "ledger/ledger.go::Open", "ledger/ledger.go::Ledger.OpenAccount", "ledger/ledger.go::Ledger.Balance"]
+    },
+    {
+      "file": "report/report_test.go",
+      "name": "TestBalancesRejectsAnUnknownAccount",
+      "reaches": ["report/report.go::Balances", "ledger/ledger.go::Open", "ledger/ledger.go::Ledger.Balance"]
+    }
+  ]
+}

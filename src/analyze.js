@@ -1,7 +1,8 @@
 /** `perch scan`: analyze every tracked source file at a revision and rank the files by risk. No model. */
 import { availableParallelism } from 'node:os';
 import { git, listTree, readBlobs } from './git.js';
-import { analyzeFiles, METHOD_HASH, sourceFile } from './analysis.js';
+import { analyzeFiles, languageOf, METHOD_HASH, sourceFile } from './analysis.js';
+import { headerLanguage } from './languages.js';
 import { createFileSelector, EXCLUSIONS_PROFILE } from './exclusions.js';
 import { PARSE_VERSION } from './treesitter/types.ts';
 import { identity, openStore, readScan, writeScan } from './store.js';
@@ -24,19 +25,28 @@ export function crateOf(path, text) {
   return { name: name.replaceAll('-', '_'), root: dir, lib: lib ? (dir ? `${dir}/${lib}` : lib) : `${dir ? `${dir}/` : ''}src/lib.rs` };
 }
 
+/** A Go module's path and the directory it is in, from its go.mod: `module example.com/shop` in services/go.mod. */
+export function goModuleOf(path, text) {
+  const name = text.match(/^module\s+"?([^\s"]+)"?/m)?.[1] ?? null;
+  return name ? { path: name, dir: path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '' } : null;
+}
+
 /**
  * Each Rust crate's name and where it is: `serde_json::from_str` in a test names the crate by its Cargo.toml, not by a path, so
- * the call graph needs the name to find the crate's lib.rs.
+ * the call graph needs the name to find the crate's lib.rs. Each Go module's path likewise, since `import "example.com/shop/cart"`
+ * names a directory of this repository only through the go.mod that declares the prefix.
  */
-async function cratesOf(root, revision, tree) {
-  const crates = [];
-  for (const item of tree.filter(entry => entry.type === 'blob' && /(^|\/)Cargo\.toml$/.test(entry.path))) {
-    // The tree lists it at this revision, so a failure to show it is git failing, not a crate that is not there.
-    const crate = crateOf(item.path, await git(['show', `${revision}:${item.path}`], root));
-    if (crate) crates.push(crate);
+async function manifestsOf(root, revision, tree, pattern, read) {
+  const found = [];
+  for (const item of tree.filter(entry => entry.type === 'blob' && pattern.test(entry.path))) {
+    // The tree lists it at this revision, so a failure to show it is git failing, not a manifest that is not there.
+    const manifest = read(item.path, await git(['show', `${revision}:${item.path}`], root));
+    if (manifest) found.push(manifest);
   }
-  return crates;
+  return found;
 }
+const cratesOf = (root, revision, tree) => manifestsOf(root, revision, tree, /(^|\/)Cargo\.toml$/, crateOf);
+const goModulesOf = (root, revision, tree) => manifestsOf(root, revision, tree, /(^|\/)go\.mod$/, goModuleOf);
 
 export async function analyzeTree({ root, revision, out, analyzer, label = root, github = null, paths = [], progress = () => {}, log = () => {}, debug = () => {} }) {
   const store = openStore(out);
@@ -51,7 +61,8 @@ export async function analyzeTree({ root, revision, out, analyzer, label = root,
   }
   await store.exclude(root);
   const tree = await listTree(root, revision);
-  const sources = tree.filter(createFileSelector(tree)).filter(sourceFile).filter(selected(paths));
+  const header = headerLanguage(tree.map(item => item.path));
+  const sources = tree.filter(createFileSelector(tree)).filter(sourceFile).filter(selected(paths)).map(file => ({ ...file, language: languageOf(file.path, header) }));
   // A repository with no code still has files a rule can be about: a docs-only repository scans zero methods, not an error.
   debug(`analyzing ${sources.length} source files`);
   // Blobs stream from one git process while the analyzer works through them in order.
@@ -68,7 +79,7 @@ export async function analyzeTree({ root, revision, out, analyzer, label = root,
   await markTestSupport({ root, paths: tree.filter(item => item.type === 'blob').map(item => item.path), files: analysis.files });
   const scan = { id, status: 'complete', target: label, github, root, revision, paths, out: dir, created_at: new Date().toISOString(),
     coverage: { ...analysis.coverage, excluded: tree.filter(item => item.type === 'blob').length - sources.length }, functions: analysis.functions, files: analysis.files, candidates: analysis.candidates,
-    crates: await cratesOf(root, revision, tree) };
+    crates: await cratesOf(root, revision, tree), modules: await goModulesOf(root, revision, tree) };
   await writeScan(dir, scan);
   await store.prune('scans', id).catch(error => log(`Could not remove earlier scans: ${error.message}`));
   return scan;

@@ -7,6 +7,18 @@ import type { Node } from "./node";
 import type { Mock, MockTarget, TestCase } from "./types";
 import { isFunction } from "./metrics";
 import type { SyntaxIndex } from "./visit";
+import { goTests } from "./tests/go";
+import { cTests } from "./tests/c";
+import { csharpTests } from "./tests/c_sharp";
+import { rubyTests } from "./tests/ruby";
+import { phpTests } from "./tests/php";
+import { luaTests } from "./tests/lua";
+import { swiftTests } from "./tests/swift";
+import { zigTests } from "./tests/zig";
+import { solidityTests } from "./tests/solidity";
+import { scalaTests } from "./tests/scala";
+import { groovyTests } from "./tests/groovy";
+import { bashTests } from "./tests/bash";
 
 /** A test case found in the tree, keyed by its declaration node, with the qualified name it is known by when that differs. */
 export interface FoundTest {
@@ -30,9 +42,9 @@ export interface TestScan {
   blockMacros: Set<string>;
 }
 
-const span = (node: Node) => `${node.startIndex}:${node.endIndex}`;
-const named = (node: Node, type: string) => node.namedChildren.filter(child => child.type === type);
-const lineOf = (node: Node) => node.startPosition.row + 1;
+export const span = (node: Node) => `${node.startIndex}:${node.endIndex}`;
+export const named = (node: Node, type: string) => node.namedChildren.filter(child => child.type === type);
+export const lineOf = (node: Node) => node.startPosition.row + 1;
 
 /** The declaration id a node sits in, as references.ts assigns it, or `file` at the top level. */
 function ownerOf(node: Node): string {
@@ -40,8 +52,19 @@ function ownerOf(node: Node): string {
   return "file";
 }
 
+/**
+ * The declaration a node sits in when test bodies the grammar does not call functions count too: a Ruby `it "x" do ... end`
+ * block is a declaration once `cases` holds its span, and a mock inside it belongs to that test.
+ */
+export function ownerIn(node: Node, scan: TestScan): string {
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    if (isFunction(parent) || scan.cases.has(span(parent))) return `function:${parent.startIndex}`;
+  }
+  return "file";
+}
+
 /** Names of the enclosing scopes of the given node types, outermost first. */
-function enclosing(node: Node, types: Set<string>, nameOf: (scope: Node) => string | null): string[] {
+export function enclosing(node: Node, types: Set<string>, nameOf: (scope: Node) => string | null): string[] {
   const names: string[] = [];
   for (let parent = node.parent; parent; parent = parent.parent) {
     if (!types.has(parent.type)) continue;
@@ -81,16 +104,20 @@ function unescape(sequence: string): string {
 
 /**
  * The value of a string literal with nothing interpolated into it, or null. Escapes are decoded, since a test framework reports
- * the title the program sees: `'it\'s'` is reported as `it's`. A raw string, Python's `r'...'` or C++'s `R"(...)"`, has no
- * escapes and is taken as written.
+ * the title the program sees: `'it\'s'` is reported as `it's`. A raw string, Python's `r'...'`, C++'s `R"(...)"` or Go's
+ * `` `...` ``, has no escapes and is taken as written.
  */
-function literal(node: Node | null | undefined): string | null {
+export function literal(node: Node | null | undefined): string | null {
   if (!node) return null;
   const parts = node.namedChildren;
-  if (parts.some(part => ["template_substitution", "interpolation", "string_interpolation"].includes(part.type))) return null;
-  if (!["string", "template_string", "string_literal", "raw_string_literal"].includes(node.type)) return null;
-  const raw = node.type === "raw_string_literal" || /^[a-zA-Z]*[rR][a-zA-Z]*["']/.test(parts.find(part => part.type === "string_start")?.text ?? "");
-  return parts.filter(part => ["string_fragment", "string_content", "escape_sequence"].includes(part.type))
+  if (parts.some(part => ["template_substitution", "interpolation", "string_interpolation", "interpolated_expression"].includes(part.type))) return null;
+  // PHP's double-quoted string interpolates a variable written bare in it, `"total $x"`, with no node to say so but the variable's.
+  if (node.type === "encapsed_string" && parts.some(part => !["string_content", "escape_sequence"].includes(part.type))) return null;
+  // Scala's string and Swift's line_string_literal keep their text in one child; C#'s string_literal in string_literal_content.
+  if (!["string", "template_string", "string_literal", "raw_string_literal", "interpreted_string_literal", "line_string_literal", "verbatim_string_literal", "encapsed_string"].includes(node.type)) return null;
+  const raw = node.type === "raw_string_literal" || node.type === "verbatim_string_literal" || /^[a-zA-Z]*[rR][a-zA-Z]*["']/.test(parts.find(part => part.type === "string_start")?.text ?? "");
+  if (!parts.length) return node.text.replace(/^[a-zA-Z@]*(?:"""|"|')|(?:"""|"|')$/g, "");
+  return parts.filter(part => ["string_fragment", "string_content", "escape_sequence", "interpreted_string_literal_content", "raw_string_literal_content", "line_str_text", "string_literal_content"].includes(part.type))
     .map(part => (part.type === "escape_sequence" && !raw ? unescape(part.text) : part.text)).join("");
 }
 
@@ -248,7 +275,7 @@ function titled(call: Node): { title: string; body: Node; computed: boolean } | 
  * `` `should normalize ${type}` `` and `t.name + " survives"` read `should normalize ${type}` and `${t.name} survives`, which is
  * how the run's own titles are matched to it.
  */
-function computedTitle(node: Node): string {
+export function computedTitle(node: Node): string {
   const written = literal(node);
   if (written !== null) return written;
   if (node.type === "template_string") {
@@ -601,18 +628,27 @@ function cppTests(index: SyntaxIndex, scan: TestScan): void {
   }
 }
 
+/** The headers a C or C++ file includes, as written between the quotes or angle brackets. */
+export function includedHeaders(index: SyntaxIndex): string[] {
+  const headers: string[] = [];
+  for (const node of index.of("preproc_include")) {
+    if (node.type !== "preproc_include") continue;
+    const path = node.childForFieldName("path");
+    const header = path?.type === "system_lib_string" ? path.text.slice(1, -1) : literal(path);
+    if (header) headers.push(header);
+  }
+  return headers;
+}
+
 /**
  * The framework whose `TEST_CASE` a C++ file uses, by the header it includes: Catch2 (`catch2/...` from v3, `catch.hpp` from v2)
  * or doctest. The two spell a test the same way and name it differently in their reports. Null when the file includes neither,
  * and its test then goes by the macro's name for a framework.
  */
 function cppLibrary(index: SyntaxIndex): "catch2" | "doctest" | null {
-  for (const node of index.of("preproc_include")) {
-    if (node.type !== "preproc_include") continue;
-    const path = node.childForFieldName("path");
-    const header = path?.type === "system_lib_string" ? path.text.slice(1, -1) : literal(path);
-    if (header?.startsWith("catch2/") || header === "catch.hpp") return "catch2";
-    if (header === "doctest.h" || header?.endsWith("/doctest.h")) return "doctest";
+  for (const header of includedHeaders(index)) {
+    if (header.startsWith("catch2/") || header === "catch.hpp") return "catch2";
+    if (header === "doctest.h" || header.endsWith("/doctest.h")) return "doctest";
   }
   return null;
 }
@@ -621,7 +657,7 @@ function cppLibrary(index: SyntaxIndex): "catch2" | "doctest" | null {
 const SCENARIO_PREFIX = { catch2: "Scenario: ", doctest: "  Scenario: " };
 
 /** A statement that is a macro call, `NAME(args)`, as the macro's name and its arguments. */
-function macroCall(item: Node): { name: string; arguments: Node[] } | null {
+export function macroCall(item: Node): { name: string; arguments: Node[] } | null {
   const call = item.type === "expression_statement" ? item.namedChildren[0] : null;
   const macro = call?.type === "call_expression" ? call.childForFieldName("function") : null;
   if (macro?.type !== "identifier") return null;
@@ -682,9 +718,35 @@ function packageOf(root: Node, language: string): string | null {
       return name ? named(name, "simple_identifier").map(part => part.text).join(".") : null;
     }
     if (language === "go" && node.type === "package_clause") return node.namedChildren.find(child => child.type === "package_identifier")?.text ?? null;
+    // C#'s namespace, block-scoped or file-scoped: the first one declared is the file's. The declarations before it are in none.
+    if (language === "csharp" && ["namespace_declaration", "file_scoped_namespace_declaration"].includes(node.type)) return node.childForFieldName("name")?.text ?? null;
+    // PHP's namespace is its package: `namespace App\Tests;` puts every class in the file in App\Tests.
+    if (language === "php" && node.type === "namespace_definition") return node.childForFieldName("name")?.text ?? null;
+  }
+  // Scala chains package clauses: `package shop` then `package cart` declares shop.cart.
+  if (language === "scala") {
+    const clauses = root.namedChildren.filter(node => node.type === "package_clause").map(node => node.childForFieldName("name")?.text ?? "").filter(Boolean);
+    return clauses.length ? clauses.join(".") : null;
   }
   return null;
 }
+
+/** The remaining languages, each in a module of its own under tests/. */
+const OTHERS: Record<string, (index: SyntaxIndex, scan: TestScan, path: string | null) => void> = {
+  go: goTests,
+  // The analyzer normalizes `c_sharp`, the id languages.js gives a .cs file, to the grammar's `csharp` before anything reads the tree.
+  csharp: csharpTests,
+  c_sharp: csharpTests,
+  ruby: rubyTests,
+  php: phpTests,
+  lua: luaTests,
+  swift: swiftTests,
+  zig: zigTests,
+  solidity: solidityTests,
+  scala: scalaTests,
+  groovy: groovyTests,
+  bash: bashTests,
+};
 
 /** The test cases, mocks and package of one parsed file. */
 export function findTests(root: Node, language: string, path: string | null, index: SyntaxIndex): TestScan {
@@ -694,6 +756,7 @@ export function findTests(root: Node, language: string, path: string | null, ind
   else if (language === "rust") { rustTests(index, scan); rustMocks(index, scan); }
   else if (language === "java") { jvmTests(index, language, scan); javaMocks(index, scan); }
   else if (language === "kotlin") { jvmTests(index, language, scan); kotlinMocks(index, scan); }
-  else if (language === "cpp" || language === "c") { cppTests(index, scan); cppMocks(index, scan); }
+  else if (language === "cpp" || language === "c") { cppTests(index, scan); cppMocks(index, scan); if (language === "c") cTests(index, scan, path); }
+  else if (language in OTHERS) OTHERS[language](index, scan, path);
   return scan;
 }
