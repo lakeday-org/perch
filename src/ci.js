@@ -31,10 +31,12 @@ async function signIn(env, fetchImpl) {
 /** The repository the origin remote names. --default answers a checkout with no origin with nothing, so a failing git is an error. */
 const repositoryAt = async root => remoteRepositoryName(await git(['config', '--default', '', '--get', 'remote.origin.url'], root));
 
-/** A repository's pull request scan settings, from what it saved or the defaults, the way the dashboard reads them. */
+/**
+ * A repository's pull request scan settings, from what it saved or the defaults, the way the dashboard reads them. Perch Cloud
+ * writes them with JSON.stringify, so settings that do not parse are a fault to report rather than a reason to show defaults.
+ */
 function pullRequestSettings(repository) {
-  let saved;
-  try { saved = JSON.parse(repository.ci_configuration || '{}') || {}; } catch { saved = {}; }
+  const saved = JSON.parse(repository.ci_configuration || '{}') ?? {};
   return { scans: Boolean(repository.pr_scans), types: saved.pullRequest?.length ? saved.pullRequest : DEFAULT_SCAN_TYPES,
     scope: saved.scope?.pullRequest || 'changes', gate: saved.failOnIssues?.pullRequest ?? true };
 }
