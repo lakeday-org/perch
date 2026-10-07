@@ -445,19 +445,18 @@ describe('mutants for the systems languages', () => {
   it('plants boundary, condition, arithmetic and return mutants in a Go function', () => {
     const go = source(['package cart', '', 'func Discount(total, percent int) int {', '\tif percent >= 100 || total <= 0 {', '\t\treturn 0', '\t}', '\treturn total - total*percent/100', '}']);
     expect(edits(mutantsOf({ source: go, language: 'go', line: 3, end_line: 8 }))).toEqual([
-      'boundary 4 >=>>', 'boundary 4 <=><', 'logic 4 ||>&&', 'condition 4 percent >= 100 || total <= 0>!(percent >= 100 || total <= 0)',
-      'arithmetic 7 ->+', 'arithmetic 7 *>/', 'arithmetic 7 />*', 'return 5 0>1',
+      'condition 4 percent >= 100 || total <= 0>true', 'condition 4 percent >= 100 || total <= 0>false', 'boundary 4 >=>>', 'number 4 100>101', 'logic 4 ||>&&', 'boundary 4 <=><', 'number 4 0>1',
+      'block 4 {\n\t\treturn 0\n\t}>{}', 'return 5 0>1',
+      'arithmetic 7 ->+', 'arithmetic 7 *>/', 'arithmetic 7 />*', 'number 7 100>101',
     ]);
   });
 
   it("plants mutants in a Bash function in the shell's own spelling", () => {
     const bash = source(['discount() {', '  if [ "$2" -ge 100 ] || [ -z "$1" ]; then return 0; fi', '  if ! is_number "$1"; then return 1; fi', '  echo $(( $1 - $1 * $2 / 100 ))', '}']);
     expect(edits(mutantsOf({ source: bash, language: 'bash', line: 1, end_line: 5 }))).toEqual([
-      'boundary 2 -ge>-gt', 'logic 2 ||>&&',
-      'condition 2 [ "$2" -ge 100 ] || [ -z "$1" ]>! { [ "$2" -ge 100 ] || [ -z "$1" ]; }', 'condition 3 ! is_number "$1">! ! is_number "$1"',
-      'not 3 ! is_number "$1">is_number "$1"',
-      'arithmetic 4 ->+', 'arithmetic 4 *>/', 'arithmetic 4 />*',
-      'return 2 0>1', 'return 3 1>0',
+      'condition 2 [ "$2" -ge 100 ] || [ -z "$1" ]>true', 'condition 2 [ "$2" -ge 100 ] || [ -z "$1" ]>false', 'boundary 2 -ge>-gt', 'number 2 100>101', 'logic 2 ||>&&', 'return 2 0>1',
+      'condition 3 ! is_number "$1">true', 'condition 3 ! is_number "$1">false', 'not 3 ! is_number "$1">is_number "$1"', 'return 3 1>0',
+      'arithmetic 4 ->+', 'arithmetic 4 *>/', 'arithmetic 4 />*', 'number 4 100>101',
     ]);
   });
 });

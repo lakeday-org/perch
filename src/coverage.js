@@ -461,7 +461,7 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, paralle
         ...macros[at].slice(0, 2).map(macro => ({ id: macro.id, path: macro.path, source: macro.source.split('\n').slice(0, limit).join('\n'), note: MACRO })),
       ]);
       return {
-        method: { path: node.path, name: node.qualified_name, source: sourceOf(node, lines), mutation: { kind: mutant.kind, original: mutant.original.trim(), mutated: mutant.mutated.trim() } },
+        method: { path: node.path, name: node.qualified_name, source: sourceOf(node, lines), mutation: { kind: mutant.kind, edit: describeMutant(mutant), original: mutant.original.trim(), mutated: mutant.mutated.trim() } },
         graph: { nodes, edges: edgesAmong(graph, [node.id, ...nodes.map(item => item.id)]) },
       };
     }, budget, `method ${node.qualified_name}`);

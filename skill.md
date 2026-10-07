@@ -125,8 +125,9 @@ Always give a reason. That is what the next person reads instead of reopening it
 ## Check the tests a change needs
 
 `perch coverage --since main` runs predictive mutation testing over the branch. It
-mutates one line at a time in every method a test reaches and asks which tests would
-fail against each mutant. It runs no tests and reads nothing a test run wrote.
+makes every mutant of every method a test reaches, from a removed call to a flipped
+comparison, and asks which tests would fail against each mutant. It runs no tests and
+reads nothing a test run wrote.
 
 ```console
 $ perch coverage --since main
