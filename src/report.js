@@ -141,14 +141,15 @@ export function formatScanReport(findings, { min = 0, width = WIDTH(), color = C
 
 /**
  * One block per file, its name and then a row per problem, for a scan here and a run in CI alike. Rows are the problem as printed:
- * its id, line, severity, type, how sure (`sure`), what it is (`said`) and the method's name.
+ * its id, line, severity, type, how sure (`sure`), what it is (`said`) and the method's name. A CI run on a pull request adds what
+ * became of Perch's review comment on each (`review`), with the replies to it on the lines under its row.
  */
-function fileBlocks(byFile, { width, color }) {
+function fileBlocks(byFile, { width, color, review = false }) {
   // The id is on every row rather than once per method, so any row you are looking at is one you can act on without hunting up
   // the block for it: `perch issues <id>` opens it, and `perch close <id> --kind <problem>` sets that one problem aside.
   // How sure is its own column rather than a suffix on the problem: it is the number you sort by, argue with, and set a floor
   // against, and reading it means finding it in the same place on every row.
-  const HEAD = ['ID', 'Line', 'Severity', 'Type', 'Confidence', 'Problem', 'Method'];
+  const HEAD = ['ID', 'Line', 'Severity', 'Type', 'Confidence', 'Problem', ...(review ? ['Review'] : []), 'Method'];
   const blocks = [];
   const paths = [...byFile.keys()].filter(key => key !== SEARCHED).sort();
   for (const path of [...paths, ...(byFile.has(SEARCHED) ? [SEARCHED] : [])]) {
@@ -161,13 +162,16 @@ function fileBlocks(byFile, { width, color }) {
     const type = Math.max(HEAD[3].length, widest(row => row.type));
     const sure = Math.max(HEAD[4].length, widest(row => percent(row.sure)));
     const said = Math.max(HEAD[5].length, widest(row => row.said));
-    const named = Math.max(HEAD[6].length, Math.min(widest(row => row.name), Math.max(8, width - ident - at - band - type - sure - said - 14)));
+    const reviewed = review ? Math.max('Review'.length, widest(row => row.review)) : 0;
+    const reviewCell = text => (review ? `${text.padEnd(reviewed)}  ` : '');
+    const named = Math.max('Method'.length, Math.min(widest(row => row.name), Math.max(8, width - ident - at - band - type - sure - said - (review ? reviewed + 2 : 0) - 14)));
     // Padded before it is painted: an escape sequence is not a column of anything, and counting it as one bends every row after.
     const lines = [bold(path === SEARCHED ? SEARCHED : relative(path), color),
-      dim(`  ${HEAD[0].padEnd(ident)}  ${HEAD[1].padStart(at)}  ${HEAD[2].padEnd(band)}  ${HEAD[3].padEnd(type)}  ${HEAD[4].padStart(sure)}  ${HEAD[5].padEnd(said)}  ${HEAD[6]}`, color)];
+      dim(`  ${HEAD[0].padEnd(ident)}  ${HEAD[1].padStart(at)}  ${HEAD[2].padEnd(band)}  ${HEAD[3].padEnd(type)}  ${HEAD[4].padStart(sure)}  ${HEAD[5].padEnd(said)}  ${reviewCell('Review')}Method`, color)];
     for (const row of rows) {
       const severity = row.severity.padEnd(band);
-      lines.push(`  ${row.id.padEnd(ident)}  ${dim(String(row.line).padStart(at), color)}  ${row.severity === '-' ? dim(severity, color) : severity}  ${row.type.padEnd(type)}  ${sureness(row.sure, color).padStart(sure + (color ? 9 : 0))}  ${row.said.padEnd(said)}  ${dim(keepStart(row.name, named), color)}`.trimEnd());
+      lines.push(`  ${row.id.padEnd(ident)}  ${dim(String(row.line).padStart(at), color)}  ${row.severity === '-' ? dim(severity, color) : severity}  ${row.type.padEnd(type)}  ${sureness(row.sure, color).padStart(sure + (color ? 9 : 0))}  ${row.said.padEnd(said)}  ${reviewCell(row.review ?? '')}${dim(keepStart(row.name, named), color)}`.trimEnd());
+      for (const reply of row.replies ?? []) lines.push(dim(`      ${keepStart(reply, Math.max(20, width - 6))}`, color));
     }
     blocks.push(lines.join('\n'));
   }
@@ -467,13 +471,24 @@ export function formatRuns({ runs, branch }) {
 export const runSummary = run => `${run.pull_request ? `#${run.pull_request}` : run.branch ?? 'run'} at ${short(run.revision)}, `
   + (run.exit_code < 0 ? `started ${since(run.started_at)}` : `finished ${since(run.finished_at)}`);
 
-/** One CI run's issues in the layout a scan prints, then what the run came to. */
+/**
+ * What became of Perch's review comment on a finding: open, resolved, or resolved by Perch when a later scan stopped reporting it.
+ * Perch's own reply saying so is the last one on a thread it resolved, and the Review column has already said it.
+ */
+const reviewOf = comment => (!comment ? 'no comment' : !comment.resolved ? 'open' : comment.resolvedByPerch ? 'resolved by Perch' : 'resolved');
+const repliesTo = comment => (comment?.replies ?? []).slice(0, comment?.resolvedByPerch ? -1 : undefined)
+  .map(reply => `${reply.author ?? 'someone'}: ${String(reply.body).replace(/\s+/g, ' ').trim()}`);
+
+/** One CI run's issues in the layout a scan prints, then what the run came to. A pull request run says what became of each comment. */
 export function formatRun({ run, findings }, { width = WIDTH(), color = COLOR() } = {}) {
+  // Only a pull request run read with its comments has a comment field on its findings, null where Perch left none.
+  const review = findings.some(finding => finding.comment !== undefined);
   const byFile = new Map();
   for (const finding of findings) {
     if (!byFile.has(finding.path)) byFile.set(finding.path, []);
     byFile.get(finding.path).push({ id: finding.id, line: finding.line, type: finding.type, said: finding.kind, sure: finding.probability,
-      name: shortId(finding.method), severity: finding.severity ?? '-' });
+      name: shortId(finding.method), severity: finding.severity ?? '-',
+      ...(review ? { review: reviewOf(finding.comment), replies: repliesTo(finding.comment) } : {}) });
   }
   const where = `${problems(findings.length)} in ${byFile.size} ${byFile.size === 1 ? 'file' : 'files'}`;
   const tally = run.exit_code < 0 ? `… ${runResult(run)}${findings.length ? `, ${where} so far` : ''}`
@@ -481,5 +496,21 @@ export function formatRun({ run, findings }, { width = WIDTH(), color = COLOR() 
       : run.findings_deleted_at ? `${problems(run.open_issues)}, no longer kept in Perch Cloud`
         : !findings.length ? '✓ nothing to report'
           : run.exit_code === 3 ? `${red('✖', color)} ${where}, failing` : `${yellow('!', color)} ${where}, none failing`;
-  return [...fileBlocks(byFile, { width, color }), tally].join('\n\n');
+  return [...fileBlocks(byFile, { width, color, review }), tally].join('\n\n');
+}
+
+const SCOPE = { changes: 'the changed code', all: 'the whole repository' };
+/**
+ * perch cloud: who is signed in, to which workspace, and how Perch Cloud scans this repository's pull requests. A repository the
+ * workspace does not have says so and where to add it, since every other row would be about nothing.
+ */
+export function formatCloud(cloud) {
+  const pull = cloud.pullRequests;
+  const rows = [['Signed in as', cloud.user.email], ['Workspace', `${cloud.organization.name}${cloud.organization.role ? ` (${cloud.organization.role})` : ''}`],
+    ['Repository', cloud.repository ? `${cloud.repository}${cloud.repositoryId ? '' : `, not in this workspace; add it at ${cloud.url}`}` : 'none: this checkout has no origin remote']];
+  if (pull) rows.push(['GitHub app', cloud.github ? 'installed' : `not installed; install it at ${cloud.url}`],
+    ['Pull requests', pull.scans ? 'scanned' : 'not scanned'], ['Asks about', pull.types.join(', ')], ['Reads', SCOPE[pull.scope] ?? pull.scope],
+    ['Issues', pull.gate ? 'fail the Perch Scan check' : 'are reported, and the check passes']);
+  const label = Math.max(...rows.map(([name]) => name.length));
+  return rows.map(([name, value]) => `${name.padEnd(label)}  ${value}`).join('\n');
 }

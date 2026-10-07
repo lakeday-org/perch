@@ -65,8 +65,10 @@ fixed do not move.
 
 **Read what CI found.** `perch ci` lists the runs Perch Cloud has of the branch,
 and `perch ci <id>` gives one run's issues. After a push, `perch ci --wait` waits
-for the run of that commit. The assistant fixes what CI found the way it fixes a
-local finding, without scanning again.
+for the run of that commit. On a pull request it reads Perch's review comments and
+the replies too. The assistant fixes what CI found the way it fixes a local
+finding, without scanning again. `perch cloud` shows how Perch Cloud scans the
+repository, and the assistant changes that only when you ask.
 
 **Check the tests a change needs.** `perch coverage --since origin/main` mutates
 the code the branch changed and says which mutants no test would kill. The skill

@@ -148,12 +148,22 @@ After a push, `perch ci --wait` waits for the run of the commit you are on and p
 what it found. A run exits the way a scan does: `3` when it found something that fails,
 `1` when it could not finish.
 
+On a pull request, each issue also says what became of Perch's review comment on it:
+`open`, `resolved`, or `resolved by Perch` once a later scan stopped reporting it. The
+replies are on the lines under it. Read them before changing the code, since a reviewer
+may already have said why it is right.
+
 Fix a CI issue the way you fix a local one. With `--json`, each issue carries the
 `method` that `perch check` takes, so check it after the fix and push once it exits `0`.
 
+`perch cloud` shows the workspace you are signed in to and how Perch Cloud scans this
+repository's pull requests: whether it does, what it asks about, whether it reads the
+changed code or the whole repository, and whether issues fail the Perch Scan check.
+`perch cloud set` changes them with `--pull_requests`, `--scan_types`, `--scope` and
+`--gate`. Change them only when the user asks.
+
 `perch setup` also connects the assistant to Perch Cloud's MCP server, `perch-cloud`.
-Its `cloud_runs` and `cloud_run` tools read the same runs, plus Perch's review comment
-on each finding of a pull request and the replies to it.
+Its tools read and change the same things.
 
 ## Close a finding you have judged
 

@@ -2,10 +2,10 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createCiReader, waitForRun } from '../src/ci.js';
+import { createCloud, waitForRun } from '../src/ci.js';
 import { main } from '../src/cli.js';
 import { git, revision } from '../src/git.js';
-import { formatRun, formatRuns } from '../src/report.js';
+import { formatCloud, formatRun, formatRuns } from '../src/report.js';
 import { initRepo } from './helpers.js';
 
 const cleanups = [];
@@ -36,19 +36,46 @@ const findings = [
   { id: 'f2', path: 'docs/setup.md', method: 'docs/setup.md::docs/setup.md', line: 1, type: 'lint', kind: 'docs-show-output', probability: 0.7, severity: null },
 ];
 
-/** Perch Cloud as far as perch ci reads it, recording each request. `runs` are the finished ones, `active` the ones going. */
-function cloud({ runs = [], active = [], detail = {} } = {}) {
+/**
+ * Perch Cloud as far as perch ci and perch cloud read it, recording each request. `runs` are the finished ones, `active` the ones
+ * going. A run in `detail` answers comments=1 with its `commented` fields as well. Saving settings changes `repositories` the way
+ * Perch Cloud does: enabled flips the switch, and pull request settings replace the saved ones.
+ */
+function cloud({ runs = [], active = [], detail = {}, repositories = [{ id: 'repo-1', name: 'acme/web', installation_id: 7, pr_scans: 1, ci_configuration: null },
+  { id: 'repo-2', name: 'acme/api', installation_id: null, pr_scans: 0, ci_configuration: null }] } = {}) {
   const asked = [];
-  const fetchImpl = async (url, options) => {
-    const parsed = new URL(url);
-    asked.push({ path: parsed.pathname, query: Object.fromEntries(parsed.searchParams), authorization: options.headers.authorization });
-    if (parsed.pathname === '/v1/scans/recent') return Response.json({ scans: runs.filter(item => !parsed.searchParams.get('branch') || item.branch === parsed.searchParams.get('branch')), nextCursor: null });
-    if (parsed.pathname === '/api/results') return Response.json({ repositories: [{ id: 'repo-1', name: 'acme/web' }, { id: 'repo-2', name: 'acme/api' }], active });
+  const fetchImpl = async (url, options = {}) => {
+    const parsed = new URL(url), path = parsed.pathname, body = options.body ? JSON.parse(options.body) : undefined;
+    asked.push({ path, query: Object.fromEntries(parsed.searchParams), authorization: options.headers.authorization, ...(body ? { body } : {}) });
+    if (path === '/v1/scans/recent') return Response.json({ scans: runs.filter(item => !parsed.searchParams.get('branch') || item.branch === parsed.searchParams.get('branch')), nextCursor: null });
+    if (path === '/api/results') return Response.json({ repositories, active });
     const found = detail[parsed.searchParams.get('scanId')];
-    if (parsed.pathname === '/v1/scans/detail' && found) return Response.json({ ...found, url: `https://dash.perchscan.com/#/scan/${found.scan.id}` });
+    if (path === '/v1/scans/detail' && found) return Response.json({ scan: found.scan, findings: found.findings, url: `https://dash.perchscan.com/#/scan/${found.scan.id}`,
+      ...(parsed.searchParams.get('comments') === '1' ? found.commented : {}) });
+    if (path === '/api/me') return Response.json({ user: { id: 'user_dev', email: 'dev@acme.test', name: 'Dev' }, organizations: [{ id: 'org-1', name: 'Acme' }] });
+    if (path === '/api/overview') return Response.json({ organization: { id: 'org-1', name: 'Acme', owner_id: 'user_owner', actor_role: 'admin' }, repositories, github: {} });
+    if (path === '/api/repositories/scans' && options.method === 'POST') {
+      const repo = repositories.find(item => item.id === body.repositoryId);
+      if (body.enabled !== undefined) repo.pr_scans = body.enabled ? 1 : 0;
+      if (body.pullRequest) {
+        const saved = JSON.parse(repo.ci_configuration || '{}');
+        repo.ci_configuration = JSON.stringify({ pullRequest: body.pullRequest.types, scope: { pullRequest: body.pullRequest.scope ?? saved.scope?.pullRequest ?? 'changes' },
+          failOnIssues: { pullRequest: body.pullRequest.failOnIssues ?? saved.failOnIssues?.pullRequest ?? true } });
+      }
+      return Response.json({ repositoryId: repo.id, prScans: Boolean(repo.pr_scans) });
+    }
     return Response.json({ error: 'Scan not found.' }, { status: 404 });
   };
   return { asked, fetchImpl };
+}
+
+/** perch, run in the checkout against the Cloud given, with what it printed. */
+async function perch(args, { root, home, env = {}, fetchImpl }) {
+  vi.spyOn(process, 'cwd').mockReturnValue(root);
+  vi.stubGlobal('fetch', fetchImpl);
+  const out = [], err = [];
+  const code = await main(args, { stdout: text => out.push(text), stderr: text => err.push(text), env: { HOME: home, ...env } });
+  return { code, out: out.join('\n'), err: err.join('\n') };
 }
 
 describe('perch ci', () => {
@@ -59,7 +86,7 @@ describe('perch ci', () => {
       active: [run('going', { exit_code: -1, phase: 'reading', completed_methods: 12, total_methods: 40 }),
         run('elsewhere', { exit_code: -1, branch: 'main' }), run('other-repo', { exit_code: -1, repository_id: 'repo-2' })],
     });
-    const listing = await createCiReader({ env: { HOME: home }, root, fetchImpl }).runs({ branch: 'work' });
+    const listing = await createCloud({ env: { HOME: home }, root, fetchImpl }).runs({ branch: 'work' });
     expect(listing.runs.map(item => item.id)).toEqual(['going', 'done']);
     expect(asked[0]).toEqual({ path: '/v1/scans/recent', query: { organizationId: 'org-1', repository: 'acme/web', branch: 'work' }, authorization: 'Bearer perch_cli_login' });
     const [head, going, done] = formatRuns(listing).split('\n');
@@ -74,16 +101,16 @@ describe('perch ci', () => {
   it('reads a CI token\'s own repository, and never sends a PERCH_BASE_URL key to Perch Cloud', async () => {
     const { root, home } = await checkout();
     const { asked, fetchImpl } = cloud({ runs: [run('done')] });
-    await createCiReader({ env: { HOME: home, PERCH_API_KEY: 'perch_ci_token' }, root, fetchImpl }).runs({ branch: 'work' });
+    await createCloud({ env: { HOME: home, PERCH_API_KEY: 'perch_ci_token' }, root, fetchImpl }).runs({ branch: 'work' });
     // A token is made for one repository and cannot read the runs still going, which only a login lists.
     expect(asked).toEqual([{ path: '/v1/scans/recent', query: { branch: 'work' }, authorization: 'Bearer perch_ci_token' }]);
 
     asked.length = 0;
-    await createCiReader({ env: { HOME: home, PERCH_API_KEY: 'sk-openai', PERCH_BASE_URL: 'https://api.openai.com/v1/decisions' }, root, fetchImpl }).runs({ branch: 'work' });
+    await createCloud({ env: { HOME: home, PERCH_API_KEY: 'sk-openai', PERCH_BASE_URL: 'https://api.openai.com/v1/decisions' }, root, fetchImpl }).runs({ branch: 'work' });
     expect(new Set(asked.map(request => request.authorization))).toEqual(new Set(['Bearer perch_cli_login']));
 
-    await expect(createCiReader({ env: { HOME: join(root, 'nobody') }, root, fetchImpl }).runs())
-      .rejects.toThrow('perch ci reads Perch Cloud. Sign in with perch login, or set PERCH_API_KEY to a CI token.');
+    await expect(createCloud({ env: { HOME: join(root, 'nobody') }, root, fetchImpl }).runs())
+      .rejects.toThrow('Not signed in to Perch Cloud. Run perch login, or set PERCH_API_KEY to a CI token.');
   });
 
   it('waits for the run of a commit to start and finish, and gives up on a commit CI never scans', async () => {
@@ -141,5 +168,97 @@ describe('perch ci', () => {
     const err = [];
     expect(await main(['ci', '--wait'], { stdout: () => {}, stderr: text => err.push(text), env: { HOME: home } })).toBe(1);
     expect(err).toEqual([`perch: ${(await revision(root)).slice(0, 7)} is not on any remote branch, so CI has nothing to scan. Push it, then run perch ci --wait.`]);
+  });
+  it('says what became of Perch\'s comment on each issue of a pull request run, with the replies under it', async () => {
+    const { root, home } = await checkout();
+    const commented = {
+      links: { cloud: 'https://dash.perchscan.com/#/scan/pr', check: null, pull: 'https://github.com/acme/web/pull/318' },
+      findings: [
+        { ...findings[0], comment: { url: 'https://github.com/acme/web/pull/318#r1', resolved: false, resolvedByPerch: false,
+          replies: [{ author: 'octocat', body: 'Intended: the caller\nchecks first.', createdAt: '2026-10-06T11:00:00Z', url: 'https://github.com/acme/web/pull/318#r2' }] } },
+        // Perch resolved this one when a later scan stopped reporting it. Its reply saying so is what the Review column says.
+        { ...findings[1], comment: { url: 'https://github.com/acme/web/pull/318#r3', resolved: true, resolvedByPerch: true,
+          replies: [{ author: 'perchcode-bot', body: 'The scan of abc1234 no longer reports this, so Perch resolved it.', createdAt: '2026-10-06T12:00:00Z', url: 'https://github.com/acme/web/pull/318#r4' }] } },
+      ],
+    };
+    const stub = cloud({ detail: { pr: { scan: run('pr', { exit_code: 3, open_issues: 2 }), findings, commented },
+      off: { scan: run('off', { exit_code: 3, open_issues: 2 }), findings, commented: { commentsNotice: 'Connect this repository in the GitHub App to read its pull request comments.' } } } });
+    const { code, out, err } = await perch(['ci', 'pr'], { root, home, fetchImpl: stub.fetchImpl });
+    expect(code).toBe(3);
+    expect(stub.asked.at(-1).query).toEqual({ organizationId: 'org-1', scanId: 'pr', comments: '1' });
+    expect(out).toContain('src/session.js\n  ID  Line  Severity  Type    Confidence  Problem          Review  Method\n'
+      + '  f1    42  P1        defect         81%  swallowed_error  open    Session.refresh\n      octocat: Intended: the caller checks first.');
+    expect(out).toContain('  f2     1  -         lint         70%  docs-show-output  resolved by Perch  docs/setup.md');
+    expect(out).not.toContain('no longer reports this');
+    expect(err).toContain('Pull request: https://github.com/acme/web/pull/318');
+
+    // A repository off the GitHub App still lists its issues, with no Review column, and says why there are no comments.
+    const off = await perch(['ci', 'off'], { root, home, fetchImpl: stub.fetchImpl });
+    expect(off.out).toBe(formatRun({ run: run('off', { exit_code: 3, open_issues: 2 }), findings }));
+    expect(off.err).toContain('Connect this repository in the GitHub App to read its pull request comments.');
+  });
+});
+
+describe('perch cloud', () => {
+  it('shows who is signed in, to which workspace, and how Perch Cloud scans this repository', async () => {
+    const { root, home } = await checkout();
+    const { code, out } = await perch(['cloud'], { root, home, fetchImpl: cloud().fetchImpl });
+    expect(code).toBe(0);
+    expect(out).toBe([
+      'Signed in as   dev@acme.test',
+      'Workspace      Acme (admin)',
+      'Repository     acme/web',
+      'GitHub app     installed',
+      'Pull requests  scanned',
+      'Asks about     defect, lint, security',
+      'Reads          the changed code',
+      'Issues         fail the Perch Scan check',
+    ].join('\n'));
+
+    // A repository the workspace does not have has no settings to show, and says where to add it.
+    const elsewhere = await perch(['cloud'], { root, home, fetchImpl: cloud({ repositories: [] }).fetchImpl });
+    expect(elsewhere.out.split('\n').at(-1)).toBe('Repository    acme/web, not in this workspace; add it at https://dash.perchscan.com/#/setup');
+    expect(formatCloud(JSON.parse((await perch(['cloud', '--json'], { root, home, fetchImpl: cloud({ repositories: [] }).fetchImpl })).out))).toBe(elsewhere.out);
+
+    // A CI token has no account or workspace to show.
+    const token = await perch(['cloud'], { root, home, env: { PERCH_API_KEY: 'perch_ci_token' }, fetchImpl: cloud().fetchImpl });
+    expect([token.code, token.err]).toEqual([1, 'perch: perch cloud needs perch login. A CI token reads CI runs and nothing else.']);
+  });
+
+  it('changes only what perch cloud set names, and sends the issue types in force with a new scope or gate', async () => {
+    const { root, home } = await checkout();
+    const stub = cloud();
+    const scope = await perch(['cloud', 'set', '--scope', 'all', '--gate', 'no'], { root, home, fetchImpl: stub.fetchImpl });
+    expect(scope.code, scope.err).toBe(0);
+    // Perch Cloud saves the types with the rest, so leaving them out would have been a request it refuses.
+    expect(stub.asked.find(request => request.body).body).toEqual({ organizationId: 'org-1', repositoryId: 'repo-1',
+      pullRequest: { types: ['defect', 'lint', 'security'], scope: 'all', failOnIssues: false } });
+    expect(scope.out).toContain('Reads          the whole repository\nIssues         are reported, and the check passes');
+
+    stub.asked.length = 0;
+    const off = await perch(['cloud', 'set', '--pull_requests', 'no'], { root, home, fetchImpl: stub.fetchImpl });
+    expect(stub.asked.find(request => request.body).body).toEqual({ organizationId: 'org-1', repositoryId: 'repo-1', enabled: false });
+    expect(off.out).toContain('Pull requests  not scanned\nAsks about     defect, lint, security\nReads          the whole repository');
+
+    const types = await perch(['cloud', 'set', '--scan_types', 'security,defect'], { root, home, fetchImpl: stub.fetchImpl });
+    expect(types.out).toContain('Asks about     security, defect');
+
+    const away = await perch(['cloud', 'set', '--scope', 'all'], { root, home, fetchImpl: cloud({ repositories: [] }).fetchImpl });
+    expect([away.code, away.err]).toEqual([1, 'perch: acme/web is not in Acme on Perch Cloud. Connect it at https://dash.perchscan.com/#/setup']);
+  });
+
+  it.each([
+    [['cloud', 'set'], 'perch cloud set needs something to change: --pull_requests, --scan_types, --scope or --gate'],
+    [['cloud', '--scope', 'all'], 'perch cloud set changes settings; perch cloud only shows them'],
+    [['cloud', 'set', '--scan_types', 'defect,style'], '--scan_types takes defect, security, lint, refactor, docs, not style'],
+    [['cloud', 'set', '--scope', 'some'], '--scope is changes or all, not some'],
+    [['cloud', 'set', '--gate', 'maybe'], '--gate is yes or no, not maybe'],
+    [['cloud', 'show'], 'perch cloud takes set or nothing, not show'],
+  ])('refuses %j before asking Perch Cloud anything', async (args, message) => {
+    const { root, home } = await checkout();
+    const stub = cloud();
+    const { code, err } = await perch(args, { root, home, fetchImpl: stub.fetchImpl });
+    expect([code, err.split('\n')[0]]).toEqual([2, `perch: ${message}`]);
+    expect(stub.asked).toEqual([]);
   });
 });

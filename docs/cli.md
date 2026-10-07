@@ -18,6 +18,7 @@ perch <command> [options]
 | [`issues`](#perch-issues) | The open issues, worst first. With an id, everything known about that one method. | nothing |
 | [`check`](#perch-check) | Asks about one file or method as it reads on disk. Records nothing. | `PERCH_BASE_URL` and `PERCH_API_KEY` |
 | [`ci`](#perch-ci) | The CI runs Perch Cloud has of the branch. With an id, the issues one run found. | `perch login`, or a CI token in `PERCH_API_KEY` |
+| [`cloud`](#perch-cloud) | Your Perch Cloud workspace, and how it scans this repository. `set` changes that. | `perch login` |
 | [`rules`](#perch-rules) | `list`, `add`, `edit`, `remove`: changes `perch.yaml` without opening it. | nothing |
 | [`close`](#perch-close) | Sets issues aside so they stop being listed. | nothing |
 | [`reopen`](#perch-reopen) | Undoes `close`. | nothing |
@@ -242,6 +243,10 @@ test/test-detection.test.js
 
 With `--json`, each issue's `method` is a target `perch check` takes.
 
+On a pull request, each issue also says what became of Perch's review comment on
+it: `open`, `resolved`, or `resolved by Perch` once a later scan stopped reporting
+it, with the replies on the lines under it.
+
 It reads Perch Cloud with your `perch login`, and the repository is the one the
 `origin` remote names. A CI token in `PERCH_API_KEY` reads its own repository's
 finished runs instead.
@@ -253,6 +258,29 @@ finished runs instead.
 
 Given a run, it exits as the run did: `3` when it found something that fails and
 `1` when it could not finish.
+
+## perch cloud
+
+```sh
+perch cloud [set] [options]
+```
+
+Who you are signed in as, the workspace, and how Perch Cloud scans this
+repository's pull requests: whether it does, what a scan asks about, whether it
+reads the changed code or the whole repository, and whether issues fail the Perch
+Scan check. The repository is the one the `origin` remote names.
+
+`perch cloud set` changes those settings and leaves what you do not name as it is.
+It needs a workspace admin, and a `perch login`: a CI token reads CI runs and
+nothing else.
+
+| Flag | |
+| --- | --- |
+| `--pull_requests yes\|no` | Whether Perch Cloud scans this repository's pull requests. |
+| `--scan_types a,b` | What a pull request scan asks about: `defect`, `security`, `lint`, `refactor`, `docs`. |
+| `--scope changes\|all` | Whether a pull request scan reads the changed code or the whole repository. |
+| `--gate yes\|no` | Whether issues fail the Perch Scan check on a pull request. |
+| `--json` | Print JSON instead of a summary. |
 
 ## perch doctor
 
