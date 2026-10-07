@@ -535,8 +535,9 @@ function kotlinMocks(index: SyntaxIndex, scan: TestScan): void {
       // `mockkObject(Util)` as the object itself.
       const typed = suffix?.namedChildren.find(child => child.type === "type_arguments")?.namedChildren[0]?.namedChildren.find(child => child.type === "user_type");
       const argument = suffix?.namedChildren.find(child => child.type === "value_arguments")?.namedChildren[0]?.namedChildren[0];
+      const reference = argument?.type === "callable_reference" ? argument.namedChildren.find(child => child.type === "type_identifier") : undefined;
       const name = kotlinTypeName(typed)
-        ?? (argument?.type === "callable_reference" ? argument.namedChildren.find(child => child.type === "type_identifier")?.text ?? null : null)
+        ?? reference?.text
         ?? (argument?.type === "simple_identifier" && callee.text === "mockkObject" ? argument.text : null);
       if (name) scan.mocks.push({ owner: ownerOf(node), target: { kind: "class", name }, line: lineOf(node) });
     }
