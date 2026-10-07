@@ -140,16 +140,31 @@ can leave out more files and directories with the `ignore:` option in
 
 ## Supported languages and frameworks
 
-| Language | Frameworks |
-| --- | --- |
-| Python | pytest, unittest |
-| JavaScript, TypeScript, TSX | Vitest, Jest, Mocha, node:test |
-| Rust | libtest, nextest |
-| Java | JUnit 5, JUnit 4, TestNG |
-| C++ | GoogleTest, Catch2 v3, doctest |
+Every language perch finds tests in, the frameworks it recognises, the mocks it
+reads as cutting a test's reach, and what it does not follow yet:
 
-Perch doesn't support other languages yet. If you write a test in a framework
-perch doesn't recognize, perch won't find it.
+| Language | Test frameworks | Mocks | Not followed yet |
+| --- | --- | --- | --- |
+| Python | pytest, unittest | `unittest.mock.patch`, `monkeypatch` | |
+| JavaScript, TypeScript, TSX | Vitest, Jest, Mocha, node:test | `vi.mock`, `jest.mock`, spies | |
+| Go | testing (subtests, table tests), testify suites | | calls through struct fields and `range` variables |
+| Rust | libtest, nextest | mockall `MockX::new()` | |
+| Java, Kotlin | JUnit 5, JUnit 4, TestNG | Mockito, MockK | |
+| Scala | ScalaTest (FunSuite, FlatSpec, FunSpec, WordSpec, FeatureSpec), munit, specs2 `in`/`>>` | | `new X()` as a call; a case class's `apply`; `s2"""` specs |
+| C# | xUnit, NUnit, MSTest | | property reads; records and structs with a primary constructor |
+| Swift | XCTest, Swift Testing | | computed property reads; a `@Suite` `init` as setup |
+| C | Check, cmocka, Criterion, Unity | | Criterion `Theory` and struct-typed parameters; Unity runners generated elsewhere |
+| C++ | GoogleTest, Catch2 v3, doctest | gmock classes | |
+| Ruby | Minitest, RSpec, test-unit | `allow`/`expect(...).to receive`, doubles, Minitest `stub` | a bare `helper` with no arguments or parentheses; `.rspec --require` |
+| PHP | PHPUnit (`test*`, `#[Test]`, `@test`, data providers), Pest | `createMock`, Mockery, Pest `mock` | `parent::m()`; `use` of a namespace prefix |
+| Lua | busted, luaunit | `stub`, `spy.on` | `return { f = f }` exports; luaunit without a visible `require("luaunit")` |
+| Zig | `test` blocks, decltests | | `for (items) \|x\|` payload captures |
+| Solidity | Foundry test contracts (`test*`, `testFuzz_*`, `invariant*`) | | `setUp` inherited from a base test contract |
+
+Groovy and Bash parse, but their grammars give perch nothing to hang a test on:
+the Groovy grammar has no function node at all, and a bats `@test` block has no
+node that spans its body. A test in a framework perch doesn't recognize isn't
+found.
 
 ## Checking a branch
 

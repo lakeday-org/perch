@@ -1,7 +1,7 @@
 /** Use Perch Cloud as a System One endpoint and stream scan results while work continues. */
 import { randomUUID } from 'node:crypto';
 import { git } from './git.js';
-import { createSystemOne } from './systemone.js';
+import { createSystemOne, speaksDecisions } from './systemone.js';
 import {
   actionsCanSignIn, actionsToken, CLOUD_ORIGIN, cloudRequest, jsonBody, readCloudLogin, sessionToken,
 } from './cloud-auth.js';
@@ -138,6 +138,9 @@ export async function credentialSource(env) {
   return { kind: 'none' };
 }
 
+/** The variable holding the key for PERCH_BASE_URL: PERCH_API_KEY, else OPENAI_API_KEY for the Decisions API and TYPESAFE_API_KEY for any other. */
+export const endpointKey = env => (env.PERCH_API_KEY ? 'PERCH_API_KEY' : speaksDecisions(env.PERCH_BASE_URL) ? 'OPENAI_API_KEY' : 'TYPESAFE_API_KEY');
+
 /**
  * What a model takes in one request, when it does not say. PERCH_MAX_QUESTIONS and PERCH_MAX_OPTIONS set the limits for an
  * endpoint that reports nothing in `_meta`; one that does report can only lower them. A value that is not a whole number above
@@ -171,7 +174,7 @@ export async function configuredSystemOne({ env, root, log, command, version, fo
   if (source.kind === 'none') throw new Error('Not signed in to Perch Cloud. Run perch login, or set PERCH_API_KEY to a CI token from the dashboard.');
   if (source.kind === 'direct') {
     const limits = limitsFrom(env);
-    return createSystemOne({ apiKey: env.PERCH_API_KEY || env.TYPESAFE_API_KEY, baseUrl: env.PERCH_BASE_URL, model: env.PERCH_MODEL_ID, log, fetchImpl,
+    return createSystemOne({ apiKey: env[endpointKey(env)], baseUrl: env.PERCH_BASE_URL, model: env.PERCH_MODEL_ID, log, fetchImpl,
       limits, firstQuestions: limits.questions ?? FIRST_QUESTIONS });
   }
   const cloudFetch = sendingAs(fetchImpl, command, version);

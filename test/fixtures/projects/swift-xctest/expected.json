@@ -1,0 +1,72 @@
+{
+  "language": "swift",
+  "framework": "XCTest",
+  "left_out": ["Benchmarks/PostingBenchmark.swift", "Package.swift"],
+  "tests": [
+    {
+      "file": "Tests/TallyTests/MoneyTests.swift",
+      "name": "testParsesDecimalStrings",
+      "reaches": ["Sources/Tally/Money.swift::Money.parse", "Sources/Tally/Money.swift::Money.init"]
+    },
+    {
+      "file": "Tests/TallyTests/MoneyTests.swift",
+      "name": "testRejectsMoreDecimalsThanTheCurrencyHas",
+      "reaches": ["Sources/Tally/Money.swift::Money.parse"]
+    },
+    {
+      "file": "Tests/TallyTests/MoneyTests.swift",
+      "name": "testRefusesToAddAcrossCurrencies",
+      "reaches": ["Sources/Tally/Money.swift::Money.parse", "Sources/Tally/Money.swift::Money.plus"]
+    },
+    {
+      "file": "Tests/TallyTests/MoneyTests.swift",
+      "name": "testRoundsHalfToEven",
+      "reaches": ["Sources/Tally/Money.swift::Money.init", "Sources/Tally/Money.swift::Money.times"]
+    },
+    {
+      "file": "Tests/TallyTests/MoneyTests.swift",
+      "name": "testFormatsANegativeAmountWithTheSignFirst",
+      "reaches": ["Sources/Tally/Money.swift::Money.parse", "Sources/Tally/Money.swift::Money.negated", "Sources/Tally/Money.swift::Money.formatted"]
+    },
+    {
+      "file": "Tests/TallyTests/MoneyTests.swift",
+      "name": "testFindsACurrencyByItsCode",
+      "reaches": ["Sources/Tally/Currency.swift::Currency.fromCode"]
+    },
+    {
+      "file": "Tests/TallyTests/EntryTests.swift",
+      "name": "testABalancedEntryValidates",
+      "reaches": ["Sources/Tally/Entry.swift::Entry.init", "Sources/Tally/Entry.swift::Entry.debit", "Sources/Tally/Entry.swift::Entry.credit", "Sources/Tally/Entry.swift::Entry.validate", "Sources/Tally/Entry.swift::Entry.isBalanced"]
+    },
+    {
+      "file": "Tests/TallyTests/EntryTests.swift",
+      "name": "testAnUnbalancedEntryIsRefused",
+      "reaches": ["Sources/Tally/Entry.swift::Entry.debit", "Sources/Tally/Entry.swift::Entry.credit", "Sources/Tally/Entry.swift::Entry.validate", "Sources/Tally/Money.swift::Money.parse"]
+    },
+    {
+      "file": "Tests/TallyTests/EntryTests.swift",
+      "name": "testAnEntryNeedsTwoLines",
+      "reaches": ["Sources/Tally/Entry.swift::Entry.debit", "Sources/Tally/Entry.swift::Entry.isBalanced", "Sources/Tally/Entry.swift::Entry.validate"]
+    },
+    {
+      "file": "Tests/TallyTests/LedgerTests.swift",
+      "name": "testPostingMovesBothBalances",
+      "reaches": ["Sources/Tally/Ledger.swift::Ledger.init", "Sources/Tally/Ledger.swift::Ledger.open", "Sources/Tally/Ledger.swift::Ledger.post", "Sources/Tally/Ledger.swift::Ledger.balance", "Sources/Tally/Money.swift::Money.parse", "Sources/Tally/Entry.swift::Entry.debit", "Sources/Tally/Entry.swift::Entry.credit", "Sources/Tally/Account.swift::Account.apply"]
+    },
+    {
+      "file": "Tests/TallyTests/LedgerTests.swift",
+      "name": "testPostingIntoAClosedPeriodIsRefused",
+      "reaches": ["Sources/Tally/Ledger.swift::Ledger.closePeriod", "Sources/Tally/Ledger.swift::Ledger.post"]
+    },
+    {
+      "file": "Tests/TallyTests/LedgerTests.swift",
+      "name": "testAFrozenAccountRefusesEntries",
+      "reaches": ["Sources/Tally/Ledger.swift::Ledger.account", "Sources/Tally/Account.swift::Account.freeze", "Sources/Tally/Ledger.swift::Ledger.post"]
+    },
+    {
+      "file": "Tests/TallyTests/LedgerTests.swift",
+      "name": "testAPeriodCannotBeReopened",
+      "reaches": ["Sources/Tally/Ledger.swift::Ledger.closePeriod", "Sources/Tally/Ledger.swift::Ledger.open"]
+    }
+  ]
+}

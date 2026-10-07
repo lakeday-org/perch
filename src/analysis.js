@@ -88,7 +88,10 @@ function ownerAt(spans, byte) {
 }
 
 /** The test framework's own calls in a suite body: declaring the tests and their hooks is not setup a test makes. */
-const FRAMEWORK_CALLS = new Set(['describe', 'context', 'suite', 'it', 'test', 'specify', 'beforeEach', 'afterEach', 'beforeAll', 'afterAll', 'before', 'after', 'vi', 'jest', 'expect']);
+const FRAMEWORK_CALLS = new Set(['describe', 'context', 'suite', 'it', 'test', 'specify', 'beforeEach', 'afterEach', 'beforeAll', 'afterAll', 'before', 'after', 'vi', 'jest', 'expect',
+  // RSpec, Minitest, Pest and busted spell their hooks and stubs in their own words.
+  'let', 'let!', 'subject', 'allow', 'receive', 'double', 'instance_double', 'setup', 'teardown', 'uses', 'before_each', 'after_each', 'lazy_setup', 'strict_setup',
+  'insulate', 'expose', 'spec', 'pending', 'stub', 'spy', 'mock', 'assert', 'RSpec']);
 
 /** What a binding or a return says a value is: an instance of a type, a call's result, or another local's value. */
 const heldBy = reference => reference.held ?? null;
@@ -138,7 +141,7 @@ export function fileRecord(file, source, analysis) {
   // Member access nothing calls, once per name and method: how a method reads its environment or configuration.
   const seen = new Set();
   const reads = analysis.references.filter(reference => reference.kind === 'read')
-    .map(reference => ({ name: reference.name, from: ownerOf(reference.source, reference.location.start.byte, reference.line), line: reference.line }))
+    .map(reference => ({ name: reference.name, from: ownerOf(reference.source, reference.location.start.byte, reference.line), line: reference.line, ...(reference.held ? { via: reference.held } : {}) }))
     .filter(read => read.from && !seen.has(`${read.from}:${read.name}`) && seen.add(`${read.from}:${read.name}`));
   // What a variable holds and what a function returns, when the source says: how `ledger.post()` is found to be Ledger's post.
   const binds = analysis.references.filter(reference => reference.kind === 'bind')

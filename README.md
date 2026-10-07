@@ -93,10 +93,12 @@ export PERCH_MODEL_ID=jev-latest
 | --- | --- | --- |
 | [Jev](https://docs.typesafe.ai/models) | `https://api.typesafe.ai/v1/systemone` | `jev-latest` |
 | [Liquid AI d1](https://docs.liquid.ai/lfm/models/decision-models) | `https://api.liquid.ai/decisions/v1/systemone` | `d1:free` |
+| [OpenAI gpt-6-luna](https://developers.openai.com/api/docs/guides/decisions) | `https://api.openai.com/v1/decisions` | `gpt-6-luna` |
 | [DiffusionGemma Jev](https://github.com/razorback16/openjev) on Beam | `https://app.beam.cloud/v1/models/jev/diffusiongemma/invoke` | `jev/diffusiongemma` |
 | [SemiF](https://github.com/TheoLeeCJ/SemIf) on Beam | `https://app.beam.cloud/v1/models/jev/semif/invoke` | `jev/semif` |
 
-Any endpoint that supports the System One format will work. Each model gets as many questions per request as it says it
+Any endpoint that supports the System One format will work, and so does OpenAI's Decisions API: perch recognizes a
+`PERCH_BASE_URL` ending in `/decisions` and reads its key from `OPENAI_API_KEY` when `PERCH_API_KEY` is not set. Each model gets as many questions per request as it says it
 takes. For a model that doesn't say, set `PERCH_MAX_QUESTIONS`. See the
 [benchmarks](https://huggingface.co/datasets/perchscan/benchmark-results) for a comparison.
 
