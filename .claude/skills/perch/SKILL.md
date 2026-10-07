@@ -1,6 +1,6 @@
 ---
 name: perch
-description: Semantic linting with perch. Use it to verify code changes in flight. Scan a branch or a diff. Check one method right after editing it. Confirm a fix landed before opening a pull request. Use it to lint behavior a compiler cannot check: bugs, vulnerabilities, swallowed errors, and a method that does not do what its name says. Use it to act on what a scan found. Use it to write rules that turn a repeated mistake into verifiable behavior.
+description: Semantic linting with perch. Use it to verify code changes in flight. Scan a branch or a diff. Check one method right after editing it. Confirm a fix landed before opening a pull request. Use it to lint behavior a compiler cannot check: bugs, vulnerabilities, swallowed errors, and a method that does not do what its name says. Use it to act on what a scan found, including what CI found on a pull request. Use it to check which changed lines the tests ran, and which tests are worth keeping. Use it to write rules that turn a repeated mistake into verifiable behavior.
 ---
 
 # perch
@@ -84,7 +84,7 @@ Expect the real problem to sit adjacent to what was reported. A `missing_null_ha
 at 70% is often an unchecked error a few lines off.
 
 Answers below a question's `min` stay out of the report and stay in the JSON. A 56%
-`secret_exposure` is worth a look while the report is silent about it.
+`has_bug` is worth a look while the report is silent about it.
 
 Read the code before you change it. Close a finding when the code is right. Never
 rewrite working code to satisfy a probability.
@@ -109,6 +109,52 @@ This reads the file off disk, so it works on uncommitted code. It records nothin
 it will not move the numbers on the issue you are fixing. It exits `3` while something
 is still wrong.
 
+## Read what CI found
+
+A pull request scanned in CI has its results in Perch Cloud. Once `perch login` has
+been run, read them instead of scanning again.
+
+```console
+$ perch ci
+ID                                    Commit   Pull request  Result               When
+043812ac-ea68-4c3b-88f0-737328f62826  5d7b033  #320          clean                23h ago
+edf9f510-875c-44c8-8ff1-773e286be26e  a246d74  #320          clean                24h ago
+6323adfc-9440-4640-badf-58c8e61cd5ba  d738e69  #320          4 problems, failing  45h ago
+```
+
+Those are the checked-out branch's runs, newest first, including any still going. Give
+it a run ID for that run's issues, laid out the way `perch scan` prints them:
+
+```console
+$ perch ci 6323adfc-9440-4640-badf-58c8e61cd5ba
+docs/coverage.md
+  ID        Line  Severity  Type  Confidence  Problem                   Method
+  8fd1e766     1  -         lint         72%  docs-sentences-are-short  docs/coverage.md
+
+src/coverage.js
+  ID        Line  Severity  Type    Confidence  Problem             Method
+  8d9306ba   428  P1        defect         71%  wrong_return_value  askCoverage.<anonymous>.build
+  7a5c2d1b   463  P1        defect         68%  wrong_return_value  askCoverage.<anonymous>.build#2
+
+test/test-detection.test.js
+  ID        Line  Severity  Type  Confidence  Problem                     Method
+  69903bef     1  -         lint         61%  tests-assert-real-behavior  test/test-detection.test.…
+
+✖ 4 problems in 3 files, failing
+#320 at d738e69, finished 45h ago: https://dash.perchscan.com/#/scan/6323adfc-9440-4640-badf-58c8e61cd5ba
+```
+
+After a push, `perch ci --wait` waits for the run of the commit you are on and prints
+what it found. A run exits the way a scan does: `3` when it found something that fails,
+`1` when it could not finish.
+
+Fix a CI issue the way you fix a local one. With `--json`, each issue carries the
+`method` that `perch check` takes, so check it after the fix and push once it exits `0`.
+
+`perch setup` also connects the assistant to Perch Cloud's MCP server, `perch-cloud`.
+Its `cloud_runs` and `cloud_run` tools read the same runs, plus Perch's review comment
+on each finding of a pull request and the replies to it.
+
 ## Close a finding you have judged
 
 ```console
@@ -121,6 +167,42 @@ method later is still reported. `--kind too_big` closes one kind and leaves the 
 open.
 
 Always give a reason. That is what the next person reads instead of reopening it.
+
+## Check the tests a change needs
+
+`perch coverage --since main` runs predictive mutation testing over the branch. It
+mutates one line at a time in every method a test reaches and asks which tests would
+fail against each mutant. It runs no tests and reads nothing a test run wrote.
+
+```console
+$ perch coverage --since main
+src/cart.ts
+  ID        Line  Problem   Confidence  Test or method  Note
+  3945b1f7    12  survived         60%  applyDiscount   With `>` instead of `>=`, none of the 5 tests reaching it…
+  d6f68653    12  survived         58%  applyDiscount   With `1` instead of `0`, none of the 5 tests reaching it …
+
+test/cart.test.ts
+  ID        Line  Problem    Confidence  Test or method              Note
+  427fce7a    22  redundant         96%  applyDiscount > takes 75 …  Kills the same mutants as applyDiscount > ta…
+shop at commit 861c607: 4 methods, 12 tests, 3 problems in changed code, 4 elsewhere
+Report: .perch/coverage/index.html
+14 requests  12k tokens in / 666 out  $0.0036
+```
+
+A `survived` mutant is a line the tests run but never check. `--json` gives each one
+in full: the finding names its `mutant`, and the method's `mutants` entry with that id
+has the line as written (`original`), as mutated (`mutated`), and the tests that were
+asked (`asked`). Write a test in one of those test files with an input for which the
+two lines give different results, and assert on the result. For `if (percent >= 100)`
+against `if (percent > 100)`, that input is `percent` of exactly `100`.
+
+A `redundant` test kills exactly the mutants an earlier test kills: compare the two
+and delete one. `checks_nothing` kills no mutant in the code it reaches: make it
+assert on what that code returns. `infra` calls a live service: mock it.
+
+Run `perch coverage --since main` again afterwards; the mutant should be gone from the
+list. It exits `3` while a problem remains in changed code. Close a problem with
+`perch close <id> --reason "..."` when the test is right as it is.
 
 ## Write a rule when a mistake repeats
 

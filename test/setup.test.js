@@ -70,6 +70,13 @@ describe('perch setup', () => {
     expect(await readFile(path, 'utf8')).not.toContain('Ask me before scanning.');
   });
 
+  it('keeps this repository\'s own installed skill the same as the one perch ships', async () => {
+    // Agents working on perch load .claude/skills/perch/SKILL.md, not skill.md. The copy sat at an old version through a
+    // dozen changes to the skill, so the agents writing perch were the ones not told about perch coverage or perch ci.
+    const read = path => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
+    expect(await read(TARGETS['claude-code'].path), 'run perch setup claude-code --force').toBe(await read('skill.md'));
+  });
+
   it('refuses an assistant it does not know, and names the ones it does', async () => {
     const root = await repo();
     await expect(installSkill({ root, target: 'emacs' })).rejects.toThrow(/claude-code, codex, pi, cursor/);
