@@ -91,7 +91,8 @@ mutant, without running any of them. So Perch can read any repository in a few
 minutes, even one you can't build locally, and you can run it on a pull request
 in CI without a test job. Perch reads no CI output: no coverage reports, no test
 results. It predicts the test results and shows how confident it is in each
-prediction.
+prediction. The prediction errs towards calling a mutant killed, so the score
+reads high; a mutant it lists as survived almost always has.
 
 Perch only looks at the code your test frameworks run. It loads the same config
 files as Vitest, Jest, pytest and coverage.py, which lets it ignore scripts,
