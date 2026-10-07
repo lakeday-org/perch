@@ -47,7 +47,8 @@ export function createCiReader({ env, root, fetchImpl = globalThis.fetch }) {
      */
     async runs({ branch = null } = {}) {
       const { login } = await (signedIn ??= signIn(env, fetchImpl));
-      const repository = login ? remoteRepositoryName(await git(['config', '--get', 'remote.origin.url'], root).catch(() => '')) : null;
+      // --default answers a checkout with no origin with nothing, so a git that failed is an error rather than no remote.
+      const repository = login ? remoteRepositoryName(await git(['config', '--default', '', '--get', 'remote.origin.url'], root)) : null;
       if (login && !repository) throw new Error('This checkout has no origin remote naming a repository, so there are no CI runs to read.');
       const { scans, nextCursor } = await get('/v1/scans/recent', { repository, branch });
       let going = [];

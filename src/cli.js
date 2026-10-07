@@ -630,8 +630,8 @@ const commands = {
   async ci(io) {
     const root = await repoRoot(process.cwd());
     const reader = createCiReader({ env: io.env, root });
-    const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD'], root).then(out => out.trim(), () => null);
-    const onBranch = branch && branch !== 'HEAD' ? branch : null;
+    const branch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'], root)).trim();
+    const onBranch = branch !== 'HEAD' ? branch : null;
     if (!io.argument && !io.flags.wait) {
       const listing = await reader.runs({ branch: onBranch });
       print(io, listing, formatRuns(listing));
@@ -641,7 +641,7 @@ const commands = {
     if (io.flags.wait) {
       const revision = io.argument ? null : await gitRevision(root);
       // A commit no remote has is one CI will never scan, and waiting ten minutes to say so helps nobody.
-      if (revision && !(await git(['branch', '-r', '--contains', revision], root).catch(() => '')).trim()) {
+      if (revision && !(await git(['branch', '-r', '--contains', revision], root)).trim()) {
         throw new Error(`${revision.slice(0, 7)} is not on any remote branch, so CI has nothing to scan. Push it, then run perch ci --wait.`);
       }
       const line = liveCounter(io, '');

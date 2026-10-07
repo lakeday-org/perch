@@ -254,10 +254,6 @@ finished runs instead.
 Given a run, it exits as the run did: `3` when it found something that fails and
 `1` when it could not finish.
 
-```sh
-git push && perch ci --wait
-```
-
 ## perch doctor
 
 ```

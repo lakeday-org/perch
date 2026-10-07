@@ -46,6 +46,9 @@ describe('perch setup', () => {
       .toBe(`---\ndescription: Semantic linting with perch. Use it on a diff: bugs, leaks.\nalwaysApply: true\n---\n${body}`);
     expect(TARGETS.cursor.rewrite(`---\nname: perch\ndescription: >-\n  Semantic linting with perch.\n  Use it on a diff.\n---\n${body}`))
       .toBe(`---\ndescription: Semantic linting with perch. Use it on a diff.\nalwaysApply: true\n---\n${body}`);
+    // A key with a hyphen in it, such as Claude Code's allowed-tools, still ends the description rather than joining it.
+    expect(TARGETS.cursor.rewrite(`---\nname: perch\ndescription: Semantic linting with perch.\nallowed-tools: Bash(perch:*)\n---\n${body}`))
+      .toBe(`---\ndescription: Semantic linting with perch.\nalwaysApply: true\n---\n${body}`);
   });
 
   it('keeps a skill you have edited until you say otherwise', async () => {

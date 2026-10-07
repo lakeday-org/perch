@@ -62,7 +62,7 @@ export const TARGET_NAMES = Object.keys(TARGETS);
 function split(text) {
   const match = /^---\n([\s\S]*?)\n---\n([\s\S]*)$/.exec(text);
   if (!match) throw new Error('the skill that ships with perch has no frontmatter; reinstall perch');
-  const description = /(?:^|\n)description:\s*([\s\S]*?)(?=\n[a-z_]+:|$)/.exec(match[1])?.[1];
+  const description = /(?:^|\n)description:[ \t]*([\s\S]*?)(?=\n[\w-]+:|$)/.exec(match[1])?.[1];
   return { description: String(description ?? '').replace(/^[>|][+-]?\s/, '').replace(/\s+/g, ' ').trim(), body: match[2] };
 }
 
