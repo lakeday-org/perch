@@ -11,9 +11,19 @@ const languages = {
   java: 'java', kt: 'kotlin', kts: 'kotlin', scala: 'scala', sc: 'scala', groovy: 'groovy', gradle: 'groovy',
   c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', cxx: 'cpp', hpp: 'cpp', hh: 'cpp', hxx: 'cpp', cs: 'c_sharp',
   rb: 'ruby', rake: 'ruby', php: 'php', phtml: 'php', lua: 'lua', swift: 'swift', zig: 'zig', sol: 'solidity',
-  sh: 'bash', bash: 'bash',
+  sh: 'bash', bash: 'bash', bats: 'bash',
 };
-export const languageOf = path => languages[path.split('.').at(-1)];
+/**
+ * A `.h` file is C or C++ by the repository it is in: one with C++ sources writes C++ headers, and the C grammar reads a template
+ * or a namespace as an error and loses every function after it. C++'s grammar reads a C header as well, so a repository with
+ * both is read as C++.
+ */
+const CPP = new Set(Object.keys(languages).filter(extension => languages[extension] === 'cpp'));
+export const headerLanguage = paths => (paths.some(path => CPP.has(path.split('.').at(-1))) ? 'cpp' : 'c');
+export const languageOf = (path, header = 'c') => {
+  const extension = path.split('.').at(-1);
+  return extension === 'h' ? header : languages[extension];
+};
 
 /** Every language ID a question's `language` can name. */
 export const LANGUAGES = [...new Set(Object.values(languages))].sort();

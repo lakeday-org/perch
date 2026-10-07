@@ -1,0 +1,72 @@
+{
+  "language": "c",
+  "framework": "Check",
+  "left_out": ["tools/ledger_import.c"],
+  "tests": [
+    {
+      "file": "tests/money_test.c",
+      "name": "adds_amounts_in_one_currency",
+      "reaches": ["src/money.c::money_new", "src/money.c::money_add"]
+    },
+    {
+      "file": "tests/money_test.c",
+      "name": "refuses_to_add_across_currencies",
+      "reaches": ["src/money.c::money_new", "src/money.c::money_add"]
+    },
+    {
+      "file": "tests/money_test.c",
+      "name": "allocates_the_remainder_to_the_first_parts",
+      "reaches": ["src/money.c::money_new", "src/money.c::money_allocate"]
+    },
+    {
+      "file": "tests/money_test.c",
+      "name": "rejects_allocation_into_zero_parts",
+      "reaches": ["src/money.c::money_new", "src/money.c::money_allocate"]
+    },
+    {
+      "file": "tests/money_test.c",
+      "name": "yen_has_no_minor_units",
+      "reaches": ["src/money.c::minor_units"]
+    },
+    {
+      "file": "tests/money_test.c",
+      "name": "names_each_currency",
+      "reaches": ["src/money.c::currency_code"]
+    },
+    {
+      "file": "tests/ledger_test.c",
+      "name": "posts_a_balanced_entry",
+      "reaches": ["src/ledger.c::ledger_open", "src/ledger.c::ledger_open_account", "src/ledger.c::ledger_post", "src/ledger.c::ledger_balance", "src/entry.c::entry_init", "src/entry.c::entry_debit", "src/entry.c::entry_credit", "src/entry.c::entry_validate", "src/money.c::money_new"]
+    },
+    {
+      "file": "tests/ledger_test.c",
+      "name": "rejects_an_unbalanced_entry",
+      "reaches": ["src/ledger.c::ledger_open", "src/ledger.c::ledger_post", "src/entry.c::entry_init", "src/entry.c::entry_debit", "src/entry.c::entry_credit", "src/entry.c::entry_validate", "src/entry.c::entry_is_balanced"]
+    },
+    {
+      "file": "tests/ledger_test.c",
+      "name": "leaves_every_balance_alone_when_an_account_is_unknown",
+      "reaches": ["src/ledger.c::ledger_post", "src/ledger.c::ledger_balance", "src/entry.c::entry_init"]
+    },
+    {
+      "file": "tests/ledger_test.c",
+      "name": "refuses_to_open_an_account_twice",
+      "reaches": ["src/ledger.c::ledger_open", "src/ledger.c::ledger_open_account"]
+    },
+    {
+      "file": "tests/ledger_test.c",
+      "name": "trial_balance_is_zero_after_posting",
+      "reaches": ["src/ledger.c::ledger_post", "src/ledger.c::ledger_trial_balance"]
+    },
+    {
+      "file": "tests/ledger_test.c",
+      "name": "an_entry_needs_two_lines",
+      "reaches": ["src/entry.c::entry_init", "src/entry.c::entry_debit", "src/entry.c::entry_validate"]
+    },
+    {
+      "file": "tests/ledger_test.c",
+      "name": "a_balanced_entry_validates",
+      "reaches": ["src/entry.c::entry_init", "src/entry.c::entry_debit", "src/entry.c::entry_credit", "src/entry.c::entry_is_balanced", "src/entry.c::entry_validate"]
+    }
+  ]
+}

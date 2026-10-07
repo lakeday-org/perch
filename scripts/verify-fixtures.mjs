@@ -19,11 +19,11 @@ const git = (root, args) => promisify(execFile)('git', args, { cwd: root });
 
 const apps = [
   { id: 'python', directory: 'order-service', file: 'checkout.py', name: 'can_fulfil', methods: 14 },
-  { id: 'typescript', file: 'src/inventory.ts', name: 'canFulfil', methods: 3 },
-  { id: 'frontend', file: 'src/CheckoutPanel.tsx', name: 'canCheckout', methods: 3 },
-  { id: 'rust', file: 'src/inventory.rs', name: 'can_fulfil', methods: 4 },
-  { id: 'java', file: 'src/example/Inventory.java', name: 'Inventory.canFulfil', methods: 4 },
-  { id: 'cpp', file: 'src/checkout.cpp', name: 'can_fulfil', methods: 4 },
+  { id: 'typescript', file: 'src/inventory.ts', name: 'canFulfil', methods: 4 },
+  { id: 'frontend', file: 'src/CheckoutPanel.tsx', name: 'canCheckout', methods: 5 },
+  { id: 'rust', file: 'src/inventory.rs', name: 'can_fulfil', methods: 5 },
+  { id: 'java', file: 'src/example/Inventory.java', name: 'Inventory.canFulfil', methods: 5 },
+  { id: 'cpp', file: 'src/checkout.cpp', name: 'can_fulfil', methods: 5 },
 ];
 
 async function command(root, label, args, allowed = [0]) {

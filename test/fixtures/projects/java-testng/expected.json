@@ -1,0 +1,152 @@
+{
+  "language": "java",
+  "framework": "TestNG",
+  "left_out": ["scripts/ExportInvoices.java"],
+  "tests": [
+    {
+      "file": "src/test/java/io/tallyho/billing/domain/InvoiceTest.java",
+      "name": "addsUpItsLines",
+      "reaches": ["src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.subtotal", "src/main/java/io/tallyho/billing/domain/LineItem.java::LineItem.subtotal"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/domain/InvoiceTest.java",
+      "name": "takesTheDiscountOffBeforeTax",
+      "reaches": ["src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.discount", "src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.discounted", "src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.total", "src/main/java/io/tallyho/billing/discount/PercentageDiscount.java::PercentageDiscount.PercentageDiscount", "src/main/java/io/tallyho/billing/tax/RegionalTaxCalculator.java::RegionalTaxCalculator.RegionalTaxCalculator"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/domain/InvoiceTest.java",
+      "name": "isDueThirtyDaysAfterIssueByDefault",
+      "reaches": ["src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.issue", "src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.dueOn"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/domain/InvoiceTest.java",
+      "name": "becomesOverdueTheDayAfterItIsDue",
+      "reaches": ["src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.terms", "src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.issue", "src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.isOverdue"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/domain/InvoiceTest.java",
+      "name": "cannotBeChangedOnceIssued",
+      "reaches": ["src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.issue", "src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.add", "src/main/java/io/tallyho/billing/domain/LineItem.java::LineItem.LineItem"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/domain/InvoiceTest.java",
+      "name": "cannotBePaidTwice",
+      "reaches": ["src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.issue", "src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.markPaid", "src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.move"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/domain/InvoiceTest.java",
+      "name": "refusesToIssueWithNoLines",
+      "reaches": ["src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.Invoice", "src/main/java/io/tallyho/billing/domain/Customer.java::Customer.consumer", "src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.issue"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/domain/InvoiceTest.java",
+      "name": "refusesALineWithANegativePrice",
+      "reaches": ["src/main/java/io/tallyho/billing/domain/LineItem.java::LineItem.LineItem"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/domain/InvoiceStatusTest.java",
+      "name": "allowsOnlyForwardMoves",
+      "reaches": ["src/main/java/io/tallyho/billing/domain/InvoiceStatus.java::InvoiceStatus.canMoveTo"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/domain/InvoiceStatusTest.java",
+      "name": "paidAndVoidAreFinal",
+      "reaches": ["src/main/java/io/tallyho/billing/domain/InvoiceStatus.java::InvoiceStatus.isFinal"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/tax/RegionalTaxCalculatorTest.java",
+      "name": "chargesAConsumerTheirRegionsRate",
+      "reaches": ["src/main/java/io/tallyho/billing/tax/RegionalTaxCalculator.java::RegionalTaxCalculator.taxOn", "src/main/java/io/tallyho/billing/tax/RegionalTaxCalculator.java::RegionalTaxCalculator.reverseCharge", "src/main/java/io/tallyho/billing/domain/Customer.java::Customer.consumer"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/tax/RegionalTaxCalculatorTest.java",
+      "name": "reverseChargesAnEuBusinessInAnotherCountry",
+      "reaches": ["src/main/java/io/tallyho/billing/domain/Customer.java::Customer.Customer", "src/main/java/io/tallyho/billing/tax/RegionalTaxCalculator.java::RegionalTaxCalculator.taxOn", "src/main/java/io/tallyho/billing/tax/RegionalTaxCalculator.java::RegionalTaxCalculator.reverseCharge", "src/main/java/io/tallyho/billing/domain/Customer.java::Customer.isBusiness"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/tax/RegionalTaxCalculatorTest.java",
+      "name": "chargesAnEuBusinessInTheSellersOwnCountry",
+      "reaches": ["src/main/java/io/tallyho/billing/domain/Customer.java::Customer.Customer", "src/main/java/io/tallyho/billing/tax/RegionalTaxCalculator.java::RegionalTaxCalculator.taxOn"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/tax/RegionalTaxCalculatorTest.java",
+      "name": "chargesNothingToAnExemptCustomer",
+      "reaches": ["src/main/java/io/tallyho/billing/domain/Customer.java::Customer.consumer", "src/main/java/io/tallyho/billing/domain/Customer.java::Customer.exempt", "src/main/java/io/tallyho/billing/tax/RegionalTaxCalculator.java::RegionalTaxCalculator.taxOn"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/discount/DiscountsTest.java",
+      "name": "appliesWhatACodeStandsFor",
+      "reaches": ["src/main/java/io/tallyho/billing/discount/Discounts.java::Discounts.fromCode", "src/main/java/io/tallyho/billing/discount/Discounts.java::Discounts.percent", "src/main/java/io/tallyho/billing/discount/Discounts.java::Discounts.volume"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/discount/DiscountsTest.java",
+      "name": "rejectsAnUnknownCode",
+      "reaches": ["src/main/java/io/tallyho/billing/discount/Discounts.java::Discounts.fromCode"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/discount/DiscountsTest.java",
+      "name": "rejectsAHundredPercentOff",
+      "reaches": ["src/main/java/io/tallyho/billing/discount/Discounts.java::Discounts.percent", "src/main/java/io/tallyho/billing/discount/PercentageDiscount.java::PercentageDiscount.PercentageDiscount"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/discount/DiscountsTest.java",
+      "name": "roundsAPercentageInTheCustomersFavour",
+      "reaches": ["src/main/java/io/tallyho/billing/discount/PercentageDiscount.java::PercentageDiscount.PercentageDiscount", "src/main/java/io/tallyho/billing/discount/PercentageDiscount.java::PercentageDiscount.apply"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/discount/DiscountsTest.java",
+      "name": "describesTheTiers",
+      "reaches": ["src/main/java/io/tallyho/billing/discount/TieredDiscount.java::TieredDiscount.tier", "src/main/java/io/tallyho/billing/discount/TieredDiscount.java::TieredDiscount.describe"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/format/InvoiceNumberGeneratorTest.java",
+      "name": "countsOnFromTheLastNumberIssued",
+      "reaches": ["src/main/java/io/tallyho/billing/format/InvoiceNumberGenerator.java::InvoiceNumberGenerator.next"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/format/InvoiceNumberGeneratorTest.java",
+      "name": "restartsTheSequenceInANewYear",
+      "reaches": ["src/main/java/io/tallyho/billing/format/InvoiceNumberGenerator.java::InvoiceNumberGenerator.next"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/format/InvoiceNumberGeneratorTest.java",
+      "name": "refusesToNumberAnInvoiceBackdatedIntoAClosedYear",
+      "reaches": ["src/main/java/io/tallyho/billing/format/InvoiceNumberGenerator.java::InvoiceNumberGenerator.next"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/format/InvoiceNumberGeneratorTest.java",
+      "name": "refusesALowercasePrefix",
+      "reaches": ["src/main/java/io/tallyho/billing/format/InvoiceNumberGenerator.java::InvoiceNumberGenerator.InvoiceNumberGenerator"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/service/InvoiceServiceTest.java",
+      "name": "numbersAndSavesAnIssuedInvoice",
+      "reaches": ["src/main/java/io/tallyho/billing/service/InvoiceService.java::InvoiceService.issue", "src/main/java/io/tallyho/billing/format/InvoiceNumberGenerator.java::InvoiceNumberGenerator.next", "src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.issue"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/service/InvoiceServiceTest.java",
+      "name": "marksAnInvoicePaidWhenTheChargeGoesThrough",
+      "reaches": ["src/main/java/io/tallyho/billing/service/InvoiceService.java::InvoiceService.issue", "src/main/java/io/tallyho/billing/service/InvoiceService.java::InvoiceService.collect", "src/main/java/io/tallyho/billing/service/ChargeResult.java::ChargeResult.success", "src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.total", "src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.markPaid"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/service/InvoiceServiceTest.java",
+      "name": "leavesAnInvoiceIssuedWhenTheChargeIsDeclined",
+      "reaches": ["src/main/java/io/tallyho/billing/service/InvoiceService.java::InvoiceService.collect", "src/main/java/io/tallyho/billing/service/ChargeResult.java::ChargeResult.declined", "src/main/java/io/tallyho/billing/service/ChargeResult.java::ChargeResult.succeeded"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/service/InvoiceServiceTest.java",
+      "name": "refusesToCollectADraft",
+      "reaches": ["src/main/java/io/tallyho/billing/service/InvoiceService.java::InvoiceService.collect", "src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.Invoice"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/service/InvoiceServiceTest.java",
+      "name": "findsTheInvoicesPastTheirDueDate",
+      "reaches": ["src/main/java/io/tallyho/billing/service/InvoiceService.java::InvoiceService.overdue", "src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.issue", "src/main/java/io/tallyho/billing/domain/Invoice.java::Invoice.isOverdue"]
+    },
+    {
+      "file": "src/test/java/io/tallyho/billing/service/InvoiceServiceTest.java",
+      "name": "retriesADeclineOnceAfterAnHour",
+      "reaches": ["src/main/java/io/tallyho/billing/service/InvoiceService.java::InvoiceService.issue", "src/main/java/io/tallyho/billing/service/InvoiceService.java::InvoiceService.collect"]
+    }
+  ]
+}

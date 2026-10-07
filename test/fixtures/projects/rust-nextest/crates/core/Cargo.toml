@@ -1,0 +1,9 @@
+[package]
+name = "relcheck-core"
+description = "Semantic versions and the requirements that select them."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]

@@ -1,6 +1,6 @@
 {
   "name": "@lakeday/perch",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Semantic code linting with Jev",
   "license": "MIT",
   "repository": {
@@ -19,6 +19,7 @@
     "LICENSE",
     "README.md",
     "bin",
+    "coverage.yaml",
     "dist",
     "docs",
     "scan.yaml",
@@ -38,21 +39,22 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:fixtures": "npm run build && node scripts/verify-fixtures.mjs",
+    "test:coverage": "npm run build && node scripts/verify-coverage.mjs",
     "check": "npm run lint && npm run typecheck && npm test"
   },
   "dependencies": {
-    "@xberg-io/tree-sitter-language-pack": "1.20.0",
+    "@xberg-io/tree-sitter-language-pack": "1.21.0",
     "gpt-tokenizer": "4.0.0",
     "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^22.10.0",
-    "esbuild": "^0.27.7",
+    "esbuild": "^0.28.2",
     "eslint": "^10.10.0",
     "globals": "^17.12.0",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.70.0",
-    "vitest": "^2.1.8"
+    "vitest": "^5.0.3"
   }
 }

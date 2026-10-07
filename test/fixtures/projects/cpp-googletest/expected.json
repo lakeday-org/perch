@@ -1,0 +1,172 @@
+{
+  "language": "cpp",
+  "framework": "GoogleTest",
+  "left_out": ["tools/ledger_import.cpp", "bench/ledger_bench.cpp"],
+  "tests": [
+    {
+      "file": "tests/currency_test.cpp",
+      "name": "YenHasNoMinorUnits",
+      "reaches": ["src/currency.cpp::ledger.minor_units"]
+    },
+    {
+      "file": "tests/currency_test.cpp",
+      "name": "ParsesKnownCodes",
+      "reaches": ["src/currency.cpp::ledger.parse_currency", "src/currency.cpp::ledger.currency_code"]
+    },
+    {
+      "file": "tests/currency_test.cpp",
+      "name": "RejectsUnknownCode",
+      "reaches": ["src/currency.cpp::ledger.parse_currency"]
+    },
+    {
+      "file": "tests/money_test.cpp",
+      "name": "AddsAmountsInOneCurrency",
+      "reaches": ["src/money.cpp::ledger.Money.Money"]
+    },
+    {
+      "file": "tests/money_test.cpp",
+      "name": "RefusesToAddAcrossCurrencies",
+      "reaches": ["src/money.cpp::ledger.Money.Money"]
+    },
+    {
+      "file": "tests/money_test.cpp",
+      "name": "AllocatesTheRemainderToTheFirstShares",
+      "reaches": ["src/money.cpp::ledger.Money.allocate", "include/ledger/money.hpp::ledger.Money.minor"]
+    },
+    {
+      "file": "tests/money_test.cpp",
+      "name": "AllocatesANegativeAmount",
+      "reaches": ["src/money.cpp::ledger.Money.allocate", "include/ledger/money.hpp::ledger.Money.minor"]
+    },
+    {
+      "file": "tests/money_test.cpp",
+      "name": "RejectsAllocationIntoZeroParts",
+      "reaches": ["src/money.cpp::ledger.Money.allocate"]
+    },
+    {
+      "file": "tests/money_test.cpp",
+      "name": "FormatsCentsWithTwoDigits",
+      "reaches": ["src/money.cpp::ledger.Money.to_string"]
+    },
+    {
+      "file": "tests/money_test.cpp",
+      "name": "FormatsYenWithoutDecimals",
+      "reaches": ["src/money.cpp::ledger.Money.to_string"]
+    },
+    {
+      "file": "tests/money_test.cpp",
+      "name": "FormatsANegativeAmountInParentheses",
+      "reaches": ["src/money.cpp::ledger.Money.to_string"]
+    },
+    {
+      "file": "tests/money_test.cpp",
+      "name": "DISABLED_RoundsHalfToEven",
+      "reaches": ["src/money.cpp::ledger.Money.allocate"]
+    },
+    {
+      "file": "tests/transaction_test.cpp",
+      "name": "BalancesWhenDebitsEqualCredits",
+      "reaches": ["src/transaction.cpp::ledger.Transaction.Transaction", "src/transaction.cpp::ledger.Transaction.debit", "src/transaction.cpp::ledger.Transaction.credit", "src/transaction.cpp::ledger.Transaction.is_balanced"]
+    },
+    {
+      "file": "tests/transaction_test.cpp",
+      "name": "OneSidedIsNotBalanced",
+      "reaches": ["src/transaction.cpp::ledger.Transaction.debit", "src/transaction.cpp::ledger.Transaction.is_balanced"]
+    },
+    {
+      "file": "tests/transaction_test.cpp",
+      "name": "RejectsAZeroAmount",
+      "reaches": ["src/transaction.cpp::ledger.Transaction.debit"]
+    },
+    {
+      "file": "tests/transaction_test.cpp",
+      "name": "RejectsMixedCurrencies",
+      "reaches": ["src/transaction.cpp::ledger.Transaction.debit", "src/transaction.cpp::ledger.Transaction.credit"]
+    },
+    {
+      "file": "tests/transaction_test.cpp",
+      "name": "TotalsOneSide",
+      "reaches": ["src/transaction.cpp::ledger.Transaction.total"]
+    },
+    {
+      "file": "tests/ledger_test.cpp",
+      "name": "PostsABalancedTransaction",
+      "reaches": ["src/ledger.cpp::ledger.Ledger.open", "src/ledger.cpp::ledger.Ledger.post", "src/ledger.cpp::ledger.Ledger.balance", "include/ledger/ledger.hpp::ledger.Ledger.posted"]
+    },
+    {
+      "file": "tests/ledger_test.cpp",
+      "name": "RejectsAnUnbalancedTransaction",
+      "reaches": ["src/ledger.cpp::ledger.Ledger.post"]
+    },
+    {
+      "file": "tests/ledger_test.cpp",
+      "name": "LeavesEveryAccountAloneWhenOneIsUnknown",
+      "reaches": ["src/ledger.cpp::ledger.Ledger.post", "src/ledger.cpp::ledger.Ledger.balance"]
+    },
+    {
+      "file": "tests/ledger_test.cpp",
+      "name": "TrialBalanceIsZeroAfterPosting",
+      "reaches": ["src/ledger.cpp::ledger.Ledger.post", "src/ledger.cpp::ledger.Ledger.trial_balance"]
+    },
+    {
+      "file": "tests/ledger_test.cpp",
+      "name": "RefusesToOpenAnAccountTwice",
+      "reaches": ["src/ledger.cpp::ledger.Ledger.open"]
+    },
+    {
+      "file": "tests/ledger_test.cpp",
+      "name": "ReportsAnUnknownAccountsBalance",
+      "reaches": ["src/ledger.cpp::ledger.Ledger.balance"]
+    },
+    {
+      "file": "tests/ledger_test.cpp",
+      "name": "AssetsAndExpensesIncreaseOnTheDebitSide",
+      "reaches": ["src/account.cpp::ledger.normal_side"]
+    },
+    {
+      "file": "tests/parse_test.cpp",
+      "name": "ParsesToMinorUnits",
+      "reaches": ["src/parse.cpp::ledger.parse_amount"]
+    },
+    {
+      "file": "tests/parse_test.cpp",
+      "name": "Throws",
+      "reaches": ["src/parse.cpp::ledger.parse_amount"]
+    },
+    {
+      "file": "tests/parse_test.cpp",
+      "name": "ReadsAnImportLine",
+      "reaches": ["src/parse.cpp::ledger.parse_posting", "src/parse.cpp::ledger.split_fields", "src/parse.cpp::ledger.parse_amount", "src/currency.cpp::ledger.parse_currency"]
+    },
+    {
+      "file": "tests/parse_test.cpp",
+      "name": "RejectsAnUnknownSide",
+      "reaches": ["src/parse.cpp::ledger.parse_posting"]
+    },
+    {
+      "file": "tests/parse_test.cpp",
+      "name": "RejectsAnUnknownCurrency",
+      "reaches": ["src/parse.cpp::ledger.parse_posting", "src/currency.cpp::ledger.parse_currency"]
+    },
+    {
+      "file": "tests/parse_test.cpp",
+      "name": "CollapsesRunsOfWhitespace",
+      "reaches": ["src/parse.cpp::ledger.split_fields"]
+    },
+    {
+      "file": "tests/stats_test.cpp",
+      "name": "TracksTheMeanAndTheLargest",
+      "reaches": ["include/ledger/stats.hpp::ledger.RunningAverage.add", "include/ledger/stats.hpp::ledger.RunningAverage.mean", "include/ledger/stats.hpp::ledger.RunningAverage.max"]
+    },
+    {
+      "file": "tests/stats_test.cpp",
+      "name": "HasNoLargestWhenEmpty",
+      "reaches": ["include/ledger/stats.hpp::ledger.RunningAverage.mean", "include/ledger/stats.hpp::ledger.RunningAverage.max"]
+    },
+    {
+      "file": "tests/stats_test.cpp",
+      "name": "FindsTheFirstOfTheLargest",
+      "reaches": ["include/ledger/stats.hpp::ledger.largest_by"]
+    }
+  ]
+}

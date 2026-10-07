@@ -154,6 +154,26 @@ rules:
     await expect(removeRule(root, 'prose')).rejects.toThrow('no question called prose');
   });
 
+  it('takes the last rule out and puts the next one in the way it would have been written by hand', async () => {
+    const { root, read, rules } = await withRules(STARTING);
+    await removeRule(root, 'prose');
+    // The comment over the rules is not one of them, and an empty list is still a file a scan reads.
+    expect(await read()).toBe('# Rules perch asks alongside its own.\n\n[]\n');
+    expect(await rules()).toEqual([]);
+    // `[]` parses to a flow sequence, and a rule added to one was written as `[ { name: r1, ... } ]` from then on.
+    await addRule(root, { name: 'r1', where: '**/*', ensure: 'A sentence.' });
+    expect(await read()).toBe('# Rules perch asks alongside its own.\n\n- name: r1\n  where: "**/*"\n  ensure: A sentence.\n');
+
+    // The same under a key, where everything else the map holds is left as it was typed.
+    const settings = 'ignore: [test/fixtures/**, dist/**]\n\n# What this repository asks.\nrules:';
+    const keyed = await withRules(`${settings}\n  - name: prose\n    where: "**/*.md"\n    ensure: A person wrote this.\nscan_types: [defect]\n`);
+    await removeRule(keyed.root, 'prose');
+    expect(await keyed.read()).toBe(`${settings} []\nscan_types: [defect]\n`);
+    expect(await keyed.rules()).toEqual([]);
+    await addRule(keyed.root, { name: 'r1', where: '**/*', ensure: 'A sentence.' });
+    expect(await keyed.read()).toBe(`${settings}\n  - name: r1\n    where: "**/*"\n    ensure: A sentence.\nscan_types: [defect]\n`);
+  });
+
   it('turns off a question perch ships, and turns it back on', async () => {
     const { root, read, rules } = await withRules(STARTING);
     // A shipped question is not in your file to delete, so stopping it is a line saying so rather than a silence.
@@ -173,6 +193,17 @@ rules:
     const back = questionSet().find(question => question.name === 'cwe_89');
     expect(back).toMatchObject({ where: 'src/**/*.js', type: 'noul', each: 'method' });
     expect(back.true).toContain('part of the SQL it runs');
+  });
+
+  it('turns off a question perch ships that your file had changed, rather than handing it back', async () => {
+    const { root, read, rules } = await withRules(STARTING);
+    await editRule(root, 'cwe_89', { ensure: 'Queries are parameterized.' });
+    expect(await removeRule(root, 'cwe_89')).toEqual({ name: 'cwe_89', file: RULES_FILE, turnedOff: true });
+    // The changed copy is gone and a line saying it is off stands where it was.
+    expect(await read()).not.toContain('parameterized');
+    expect((await rules()).find(rule => rule.name === 'cwe_89')).toMatchObject({ disabled: true });
+    installQuestions(merge(BUILTIN, await rules()));
+    expect(questionSet().some(question => question.name === 'cwe_89')).toBe(false);
   });
 
   it('changes a question perch ships by copying it into your file, not by editing the package', async () => {
@@ -204,6 +235,106 @@ rules:
     expect(questionSet().find(question => question.name === 'refactor').gate).toBe(false);
     expect(BUILTIN.find(question => question.name === 'refactor').gate).toBe(true);
     installQuestions(BUILTIN);
+  });
+
+  // Wrapped by hand at a width the stringifier would not pick, with a flow list it would pad and comments it would move.
+  const WRITTEN_BY_HAND = `# Rules perch asks alongside its own.
+ignore: [test/fixtures/**, dist/**]
+
+rules:
+  - name: no-silent-failure
+    where: "src/**/*.js"
+    each: method
+    min: 80
+    ensure: >-
+      Every catch block in this method rethrows the error,
+      returns it to the caller, or reports it. An empty catch breaks
+      this rule.
+
+  # The reference pages are excepted.
+  - name: docs-plain
+    where: "docs/**/*.md"
+    ensure: Plain words.   # short on purpose
+    # Floored where a clean page stops reading.
+    min: 70
+    except: [docs/scan.md, docs/issues.md]
+
+  - name: prose
+    where: "**/*.md"
+    ensure: A person wrote this.
+`;
+  /** The text of one rule, from its name to the line before the next rule starts or the file ends. */
+  const ruleText = (text, name) => text.slice(text.indexOf(`  - name: ${name}\n`)).split(/\n(?=\n| {2}- name: | {2}# The)/)[0];
+
+  it('edits one rule and leaves every other byte of the file as it was', async () => {
+    const { root, read, rules } = await withRules(WRITTEN_BY_HAND);
+    await editRule(root, 'docs-plain', { min: 60 });
+    // One line was asked for and one line changed: the folded text is wrapped where it was, the flow lists are not padded, and
+    // the comments are where they were, in the rule that was edited as much as in the ones that were not.
+    expect(await read()).toBe(WRITTEN_BY_HAND.replace('min: 70', 'min: 60'));
+    expect((await rules()).find(rule => rule.name === 'docs-plain').min).toBe(60);
+
+    // A key that was not there goes in at the end of its rule, and one taken off takes the comment over it along.
+    await editRule(root, 'prose', { min: 55 });
+    await editRule(root, 'docs-plain', { min: null });
+    const edited = WRITTEN_BY_HAND.replace('    # Floored where a clean page stops reading.\n    min: 70\n', '')
+      .replace('ensure: A person wrote this.\n', 'ensure: A person wrote this.\n    min: 55\n');
+    expect(await read()).toBe(edited);
+  });
+
+  it('adds and removes a rule and leaves every other byte of the file as it was', async () => {
+    const { root, read, rules } = await withRules(WRITTEN_BY_HAND);
+    await addRule(root, { name: 'comment-says-why', where: 'src/**/*.js', each: 'method', ensure: 'The comment says why.' });
+    expect(await read()).toBe(`${WRITTEN_BY_HAND}  - name: comment-says-why
+    each: method
+    where: src/**/*.js
+    ensure: The comment says why.
+`);
+    await removeRule(root, 'comment-says-why');
+    expect(await read()).toBe(WRITTEN_BY_HAND);
+    // A rule taken out of the middle goes with the comment over it, and the rules either side are as they were.
+    await removeRule(root, 'docs-plain');
+    const written = await read();
+    for (const name of ['no-silent-failure', 'prose']) expect(ruleText(written, name)).toBe(ruleText(WRITTEN_BY_HAND, name));
+    expect(written).toContain('ignore: [test/fixtures/**, dist/**]');
+    expect(written).not.toContain('reference pages');
+    expect((await rules()).map(rule => rule.name)).toEqual(['no-silent-failure', 'prose']);
+  });
+
+  it('gives a map with no rules yet its first one, and a rule in braces its change, and rewrites nothing else', async () => {
+    const settings = '# What a scan leaves out.\nignore: [test/fixtures/**, dist/**]\n';
+    const first = await withRules(settings);
+    await addRule(first.root, { name: 'r1', where: '**/*', ensure: 'A sentence.' });
+    expect(await first.read()).toBe(`${settings}rules:\n  - name: r1\n    where: "**/*"\n    ensure: A sentence.\n`);
+
+    // A rule written in braces has no lines of its own to keep, so it is written again whole, and only it.
+    const folded = '- name: prose\n  where:   "**/*.md"\r\n  ensure: >-\r\n    A person\r\n    wrote this.\r\n';
+    const braces = await withRules(`- { name: short, where: "docs/**", ensure: Short. }\r\n${folded}`);
+    await editRule(braces.root, 'short', { min: 60 });
+    expect(await braces.read()).toBe(`- { name: short, where: "docs/**", ensure: Short., min: 60 }\r\n${folded}`);
+  });
+
+  it('copies a question perch ships into your file worded and wrapped as scan.yaml has it', async () => {
+    const { root, read, rules } = await withRules(WRITTEN_BY_HAND);
+    await editRule(root, 'has_bug', { min: 65 });
+    const written = await read();
+    // Everything that was in the file is still there, byte for byte, with the copy after it.
+    expect(written.startsWith(WRITTEN_BY_HAND)).toBe(true);
+    // The copy is scan.yaml's own lines, moved in to sit under rules:, with the one change on it.
+    const scan = await readFile(new URL('../scan.yaml', import.meta.url), 'utf8');
+    const shipped = scan.slice(scan.indexOf('- name: has_bug\n'), scan.indexOf('- name: bug_edge_case\n'));
+    expect(written.slice(WRITTEN_BY_HAND.length)).toBe(shipped.replace(/^(?=.)/gm, '  ').replace(/min: \d+/, 'min: 65'));
+    expect((await rules()).find(rule => rule.name === 'has_bug')).toMatchObject({ min: 65, each: 'method' });
+
+    // Turned off and asked for back, it comes back the same way.
+    await removeRule(root, 'cwe_89');
+    await editRule(root, 'cwe_89', { min: 90 });
+    const again = await read();
+    expect(again.startsWith(written)).toBe(true);
+    const from = scan.slice(scan.indexOf('- name: cwe_89\n'));
+    for (const line of from.slice(0, from.indexOf('\n- name: ')).split('\n').slice(1).filter(line => !/^ {2}min:/.test(line)))
+      expect(again.slice(written.length)).toContain(`  ${line}\n`);
+    expect((await rules()).find(rule => rule.name === 'cwe_89')).toMatchObject({ min: 90, type: 'noul' });
   });
 
   it('lists a question written out longhand, and does not run it as a rule', async () => {

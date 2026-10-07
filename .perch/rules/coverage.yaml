@@ -1,0 +1,96 @@
+# perch coverage. Each rule names the shortcut that would make coverage look finished without being it.
+
+- name: tests-found-in-the-tree
+  where: src/treesitter/tests.ts
+  each: method
+  ensure: >-
+    Find where this method decides that a node is a test case, or what a test
+    mocks; if it decides neither, this rule holds, whatever else it reads. That
+    decision is made from syntax nodes of the parsed tree: a decorator, an
+    annotation, an attribute, a macro name, or a call's callee and its
+    arguments. Matching a regular expression against source text, or deciding
+    from a file path alone, breaks this rule.
+
+- name: test-calls-resolve-by-language
+  where: src/graph.js
+  each: method
+  ensure: >-
+    If this method links a call to a method, it does so only through the
+    calling language's own resolution: the same file, an import, the same Java
+    package, or C and C++ external linkage. Linking a call because the name is
+    the only one like it in the repository, or because nothing else matched,
+    breaks this rule. So does linking `obj.name` to whatever method in the
+    same file is called name, when obj is not that method's class or module.
+    A function passed as a value is linked by the same rules as a call, or not
+    at all. A method that links no call holds this rule.
+
+- name: coverage-runs-no-tests
+  where: "src/coverage*.js"
+  each: method
+  ensure: >-
+    This method does not run the repository's tests, start a test runner or a
+    child process. perch predicts what the tests would catch; it never runs
+    them and reads nothing a test run wrote.
+
+- name: coverage-probabilities-are-answers
+  where: src/coverage.js
+  each: method
+  ensure: >-
+    If this method puts a probability on a finding, a label or a percentage,
+    that probability is read from a System One answer or computed from
+    answers, and a finding whose unit could not be asked carries none. A
+    probability written into the code as a constant breaks this rule. A floor
+    such as min, which decides which answers are listed, is not a probability.
+    A method that sets no probability holds this rule.
+
+- name: coverage-failures-stay-visible
+  where: src/coverage.js
+  each: method
+  ensure: >-
+    Find each catch block and each .catch() callback in this method's own body,
+    not in the callers and callees shown with it; if it has none, this rule
+    holds, whatever else the method does. One that catches an
+    error while parsing, resolving or asking about a test or a method records
+    that unit as failed, and the report says so. Dropping the unit, counting
+    it as covered, or treating an unanswered test as useful breaks this rule.
+
+- name: redundancy-needs-the-same-behavior
+  where: mentions redundant
+  except: "test/**"
+  each: method
+  ensure: >-
+    When this method marks tests redundant, the tests were asked about the same
+    mutants and System One predicted they kill exactly the same ones, at least
+    one. Grouping by name, by file, or by reach alone breaks this rule.
+
+- name: coverage-diff-is-per-unit
+  where: mentions baseline
+  except: "test/**"
+  each: method
+  ensure: >-
+    When this method compares two coverage reports, it matches methods and
+    tests by id between two saved reports and reports what changed for each.
+    Subtracting two totals and nothing else breaks this rule. A baseline that
+    was asked for and does not exist is an error, not an empty comparison.
+
+- name: coverage-html-invents-nothing
+  where: src/coverage-html.js
+  each: method
+  ensure: >-
+    Every number, label and note this method puts on the page is taken from the
+    report object it is given, or formatted from values it is passed. Writing a
+    finding, a percentage or an explanation that is not in that report breaks
+    this rule. Headings, column names and the fixed wording of an option's
+    meaning are not findings.
+
+- name: coverage-tests-assert-computed-results
+  where: test/coverage.test.js
+  each: test
+  sees: calls
+  ensure: >-
+    The test parses real source with perch's analyzer and asserts on what
+    perch's coverage code computed from it, or on the error it raised,
+    against expectations written independently of that code. Asserting on a report the test built itself,
+    or deriving the expected value by calling the code under test, breaks this
+    rule. A scripted System One standing in for the model is not a stub of the
+    code under test.

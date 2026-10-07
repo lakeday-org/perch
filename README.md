@@ -18,24 +18,25 @@
 <p align="center">
   <a href="https://perchscan.com">perchscan.com</a> &nbsp;&middot;&nbsp;
   <a href="https://docs.perchscan.com">docs</a> &nbsp;&middot;&nbsp;
+  <a href="https://huggingface.co/datasets/perchscan/benchmark-results">benchmarks</a> &nbsp;&middot;&nbsp;
   <a href="https://discord.gg/znTcuKRK">Discord</a>
 </p>
 
-Semantic code linting with Jev.
+Semantic code linting with decision models.
 
 ![Writing a rule, and perch catching this README with it](.github/demo.svg)
 
 ## Getting started
 
-Create an API key at [console.typesafe.ai](https://console.typesafe.ai), then set
-the System One request URL and your key:
-
 ```sh
 npm install -g @lakeday/perch
-export PERCH_BASE_URL=https://api.typesafe.ai/v1/systemone
-export PERCH_API_KEY='paste-your-TypeSafe-key-here'
+perch login
 perch scan
 ```
+
+Run `perch login` to sign in to [Perch Cloud](https://perchscan.com). The first $5 is free. Since decisions are cached,
+running perch again on unchanged code is free. Perch Cloud also scans pull requests in CI, without writing
+any workflows.
 
 ```console
 $ perch scan
@@ -52,8 +53,9 @@ cart.py
 ✖ 20 problems in 5 files, all failing
 ```
 
-`perch issues` lists them worst first. `perch issues <id>` opens one up. `perch check
-<id>` asks again after a fix, and records what it finds nowhere.
+Run `perch issues` to see them worst first, and `perch issues <id>` to view one.
+
+`perch check <id>` asks again after you think you've fixed it. It doesn't record anything.
 
 ## Agent skills
 
@@ -66,7 +68,7 @@ perch setup cursor        # .cursor/rules/perch.mdc
 
 ## Semantic linting
 
-Extend perch with custom rules, in `perch.yaml`:
+You can extend perch with your own linting rules by adding them to `perch.yaml`:
 
 ```yaml
 - name: private-logs
@@ -76,11 +78,35 @@ Extend perch with custom rules, in `perch.yaml`:
     Keep passwords and access tokens out of logs.
 ```
 
+## Models
+
+By default, Perch Cloud routes your questions to the best model for answering them. To ask a specific decision model,
+override the endpoint, key, and model:
+
+```sh
+export PERCH_BASE_URL=https://api.typesafe.ai/v1/systemone
+export PERCH_API_KEY='paste-your-TypeSafe-key-here'
+export PERCH_MODEL_ID=jev-latest
+```
+
+| Model | `PERCH_BASE_URL` | `PERCH_MODEL_ID` |
+| --- | --- | --- |
+| [Jev](https://docs.typesafe.ai/models) | `https://api.typesafe.ai/v1/systemone` | `jev-latest` |
+| [Liquid AI d1](https://docs.liquid.ai/lfm/models/decision-models) | `https://api.liquid.ai/decisions/v1/systemone` | `d1:free` |
+| [OpenAI gpt-6-luna](https://developers.openai.com/api/docs/guides/decisions) | `https://api.openai.com/v1/decisions` | `gpt-6-luna` |
+| [DiffusionGemma Jev](https://github.com/razorback16/openjev) on Beam | `https://app.beam.cloud/v1/models/jev/diffusiongemma/invoke` | `jev/diffusiongemma` |
+| [SemiF](https://github.com/TheoLeeCJ/SemIf) on Beam | `https://app.beam.cloud/v1/models/jev/semif/invoke` | `jev/semif` |
+
+Any endpoint that supports the System One format will work, and so does OpenAI's Decisions API: perch recognizes a
+`PERCH_BASE_URL` ending in `/decisions` and reads its key from `OPENAI_API_KEY` when `PERCH_API_KEY` is not set. Each model gets as many questions per request as it says it
+takes. For a model that doesn't say, set `PERCH_MAX_QUESTIONS`. See the
+[benchmarks](https://huggingface.co/datasets/perchscan/benchmark-results) for a comparison.
+
 ## Documentation
 
 | | |
 | --- | --- |
-| [Getting started](https://docs.perchscan.com/install/) | Install, the key, the first scan. |
+| [Getting started](https://docs.perchscan.com/install/) | Install, sign in, the first scan. |
 | [Reading issues](https://docs.perchscan.com/issues/) | The list, the filters, closing what does not matter. |
 | [Semantic linting](https://docs.perchscan.com/rules/) | `where`, `each`, `sees`, `min`, `gate`, and the longhand grammar. |
 | [Checking a change](https://docs.perchscan.com/check/) | `perch check` on work in progress. |
@@ -105,5 +131,4 @@ npm run check     # lint, typecheck, test
 npm run build     # bundle src/cli.js into dist/cli.mjs
 ```
 
-From a checkout: `npm install && npm run build && npm link` puts `perch` on the
-path.
+To install perch from a checkout, run `npm install && npm run build && npm link`.

@@ -1,6 +1,6 @@
 ---
 name: perch
-description: Semantic linting with perch. Use it to verify code changes in flight. Scan a branch or a diff. Check one method right after editing it. Confirm a fix landed before opening a pull request. Use it to lint behavior a compiler cannot check: bugs, vulnerabilities, swallowed errors, and a method that does not do what its name says. Use it to act on what a scan found, including what Perch Cloud CI found on a pull request. Use it to write rules that turn a repeated mistake into verifiable behavior.
+description: Semantic linting with perch. Use it to verify code changes in flight. Scan a branch or a diff. Check one method right after editing it. Confirm a fix landed before opening a pull request. Use it to lint behavior a compiler cannot check: bugs, vulnerabilities, swallowed errors, and a method that does not do what its name says. Use it to act on what a scan found, including what CI found on a pull request. Use it to check which changed lines the tests ran, and which tests are worth keeping. Use it to write rules that turn a repeated mistake into verifiable behavior.
 ---
 
 # perch
@@ -139,6 +139,42 @@ method later is still reported. `--kind too_big` closes one kind and leaves the 
 open.
 
 Always give a reason. That is what the next person reads instead of reopening it.
+
+## Check the tests a change needs
+
+`perch coverage --since main` runs predictive mutation testing over the branch. It
+mutates one line at a time in every method a test reaches and asks which tests would
+fail against each mutant. It runs no tests and reads nothing a test run wrote.
+
+```console
+$ perch coverage --since main
+src/cart.ts
+  ID        Line  Problem   Confidence  Test or method  Note
+  3945b1f7    12  survived         60%  applyDiscount   With `>` instead of `>=`, none of the 5 tests reaching it…
+  d6f68653    12  survived         58%  applyDiscount   With `1` instead of `0`, none of the 5 tests reaching it …
+
+test/cart.test.ts
+  ID        Line  Problem    Confidence  Test or method              Note
+  427fce7a    22  redundant         96%  applyDiscount > takes 75 …  Kills the same mutants as applyDiscount > ta…
+shop at commit 861c607: 4 methods, 12 tests, 3 problems in changed code, 4 elsewhere
+Report: .perch/coverage/index.html
+14 requests  12k tokens in / 666 out  $0.0036
+```
+
+A `survived` mutant is a line the tests run but never check. `--json` gives each one
+in full: the finding names its `mutant`, and the method's `mutants` entry with that id
+has the line as written (`original`), as mutated (`mutated`), and the tests that were
+asked (`asked`). Write a test in one of those test files with an input for which the
+two lines give different results, and assert on the result. For `if (percent >= 100)`
+against `if (percent > 100)`, that input is `percent` of exactly `100`.
+
+A `redundant` test kills exactly the mutants an earlier test kills: compare the two
+and delete one. `checks_nothing` kills no mutant in the code it reaches: make it
+assert on what that code returns. `infra` calls a live service: mock it.
+
+Run `perch coverage --since main` again afterwards; the mutant should be gone from the
+list. It exits `3` while a problem remains in changed code. Close a problem with
+`perch close <id> --reason "..."` when the test is right as it is.
 
 ## Write a rule when a mistake repeats
 

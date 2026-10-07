@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { main, parseArgs, VERSION } from '../src/cli.js';
-import { parseFilters } from '../src/questions.js';
+import { filterStrength, parseFilters } from '../src/questions.js';
 import { parseQuestions, questionSet, questionsFor } from '../src/ask.js';
 import { readLint } from '../src/units.js';
 import { gating, shownIssues } from '../src/report.js';
@@ -36,8 +36,12 @@ describe('cli', () => {
     expect(parseArgs(['lint', 'add', 'no-stale', '--ensure_absent', 'a doc for something deleted', '--where', 'docs/**'])).toEqual({ flags: { ensure_absent: 'a doc for something deleted', where: 'docs/**' }, positional: ['lint', 'add', 'no-stale'] });
     expect(parseArgs(['issues', '--closed', '--all']).flags).toEqual({ closed: true, all: true });
     expect(() => parseArgs(['scan', '--bogus'])).toThrow('unknown option --bogus');
+    // A flag given twice is refused rather than half read.
+    expect(() => parseArgs(['scan', '--min', '0.5', '--min', '0.7'])).toThrow('--min is given twice');
     expect(() => parseArgs(['scan', '--candidates', '2'])).toThrow('unknown option --candidates');
     expect(() => parseArgs(['lint', 'add', 'x', '--ensure'])).toThrow('--ensure requires a value');
+    expect(() => parseArgs(['scan', '--min', '--all'])).toThrow('--min requires a value');
+    expect(parseArgs(['rules', 'add', 'x', '--ensure', '-- a dash first']).flags.ensure).toBe('-- a dash first');
   });
 
   it('lists its commands and prints their usage', async () => {
@@ -50,6 +54,10 @@ describe('cli', () => {
     expect(out.at(-1)).toContain('perch check: Ask about one piece of code, uncommitted');
     expect(out.at(-1)).toContain('--rules');
     expect(out.at(-1)).toContain('PERCH_BASE_URL');
+    // login takes no options, so its help offers none.
+    expect(await main(['login', '-h'], io)).toBe(0);
+    expect(out.at(-1)).toContain('Usage: perch login [organization-id]\n');
+    expect(out.at(-1)).not.toContain('Options:');
     expect(await main(['scan', '-h'], io)).toBe(0);
     expect(out.at(-1)).toContain('perch scan: Find issues');
     expect(out.at(-1)).toContain('PERCH_BASE_URL');
@@ -152,6 +160,25 @@ describe('cli', () => {
     expect(err.join('\n')).not.toMatch(/nothing could be read/);
   });
 
+  it('scans nothing in a directory when the branch changed nothing since the base', async () => {
+    // The fixture's branch has no commits of its own, so --since main finds no changed files at all.
+    const repo = await realpath(await makeFixture());
+    cleanups.push(repo);
+    vi.spyOn(process, 'cwd').mockReturnValue(repo);
+    const service = scriptedSystemOne({});
+    const asked = [];
+    vi.stubGlobal('fetch', async (_url, init) => {
+      const { state, questions } = JSON.parse(init.body);
+      if (state.method) asked.push(state.method.name);
+      return new Response(JSON.stringify(await service.ask(state, questions)));
+    });
+    const { out, err, io } = capture();
+    io.env = { PERCH_API_KEY: 'test-key', PERCH_BASE_URL: 'https://api.typesafe.ai/v1/systemone' };
+    expect(await main(['scan', join(repo, 'src'), '--since', 'main', '--out', join(repo, '.perch')], io), err.join('\n')).toBe(0);
+    expect(out.join('\n')).toContain('Nothing changed since main.');
+    expect(asked).toEqual([]);
+  });
+
   it('check asks a method the questions a scan would, unless --rules names others', async () => {
     const repo = await realpath(await makeFixture());
     cleanups.push(repo);
@@ -219,6 +246,56 @@ describe('cli', () => {
     }
   });
 
+  it('drops a phase with nothing to do from the progress line', async () => {
+    const repo = await realpath(await makeFixture());
+    cleanups.push(repo);
+    await writeFile(join(repo, 'notes.md'), '# Notes\n');
+    await writeFile(join(repo, 'perch.yaml'), 'rules:\n  - name: notes-rule\n    where: notes.md\n    ensure: The file has a heading.\n');
+    await commitAll(repo, 'add notes');
+    vi.spyOn(process, 'cwd').mockReturnValue(repo);
+    const service = scriptedSystemOne({ project: { 'notes-rule': 0.99 } });
+    vi.stubGlobal('fetch', async (url, init) => {
+      const { state, questions } = JSON.parse(init.body);
+      return new Response(JSON.stringify(await service.ask(state, questions)));
+    });
+    const drawn = [], tty = process.stderr.isTTY;
+    vi.spyOn(process.stderr, 'write').mockImplementation(text => { drawn.push(String(text)); return true; });
+    const { err, io } = capture();
+    io.env = { HOME: repo, PERCH_API_KEY: 'key', PERCH_BASE_URL: 'https://api.typesafe.ai/v1/systemone' };
+    process.stderr.isTTY = true;
+    // No method is in scope, so the methods are 0 of 0 from the start. Read as still going, they held the line at
+    // "scanning method 0" and the file rule's count never showed.
+    try { expect([0, 3], err.join('\n')).toContain(await main(['scan', repo, '--paths', 'notes.md', '--out', join(repo, '.perch')], io)); }
+    finally { process.stderr.isTTY = tty; }
+    expect(drawn.join('').split('\r\x1b[K').map(line => line.slice(2))).toContain('checking file 1 of 1');
+  });
+
+  it.each(['scan', 'check'])('%s names itself, its release, its run and its scan on each request to Perch Cloud', async command => {
+    const repo = await realpath(await makeFixture());
+    cleanups.push(repo);
+    vi.spyOn(process, 'cwd').mockReturnValue(repo);
+    const service = scriptedSystemOne({});
+    const named = [], scans = [];
+    vi.stubGlobal('fetch', async (url, init = {}) => {
+      named.push([init.headers?.['x-perch-command'], init.headers?.['x-perch-version'], init.headers?.['x-perch-run']]);
+      if (url.endsWith('/v1/systemone')) scans.push(init.headers['x-perch-scan']);
+      if (url.endsWith('/api/config')) return new Response(JSON.stringify({ model: 'jev-latest' }));
+      if (url.includes('/v1/scans/')) return new Response(JSON.stringify({ id: 'scan' }));
+      const { state, questions } = JSON.parse(init.body);
+      return new Response(JSON.stringify(await service.ask(state, questions)));
+    });
+    const { err, io } = capture();
+    io.env = { HOME: repo, PERCH_API_KEY: 'perch_ci_test' };
+    const args = command === 'scan' ? ['scan', repo] : ['check', 'src/clamp.js::clamp'];
+    expect([0, 3], err.join('\n')).toContain(await main([...args, '--json', '--out', join(repo, '.perch')], io));
+    expect(named.length).toBeGreaterThan(1);
+    expect(named[0][2]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(new Set(named.map(values => values.join(' ')))).toEqual(new Set([`${command} ${VERSION} ${named[0][2]}`]));
+    // A scan's questions name the Cloud scan they belong to. A check starts none.
+    expect(scans.length).toBeGreaterThan(0);
+    expect(new Set(scans)).toEqual(new Set([command === 'scan' ? 'scan' : undefined]));
+  });
+
   it.each([
     [{ PERCH_API_KEY: 'private-fixture-key' }, 'PERCH_API_KEY, 19 characters, for Perch Cloud'],
     [{ TYPESAFE_API_KEY: 'legacy-fixture-key', PERCH_BASE_URL: 'https://api.typesafe.ai/v1/systemone' }, 'TYPESAFE_API_KEY, 18 characters, for https://api.typesafe.ai/v1/systemone'],
@@ -262,6 +339,14 @@ describe('cli', () => {
     expect(await main(['issues', '--out', repo.out, '--all'], io)).toBe(0);
     // A filter names what you want, so it is not cut down: it prints what --all would, minus what the filter dropped.
     expect(filtered).toBe(count(out.at(-1)));
+  });
+
+  it('refuses a --paths entry outside the repository instead of reading nothing and calling it clean', async () => {
+    const { err, io } = capture();
+    for (const outside of ['../elsewhere', '/etc', 'src/../../elsewhere']) {
+      expect(await main(['scan', '--paths', outside], io)).toBe(2);
+      expect(err.join('\n')).toContain(`--paths takes paths inside the repository; ${outside} is outside it`);
+    }
   });
 
   it('answers a bad filter with the real values, under the old command name too, without crashing', async () => {
@@ -325,6 +410,27 @@ describe('cli', () => {
     // The names come from the repository, so a filter with none to offer says that rather than listing nothing.
     expect(() => parseFilters('rule=fixture-rule-one')).toThrow(/there are none/);
     expect(() => parseFilters('rule=nope', rules)).toThrow('is not one of');
+  });
+
+  it('says why perch.yaml would not parse when a filter names a rule', async () => {
+    const repo = await realpath(await makeFixture());
+    cleanups.push(repo);
+    vi.spyOn(process, 'cwd').mockReturnValue(repo);
+    // The rule is there, but the file does not parse. Read as no rules, the filter was told there were none.
+    await writeFile(join(repo, 'perch.yaml'), 'rules:\n  - name: x\n    where: [src/clamp.js\n    ensure: The function returns a number.\n');
+    for (const command of ['scan', 'issues']) {
+      const { err, io } = capture();
+      expect(await main([command, ...command === 'scan' ? [repo] : [], '--filter', 'rule=x', '--out', join(repo, '.perch')], io)).toBe(1);
+      expect(err.join('\n')).toContain('Flow sequence in block collection must be sufficiently indented and end with a ]');
+      expect(err.join('\n')).not.toContain('there are none');
+    }
+    // With no perch.yaml there is nothing to misread: the filter is a usage error naming that.
+    await rm(join(repo, 'perch.yaml'));
+    for (const command of ['scan', 'issues']) {
+      const { err, io } = capture();
+      expect(await main([command, ...command === 'scan' ? [repo] : [], '--filter', 'rule=x', '--out', join(repo, '.perch')], io)).toBe(2);
+      expect(err.join('\n')).toContain('rule takes a name from perch.yaml, and there are none');
+    }
   });
 
   it('asks only the rule a filter named', () => {
@@ -560,5 +666,95 @@ describe('cli', () => {
     await promisify(execFile)('node', ['build.mjs'], { cwd: root });
     const bundle = await import(new URL('../dist/cli.mjs', import.meta.url).href);
     expect(typeof bundle.main).toBe('function');
-  }, 60_000);
+    // Loaded by node itself, as bin/perch.mjs is: Vitest's loader let a bundle with two imports of one name through.
+    const { stdout } = await promisify(execFile)('node', ['bin/perch.mjs', '--version'], { cwd: root });
+    expect(stdout).toMatch(/\S/);
+    // The bundle parses a large tree in several processes, and what it reads is what one process reads.
+    const files = Array.from({ length: 240 }, (_, at) => ({ type: 'blob', path: `src/f${at}.js`, sha: `sha${at}` }));
+    const source = (_, at) => `import { g } from './f${(at + 1) % 240}.js';\nexport function f${at}(a) {\n  if (a > ${at}) return g(a);\n  return a;\n}\n`;
+    const parse = workers => bundle.analyzeFiles(files, { analyzer: bundle.createSourceAnalyzer(), readSource: source, workers });
+    const [alone, together] = [await parse(0), await parse(4)];
+    expect(together.coverage.parsed).toBe(240);
+    expect(together).toEqual(alone);
+  }, 120_000);
+});
+
+describe('perch rules', () => {
+  const rulesRepo = async () => {
+    const repo = await makeFixture();
+    cleanups.push(repo);
+    vi.spyOn(process, 'cwd').mockReturnValue(repo);
+    return repo;
+  };
+
+  it('adds, lists, edits and removes a rule from the command line', async () => {
+    const repo = await rulesRepo();
+    const { out, io } = capture();
+    expect(await main(['rules', 'add', 'no-todo', '--ensure_absent', 'a TODO comment left in the code', '--where', 'src/**'], io)).toBe(0);
+    expect(out.at(-1)).toBe('Added no-todo to perch.yaml.');
+    await commitAll(repo, 'rule');
+    expect(await main(['rules', 'list', '--json'], io)).toBe(0);
+    expect(JSON.parse(out.at(-1)).find(rule => rule.name === 'no-todo')).toMatchObject({ from: 'perch.yaml', kind: 'ensure_absent', where: 'src/**', text: 'a TODO comment left in the code' });
+    expect(await main(['rules', 'list'], io)).toBe(0);
+    expect(out.at(-1)).toContain('no-todo');
+    expect(await main(['rules', 'edit', 'no-todo', '--ensure_absent', 'a FIXME comment'], io)).toBe(0);
+    expect(out.at(-1)).toBe('Changed no-todo.');
+    expect(await readFile(join(repo, 'perch.yaml'), 'utf8')).toContain('a FIXME comment');
+    expect(await main(['rules', 'remove', 'no-todo'], io)).toBe(0);
+    expect(out.at(-1)).toBe('Removed no-todo from perch.yaml.');
+    expect(await readFile(join(repo, 'perch.yaml'), 'utf8')).not.toContain('no-todo');
+  });
+
+  it('writes a choice rule from --ask, --options, --issue and --gate', async () => {
+    const repo = await rulesRepo();
+    const { out, io } = capture();
+    expect(await main(['rules', 'add', 'handles_absence', '--type', 'choice', '--each', 'method', '--where', 'src/**/*.js',
+      '--ask', 'How does this method handle a value that is missing?', '--options', 'checks=It checks for it; ignores=It carries on with it',
+      '--issue', 'type=defect,label=handles_absence,except=checks,on=true', '--gate', 'no'], io)).toBe(0);
+    expect(out.at(-1)).toBe('Added handles_absence to perch.yaml.');
+    const written = await readFile(join(repo, 'perch.yaml'), 'utf8');
+    expect(written).toContain('checks: It checks for it');
+    expect(written).toContain('ignores: It carries on with it');
+    expect(written).toMatch(/issue:\n\s+type: defect\n\s+label: handles_absence\n\s+except: checks\n\s+on: true/);
+    expect(written).toContain('gate: false');
+  });
+
+  it('refuses a malformed option, issue or yes-or-no flag', async () => {
+    await rulesRepo();
+    const { err, io } = capture();
+    expect(await main(['rules', 'add', 'q', '--type', 'choice', '--ask', 'Which?', '--options', 'checks'], io)).toBe(2);
+    expect(err.at(-2)).toBe('perch: --options is written "name=what it means", separated by semicolons; "checks" is not');
+    expect(await main(['rules', 'add', 'q', '--type', 'choice', '--ask', 'Which?', '--options', ';'], io)).toBe(2);
+    expect(err.at(-2)).toBe('perch: --options needs at least one');
+    expect(await main(['rules', 'add', 'q', '--ensure', 'x', '--issue', 'defect'], io)).toBe(2);
+    expect(err.at(-2)).toBe('perch: --issue is written "name=what it means", separated by semicolons; "defect" is not');
+    expect(await main(['rules', 'add', 'q', '--ensure', 'x', '--gate', 'maybe'], io)).toBe(2);
+    expect(err.at(-2)).toBe('perch: --gate is yes or no, not maybe');
+  });
+
+  it('says what a rules command is missing, and writes nothing', async () => {
+    const repo = await rulesRepo();
+    const { err, io } = capture();
+    expect(await main(['rules', 'rename'], io)).toBe(2);
+    expect(err[0]).toBe('perch: perch rules takes list, add, edit or remove, not rename');
+    expect(await main(['rules', 'add'], io)).toBe(2);
+    expect(err.at(-2)).toBe('perch: perch rules add needs a name');
+    expect(await main(['rules', 'add', 'two', '--ensure', 'a', '--ensure_absent', 'b'], io)).toBe(2);
+    expect(err.at(-2)).toBe('perch: a rule asks one thing: give one of --ensure, --ensure_present, --ensure_absent');
+    expect(await main(['rules', 'add', 'none'], io)).toBe(2);
+    expect(err.at(-2)).toBe('perch: perch rules add needs something to write: --ensure, or --ask with --type');
+    await expect(readFile(join(repo, 'perch.yaml'), 'utf8')).rejects.toThrow();
+  });
+});
+
+describe('ranking what a filter keeps', () => {
+  it('ranks by how likely the filtered problem is, not by whatever else a method carries', () => {
+    const filters = parseFilters('type=lint');
+    const surer = { lint: { rule: 'no-todo', broken: 0.9 } }, lessSure = { lint: { rule: 'no-todo', broken: 0.6 } };
+    expect(filterStrength(surer, filters)).toBe(0.9);
+    expect(filterStrength(lessSure, filters)).toBe(0.6);
+    expect([lessSure, surer].sort((a, b) => filterStrength(b, filters) - filterStrength(a, filters))).toEqual([surer, lessSure]);
+    // No filter, no ranking of its own: the scan's order stands.
+    expect(filterStrength(surer, [])).toBe(null);
+  });
 });

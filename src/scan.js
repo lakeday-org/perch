@@ -10,6 +10,7 @@ import { analyzeTree } from './analyze.js';
 import { AuthenticationError } from './systemone.js';
 import { createFileSelector } from './exclusions.js';
 import { buildGraph } from './graph.js';
+import { createLineReader, methodNeighbours } from './context.js';
 import { appliesToLanguage, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES } from './ask.js';
 import { issuesOf, label as kindLabel, methodSteps, readAnswers } from './questions.js';
 import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL, unitHash } from './units.js';
@@ -35,7 +36,10 @@ export const DEFAULT_PARALLEL = 32;
 export function mergeAnswers(readings, questions = questionSet().filter(question => question.each === 'method')) {
   const merged = { ...readings[0] };
   const gates = new Set(questions.filter(question => CORRECTNESS.has(question.issue?.type)).map(question => question.when).filter(Boolean));
-  const grows = questions.filter(question => question.type === 'noul' && (CORRECTNESS.has(question.issue?.type) || gates.has(question.name)));
+  // Only a question some pass was asked has anything to grow. A filtered run asks a few of them, and the rest came out of here
+  // answered 0, which then overwrote what the last run had said about them.
+  const grows = questions.filter(question => question.type === 'noul' && (CORRECTNESS.has(question.issue?.type) || gates.has(question.name))
+    && readings.some(reading => reading[question.name] !== undefined));
   for (const later of readings.slice(1)) {
     if (later.has_bug > merged.has_bug) Object.assign(merged, { has_bug: later.has_bug, kind: later.kind, severity: later.severity });
     for (const question of grows) merged[question.name] = Math.max(merged[question.name] ?? 0, later[question.name] ?? 0);
@@ -114,18 +118,6 @@ const createWalk = (graph, candidates, inScope = () => true) => {
   return { visited, enqueue, next, remaining: () => ranked.filter(id => !visited.has(id)).length };
 };
 
-const createLineReader = (root, graph) => {
-  const sources = new Map();
-  return async node => {
-    if (!sources.has(node.path)) {
-      const file = graph.files.get(node.path)?.file;
-      if (!file?.blob) throw new Error(`No source blob for ${node.id}`);
-      sources.set(node.path, (await readBlob(root, file.blob)).split('\n'));
-    }
-    return sources.get(node.path);
-  };
-};
-
 /**
  * One scan over a repository: analyze the revision, read every method in scope, and walk on through its neighbors, asking the
  * questions perch ships with and the rules you wrote in the same request. A reading that fails is recorded against its method and
@@ -172,7 +164,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   // The whole tree is parsed however narrow the run is. Parsing is free next to a request, and a method's callers matter whether
   // or not they are in the diff: a graph cut down to what a branch touched cannot say who calls into it.
   const scan = await analyzeTree({ root, revision, out, analyzer, label, github, progress: scanProgress, log, debug });
-  const graph = buildGraph(scan.files);
+  const graph = buildGraph(scan.files, { crates: scan.crates, modules: scan.modules });
   const rules = asRules(await readRules(root, revision));
   // Which issue types this run asks about, and so which of perch's own questions ride in every request.
   const kinds = typesAsked(await readScanTypes(root, revision), filters);
@@ -231,15 +223,9 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
 
   const linesOf = createLineReader(root, graph), walk = createWalk(graph, candidates, inScope);
   const askedByMethod = new Map();
-  const byRisk = ids => [...ids].sort((a, b) => (graph.nodes.get(b)?.metrics?.risk_score ?? 0) - (graph.nodes.get(a)?.metrics?.risk_score ?? 0));
   const stepFor = async nodeId => {
     const node = graph.nodes.get(nodeId);
-    const calleeIds = byRisk(graph.callees(nodeId)), callerIds = byRisk(graph.callers(nodeId));
-    const callees = await Promise.all(calleeIds.map(async id => { const callee = graph.nodes.get(id); return { node: callee, lines: await linesOf(callee), calls: graph.callees(id) }; }));
-    const callers = await Promise.all(callerIds.map(async id => { const caller = graph.nodes.get(id); return { node: caller, lines: await linesOf(caller), site: graph.site(id, nodeId), handover: graph.isDynamic(id, nodeId) }; }));
-    const members = new Set([nodeId, ...calleeIds, ...callerIds, ...calleeIds.flatMap(id => graph.callees(id))]);
-    const edges = [...members].flatMap(member => graph.callees(member).filter(target => members.has(target)).map(target => `${member.split('::').at(-1)} -> ${target.split('::').at(-1)}`));
-    const file = graph.files.get(node.path).file;
+    const { calleeIds, callerIds, callees, callers, edges } = await methodNeighbours(graph, nodeId, linesOf);
     // Your rules about this method are asked in its request, beside perch's own. A method covered by five rules costs one reading,
     // not six.
     // A filter narrows what is asked, not just what is printed. Asking thirty questions about a method to print two is paying
@@ -249,7 +235,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const own = asked.filter(question => question.kind);
     if (!asked.length) return { node, calleeIds, callerIds, rules: own, skip: true };
     const lines = await linesOf(node);
-    const prepare = budget => methodSteps({ node, lines, imports: file.imports, methods: file.methods, callees, callers, edges, asked, budget });
+    const prepare = budget => methodSteps({ node, lines, callees, callers, edges, asked, budget });
     const steps = prepare(systemOne.limits?.state);
     return { node, calleeIds, callerIds, rules: own, steps, prepare };
   };
@@ -437,4 +423,5 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     run.remaining = walk.remaining(); run.status = run.incomplete.length ? 'incomplete' : 'complete'; run.completed_at = new Date().toISOString();
     await saveRun(true); await store.prune('runs', id).catch(error => log(`Could not remove earlier runs: ${error.message}`)); return run;
   } catch (error) { halted ??= error; await landing.catch(() => {}); run.status = 'failed'; run.error = error.message; await saveRun(true).catch(() => {}); await store.prune('runs', id).catch(prune => log(`Could not remove earlier runs: ${prune.message}`)); throw error; }
+  finally { linesOf.close(); }
 }

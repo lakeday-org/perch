@@ -1,0 +1,26 @@
+{
+  "name": "tally-money",
+  "version": "1.8.0",
+  "description": "Exact money arithmetic in minor units: ISO 4217 currencies, rounding modes, allocation, formatting and exchange rates.",
+  "license": "Apache-2.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "generate:currencies": "ts-node scripts/generate-currencies.ts",
+    "bench": "ts-node benchmarks/allocate.bench.ts"
+  },
+  "devDependencies": {
+    "@jest/globals": "^30.0.0",
+    "@types/node": "^22.10.0",
+    "jest": "^30.0.0",
+    "jest-junit": "^17.0.0",
+    "ts-jest": "^29.4.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
+  }
+}

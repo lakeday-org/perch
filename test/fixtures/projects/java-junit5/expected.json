@@ -1,0 +1,187 @@
+{
+  "language": "java",
+  "framework": "JUnit 5",
+  "left_out": ["benchmarks/build.gradle", "benchmarks/src/main/java/com/acme/ledger/bench/PostingBenchmark.java"],
+  "tests": [
+    {
+      "file": "core/src/test/java/com/acme/ledger/money/MoneyTest.java",
+      "name": "parsesDecimalStrings",
+      "reaches": ["core/src/main/java/com/acme/ledger/money/Money.java::Money.of"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/money/MoneyTest.java",
+      "name": "rejectsMoreDecimalsThanTheCurrencyHas",
+      "reaches": ["core/src/main/java/com/acme/ledger/money/Money.java::Money.of"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/money/MoneyTest.java",
+      "name": "refusesToAddAcrossCurrencies",
+      "reaches": ["core/src/main/java/com/acme/ledger/money/Money.java::Money.of", "core/src/main/java/com/acme/ledger/money/Money.java::Money.plus"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/money/MoneyTest.java",
+      "name": "roundsHalfToEven",
+      "reaches": ["core/src/main/java/com/acme/ledger/money/Money.java::Money.Money", "core/src/main/java/com/acme/ledger/money/Money.java::Money.times"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/money/MoneyTest.java",
+      "name": "formatsANegativeAmountWithTheSignFirst",
+      "reaches": ["core/src/main/java/com/acme/ledger/money/Money.java::Money.of", "core/src/main/java/com/acme/ledger/money/Money.java::Money.negate", "core/src/main/java/com/acme/ledger/money/Money.java::Money.toString"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/money/MoneyTest.java",
+      "name": "ordersByAmount",
+      "reaches": ["core/src/main/java/com/acme/ledger/money/Money.java::Money.of", "core/src/main/java/com/acme/ledger/money/Money.java::Money.compareTo"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/money/MoneyTest.java",
+      "name": "zeroIsNeitherNegativeNorNonZero",
+      "reaches": ["core/src/main/java/com/acme/ledger/money/Money.java::Money.zero", "core/src/main/java/com/acme/ledger/money/Money.java::Money.isZero", "core/src/main/java/com/acme/ledger/money/Money.java::Money.isNegative"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/money/CurrencyTest.java",
+      "name": "findsACurrencyByItsCode",
+      "reaches": ["core/src/main/java/com/acme/ledger/money/Currency.java::Currency.fromCode"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/money/CurrencyTest.java",
+      "name": "rejectsCodesItDoesNotBookIn",
+      "reaches": ["core/src/main/java/com/acme/ledger/money/Currency.java::Currency.fromCode"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/account/AccountTest.java",
+      "name": "aDebitRaisesAnAsset",
+      "reaches": ["core/src/main/java/com/acme/ledger/account/Account.java::Account.Account", "core/src/main/java/com/acme/ledger/account/Account.java::Account.apply", "core/src/main/java/com/acme/ledger/account/Account.java::Account.balance", "core/src/main/java/com/acme/ledger/journal/Entry.java::Entry.debit", "core/src/main/java/com/acme/ledger/account/AccountType.java::AccountType.isDebitNormal"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/account/AccountTest.java",
+      "name": "aFrozenAccountRefusesEntries",
+      "reaches": ["core/src/main/java/com/acme/ledger/account/Account.java::Account.freeze", "core/src/main/java/com/acme/ledger/account/Account.java::Account.apply"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/account/AccountTest.java",
+      "name": "rejectsACodeThatIsNotFourDigits",
+      "reaches": ["core/src/main/java/com/acme/ledger/account/Account.java::Account.Account"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/account/AccountTest.java",
+      "name": "closesOnlyIncomeAndExpenseAtPeriodEnd",
+      "reaches": ["core/src/main/java/com/acme/ledger/account/AccountType.java::AccountType.isTemporary"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/account/InMemoryAccountRepositoryTest.java",
+      "name": "findsASavedAccountByCode",
+      "reaches": ["core/src/main/java/com/acme/ledger/account/Account.java::Account.Account", "core/src/main/java/com/acme/ledger/account/InMemoryAccountRepository.java::InMemoryAccountRepository.save", "core/src/main/java/com/acme/ledger/account/InMemoryAccountRepository.java::InMemoryAccountRepository.find"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/account/InMemoryAccountRepositoryTest.java",
+      "name": "refusesASecondAccountWithTheSameCode",
+      "reaches": ["core/src/main/java/com/acme/ledger/account/Account.java::Account.Account", "core/src/main/java/com/acme/ledger/account/InMemoryAccountRepository.java::InMemoryAccountRepository.save"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/journal/JournalEntryTest.java",
+      "name": "needsAtLeastTwoLines",
+      "reaches": ["core/src/main/java/com/acme/ledger/journal/JournalEntry.java::JournalEntry.on", "core/src/main/java/com/acme/ledger/journal/JournalEntry.java::JournalEntry.Builder.debit", "core/src/main/java/com/acme/ledger/journal/JournalEntry.java::JournalEntry.Builder.build"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/journal/JournalEntryTest.java",
+      "name": "aReversalSwapsEverySide",
+      "reaches": ["core/src/main/java/com/acme/ledger/journal/JournalEntry.java::JournalEntry.reversal", "core/src/main/java/com/acme/ledger/journal/JournalEntry.java::JournalEntry.isBalanced", "core/src/main/java/com/acme/ledger/journal/JournalEntry.java::JournalEntry.memo", "core/src/main/java/com/acme/ledger/journal/Entry.java::Entry.reversed"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/journal/LedgerTest.java",
+      "name": "postsABalancedEntryToEveryAccountItNames",
+      "reaches": ["core/src/main/java/com/acme/ledger/journal/Ledger.java::Ledger.post", "core/src/main/java/com/acme/ledger/journal/Ledger.java::Ledger.balanceOf", "core/src/main/java/com/acme/ledger/journal/Ledger.java::Ledger.account", "core/src/main/java/com/acme/ledger/journal/JournalEntry.java::JournalEntry.isBalanced", "core/src/main/java/com/acme/ledger/journal/JournalEntry.java::JournalEntry.Builder.credit"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/journal/LedgerTest.java",
+      "name": "refusesAnUnbalancedEntryAndSaysByHowMuch",
+      "reaches": ["core/src/main/java/com/acme/ledger/journal/Ledger.java::Ledger.post", "core/src/main/java/com/acme/ledger/journal/Ledger.java::Ledger.journal", "core/src/main/java/com/acme/ledger/journal/UnbalancedEntryException.java::UnbalancedEntryException.UnbalancedEntryException", "core/src/main/java/com/acme/ledger/journal/UnbalancedEntryException.java::UnbalancedEntryException.difference"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/journal/LedgerTest.java",
+      "name": "refusesAnEntryToAnAccountNotInTheChart",
+      "reaches": ["core/src/main/java/com/acme/ledger/journal/Ledger.java::Ledger.post", "core/src/main/java/com/acme/ledger/journal/Ledger.java::Ledger.balanceOf", "core/src/main/java/com/acme/ledger/journal/Ledger.java::Ledger.account"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/journal/LedgerTest.java",
+      "name": "theTrialBalanceIsZeroAfterBalancedPostings",
+      "reaches": ["core/src/main/java/com/acme/ledger/journal/Ledger.java::Ledger.post", "core/src/main/java/com/acme/ledger/journal/Ledger.java::Ledger.trialBalance"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/journal/LedgerTest.java",
+      "name": "postsAnEntryInASecondCurrency",
+      "reaches": ["core/src/main/java/com/acme/ledger/journal/Ledger.java::Ledger.post"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/journal/LedgerTest.java",
+      "name": "refusesAnEntryDatedInsideIt",
+      "reaches": ["core/src/main/java/com/acme/ledger/journal/Ledger.java::Ledger.post"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/journal/LedgerTest.java",
+      "name": "acceptsAnEntryDatedAfterIt",
+      "reaches": ["core/src/main/java/com/acme/ledger/journal/Ledger.java::Ledger.post", "core/src/main/java/com/acme/ledger/journal/Ledger.java::Ledger.journal"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/journal/LedgerTest.java",
+      "name": "cannotBeReopened",
+      "reaches": ["core/src/main/java/com/acme/ledger/journal/Ledger.java::Ledger.closeThrough"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/fx/ConverterTest.java",
+      "name": "convertsAtTheDaysRate",
+      "reaches": ["core/src/main/java/com/acme/ledger/fx/Converter.java::Converter.convert", "core/src/main/java/com/acme/ledger/money/Money.java::Money.of"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/fx/ConverterTest.java",
+      "name": "failsWhenThereIsNoRate",
+      "reaches": ["core/src/main/java/com/acme/ledger/fx/Converter.java::Converter.convert"]
+    },
+    {
+      "file": "core/src/test/java/com/acme/ledger/fx/ConverterTest.java",
+      "name": "crossesTwoCurrenciesThroughTheBase",
+      "reaches": ["core/src/main/java/com/acme/ledger/fx/FixedRates.java::FixedRates.FixedRates", "core/src/main/java/com/acme/ledger/fx/FixedRates.java::FixedRates.with", "core/src/main/java/com/acme/ledger/fx/Converter.java::Converter.Converter", "core/src/main/java/com/acme/ledger/fx/Converter.java::Converter.convert"]
+    },
+    {
+      "file": "api/src/test/java/com/acme/ledger/api/RequestValidatorTest.java",
+      "name": "acceptsAWellFormedRequest",
+      "reaches": ["api/src/main/java/com/acme/ledger/api/RequestValidator.java::RequestValidator.validate"]
+    },
+    {
+      "file": "api/src/test/java/com/acme/ledger/api/RequestValidatorTest.java",
+      "name": "reportsEveryProblemNotJustTheFirst",
+      "reaches": ["api/src/main/java/com/acme/ledger/api/RequestValidator.java::RequestValidator.validate"]
+    },
+    {
+      "file": "api/src/test/java/com/acme/ledger/api/RequestValidatorTest.java",
+      "name": "rejectsADateThatIsNotIso",
+      "reaches": ["api/src/main/java/com/acme/ledger/api/RequestValidator.java::RequestValidator.validate"]
+    },
+    {
+      "file": "api/src/test/java/com/acme/ledger/api/PostingServiceTest.java",
+      "name": "postsAValidRequestToTheLedger",
+      "reaches": ["api/src/main/java/com/acme/ledger/api/PostingService.java::PostingService.submit", "api/src/main/java/com/acme/ledger/api/PostingService.java::PostingService.toEntry", "api/src/main/java/com/acme/ledger/api/RequestValidator.java::RequestValidator.validate", "api/src/main/java/com/acme/ledger/api/PostingResult.java::PostingResult.accepted"]
+    },
+    {
+      "file": "api/src/test/java/com/acme/ledger/api/PostingServiceTest.java",
+      "name": "rejectsAnInvalidRequestWithoutTouchingTheLedger",
+      "reaches": ["api/src/main/java/com/acme/ledger/api/PostingService.java::PostingService.submit", "api/src/main/java/com/acme/ledger/api/PostingResult.java::PostingResult.rejected"]
+    },
+    {
+      "file": "api/src/test/java/com/acme/ledger/api/PostingServiceTest.java",
+      "name": "turnsALedgerRefusalIntoARejection",
+      "reaches": ["api/src/main/java/com/acme/ledger/api/PostingService.java::PostingService.submit", "core/src/main/java/com/acme/ledger/journal/UnbalancedEntryException.java::UnbalancedEntryException.UnbalancedEntryException"]
+    },
+    {
+      "file": "api/src/test/java/com/acme/ledger/api/PostingServiceTest.java",
+      "name": "buildsAJournalEntryFromTheRequest",
+      "reaches": ["api/src/main/java/com/acme/ledger/api/PostingService.java::PostingService.toEntry", "core/src/main/java/com/acme/ledger/journal/JournalEntry.java::JournalEntry.total", "core/src/main/java/com/acme/ledger/journal/JournalEntry.java::JournalEntry.memo", "core/src/main/java/com/acme/ledger/money/Currency.java::Currency.fromCode", "core/src/main/java/com/acme/ledger/money/Money.java::Money.of"]
+    },
+    {
+      "file": "api/src/test/java/com/acme/ledger/api/PostingServiceTest.java",
+      "name": "classifiesARejectionMessage",
+      "reaches": ["api/src/main/java/com/acme/ledger/api/ApiError.java::ApiError.classify"]
+    }
+  ]
+}

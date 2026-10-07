@@ -1,0 +1,23 @@
+{
+  "name": "stratum",
+  "description": "Layered configuration for Node: files, environment and flags, merged, interpolated and checked against a schema",
+  "version": "2.1.0",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js",
+    "./formats": "./src/formats/index.js"
+  },
+  "files": [
+    "src/"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include='src/**'",
+    "docs": "node scripts/build-docs.js stratum.schema.json docs/configuration.md",
+    "prepublishOnly": "node scripts/check-exports.js"
+  }
+}

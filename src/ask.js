@@ -88,8 +88,10 @@ export function check(question, at, noun = 'question') {
   const full = expand(question);
   const type = full.type ?? 'noul';
   if (!SHAPES.includes(type)) throw new Error(`${where}: type is ${SHAPES.join(', ')}, not ${type}`);
-  if (!full.where) throw new Error(`${where}: needs where to say what it applies to`);
   if (full.each && !EACH.includes(full.each)) throw new Error(`${where}: each is ${EACH.join(', ')}, not ${full.each}`);
+  // A rule about tests covers every test the parser finds, in whatever file and language; where only narrows it. Anything else
+  // has to say what it is about.
+  if (!full.where && full.each !== 'test') throw new Error(`${where}: needs where to say what it applies to`);
   // Every language named has to be one perch parses. A misspelt one matches no method, so the question would never be asked and
   // nothing would say so.
   const languages = [full.language ?? []].flat();
@@ -182,8 +184,14 @@ export function parseScanTypes(text, at) {
   return types.map(type => String(type).trim().toLowerCase());
 }
 
+/**
+ * The raw text of scan.yaml. `perch rules edit` on a shipped question copies that question's lines out of this text into
+ * perch.yaml, so the copy keeps scan.yaml's wording and line breaks instead of being re-wrapped.
+ */
+export const SCAN_YAML = readFileSync(new URL('../scan.yaml', import.meta.url), 'utf8');
+
 /** The questions perch ships with, read once. The file is the source of truth; nothing here is duplicated in code. */
-export const BUILTIN = parseQuestions(readFileSync(new URL('../scan.yaml', import.meta.url), 'utf8'), 'scan.yaml');
+export const BUILTIN = parseQuestions(SCAN_YAML, 'scan.yaml');
 
 /**
  * The set in force. Reading a repository's own questions installs them here, so a report built from a finding on disk labels it

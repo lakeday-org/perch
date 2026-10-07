@@ -1,0 +1,38 @@
+# Dependabot opens pull requests for outdated npm packages and GitHub Actions.
+#
+# Minor and patch bumps arrive together in one pull request a week, so the board does not fill with a pull request per
+# package. A major bump gets a pull request of its own, since it is the one that can break something and wants reading
+# on its own.
+#
+# Titles carry a chore prefix. release-please reads squashed pull request titles to cut releases, and a dependency bump
+# moves nothing by itself. Retitle one as fix: when it changes what a user of perch sees.
+
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # package.json says node >=22, so the types stay on 22 until the engine moves.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns: ["*"]

@@ -1,6 +1,8 @@
 /** Results directory layout: what a scan found, what it did, and what you set aside, under one --out directory. */
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { appendFile, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { createInterface } from 'node:readline';
 import { dirname, join, resolve } from 'node:path';
 import { git, repoRoot } from './git.js';
 import { BELIEVED, flagged, issuesOf, issueWeight } from './questions.js';
@@ -11,13 +13,97 @@ export const identity = (...parts) => sha256(JSON.stringify(parts)).slice(0, 16)
 /** A short stable handle for a method's finding, the same across scans. */
 export const findingId = method => identity('finding', method).slice(0, 8);
 
+const plain = value => value !== null && typeof value === 'object' && typeof value.toJSON !== 'function'
+  && (Array.isArray(value) || [Object.prototype, null].includes(Object.getPrototypeOf(value)));
+const skipped = value => value === undefined || typeof value === 'function' || typeof value === 'symbol';
+
+/**
+ * `JSON.stringify(value, null, 2)` in pieces, each ending at a token, so a value longer than the longest string Node can build is
+ * still written. The pieces join to exactly what JSON.stringify returns. Arrays and plain objects near the top are opened here;
+ * anything deeper is one piece, since it is a single method or test and nowhere near that size.
+ */
+export function* jsonPieces(value, depth = 0) {
+  if (!plain(value) || depth > 2) {
+    const text = JSON.stringify(value, null, 2);
+    yield depth ? text.replaceAll('\n', `\n${'  '.repeat(depth)}`) : text;
+    return;
+  }
+  const pad = '  '.repeat(depth), inner = '  '.repeat(depth + 1);
+  if (Array.isArray(value)) {
+    if (!value.length) { yield '[]'; return; }
+    yield '[\n';
+    for (let index = 0; index < value.length; index++) {
+      yield inner;
+      if (skipped(value[index])) yield 'null'; else yield* jsonPieces(value[index], depth + 1);
+      yield index < value.length - 1 ? ',\n' : '\n';
+    }
+    yield `${pad}]`;
+    return;
+  }
+  // Each property is read once, as JSON.stringify reads it: a getter runs once.
+  const entries = Object.keys(value).map(key => [key, value[key]]).filter(([, item]) => !skipped(item));
+  if (!entries.length) { yield '{}'; return; }
+  yield '{\n';
+  for (const [index, [key, item]] of entries.entries()) {
+    yield `${inner}${JSON.stringify(key)}: `;
+    yield* jsonPieces(item, depth + 1);
+    yield index < entries.length - 1 ? ',\n' : '\n';
+  }
+  yield `${pad}}`;
+}
+
+/** The pieces of `jsonPieces` gathered into strings of about a megabyte, each still ending at a token. */
+export function* jsonChunks(value) {
+  let chunk = '';
+  for (const piece of jsonPieces(value)) {
+    chunk += piece;
+    if (chunk.length > 1 << 20) { yield chunk; chunk = ''; }
+  }
+  if (chunk) yield chunk;
+}
+
 export async function writeJson(path, value) {
   await mkdir(dirname(path), { recursive: true });
   const tmp = `${path}.${randomUUID()}.tmp`;
   try {
-    await writeFile(tmp, JSON.stringify(value, null, 2) + '\n');
+    const handle = await open(tmp, 'w');
+    try {
+      for (const chunk of jsonChunks(value)) await handle.write(chunk);
+      await handle.write('\n');
+    } finally { await handle.close(); }
     await rename(tmp, path);
   } finally { await rm(tmp, { force: true }); }
+}
+
+/**
+ * A scan is a header in scan.json and one line per source file in files.jsonl beside it. Written as one JSON document, the
+ * scan of a 50,000-file repository was longer than the longest string Node can build, and the run died after parsing.
+ */
+export async function writeScan(dir, scan) {
+  await mkdir(dir, { recursive: true });
+  const tmp = join(dir, `files.jsonl.${randomUUID()}.tmp`);
+  try {
+    const handle = await open(tmp, 'w');
+    try {
+      let chunk = '';
+      for (const file of scan.files) {
+        chunk += JSON.stringify(file) + '\n';
+        if (chunk.length > 1 << 20) { await handle.write(chunk); chunk = ''; }
+      }
+      await handle.write(chunk);
+    } finally { await handle.close(); }
+    await rename(tmp, join(dir, 'files.jsonl'));
+  } finally { await rm(tmp, { force: true }); }
+  await writeJson(join(dir, 'scan.json'), { ...scan, files: 'files.jsonl' });
+}
+
+export async function readScan(dir) {
+  const scan = await readJson(join(dir, 'scan.json'), null);
+  if (!scan || Array.isArray(scan.files) || !scan.files) return scan;
+  const files = [];
+  const lines = createInterface({ input: createReadStream(join(dir, scan.files), 'utf8'), crlfDelay: Infinity });
+  for await (const line of lines) if (line) files.push(JSON.parse(line));
+  return { ...scan, files };
 }
 
 export async function readJson(path, fallback) {
@@ -87,7 +173,7 @@ export function openStore(out) {
     const list = [];
     for (const entry of await entries(join(out, kind))) {
       const path = join(out, kind, entry.name, file);
-      const record = entry.isDirectory() ? await (kind === 'runs' ? readRun(path) : readJson(path, null)) : null;
+      const record = !entry.isDirectory() ? null : kind === 'runs' ? await readRun(path) : kind === 'scans' ? await readScan(join(out, kind, entry.name)) : await readJson(path, null);
       if (record) list.push(record);
     }
     return list.sort(byCreation);
@@ -131,7 +217,7 @@ export function openStore(out) {
       const path = join(out, '.gitignore');
       const rules = out === join(root, '.perch') ? '!rules/\n' : '';
       const wanted = '# Written by perch. Rules and closures are committed; scan output is not.\n/*\n!closed.jsonl\n' + rules;
-      if (await readFile(path, 'utf8').catch(() => null) === wanted) return;
+      if (await readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return null; throw error; }) === wanted) return;
       await mkdir(out, { recursive: true });
       await writeFile(path, wanted);
     },
@@ -148,24 +234,48 @@ export function openStore(out) {
     async startLog() {
       await mkdir(out, { recursive: true });
       await writeFile(store.logPath, `${new Date().toISOString()} perch\n`);
-      return line => appendFile(store.logPath, `${new Date().toISOString()} ${line}\n`).catch(() => {});
+      // A line the log could not take must not end the run it describes, so it is said once on stderr and the run goes on.
+      let warned = false;
+      return line => appendFile(store.logPath, `${new Date().toISOString()} ${line}\n`).catch(error => {
+        if (!warned) process.stderr.write(`perch: could not write ${store.logPath}: ${error.message}; the run goes on without its log\n`);
+        warned = true;
+      });
     },
     /** Enough of the end to show what a run was doing when it stopped, which is what doctor prints when one did not finish. */
     async tail(count = 20) {
-      const text = await readFile(store.logPath, 'utf8').catch(() => '');
+      // No log is a run that never started one; one that is there and unreadable is an error doctor has to show.
+      const text = await readFile(store.logPath, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
       return text.split('\n').filter(Boolean).slice(-count);
     },
+    // Read and written a line at a time: a large repository's coverage answers are longer than any one string Node can build.
     async readLines(path) {
-      const text = await readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
-      return text.split('\n').filter(Boolean).map(line => JSON.parse(line));
+      const rows = [];
+      try {
+        for await (const line of createInterface({ input: createReadStream(path, 'utf8'), crlfDelay: Infinity })) if (line) rows.push(JSON.parse(line));
+      } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+      return rows;
+    },
+    /** Rows added to the end of a .jsonl file, as a run that keeps what each answer cost while it goes writes them. */
+    async appendLines(path, rows) {
+      await mkdir(dirname(path), { recursive: true });
+      await appendFile(path, rows.map(row => JSON.stringify(row) + '\n').join(''));
     },
     async writeLines(path, rows) {
       // Written beside and moved into place, the way writeJson does. A crash partway through a direct write leaves the file every
       // command reads truncated at whatever line it reached, which reads as a scan that found less rather than as a broken file.
-      await mkdir(out, { recursive: true });
+      // The directory the file is in, which is the store's own only for a file at its top.
+      await mkdir(dirname(path), { recursive: true });
       const tmp = `${path}.${randomUUID()}.tmp`;
       try {
-        await writeFile(tmp, rows.map(row => JSON.stringify(row)).join('\n') + (rows.length ? '\n' : ''));
+        const handle = await open(tmp, 'w');
+        try {
+          let chunk = '';
+          for (const row of rows) {
+            chunk += JSON.stringify(row) + '\n';
+            if (chunk.length > 1 << 20) { await handle.write(chunk); chunk = ''; }
+          }
+          await handle.write(chunk);
+        } finally { await handle.close(); }
         await rename(tmp, path);
       } finally { await rm(tmp, { force: true }); }
     },
@@ -198,6 +308,8 @@ export function openStore(out) {
       return event;
     },
     dismiss(finding, reason, kinds = null) { return store.decide('dismissed', finding, { kinds, reason }); },
+    /** What is closed, by id: the kinds each closure covers, when and why. */
+    async closures() { return closures(await store.readLines(store.closedPath)); },
     reopen(finding, kinds = null) { return store.decide('reopened', finding, { kinds }); },
     /** The latest System One reading of each method. */
     async latestFindings() {
@@ -220,6 +332,9 @@ export function openStore(out) {
           if (file.test) continue;
           for (const method of file.methods) {
             seen.add(method.id);
+            // A test case in a source file, Rust's `#[cfg(test)] mod tests`, and the helpers beside it are tests, not code with
+            // issues of its own.
+            if (method.test || method.support) continue;
             const reading = byMethod.get(method.id);
             const base = { metrics: method.metrics, file: file.metrics };
             // Answers about a method that has since changed are stale; the metrics are always about the code as it is.

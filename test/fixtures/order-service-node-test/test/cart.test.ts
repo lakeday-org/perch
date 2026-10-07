@@ -1,0 +1,40 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { applyDiscount, subtotal } from '../src/cart.ts';
+import type { Item } from '../src/cart.ts';
+
+describe('applyDiscount', () => {
+  it('takes 10 percent off', () => {
+    assert.equal(applyDiscount(200, 10), 180);
+  });
+
+  it('takes 20 percent off', () => {
+    assert.equal(applyDiscount(200, 20), 160);
+  });
+
+  it('takes 25 percent off', () => {
+    assert.equal(applyDiscount(200, 25), 150);
+  });
+
+  it('takes 50 percent off', () => {
+    assert.equal(applyDiscount(200, 50), 100);
+  });
+
+  it('takes 75 percent off', () => {
+    assert.equal(applyDiscount(200, 75), 50);
+  });
+});
+
+describe('subtotal', () => {
+  it('adds up the cart', () => {
+    subtotal([{ sku: 'book', quantity: 1, unitPrice: 20 }, { sku: 'pen', quantity: 2, unitPrice: 3 }]);
+  });
+
+  it('matches the total the orders API saved', async () => {
+    const response = await fetch(`${process.env.ORDERS_API_URL}/orders/1`, {
+      headers: { authorization: `Bearer ${process.env.ORDERS_API_TOKEN}` },
+    });
+    const order = await response.json() as { items: Item[]; total: number };
+    assert.equal(subtotal(order.items), order.total);
+  });
+});

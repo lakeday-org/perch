@@ -65,6 +65,13 @@ repository = "repo-test"
     await expect(configuredEnvironment({ HOME: home })).rejects.toThrow('Duplicate setting model');
   });
 
+  it('refuses a name every object has as an unknown setting, rather than writing it into the environment', async () => {
+    for (const name of ['constructor', '__proto__']) {
+      const home = await configHome(`${name} = "x"\n`);
+      await expect(configuredEnvironment({ HOME: home })).rejects.toThrow(`Unknown setting ${name}`);
+    }
+  });
+
   it('keeps local commands usable with a bad config and reports it in doctor', async () => {
     const home = await configHome('modle = "https://example.com"\n');
     const output = [], errors = [];

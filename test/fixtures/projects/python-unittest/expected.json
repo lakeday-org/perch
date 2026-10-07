@@ -1,0 +1,162 @@
+{
+  "language": "python",
+  "framework": "unittest",
+  "left_out": ["scripts/check_release.py", "benchmarks/bench_algorithms.py"],
+  "tests": [
+    {
+      "file": "tests/test_policy.py",
+      "name": "test_forms_people_write",
+      "reaches": ["governor/policy.py::parse_rate", "governor/policy.py::_expand"]
+    },
+    {
+      "file": "tests/test_policy.py",
+      "name": "test_rejects_what_it_cannot_read",
+      "reaches": ["governor/policy.py::parse_rate"]
+    },
+    {
+      "file": "tests/test_policy.py",
+      "name": "test_str_round_trips",
+      "reaches": ["governor/policy.py::parse_rate"]
+    },
+    {
+      "file": "tests/test_policy.py",
+      "name": "test_sorted_shortest_period_first_without_duplicates",
+      "reaches": ["governor/policy.py::parse_policy", "governor/policy.py::parse_rate"]
+    },
+    {
+      "file": "tests/test_policy.py",
+      "name": "test_empty_policy_raises",
+      "reaches": ["governor/policy.py::parse_policy"]
+    },
+    {
+      "file": "tests/test_token_bucket.py",
+      "name": "test_burst_then_refusal",
+      "reaches": ["governor/algorithms/token_bucket.py::TokenBucket.hit", "governor/algorithms/token_bucket.py::TokenBucket._refill", "governor/algorithms/token_bucket.py::TokenBucket._decision"]
+    },
+    {
+      "file": "tests/test_token_bucket.py",
+      "name": "test_tokens_refill_with_time",
+      "reaches": ["governor/testing.py::FakeClock.advance"]
+    },
+    {
+      "file": "tests/test_token_bucket.py",
+      "name": "test_peek_does_not_take_a_token",
+      "reaches": ["governor/algorithms/token_bucket.py::TokenBucket.hit", "governor/algorithms/token_bucket.py::TokenBucket.peek"]
+    },
+    {
+      "file": "tests/test_token_bucket.py",
+      "name": "test_check_raises_with_retry_after",
+      "reaches": ["governor/algorithms/base.py::Limiter.check", "governor/errors.py::RateLimitExceeded.__init__"]
+    },
+    {
+      "file": "tests/test_token_bucket.py",
+      "name": "test_reset_refills_the_bucket",
+      "reaches": ["governor/algorithms/base.py::Limiter.reset", "governor/algorithms/token_bucket.py::TokenBucket.hit"]
+    },
+    {
+      "file": "tests/test_windows.py",
+      "name": "test_next_window_starts_fresh",
+      "reaches": ["governor/algorithms/fixed_window.py::FixedWindow.hit", "governor/algorithms/fixed_window.py::FixedWindow._window", "governor/testing.py::FakeClock.advance"]
+    },
+    {
+      "file": "tests/test_windows.py",
+      "name": "test_refused_hits_take_nothing",
+      "reaches": ["governor/algorithms/fixed_window.py::FixedWindow.hit", "governor/algorithms/fixed_window.py::FixedWindow.peek", "governor/algorithms/base.py::Limiter.key_for", "governor/storage/memory.py::MemoryStorage.get"]
+    },
+    {
+      "file": "tests/test_windows.py",
+      "name": "test_previous_window_still_counts",
+      "reaches": ["governor/algorithms/sliding_window.py::SlidingWindowCounter.hit", "governor/algorithms/sliding_window.py::SlidingWindowCounter._counts", "governor/testing.py::FakeClock.advance", "governor/testing.py::FakeClock.now"]
+    },
+    {
+      "file": "tests/test_windows.py",
+      "name": "test_refusal_says_when_to_retry",
+      "reaches": ["governor/algorithms/sliding_window.py::SlidingWindowCounter.hit"]
+    },
+    {
+      "file": "tests/test_storage.py",
+      "name": "test_keys_expire",
+      "reaches": ["governor/storage/memory.py::MemoryStorage.set", "governor/storage/memory.py::MemoryStorage.get", "governor/testing.py::FakeClock.advance"]
+    },
+    {
+      "file": "tests/test_storage.py",
+      "name": "test_incr_keeps_the_first_expiry",
+      "reaches": ["governor/storage/memory.py::MemoryStorage.incr"]
+    },
+    {
+      "file": "tests/test_storage.py",
+      "name": "test_delete",
+      "reaches": ["governor/storage/memory.py::MemoryStorage.set", "governor/storage/memory.py::MemoryStorage.delete"]
+    },
+    {
+      "file": "tests/test_storage.py",
+      "name": "test_sleep_skips_non_positive_waits",
+      "reaches": ["governor/clock.py::SystemClock.sleep"]
+    },
+    {
+      "file": "tests/test_storage.py",
+      "name": "test_default_storage_uses_the_system_clock",
+      "reaches": ["governor/storage/memory.py::MemoryStorage.__init__"]
+    },
+    {
+      "file": "tests/test_storage.py",
+      "name": "test_now_is_monotonic",
+      "reaches": ["governor/clock.py::SystemClock.now"]
+    },
+    {
+      "file": "tests/test_keys.py",
+      "name": "test_untrusted_peer_is_the_client",
+      "reaches": ["governor/keys.py::remote_addr", "governor/keys.py::_trusted"]
+    },
+    {
+      "file": "tests/test_keys.py",
+      "name": "test_reads_through_trusted_proxies",
+      "reaches": ["governor/keys.py::remote_addr"]
+    },
+    {
+      "file": "tests/test_keys.py",
+      "name": "test_cases",
+      "reaches": ["governor/keys.py::remote_addr"]
+    },
+    {
+      "file": "tests/test_keys.py",
+      "name": "test_header_falls_back_to_a_default",
+      "reaches": ["governor/keys.py::header"]
+    },
+    {
+      "file": "tests/test_keys.py",
+      "name": "test_compose_joins_keys",
+      "reaches": ["governor/keys.py::compose", "governor/keys.py::header"]
+    },
+    {
+      "file": "tests/test_headers.py",
+      "name": "test_allowed_decision",
+      "reaches": ["governor/headers.py::rate_limit_headers", "governor/headers.py::format_seconds"]
+    },
+    {
+      "file": "tests/test_headers.py",
+      "name": "test_format_seconds",
+      "reaches": ["governor/headers.py::format_seconds"]
+    },
+    {
+      "file": "tests/test_headers.py",
+      "name": "test_parse_retry_after",
+      "reaches": ["governor/headers.py::parse_retry_after"]
+    },
+    {
+      "file": "tests/test_decorators.py",
+      "name": "test_raises_once_the_limit_is_spent",
+      "reaches": ["governor/decorators.py::limit"]
+    },
+    {
+      "file": "tests/test_decorators.py",
+      "name": "test_block_waits_its_turn",
+      "reaches": ["governor/decorators.py::limit"]
+    },
+    {
+      "file": "tests/test_middleware.py",
+      "name": "test_over_the_limit_is_answered_429",
+      "reaches": ["governor/middleware.py::RateLimitMiddleware.__call__"]
+    }
+  ]
+}

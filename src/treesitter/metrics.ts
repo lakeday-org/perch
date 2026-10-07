@@ -6,6 +6,7 @@ import type {
   SourcePoint,
 } from "./types";
 import { measureComplexity } from "./complexity";
+import { walk, type SyntaxIndex } from "./visit";
 
 export const STRING_TYPES = new Set([
   "string",
@@ -134,7 +135,9 @@ export const FUNCTION_TYPES = new Set([
   "method",
   "singleton_method",
   "constructor_declaration",
+  "compact_constructor_declaration",
   "constructor_definition",
+  "init_declaration",
   "arrow_function",
   "function_expression",
   "generator_function",
@@ -160,6 +163,8 @@ export const FUNCTION_TYPES = new Set([
   "function_declaration_statement",
   "function_definition_statement",
   "function_def",
+  // A Solidity modifier runs around each function that names it: a callable with a body of its own.
+  "modifier_definition",
 ]);
 
 const EXCLUDED_FUNCTION_TYPES = new Set(["function_declarator"]);
@@ -204,10 +209,17 @@ const SCOPE_TYPES = new Set([
   "internal_module",
   "module_definition",
   "object_declaration",
+  "object_definition",
+  "trait_definition",
   "object",
   "enum_declaration",
+  "record_declaration",
   "enum_item",
   "module",
+  "contract_declaration",
+  "library_declaration",
+  // Ruby's class, whose methods are `Shop.Cart.total`, as its module's are.
+  "class",
 ]);
 
 const NAME_TYPES = new Set([
@@ -235,26 +247,17 @@ export function isComment(node: Node): boolean {
 }
 
 export function isFunction(node: Node): boolean {
+  // A grammar can name a keyword token after the construct it opens: JavaScript's `function`, Python's `lambda`. A leaf is
+  // never a second declaration at the same byte as the one around it.
+  if (node.childCount === 0) return false;
   if (extraScopeName(node)) return false;
   if (callableName(node)) return true;
-  if (!FUNCTION_TYPES.has(node.type) || EXCLUDED_FUNCTION_TYPES.has(node.type)) return false;
-  // JavaScript's grammar exposes the `function` keyword as a named leaf below
-  // function_declaration. It is not a second callable declaration.
-  if (node.type === "function" && !node.childForFieldName("body")) return false;
-  return true;
+  return FUNCTION_TYPES.has(node.type) && !EXCLUDED_FUNCTION_TYPES.has(node.type);
 }
 
 /** Walk the language pack's native tree without materializing a second syntax tree. */
 export function* walkNodes(root: Node): Generator<Node> { yield* root.walk(); }
 
-function childNodes(node: Node): Node[] {
-  const children: Node[] = [];
-  for (let index = node.childCount - 1; index >= 0; index -= 1) {
-    const child = node.child(index);
-    if (child) children.push(child);
-  }
-  return children;
-}
 
 function lineRange(node: Node): [number, number] {
   const start = node.startPosition.row;
@@ -285,18 +288,8 @@ function nonblankLines(source: string): Set<number> {
   return result;
 }
 
-function containsInterpolation(node: Node): boolean {
-  const stack = [node];
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current) continue;
-    if (current !== node && INTERPOLATION_TYPES.has(current.type)) return true;
-    for (let index = current.childCount - 1; index >= 0; index -= 1) {
-      const child = current.child(index);
-      if (child) stack.push(child);
-    }
-  }
-  return false;
+function containsInterpolation(node: Node, index: SyntaxIndex): boolean {
+  return index.within(node).some(current => current !== node && INTERPOLATION_TYPES.has(current.type));
 }
 
 function isLeaf(node: Node): boolean {
@@ -371,40 +364,43 @@ export const nonblankRows = (root: Node): Set<number> => new Set([...nonblankLin
  * `nonblank` is the file's nonblank rows, when the caller measures many nodes of one file. Read from each node's own text, a
  * function nested thousands deep re-read everything inside it once per function around it.
  */
-export function measure(root: Node, excludeNested = false, nonblank = nonblankRows(root)): Measurement {
+export function measure(root: Node, excludeNested = false, nonblank = nonblankRows(root), index = walk(root)): Measurement {
   const operators = new Map<string, number>();
   const operands = new Map<string, number>();
   const codeLines = new Set<number>();
   const comments = new Set<number>();
   let opaque_bytes = 0;
-  const stack = [root];
-  while (stack.length > 0) {
-    const node = stack.pop();
-    if (!node) continue;
-    if (node !== root && excludeNested && isFunction(node)) continue;
+  // The root's subtree is a slice of the walk; a node whose subtree is not counted is passed over by jumping to its end.
+  const all = index.all, stop = index.end(root);
+  for (let at = index.at(root); at < stop;) {
+    const node = all[at], past = index.end(node);
+    if (node !== root && excludeNested && isFunction(node)) { at = past; continue; }
     if (isComment(node)) {
       addLines(comments, node);
+      at = past;
       continue;
     }
-    if (node.isMissing || node.endIndex <= node.startIndex) continue;
+    // A MISSING token takes no bytes, so the width says it without asking.
+    if (node.endIndex <= node.startIndex) { at = past; continue; }
     if (node.type === "raw_text" || node.type === "jsx_text" || node.type === "html_text") {
       opaque_bytes += node.endIndex - node.startIndex;
+      at = past;
       continue;
     }
-    if (STRING_TYPES.has(node.type) && !containsInterpolation(node)) {
+    if (STRING_TYPES.has(node.type) && !containsInterpolation(node, index)) {
       const token = lexeme(node);
       operands.set(token, (operands.get(token) ?? 0) + 1);
       addLines(codeLines, node);
+      at = past;
       continue;
     }
     if (isLeaf(node)) {
       addLines(codeLines, node);
       recordToken(node, operators, operands);
+      at = past;
       continue;
     }
-    // One at a time. Spreading the children of a block with hundreds of thousands of statements into one call threw
-    // RangeError, which analysis.js read as the parser being unavailable and ended the whole scan.
-    for (const child of childNodes(node)) stack.push(child);
+    at += 1;
   }
   const sloc = [...codeLines].filter((line) => nonblank.has(line)).length;
   return {
@@ -422,11 +418,32 @@ function text(node: Node | null | undefined, limit = 160): string {
 }
 
 /**
+ * The name a C or C++ declarator declares, and the scopes it is qualified with. `double Cart::total()` declares `total` in
+ * `Cart`; the first name node inside the declarator is `Cart`, which is the class, and read that way every out-of-line member
+ * of a class was called by the class's name.
+ */
+function declared(declarator: Node): { name: Node | null; scopes: string[] } {
+  const scopes: string[] = [];
+  for (const item of walkNodes(declarator)) {
+    if (item.type === "qualified_identifier") {
+      const scope = item.childForFieldName("scope");
+      if (scope) scopes.push(text(scope.childForFieldName("name") ?? scope));
+      const inner = item.childForFieldName("name");
+      if (!inner) return { name: null, scopes };
+      const rest = declared(inner);
+      return { name: rest.name, scopes: [...scopes, ...rest.scopes] };
+    }
+    if (NAME_TYPES.has(item.type)) return { name: item, scopes };
+  }
+  return { name: null, scopes };
+}
+
+/**
  * Names are read once per node. A declaration's qualified name reads the name of every function around it, so a file of nested
  * functions asked for each enclosing name once per declaration inside it, and the native field lookups behind a name were most
  * of the time left in parsing one.
  */
-const names = new WeakMap<Node, string>(), qualifiedNames = new WeakMap<Node, string>();
+const names = new WeakMap<Node, string>();
 const remembered = (cache: WeakMap<Node, string>, node: Node, read: (node: Node) => string): string => {
   let name = cache.get(node);
   if (name === undefined) { name = read(node); cache.set(node, name); }
@@ -436,12 +453,17 @@ const remembered = (cache: WeakMap<Node, string>, node: Node, read: (node: Node)
 export const functionName = (node: Node): string => remembered(names, node, readFunctionName);
 
 function readFunctionName(node: Node): string {
-  let name = callableName(node) ?? node.childForFieldName("name");
-  if (!name) {
+  // `exports.etag = function etag() {}` and `const f = function g() {}`: a function expression's own name is seen only inside
+  // it, and everything else reaches it by what it is assigned to. `module.exports = function query() {}` is the module itself,
+  // so there the function's own name is the one it goes by.
+  const target = node.parent && BINDING_TYPES.has(node.parent.type) ? node.parent.childForFieldName("left") ?? node.parent.childForFieldName("name") : null;
+  const assigned = node.type === "function_expression" && target !== null && !/^(?:module\.exports|exports)$/.test(target.text);
+  let name = assigned ? null : callableName(node) ?? node.childForFieldName("name");
+  // A lambda's declarator lists its parameters, so the first name inside it is a parameter's type: a C++ lambda taking a
+  // `const std::string&` was called `std`. A lambda has no name of its own; it takes one only from what it is bound to.
+  if (!name && !ANONYMOUS_FUNCTION_TYPES.has(node.type)) {
     const declarator = node.childForFieldName("declarator");
-    if (declarator) {
-      name = [...walkNodes(declarator)].find((item) => NAME_TYPES.has(item.type)) ?? null;
-    }
+    if (declarator) name = declared(declarator).name;
   }
   if (!name) {
     let parent = node.parent;
@@ -456,16 +478,44 @@ function readFunctionName(node: Node): string {
         if (name) break;
       }
     }
+    // C++ `auto charge = [](...) {...}` and Rust `let charge = |...| ...`. Only a plain identifier names it: `auto *p = ...`
+    // declares a pointer and `let (a, b) = ...` a pattern, neither of them a function.
+    const bound = parent?.type === "init_declarator" ? parent.childForFieldName("declarator")
+      : parent?.type === "let_declaration" ? parent.childForFieldName("pattern") : null;
+    if (bound?.type === "identifier") name = bound;
   }
   if (!name && !ANONYMOUS_FUNCTION_TYPES.has(node.type)) {
     name = node.namedChildren.find((child) => NAME_TYPES.has(child.type)) ?? null;
   }
+  // Lua's `function Cart:total()` declares total on Cart, as `function Cart.total(self)` does; the method goes by `Cart.total`.
+  if (name?.type === "method_index_expression") return text(name).replace(":", ".");
   return text(name) || "<anonymous>";
 }
 
+/**
+ * A type's arguments are not part of its name: a method of `Stack[T]` or `Stack<T>` belongs to Stack. Named after T, the methods
+ * of two generic types shared one id, told apart only by the order they were declared in, and `perch check` could not find
+ * either by its type.
+ */
+const insideTypeArguments = (node: Node, within: Node): boolean => {
+  for (let parent = node.parent; parent && parent.id !== within.id; parent = parent.parent) if (parent.type === "type_arguments") return true;
+  return false;
+};
+
 function scopeName(node: Node): string | null {
+  // A JavaScript object literal is named by what holds it: `const types = { boolean() {} }` has `types.boolean`. One with
+  // nothing holding it, an argument or a return value, adds no name.
+  if (node.type === "object") {
+    const holder = node.parent;
+    const name = holder?.type === "variable_declarator" ? holder.childForFieldName("name")
+      : holder?.type === "assignment_expression" ? holder.childForFieldName("left") : holder?.type === "pair" ? holder.childForFieldName("key") : null;
+    return name && /^[\p{L}_$][\p{L}\p{N}_$.]*$/u.test(name.text) ? name.text : null;
+  }
   let name = extraScopeName(node) ?? node.childForFieldName("name");
-  if (!name && node.type === "impl_item") name = node.childForFieldName("type");
+  if (!name && node.type === "impl_item") {
+    name = node.childForFieldName("type");
+    if (name?.type === "generic_type") name = name.childForFieldName("type");
+  }
   if (!name) name = node.namedChildren.find((child) => NAME_TYPES.has(child.type)) ?? null;
   return text(name) || null;
 }
@@ -475,19 +525,44 @@ function receiverName(node: Node): string | null {
   if (!receiver) return null;
   const nodes = [...walkNodes(receiver)].reverse();
   const name = nodes.find((item) =>
-    new Set(["type_identifier", "identifier", "simple_identifier"]).has(item.type),
+    new Set(["type_identifier", "identifier", "simple_identifier"]).has(item.type) && !insideTypeArguments(item, receiver),
   );
   return text(name) || null;
 }
 
-export const qualifiedFunctionName = (node: Node): string => remembered(qualifiedNames, node, readQualifiedName);
+/** The scopes a C++ out-of-line definition names in its declarator: `Cart` for `double Cart::total()`. */
+function declaratorScopes(node: Node): string[] {
+  if (ANONYMOUS_FUNCTION_TYPES.has(node.type) || node.childForFieldName("name")) return [];
+  const declarator = node.childForFieldName("declarator");
+  return declarator ? declared(declarator).scopes : [];
+}
 
-function readQualifiedName(node: Node): string {
+/**
+ * A name some callers already know better than the tree does. A test case is named by its title or its macro arguments, not by
+ * the `TEST` or the anonymous callback the grammar sees, and what is declared inside it is qualified by that name.
+ */
+export type Renamed = (node: Node) => string | null;
+const notRenamed: Renamed = () => null;
+/** Qualified names, remembered per node for each way of renaming: one file's test cases rename only that file's nodes. */
+const qualifiedNames = new WeakMap<Renamed, WeakMap<Node, string>>();
+
+export function qualifiedFunctionName(node: Node, renamed: Renamed = notRenamed): string {
+  let cache = qualifiedNames.get(renamed);
+  if (!cache) { cache = new WeakMap(); qualifiedNames.set(renamed, cache); }
+  return remembered(cache, node, item => renamed(item) ?? readQualifiedName(item, renamed));
+}
+
+function readQualifiedName(node: Node, renamed: Renamed): string {
   const parts: string[] = [];
   let parent = node.parent;
   while (parent) {
-    if (isFunction(parent)) parts.push(functionName(parent));
-    else if (SCOPE_TYPES.has(parent.type) || extraScopeName(parent)) {
+    // A renamed ancestor already carries every scope above it: a test case, whether the grammar calls its body a function or,
+    // as with a Ruby `it "x" do ... end`, a block.
+    const known = renamed(parent);
+    if (known !== null) { parts.push(known); break; }
+    if (isFunction(parent)) {
+      parts.push(functionName(parent));
+    } else if (SCOPE_TYPES.has(parent.type) || extraScopeName(parent)) {
       const name = scopeName(parent);
       if (name) parts.push(name);
     }
@@ -496,6 +571,7 @@ function readQualifiedName(node: Node): string {
   const receiver = receiverName(node);
   if (receiver && !parts.includes(receiver)) parts.push(receiver);
   parts.reverse();
+  parts.push(...declaratorScopes(node));
   parts.push(functionName(node));
   return parts.filter(Boolean).join(".") || "<anonymous>";
 }
@@ -509,10 +585,10 @@ function enclosingFunction(node: Node): Node | null {
 /** Whether the last part of a qualified name is a real name rather than <anonymous>. */
 export const isNamed = (qualifiedName: string): boolean => qualifiedName.split(".").at(-1) !== "<anonymous>";
 
-export function parentFunctionName(node: Node): string | null {
+export function parentFunctionName(node: Node, renamed: Renamed = notRenamed): string | null {
   let parent = node.parent;
   while (parent) {
-    if (isFunction(parent)) return qualifiedFunctionName(parent);
+    if (isFunction(parent)) return qualifiedFunctionName(parent, renamed);
     parent = parent.parent;
   }
   return null;

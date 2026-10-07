@@ -4,8 +4,10 @@
 
 # The example applications have deliberate bugs for scanner and workflow verification.
 # Keep it out of ordinary repository scans.
+# scripts/ is dev tooling that regenerates fixture reports and runs live checks; it is not shipped and no test runs it.
 ignore:
   - test/fixtures/**/*
+  - scripts/**
 
 rules:
   - name: cli-honors-api-configuration
@@ -18,7 +20,8 @@ rules:
     where: src/cloud-client.js
     ensure: >-
       When PERCH_BASE_URL is set, scans use PERCH_API_KEY, falling back to
-      TYPESAFE_API_KEY, and pass PERCH_BASE_URL and PERCH_MODEL_ID to
+      OPENAI_API_KEY when PERCH_BASE_URL ends in /decisions and to
+      TYPESAFE_API_KEY otherwise, and pass PERCH_BASE_URL and PERCH_MODEL_ID to
       createSystemOne. PERCH_BASE_URL takes precedence over a saved Cloud login.
   - name: configured-endpoint-is-exact
     where: src/systemone.js
@@ -67,6 +70,7 @@ rules:
       or appendFile on a .jsonl path here breaks this rule.
 
   - name: issues-closable
+    # The released perch that scans this repository's pull requests still requires where on every rule.
     where: "test/**/*.js"
     each: test
     ensure_present: >-
@@ -91,9 +95,16 @@ rules:
   - name: no-silent-failure
     where: "src/**/*.js"
     each: method
-    ensure_absent: >-
-      A catch block or .catch() callback that discards the error and returns a
-      stand-in value, such as null, [] or '', for every error it receives.
+    min: 80
+    ensure: >-
+      Find each catch block and each .catch() callback in this method's own
+      body, not in the callers and callees shown with it; if it has none, this
+      rule holds, whatever else the method does. Each one
+      rethrows the error, returns it to the caller, or reports it. An empty
+      catch, or one that returns a stand-in value such as null, [] or '' so
+      the method carries on as if the step had worked, breaks this rule. A
+      catch that turns only a missing file (ENOENT) into an empty value and
+      rethrows every other error does not.
 
   - name: tests-assert-real-behavior
     where: "test/**/*.js"
@@ -300,3 +311,32 @@ rules:
     # where the rule cannot tell them apart.
     min: 70
     except: [docs/scan.md, docs/issues.md]
+
+  # The two defect questions as scan.yaml ships them, pinned here for their floor. The pull request scan runs a released perch,
+  # and one that still floors them at 50 fails a branch on readings of 51 to 56 that a scan from this checkout leaves out.
+  - name: has_bug
+    each: method
+    where: "**/*"
+    ask: Does `method` contain a concrete behavioral defect that a caller can reach?
+    "true": >
+      For some input a caller can pass, the method returns a wrong result, leaves wrong state, throws
+      when it should not, or fails to throw when it should
+    "false": >
+      The method behaves correctly for every input its callers can pass; style, performance, and
+      hypothetical misuse do not count. A helper is judged by what its shown callers pass it
+    issue:
+      type: defect
+      label: kind
+      pick: strongest
+    min: 60
+  - name: bug_edge_case
+    each: method
+    where: "**/*"
+    ask: Does `method` produce a wrong result for a valid empty, zero, first, last, or missing input?
+    "true": One of these inputs produces an incorrect result or failure, and a shown caller can pass it or it arrives from outside the program.
+    "false": These inputs produce the intended results and errors, or no shown caller can pass them.
+    issue:
+      type: defect
+      label: kind
+      pick: strongest
+    min: 60

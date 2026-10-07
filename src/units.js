@@ -2,8 +2,8 @@
  * The units a rule is asked about, and how one question about one unit is put and read.
  *
  * A scan reads methods, and a rule about a method rides along in that method's own request. The rest do not fit there: a rule
- * about prose is a rule about markdown, which the graph has never heard of, and a rule about a test is about one block inside a
- * file. Those are selected here and asked here.
+ * about prose is a rule about markdown, which the graph has never heard of, and a rule about a test is about one test case, which
+ * the scan does not question. Those are selected here and asked here.
  */
 import { readdir, readFile } from 'node:fs/promises';
 import { join, sep } from 'node:path';
@@ -12,8 +12,8 @@ import { createFileSelector } from './exclusions.js';
 import { sourceChunks } from './chunks.js';
 import { TOKEN_LIMITS, estimateTokens, textTokens, questionBatches, IncompleteCheckError, ContextLimitError, withTokenRetries } from './tokens.js';
 import { appliesToLanguage, BUILTIN, compile, floorFor, installQuestions, merge, parseIgnored, parseQuestions, parseScanTypes, SEARCHES } from './ask.js';
-import { shownSource, spanOf, tagged } from './questions.js';
-import { findingId, sha256 } from './store.js';
+import { shownSource, spanOf } from './questions.js';
+import { findingId } from './store.js';
 import { AuthenticationError } from './systemone.js';
 import { languageOf } from './analysis.js';
 
@@ -40,8 +40,13 @@ export const MAX_SEEN = 8;
  */
 /** The globs `perch.yaml` says not to read, from the file on disk or the one in the commit. */
 export async function readIgnored(root, revision) {
-  const text = await readFile(join(root, RULES_FILE), 'utf8')
-    .catch(() => git(['show', `${revision}:${RULES_FILE}`], root).catch(() => null));
+  // The working tree's perch.yaml, or the commit's when the tree has none, or nothing when neither has one. Any other failure
+  // to read it is an error: a report list that silently read as absent ran coverage without the reports it names.
+  const text = await readFile(join(root, RULES_FILE), 'utf8').catch(async error => {
+    if (error.code !== 'ENOENT') throw error;
+    const committed = (await listTree(root, revision)).some(item => item.path === RULES_FILE);
+    return committed ? git(['show', `${revision}:${RULES_FILE}`], root) : null;
+  });
   return text === null ? [] : parseIgnored(text, RULES_FILE);
 }
 
@@ -185,18 +190,16 @@ export function selectUnits(rule, { scan, graph, files, tree, inScope = () => tr
     const needle = mentions[1].trim();
     return [...graph.nodes.values()].filter(node => !node.test && sourceOf(node, files).includes(needle)).map(methodUnit).filter(spared);
   }
+  // A test is a node the parser marked as a test case from its syntax, in whatever language it is written, and it spans exactly
+  // its own body. Its hash is its own, so an answer about it is reused only while that test is unchanged.
   if (rule.each === 'test') {
-    return tree.filter(createFileSelector(tree)).filter(item => matches(source, item.path))
-      .flatMap(item => {
-        const text = files.get(item.path) ?? '';
-        return testBlocks(text, item.path).map(unit => ({ ...unit, hash: sha256(bodyOf(text, unit)) }));
-      }).filter(spared);
+    return [...graph.nodes.values()].filter(node => node.case && (!source || matches(source, node.path))).map(testUnit).filter(spared);
   }
   // A method comes from the scan, which only holds what tree-sitter could parse. A file comes from the git tree, because a rule
   // about prose is a rule about markdown, and markdown is not a language the scan reads.
   if (rule.each === 'method') {
     return scan.files.filter(file => (SEARCHES(rule.kind) || !file.test) && matches(source, file.path))
-      .flatMap(file => file.methods.map(method => methodUnit({ ...method, path: file.path }))).filter(spared);
+      .flatMap(file => file.methods.filter(method => SEARCHES(rule.kind) || !(method.test || method.support)).map(method => methodUnit({ ...method, path: file.path }))).filter(spared);
   }
   return tree.filter(createFileSelector(tree)).filter(item => matches(source, item.path))
     .map(item => ({ id: item.path, path: item.path, name: item.path, line: 1, hash: item.sha })).filter(spared);
@@ -209,12 +212,11 @@ export const bodyOf = (text, unit) => shownSource(unit.own ? spanLines({ line: u
  * this matches the hash it was answered about: a test deleted or moved to another file, or a method whose comment changed, is no
  * longer what the answer describes.
  */
-export function unitHash(check, { graph, files, blobs }) {
+export function unitHash(check, { graph, blobs }) {
+  // A test is a node of the graph as a method is, so a unit that is neither a node nor a file is gone.
   if (graph.nodes.has(check.unit)) return graph.nodes.get(check.unit).hash;
   if (check.unit === check.path) return blobs.get(check.path) ?? null;
-  const text = files.get(check.path);
-  const block = text === undefined ? null : testBlocks(text, check.path).find(unit => unit.id === check.unit);
-  return block ? sha256(bodyOf(text, block)) : null;
+  return null;
 }
 
 /** Returns a file's lines with the method lines inside a top-level unit blanked, so line numbers stay correct. */
@@ -224,23 +226,9 @@ const spanLines = (node, lines) => {
 };
 const spanText = (node, lines) => spanOf(node, lines).map(text => text ?? '').join('\n');
 const methodUnit = node => ({ id: node.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, own: node.lines, hash: node.hash, method: true, part: true });
+/** A test is what a person names when they say where something is asserted, so a rule about tests answers with the test. */
+const testUnit = node => ({ id: node.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, hash: node.hash, part: true });
 const sourceOf = (node, files) => spanText(node, (files.get(node.path) ?? '').split('\n'));
-
-/**
- * The tests in a file, as units. A test is what a suite is made of and what a person names when they say where something is
- * asserted, so a rule asking whether a behavior is tested answers with a test rather than the file it is somewhere inside. A
- * block runs to the line before the next one starts, which is enough to read one test and cheaper than matching braces.
- */
-export function testBlocks(text, path) {
-  const lines = text.split('\n');
-  const found = [];
-  for (const [index, line] of lines.entries()) {
-    const match = /^\s*(?:it|test)(?:\.\w+)*(?:\([^)]*\))?\(\s*(['"`])(.+?)\1/.exec(line);
-    if (match) found.push({ line: index + 1, name: match[2] });
-  }
-  return found.map((item, index) => ({ id: `${path}::${item.name}`, path, name: item.name, line: item.line,
-    end_line: (found[index + 1]?.line ?? lines.length + 1) - 1, part: true }));
-}
 
 /** Units most likely to hold what a search is looking for, first. Shared words between the rule and the unit's name and path. */
 export function rank(rule, units) {
@@ -255,8 +243,8 @@ export function rank(rule, units) {
  * places says so, and `sees:` is how — a test rule that asks whether the code under test is really asserted needs the code under
  * test, and no amount of rewording gets it from the test alone.
  *
- * A method's neighbours come from the call graph. A file's or a test's do not, because neither is a node in it, so what they call
- * is found by name: a declaration whose short name appears in the body, riskiest first.
+ * A method's and a test's neighbours come from the call graph, walked from the unit's own node. A file the parser reads walks
+ * from the methods it declares. A file it does not read has no nodes, and walks the directory tree instead.
  */
 export function neighbourhood(sees, unit, { graph, files, max = MAX_SEEN }) {
   if (!sees || sees === 'self') return {};
@@ -264,7 +252,7 @@ export function neighbourhood(sees, unit, { graph, files, max = MAX_SEEN }) {
   if (sees === 'file') return { file_source: text };
   const show = ids => ids.slice(0, max).map(id => graph.nodes.get(id)).filter(Boolean)
     .map(node => ({ name: node.qualified_name, path: node.path, source: sourceOf(node, files) }));
-  // A method walks from itself. A file walks from the methods it declares, since a file is not a node but what it holds is.
+  // A method or a test walks from itself. A file walks from the methods it declares, since a file is not a node but what it holds is.
   const own = graph.nodes.has(unit.id) ? [unit.id] : [...graph.nodes.keys()].filter(id => graph.nodes.get(id)?.path === unit.path);
   const seeds = own;
   /**
@@ -316,7 +304,7 @@ export function neighbourhood(sees, unit, { graph, files, max = MAX_SEEN }) {
  * so asking twelve together answers the same as asking them one at a time and pays for the state once instead of twelve times.
  */
 export function unitStep({ rules, unit, source, seen = {} }) {
-  const state = { path: unit.path, ...(unit.part ? { name: unit.name, line: unit.line } : { file: unit.path }), source, ...seen };
+  const state = { path: unit.path, ...(unit.part ? { name: unit.name } : { file: unit.path }), source, ...seen };
   return { state, questions: compile(rules) };
 }
 
@@ -354,7 +342,7 @@ export function unitSteps({ rules, unit, source, seen = {}, budget = TOKEN_LIMIT
     try {
       return chunks.map(chunk => {
         const step = unitStep({ rules, unit, source: chunk.source, seen });
-        if (chunks.length > 1) step.state.reading = { partial: true, line: unit.line + chunk.line - 1, start_byte: chunk.startByte, end_byte: chunk.endByte };
+        if (chunks.length > 1) step.state.reading = { partial: true, start_byte: chunk.startByte, end_byte: chunk.endByte };
         questionBatches(step.state, step.questions, { ...TOKEN_LIMITS, state: budget });
         return { ...step, chunk };
       });
@@ -395,7 +383,7 @@ export async function locateBreak({ systemOne, rule, unit, body }) {
     let chunks;
     for (;;) {
       chunks = sourceChunks(body, { path: unit.path, maxTokens });
-      if (chunks.every(chunk => estimateTokens({ rule: rule.text, path: unit.path, source: tagged(chunk.source.split('\n'), unit.line + chunk.line - 1) }) <= budget)) break;
+      if (chunks.every(chunk => estimateTokens({ rule: rule.text, path: unit.path, source: chunk.source }) <= budget)) break;
       if (maxTokens <= 128) throw new IncompleteCheckError(`${unit.path}: location metadata is too large`);
       maxTokens = Math.max(128, Math.floor(maxTokens / 2));
     }
@@ -534,7 +522,11 @@ export async function searchUnits({ rules, scan, graph, files, tree, revision, s
     const steps = prepare(systemOne.limits?.state);
     debug(`${rule.name}: ${unit.name}`);
     const { answers } = await askUnitSteps({ systemOne, steps, prepare, rules: [rule] });
-    return readLint(rule, answers).here > min;
+    // The rule's own floor decides, the one perch check reads this unit by. The run's alone called a min: 80 rule broken on a
+    // unit answering 60%, and under --min 0 took any answer as found, so a present rule could never fail. A present rule is read
+    // the way a check reads it: this unit lacks the thing when its lacking it clears the floor.
+    const { here } = readLint(rule, answers), floor = floorFor(rule, min);
+    return rule.kind === 'ensure_present' ? 1 - here <= floor : here > floor;
   };
 
   await Promise.all(plans.map(async ({ rule, units, id }) => {

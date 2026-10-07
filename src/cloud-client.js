@@ -1,6 +1,7 @@
 /** Use Perch Cloud as a System One endpoint and stream scan results while work continues. */
+import { randomUUID } from 'node:crypto';
 import { git } from './git.js';
-import { createSystemOne } from './systemone.js';
+import { createSystemOne, speaksDecisions } from './systemone.js';
 import {
   actionsCanSignIn, actionsToken, CLOUD_ORIGIN, cloudRequest, jsonBody, readCloudLogin, sessionToken,
 } from './cloud-auth.js';
@@ -29,6 +30,9 @@ export function createCloudClient({
   origin, getToken, organizationId, repositoryId, reports,
   model = 'jev-latest', force = false, log, fetchImpl = globalThis.fetch, reportTimeoutMs = 30000,
 }) {
+  // The Cloud scan this run reports to, once it has been started. A question names it so the Cloud can add up what a scan cost,
+  // and one asked while the scan is starting waits to know it. A scan that could not start leaves the questions unnamed.
+  let started = null;
   const gateway = createSystemOne({
     apiKey: 'cloud',
     baseUrl: `${origin}/v1/systemone`,
@@ -36,9 +40,10 @@ export function createCloudClient({
     log,
     fetchImpl: async (url, options) => {
       const input = JSON.parse(options.body);
+      const scan = await started?.then(saved => saved.id, () => null);
       return withCurrentToken(getToken, undefined, token => fetchImpl(url, {
         ...options,
-        headers: { ...options.headers, authorization: `Bearer ${token}` },
+        headers: { ...options.headers, authorization: `Bearer ${token}`, ...(scan ? { 'x-perch-scan': scan } : {}) },
         // A forced request skips the Cloud's cached answers and replaces them with the new ones.
         body: JSON.stringify({ ...input, organizationId, repositoryId, ...(force ? { force: true } : {}) }),
       }));
@@ -60,7 +65,7 @@ export function createCloudClient({
   };
   return {
     ...gateway,
-    startScan: scan => sendScan('start', { scan }),
+    startScan: scan => (started = sendScan('start', { scan })),
     appendFindings: (scanId, findings) => sendScan('append', { scanId, findings }),
     updateScan: (scanId, progress) => sendScan('progress', { scanId, progress }),
     finishScan: (scanId, scan) => sendScan('finish', { scanId, scan }),
@@ -133,14 +138,49 @@ export async function credentialSource(env) {
   return { kind: 'none' };
 }
 
-export async function configuredSystemOne({ env, root, log, force = false, fetchImpl = globalThis.fetch }) {
+/** The variable holding the key for PERCH_BASE_URL: PERCH_API_KEY, else OPENAI_API_KEY for the Decisions API and TYPESAFE_API_KEY for any other. */
+export const endpointKey = env => (env.PERCH_API_KEY ? 'PERCH_API_KEY' : speaksDecisions(env.PERCH_BASE_URL) ? 'OPENAI_API_KEY' : 'TYPESAFE_API_KEY');
+
+/**
+ * What a model takes in one request, when it does not say. PERCH_MAX_QUESTIONS and PERCH_MAX_OPTIONS set the limits for an
+ * endpoint that reports nothing in `_meta`; one that does report can only lower them. A value that is not a whole number above
+ * zero is an error rather than no limit, since a scan sent in batches the model refuses reads nothing.
+ */
+function limitsFrom(env) {
+  const limits = {};
+  for (const [name, key, least] of [['PERCH_MAX_QUESTIONS', 'questions', 1], ['PERCH_MAX_OPTIONS', 'options', 2]]) {
+    if (env[name] === undefined || env[name] === '') continue;
+    const value = Number(env[name]);
+    if (!Number.isSafeInteger(value) || value < least) throw new Error(`${name} must be a whole number of at least ${least}, not ${env[name]}`);
+    limits[key] = value;
+  }
+  return limits;
+}
+
+/** The first request to an endpoint that has not said what it takes. Small enough for any model we know of; its answer says the rest. */
+export const FIRST_QUESTIONS = 8;
+
+/**
+ * Every request to the Cloud says which command sent it, from which release, and which run it belongs to. The run is a new id
+ * each time perch is invoked and the same on every request that invocation makes, so the Cloud can put a run's requests together.
+ */
+const sendingAs = (fetchImpl, command, version) => {
+  const headers = { 'x-perch-command': command, 'x-perch-version': version, 'x-perch-run': randomUUID() };
+  return (url, options = {}) => fetchImpl(url, { ...options, headers: { ...headers, ...options.headers } });
+};
+
+export async function configuredSystemOne({ env, root, log, command, version, force = false, fetchImpl = globalThis.fetch }) {
   const source = await credentialSource(env);
   if (source.kind === 'none') throw new Error('Not signed in to Perch Cloud. Run perch login, or set PERCH_API_KEY to a CI token from the dashboard.');
   if (source.kind === 'direct') {
-    return createSystemOne({ apiKey: env.PERCH_API_KEY || env.TYPESAFE_API_KEY, baseUrl: env.PERCH_BASE_URL, model: env.PERCH_MODEL_ID, log, fetchImpl });
+    const limits = limitsFrom(env);
+    return createSystemOne({ apiKey: env[endpointKey(env)], baseUrl: env.PERCH_BASE_URL, model: env.PERCH_MODEL_ID, log, fetchImpl,
+      limits, firstQuestions: limits.questions ?? FIRST_QUESTIONS });
   }
+  const cloudFetch = sendingAs(fetchImpl, command, version);
+  // An Actions job asks GitHub for its token, which is not a request to the Cloud.
   const credentials = source.kind === 'token' ? tokenCredentials(env)
-    : source.kind === 'saved' ? await savedCredentials({ env, root, fetchImpl, saved: source.saved })
+    : source.kind === 'saved' ? await savedCredentials({ env, root, fetchImpl: cloudFetch, saved: source.saved })
       : actionsCredentials(env, fetchImpl);
-  return cloudClient({ env, log, fetchImpl, credentials, force });
+  return cloudClient({ env, log, fetchImpl: cloudFetch, credentials, force });
 }

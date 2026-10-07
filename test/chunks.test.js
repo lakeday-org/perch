@@ -136,7 +136,7 @@ describe('complete request budgets', () => {
   });
 });
 
-it('budgets the line labels when a method has thousands of very short lines', () => {
+it('reads a method of thousands of very short lines to its last line within the budget', () => {
   const lines = Array.from({ length: 12000 }, () => 'x;');
   const steps = methodSteps({ node: { path: 'tall.js', qualified_name: 'tall', line: 1, end_line: lines.length }, lines });
   expect(steps.at(-1).covers.end_line).toBe(lines.length);
@@ -168,7 +168,7 @@ describe('a method whose neighbourhood does not fit', () => {
   const lines = ['function small(x) {', '  return x + 1;', '}'];
   const callees = Array.from({ length: 8 }, (_, i) => neighbour(`callee${i}`, 400));
   const callers = Array.from({ length: 8 }, (_, i) => neighbour(`caller${i}`, 400));
-  const edges = [...callees, ...callers].map(item => `${item.node.qualified_name} -> small`);
+  const edges = [...callees.map(item => [node.id, item.node.id]), ...callers.map(item => [item.node.id, node.id])];
 
   it('shows fewer neighbours before refusing, and reads the method alone when none fit', () => {
     // At this budget the sixteen 3-line excerpts plus their names and edges do not fit; shortening alone threw here on every retry.
@@ -177,12 +177,17 @@ describe('a method whose neighbourhood does not fit', () => {
     expect(shown).toBeGreaterThan(0);
     expect(shown).toBeLessThan(16);
     expect(step.state.method.source).toContain('return x + 1');
+    // What is drawn starts at the method or at a neighbour still in view.
+    const inView = new Set([node.id, ...step.state.graph.nodes.map(item => item.id)]);
+    expect(step.state.graph.nodes).toHaveLength(shown);
+    expect(step.state.graph.edges.length).toBeGreaterThan(0);
+    for (const edge of step.state.graph.edges) expect(inView.has(edge.split(' -> ')[0])).toBe(true);
     // Room for the method and nothing else: the smallest neighbour excerpt is more than the margin.
     const bare = estimateTokens(methodStep({ node, lines, callees: [], callers: [], edges: [] }).state);
     const alone = methodStep({ node, lines, callees, callers, edges, budget: bare + 20 });
     expect(alone.calls).toEqual([]);
     expect(alone.calledBy).toEqual([]);
-    expect(alone.state.call_graph).toEqual([]);
+    expect(alone.state.graph).toEqual({ nodes: [], edges: [] });
     expect(alone.state.method.source).toContain('return x + 1');
     expect(Object.keys(alone.questions).some(name => name.startsWith('misuse'))).toBe(false);
   });
