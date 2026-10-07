@@ -220,7 +220,6 @@ export function computeCoverage({ scan, graph, depth = DEFAULT_DEPTH, inScope = 
   const nodes = [...graph.nodes.values()];
   // A file's code outside every function is the scan's to read: no test calls it, so as a method it would never be reached.
   const methods = nodes.filter(node => !node.test && node.qualified_name !== TOP_LEVEL && inScope(node.path));
-  for (const node of methods) if (!Array.isArray(node.branches)) throw new Error(`${node.id} was analyzed without branch lines; the analysis is from an older perch`);
   const inScopeIds = new Set(methods.map(node => node.id));
   const byPosition = (a, b) => a.path.localeCompare(b.path) || a.line - b.line;
   const tests = [];
@@ -653,9 +652,9 @@ export function diffReports(before, after) {
     return { id, path: either.path, name: either.name, before: state(was), after: state(is) };
   }).filter(change => !same(change.before, change.after));
   const testsBefore = new Set(before.tests.map(test => test.id)), testsAfter = new Set(after.tests.map(test => test.id));
-  // A problem closed since is set aside, not fixed; and one reopened since is not new. Older reports carry no closed list.
-  const findingsBefore = new Set([...before.findings, ...(before.closed ?? [])].map(finding => finding.id));
-  const findingsAfter = new Set([...after.findings, ...(after.closed ?? [])].map(finding => finding.id));
+  // A problem closed since is set aside, not fixed; and one reopened since is not new.
+  const findingsBefore = new Set([...before.findings, ...before.closed].map(finding => finding.id));
+  const findingsAfter = new Set([...after.findings, ...after.closed].map(finding => finding.id));
   return {
     from: { revision: before.revision, created_at: before.created_at }, to: { revision: after.revision, created_at: after.created_at },
     totals, files, methods,
@@ -697,7 +696,7 @@ async function readReport(path) {
 export async function coverageFindings(out, ref) {
   const { latest: path } = coveragePaths(out);
   const latest = await readReport(path);
-  return [...(latest?.findings ?? []), ...(latest?.closed ?? [])].filter(finding => finding.id.startsWith(ref));
+  return latest ? [...latest.findings, ...latest.closed].filter(finding => finding.id.startsWith(ref)) : [];
 }
 
 /** A report without each file's text, which is the repository's and is read again from it. It was most of a saved report. */
