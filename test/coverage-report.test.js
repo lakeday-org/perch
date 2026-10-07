@@ -8,7 +8,7 @@ import { coverageCount, coverageDetails, formatCoverage, formatCoverageDiff, lis
  */
 const totalsOf = values => ({ methods: 0, reached: 0, useful_reached: 0, mutants: 0, killed: 0, score: null, survived: 0, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0, ...values });
 const report = {
-  version: 1, revision: '9f8e7d6c5b4a', root: '/repo', created_at: '2026-09-28T10:00:00.000Z', model: 'jev-1', depth: 3, min: 50,
+  revision: '9f8e7d6c5b4a', root: '/repo', created_at: '2026-09-28T10:00:00.000Z', model: 'jev-1', depth: 3, min: 50,
   totals: { methods: 6, reached: 4, useful_reached: 4, mutants: 15, killed: 8, score: 8 / 15, survived: 3,
     tests: 5, useful: 3, redundant: 1, weak: 1, infra: 0, drop: { count: 2, unreached: [] } },
   files: [
