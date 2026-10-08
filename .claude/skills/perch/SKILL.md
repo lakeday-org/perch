@@ -8,7 +8,7 @@ description: Semantic linting with perch. Use it to verify code changes in fligh
 perch asks a model about the code in a repository. It reports what it believes, as a probability on
 every finding.
 
-## Scan what changed
+## Scan changes
 
 ```console
 $ perch scan --since origin/main
@@ -33,10 +33,10 @@ after a fix costs almost nothing.
 
 | Exit | |
 | --- | --- |
-| `0` | Nothing to act on. |
-| `3` | Something that fails was found. |
+| `0` | Clean. |
+| `3` | Failing issues. |
 | `1` | perch could not run. |
-| `2` | The command was typed wrong. |
+| `2` | Usage error. |
 
 `3` is a result rather than an error, so report what it found. Only `1` and `2` are
 failures.
@@ -109,10 +109,10 @@ This reads the file off disk, so it works on uncommitted code. It records nothin
 it will not move the numbers on the issue you are fixing. It exits `3` while something
 is still wrong.
 
-## Read what CI found
+## CI results
 
-A pull request scanned in CI has its results in Perch Cloud. Once `perch login` has
-been run, read them instead of scanning again.
+Perch Cloud keeps the results of every CI scan. After `perch login`, read them instead
+of scanning again.
 
 ```console
 $ perch ci
@@ -122,8 +122,8 @@ edf9f510-875c-44c8-8ff1-773e286be26e  a246d74  #320          clean              
 6323adfc-9440-4640-badf-58c8e61cd5ba  d738e69  #320          4 problems, failing  45h ago
 ```
 
-Those are the checked-out branch's runs, newest first, including any still going. Give
-it a run ID for that run's issues, laid out the way `perch scan` prints them:
+That's this branch's CI runs, newest first, including running ones. Pass a run ID to see
+its issues in the `perch scan` layout:
 
 ```console
 $ perch ci 6323adfc-9440-4640-badf-58c8e61cd5ba
@@ -144,28 +144,26 @@ test/test-detection.test.js
 #320 at d738e69, finished 45h ago: https://dash.perchscan.com/#/scan/6323adfc-9440-4640-badf-58c8e61cd5ba
 ```
 
-After a push, `perch ci --wait` waits for the run of the commit you are on and prints
-what it found. A run exits the way a scan does: `3` when it found something that fails,
-`1` when it could not finish.
+After a push, `perch ci --wait` waits for the current commit's run to finish and prints
+its issues. It exits like a scan: `3` for failing issues, `1` if the run didn't finish.
 
-On a pull request, each issue also says what became of Perch's review comment on it:
-`open`, `resolved`, or `resolved by Perch` once a later scan stopped reporting it. The
-replies are on the lines under it. Read them before changing the code, since a reviewer
-may already have said why it is right.
+On a pull request, each issue also shows the status of Perch's review comment on it:
+`open`, `resolved`, or `resolved by Perch` after a later scan stopped reporting it. Replies
+are listed underneath. Read them before changing the code, since a reviewer may already
+have explained why it's right.
 
-Fix a CI issue the way you fix a local one. With `--json`, each issue carries the
-`method` that `perch check` takes, so check it after the fix and push once it exits `0`.
+Fix CI issues the same way as local ones. With `--json`, each issue's `method` works as a
+`perch check` target, so check the fix and push once it exits `0`.
 
-`perch cloud` shows the workspace you are signed in to and how Perch Cloud scans this
-repository's pull requests: whether it does, what it asks about, whether it reads the
-changed code or the whole repository, and whether issues fail the Perch Scan check.
-`perch cloud set` changes them with `--pull_requests`, `--scan_types`, `--scope` and
-`--gate`. Change them only when the user asks.
+`perch cloud` shows your workspace and this repository's pull request scan settings:
+whether pull requests are scanned, the issue types, the scope, and whether issues fail
+the Perch Scan check. `perch cloud set` changes them with `--pull_requests`,
+`--scan_types`, `--scope` and `--gate`. Only change them when the user asks.
 
-`perch setup` also connects the assistant to Perch Cloud's MCP server, `perch-cloud`.
-Its tools read and change the same things.
+`perch setup` also connects the assistant to Perch Cloud's MCP server, `perch-cloud`,
+which has the same results and settings.
 
-## Close a finding you have judged
+## Close a finding
 
 ```console
 $ perch close 05a5b5bd --reason "the walk is one job read top to bottom"
@@ -178,7 +176,7 @@ open.
 
 Always give a reason. That is what the next person reads instead of reopening it.
 
-## Check the tests a change needs
+## Test coverage
 
 `perch coverage --since main` runs predictive mutation testing over the branch. It
 makes every mutant of every method a test reaches, from a removed call to a flipped
@@ -215,7 +213,7 @@ Run `perch coverage --since main` again afterwards; the mutant should be gone fr
 list. It exits `3` while a problem remains in changed code. Close a problem with
 `perch close <id> --reason "..."` when the test is right as it is.
 
-## Write a rule when a mistake repeats
+## Rules for repeated mistakes
 
 The second time the same thing is corrected, write it down. Ask the user before adding
 a rule to their repository.
@@ -241,7 +239,7 @@ it keeps nothing is turning it off with extra steps.
 
 `perch rules list` shows every rule and question in force, and whether each fails a run.
 
-## Tune a rule until it tells two things apart
+## Tune a rule
 
 A rule is a sentence put to a model, so a new one is a draft. Test it against two
 inputs before you trust it. One should pass. The other is a copy you broke in the way

@@ -42,9 +42,9 @@ an address and no credentials. Without it, `perch ci` reads the same runs with
 Commit the files. They are part of how the repository is worked on, the same as
 `perch.yaml`.
 
-## The instructions
+## Instructions
 
-**Scan what changed.** `--since origin/main` on a branch, `--paths` for named
+**Scan changes.** `--since origin/main` on a branch, `--paths` for named
 files. A whole repository is hundreds of requests where a branch is a handful.
 
 **`3` is a result.** A scan that found something exits 3. Only 1 and 2 are
@@ -63,26 +63,25 @@ the code before changing it. Close what you decide is fine.
 that method alone, off disk, recording nothing, so the numbers on the issue being
 fixed do not move.
 
-**Read what CI found.** `perch ci` lists the runs Perch Cloud has of the branch,
-and `perch ci <id>` gives one run's issues. After a push, `perch ci --wait` waits
-for the run of that commit. On a pull request it reads Perch's review comments and
-the replies too. The assistant fixes what CI found the way it fixes a local
-finding, without scanning again. `perch cloud` shows how Perch Cloud scans the
-repository, and the assistant changes that only when you ask.
+**CI results.** `perch ci` lists this branch's CI runs, and `perch ci <id>` shows
+one run's issues, with Perch's review comments on a pull request. After a push,
+`perch ci --wait` waits for the commit's run. The assistant fixes CI issues the
+same way as local ones, without scanning again. `perch cloud` shows the
+repository's scan settings, and the assistant changes them only when you ask.
 
-**Check the tests a change needs.** `perch coverage --since origin/main` mutates
+**Test coverage.** `perch coverage --since origin/main` mutates
 the code the branch changed and says which mutants no test would kill. The skill
 tells the assistant how to read a survived mutant from the JSON and write the test
 that kills it.
 
-**Write a rule when a mistake repeats.** On the second correction, `perch rules
+**Rules for repeated mistakes.** On the second correction, `perch rules
 add` catches it from then on. The skill tells the assistant to ask you first.
 
-**Tune a rule against two controls.** A new rule is a draft. The skill tells the
+**Tune a rule.** A new rule is a draft. The skill tells the
 assistant to put it to a file that should pass and a copy deliberately broken.
 A rule answering the same about both is measuring something else.
 
-## Editing it
+## Editing the skill
 
 The file can be edited once written. `perch setup` will not replace one you have
 changed:

@@ -14,15 +14,15 @@ perch <command> [options]
 
 | Verb | What it does | Needs |
 | --- | --- | --- |
-| [`scan`](#perch-scan) | Reads the repository at `HEAD` and writes down what it found. | `PERCH_BASE_URL` and `PERCH_API_KEY` |
-| [`issues`](#perch-issues) | The open issues, worst first. With an id, everything known about that one method. | nothing |
-| [`check`](#perch-check) | Asks about one file or method as it reads on disk. Records nothing. | `PERCH_BASE_URL` and `PERCH_API_KEY` |
-| [`ci`](#perch-ci) | The CI runs Perch Cloud has of the branch. With an id, the issues one run found. | `perch login`, or a CI token in `PERCH_API_KEY` |
-| [`cloud`](#perch-cloud) | Your Perch Cloud workspace, and how it scans this repository. `set` changes that. | `perch login` |
-| [`rules`](#perch-rules) | `list`, `add`, `edit`, `remove`: changes `perch.yaml` without opening it. | nothing |
-| [`close`](#perch-close) | Sets issues aside so they stop being listed. | nothing |
+| [`scan`](#perch-scan) | Scans the repository at `HEAD` and saves the issues. | `PERCH_BASE_URL` and `PERCH_API_KEY` |
+| [`issues`](#perch-issues) | Lists open issues, worst first, or shows one in full. | nothing |
+| [`check`](#perch-check) | Checks one file or method on disk, without recording anything. | `PERCH_BASE_URL` and `PERCH_API_KEY` |
+| [`ci`](#perch-ci) | Lists this branch's CI runs, or shows one run's issues. | `perch login`, or a CI token in `PERCH_API_KEY` |
+| [`cloud`](#perch-cloud) | Shows or changes this repository's Perch Cloud scan settings. | `perch login` |
+| [`rules`](#perch-rules) | Lists, adds, edits and removes rules in `perch.yaml`. | nothing |
+| [`close`](#perch-close) | Closes issues. | nothing |
 | [`reopen`](#perch-reopen) | Undoes `close`. | nothing |
-| [`doctor`](#perch-doctor) | What the last run did, and what it could not read. | nothing |
+| [`doctor`](#perch-doctor) | Checks perch can run, and reports on the last run. | nothing |
 
 `perch findings` is the same command as `perch issues`.
 
@@ -208,8 +208,7 @@ See [Using Perch with coding assistants](skill.md).
 perch ci [run-id] [options]
 ```
 
-The CI runs Perch Cloud has of the checked-out branch, newest first, with any
-still going:
+Lists this branch's CI runs, newest first, including running ones:
 
 ```console
 $ perch ci
@@ -219,8 +218,7 @@ edf9f510-875c-44c8-8ff1-773e286be26e  a246d74  #320          clean              
 6323adfc-9440-4640-badf-58c8e61cd5ba  d738e69  #320          4 problems, failing  45h ago
 ```
 
-Give it a run ID for the issues that run found, laid out the way `perch scan`
-prints them:
+With a run ID, it shows that run's issues in the `perch scan` layout:
 
 ```console
 $ perch ci 6323adfc-9440-4640-badf-58c8e61cd5ba
@@ -241,23 +239,23 @@ test/test-detection.test.js
 #320 at d738e69, finished 45h ago: https://dash.perchscan.com/#/scan/6323adfc-9440-4640-badf-58c8e61cd5ba
 ```
 
-With `--json`, each issue's `method` is a target `perch check` takes.
+With `--json`, each issue's `method` works as a `perch check` target.
 
-On a pull request, each issue also says what became of Perch's review comment on
-it: `open`, `resolved`, or `resolved by Perch` once a later scan stopped reporting
-it, with the replies on the lines under it.
+On a pull request, each issue also shows the status of Perch's review comment on
+it: `open`, `resolved`, or `resolved by Perch` after a later scan stopped
+reporting it. Replies are listed underneath.
 
-It reads Perch Cloud with your `perch login`, and the repository is the one the
-`origin` remote names. A CI token in `PERCH_API_KEY` reads its own repository's
-finished runs instead.
+It uses your `perch login` and the repository named by the `origin` remote. A CI
+token in `PERCH_API_KEY` works too, but sees only its own repository's finished
+runs.
 
 | Flag | |
 | --- | --- |
-| `--wait` | Wait for the run of the commit you are on to finish, or the run named, then print its issues. It gives up when no run of the commit has started within 10 minutes. |
+| `--wait` | Wait for the current commit's run, or the named run, to finish, then print its issues. Gives up if no run starts within 10 minutes. |
 | `--json` | Print JSON instead of a summary. |
 
-Given a run, it exits as the run did: `3` when it found something that fails and
-`1` when it could not finish.
+With a run ID, it exits with the run's result: `3` for failing issues, `1` if the
+run didn't finish.
 
 ## perch cloud
 
@@ -265,20 +263,20 @@ Given a run, it exits as the run did: `3` when it found something that fails and
 perch cloud [set] [options]
 ```
 
-Who you are signed in as, the workspace, and how Perch Cloud scans this
-repository's pull requests: whether it does, what a scan asks about, whether it
-reads the changed code or the whole repository, and whether issues fail the Perch
-Scan check. The repository is the one the `origin` remote names.
+Shows your account, your workspace, and this repository's pull request scan
+settings: whether pull requests are scanned, the issue types, the scope (changed
+code or the whole repository), and whether issues fail the Perch Scan check. The
+repository is the one named by the `origin` remote.
 
-`perch cloud set` changes those settings and leaves what you do not name as it is.
-It needs a workspace admin, and a `perch login`: a CI token reads CI runs and
-nothing else.
+`perch cloud set` changes the settings. Anything you leave out stays the same. It
+needs a workspace admin and a `perch login`; a CI token can't read or change
+settings.
 
 | Flag | |
 | --- | --- |
 | `--pull_requests yes\|no` | Whether Perch Cloud scans this repository's pull requests. |
-| `--scan_types a,b` | What a pull request scan asks about: `defect`, `security`, `lint`, `refactor`, `docs`. |
-| `--scope changes\|all` | Whether a pull request scan reads the changed code or the whole repository. |
+| `--scan_types a,b` | Issue types to scan for: `defect`, `security`, `lint`, `refactor`, `docs`. |
+| `--scope changes\|all` | Scan the changed code or the whole repository. |
 | `--gate yes\|no` | Whether issues fail the Perch Scan check on a pull request. |
 | `--json` | Print JSON instead of a summary. |
 
@@ -349,9 +347,9 @@ model that reports nothing, set `PERCH_MAX_QUESTIONS`.
 | Code | Meaning |
 | --- | --- |
 | `0` | Command completed successfully. |
-| `1` | Command failed, a scan could not read some methods or rules after retrying, or the CI run `perch ci` showed could not finish. See the error message for details. |
+| `1` | Command failed, a scan could not read some methods or rules after retrying, or a CI run shown by `perch ci` didn't finish. See the error message for details. |
 | `2` | Invalid arguments, or `perch setup` requires `--force` to replace an existing file. |
-| `3` | `scan` or `check` found issues, or the CI run `perch ci` showed did. |
+| `3` | `scan`, `check`, or a CI run shown by `perch ci` found issues. |
 
 By default, scans check for defects, security vulnerabilities, and custom rule
 violations. Use `scan_types` in `perch.yaml` to choose which issue types to check.
