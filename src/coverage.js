@@ -4,9 +4,10 @@
  *
  * Nothing here runs a test. Tests are the declarations tree-sitter marked as test cases, and what a test reaches is a walk over
  * the call graph. Each reached method gets mutants, one-token edits read off its syntax tree (mutants.js), and Jev is asked,
- * per mutant and per test reaching the method, whether that test would fail against it. A mutant no test is predicted to kill
- * survived; a test predicted to kill none checks nothing; two tests predicted to kill the same mutants are one test written
- * twice. Nothing a test run wrote is read: no coverage report, no test results. Every listed problem's probability is a System
+ * per mutant and per test reaching the method, whether that test would fail against it. A mutant no test is likely enough to
+ * kill survived; a test predicted to kill none checks nothing; two tests asked about the same mutants and predicted to kill
+ * exactly the same ones, at least one, are one test written twice. Nothing a test run wrote is read: no coverage report, no
+ * test results. Every listed problem's probability is a System
  * One answer or computed from answers. A problem whose unit could not be asked has none, and is listed with the failure.
  *
  * A test or a method that cannot be asked about is recorded as failed and stays in the report as failed. It is never counted as
@@ -34,9 +35,8 @@ export const DEFAULT_PARALLEL = 8;
 /** How many neighbours a state shows at most: the methods a test reaches, or the tests that reach a method. */
 export const MAX_SHOWN = 8;
 /**
- * A test kills a mutant when its chance of failing against it is at least this. The model's kill answers run high: on 149
- * mutants of this repository run for real, a test it put at 0.5 to 0.7 failed one time in five, one it put at 0.7 or over two
- * times in three, and judged by the likeliest of its tests 41 mutants were killed against 38 that were. At 0.5 it was 68.
+ * The floor on a test's answer for its kill to count, as min is the floor on a finding's answer for it to be listed. It sits
+ * higher than min because the model's kill answers run high; docs/coverage.md has the measurement against real test runs.
  */
 export const KILLED = 0.7;
 

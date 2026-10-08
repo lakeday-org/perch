@@ -41,8 +41,9 @@
     that probability is read from a System One answer or computed from
     answers, and a finding whose unit could not be asked carries none. A
     probability written into the code as a constant breaks this rule. A floor
-    such as min, which decides which answers are listed, is not a probability.
-    A method that sets no probability holds this rule.
+    on an answer, such as min, which decides which answers are listed, or
+    KILLED, which decides which count as a kill, is not a probability. A method
+    that sets no probability holds this rule.
 
 - name: coverage-failures-stay-visible
   where: src/coverage.js
@@ -56,13 +57,14 @@
     it as covered, or treating an unanswered test as useful breaks this rule.
 
 - name: redundancy-needs-the-same-behavior
-  where: mentions redundant
+  where: mentions redundantWith
   except: "test/**"
   each: method
   ensure: >-
     When this method marks tests redundant, the tests were asked about the same
     mutants and System One predicted they kill exactly the same ones, at least
-    one. Grouping by name, by file, or by reach alone breaks this rule.
+    one. Grouping by name, by file, or by reach alone breaks this rule. A
+    method that marks no test redundant holds this rule.
 
 - name: coverage-diff-is-per-unit
   where: mentions baseline

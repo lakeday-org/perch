@@ -14,11 +14,11 @@ method your tests reach. For each mutant, it asks a decision model, Jev, which
 of those tests would fail with the mutant in place. Perch runs no tests and
 changes no files.
 
-A mutant is one edit to one method: a call statement removed, an `if` body
-emptied, a condition forced to `true` or `false`, `<` to `<=`, `&&` to `||`,
-`+` to `-`, `n++` to `n--`, a removed `!`, a flipped boolean, a string
-emptied, a number moved by one, a returned value replaced. These are the
-operators Stryker and PIT use. If a test fails with a mutant in place, the test
+A mutant is one edit to one method. Perch removes a call statement, empties an
+`if` body, forces a condition to `true` or `false`, or swaps an operator: `<`
+to `<=`, `&&` to `||`, `+` to `-`, `n++` to `n--`. It drops a `!`, flips a
+boolean, empties a string, moves a number by one, or replaces a returned value.
+These are the operators Stryker and PIT use. If a test fails with a mutant in place, the test
 kills it. If every test passes, the mutant survives. A survived mutant is a
 real gap in your coverage: a test runs that code, and nothing checks what it
 does.
@@ -64,16 +64,16 @@ Report: .perch/coverage/index.html
 
 The mutation score is the share of mutants killed by at least one test. A test
 kills a mutant when Perch puts its chance of failing against it at 70% or more.
-No coverage is the number of mutants in methods no test reaches through the call
-graph; they count against the score. Perch lists each survived mutant with the
-edit it made and the number of tests that miss it. The confidence is how sure Perch is that no test kills the
-mutant and that the mutant changes what a caller sees. A test that checks
-nothing kills no mutant in the code it reaches. A duplicate kills exactly the
-mutants an earlier test kills. A test that mocks what it tests calls only
-methods it has replaced with its own mocks, so it checks the mocks; that is a
-fact of the call graph and is listed with `-` for confidence, as is a problem on
-a test or method the model couldn't be asked about. Use `--all` to see every
-row.
+No coverage counts the mutants in methods no test reaches through the call
+graph. They count against the score. Perch lists each survived mutant with the
+edit it made and the number of tests that miss it. The confidence is how sure
+Perch is that no test kills the mutant and that the mutant changes what a caller
+sees. A test that checks nothing kills no mutant in the code it reaches. A
+duplicate kills exactly the mutants an earlier test kills. A test that mocks
+what it tests calls only methods it has replaced with its own mocks, so it
+checks the mocks. That is a fact of the call graph, so it is listed with `-`
+for confidence. So is a problem on a test or method the model couldn't be asked
+about. Use `--all` to see every row.
 
 Perch also writes an HTML report. It shows each line of source with its problems
 under it. For a survived mutant, it shows the original and the mutated version
