@@ -7,7 +7,7 @@ import { BELIEVED } from './questions.js';
 import { bold, COLOR, dim, keepEnd, keepStart, percent, relative, sureness, table, TOP, WIDTH } from './report.js';
 
 /** Every kind of problem a coverage report can list, and so everything `--filter kind=` accepts. */
-export const COVERAGE_KINDS = ['survived', 'redundant', 'checks_nothing', 'infra'];
+export const COVERAGE_KINDS = ['survived', 'redundant', 'checks_nothing', 'mocked', 'infra'];
 
 const plural = (count, noun, many = `${noun}s`) => `${count} ${count === 1 ? noun : many}`;
 /** A 0..1 value as a whole percentage; null is a value nobody answered, which is a dash and not a zero. */
@@ -54,7 +54,7 @@ export function parseCoverageFilters(text) {
 export function listedFindings(report, { min = BELIEVED, filters = [] } = {}) {
   const kinds = new Set(filters.filter(clause => clause.key === 'kind').map(clause => clause.value));
   const onBranch = report.branch ? new Set(report.branch.findings) : null;
-  return (report.findings ?? []).filter(finding => (finding.probability === null || finding.probability >= min)
+  return report.findings.filter(finding => (finding.probability === null || finding.probability >= min)
     && (!kinds.size || kinds.has(finding.kind)) && (!onBranch || onBranch.has(finding.id)));
 }
 
@@ -83,7 +83,7 @@ const painted = (lines, color, total = false) => lines.map((line, index) => (ind
 
 
 function sourceTable(report, onList, { width, color }) {
-  const files = (report.files ?? []).filter(file => file.kind === 'source' && file.totals?.methods)
+  const files = report.files.filter(file => file.kind === 'source' && file.totals.methods)
     .sort((a, b) => a.path.localeCompare(b.path));
   if (!files.length) return '';
   // The mutation score is the mutants some test is predicted to kill, of all mutants; survived is counted from the problems
@@ -94,19 +94,19 @@ function sourceTable(report, onList, { width, color }) {
   const survived = path => (path === null ? gaps.length : gapsIn.get(path)?.length ?? 0);
   const row = (name, totals, path) => [name, `${totals.reached} of ${totals.methods}`, scoreCell(totals), survived(path)];
   const rows = files.map(file => row(relative(file.path), file.totals, file.path));
-  rows.push(row('All source', report.totals ?? {}, null));
+  rows.push(row('All source', report.totals, null));
   return painted(fitted(header, rows, ['left', 'right', 'right', 'right'], { width }), color, true).join('\n');
 }
 
 function testTable(report, { width, color }) {
-  const files = (report.files ?? []).filter(file => file.kind === 'test' && file.totals?.tests)
+  const files = report.files.filter(file => file.kind === 'test' && file.totals.tests)
     .sort((a, b) => a.path.localeCompare(b.path));
   if (!files.length) return '';
   // Quality is the tests worth keeping, of all of them; the next three are why the rest are not, or what they touch.
   const header = ['Test files', 'Quality', 'Duplicates', 'Checks nothing', 'Live services'];
   const row = (name, totals) => [name, `${percent(totals.useful / totals.tests)} (${totals.useful} of ${totals.tests})`, totals.redundant, totals.weak, totals.infra];
   const rows = files.map(file => row(relative(file.path), file.totals));
-  rows.push(row('All tests', report.totals ?? {}));
+  rows.push(row('All tests', report.totals));
   return painted(fitted(header, rows, ['left', 'right', 'right', 'right', 'right'], { width }), color, true).join('\n');
 }
 
@@ -179,7 +179,7 @@ export function formatCoverageDiff(report, { width = WIDTH(), color = COLOR() } 
   const header = [since, 'Methods', 'Reached', 'Mutation score', 'Tests', 'Keep', 'Redundant', 'Checks nothing', ''];
   const rows = [...diff.files].sort((a, b) => a.path.localeCompare(b.path)).map(file => [relative(file.path), ...diffCells(file.before, file.after),
     !file.before ? 'added' : !file.after ? 'removed' : '']);
-  const totals = diff.totals ?? {};
+  const totals = diff.totals;
   const pair = key => ({ before: totals[key]?.before ?? null, after: totals[key]?.after ?? null });
   const count = key => `${pair(key).after ?? '-'}${change(pair(key).before, pair(key).after)}`;
   rows.push(['All', pair('methods').after ?? '-', count('reached'),
@@ -194,7 +194,7 @@ export function formatCoverageDiff(report, { width = WIDTH(), color = COLOR() } 
  * apart.
  */
 export function coverageCount(report, { min = BELIEVED, filters = [], all = false } = {}) {
-  const totals = report.totals ?? {};
+  const totals = report.totals;
   const listed = listedFindings(report, { min, filters }).length;
   const parts = [plural(totals.methods ?? 0, 'method'), plural(totals.tests ?? 0, 'test')];
   if (report.branch) {
@@ -202,7 +202,7 @@ export function coverageCount(report, { min = BELIEVED, filters = [], all = fals
     parts.push(`${plural(listed, 'problem')} in changed code${others ? `, ${others} elsewhere` : ''}`);
   } else parts.push(plural(listed, 'problem'));
   if (!all && !filters.length && listed > TOP) parts.push(`${TOP} shown, --all for the rest`);
-  const failed = report.failed?.length ?? 0;
+  const failed = report.failed.length;
   if (failed) parts.push(`${failed} could not be asked (--json)`);
   // A config that would not load means every test the parser found was read instead, which changes what is counted.
   for (const framework of report.scope?.frameworks ?? []) if (framework.error) parts.push(`${framework.config} did not load (--verbose)`);

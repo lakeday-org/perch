@@ -17,7 +17,7 @@ const short = revision => String(revision ?? '').slice(0, 7);
 const words = label => String(label ?? '').replaceAll('_', ' ');
 /** Each kind of problem by the name the page gives it. */
 const PROBLEM_NAMES = {
-  survived: 'Survived mutant', redundant: 'Duplicate test', checks_nothing: 'Checks nothing', infra: 'Live service',
+  survived: 'Survived mutant', redundant: 'Duplicate test', checks_nothing: 'Checks nothing', mocked: 'Mocks what it tests', infra: 'Live service',
 };
 const problemName = kind => PROBLEM_NAMES[kind] ?? words(kind);
 /** A saved report's ISO timestamp, to the minute. Seconds and milliseconds only make two dates harder to compare by eye. */
@@ -187,7 +187,7 @@ function changes(report, index) {
 }
 
 /** The kinds of problem that say a test is not worth its keep. */
-const WEAK = new Set(['checks_nothing']);
+const WEAK = new Set(['checks_nothing', 'mocked']);
 
 /**
  * What a problem is about and what perch found, for the rows and notes that show it: the test or method it is on, and one fact.
@@ -380,7 +380,7 @@ function scopeView(report) {
 
 /** Units perch could not read, with the reason it recorded. A failure is part of the result, so it is on the page. */
 function failures(report) {
-  if (!report.failed?.length) return '';
+  if (!report.failed.length) return '';
   const rows = report.failed.map(item => `<tr><td>${escape(item.subject)}</td><td>${escape(item.name)}</td><td class="path">${escape(item.path)}</td><td>${escape(item.error)}</td></tr>`).join('');
   return `<section class="panel" id="failed"><div class="panel-head"><h3>Could not read <span class="count">${report.failed.length}</span></h3><p class="lede">They count as neither covered nor worth keeping.</p></div>`
     + `<div class="scroll"><table class="grid"><thead><tr><th>Unit</th><th>Name</th><th>File</th><th>Error</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
@@ -392,7 +392,7 @@ function methodState(method) {
 }
 
 /** A method's survived mutants that are listed problems: one under the floor has nothing to act on. */
-const listedMutants = (method, index) => (method.findings ?? []).map(id => index.findings.get(id)).filter(finding => finding?.kind === 'survived');
+const listedMutants = (method, index) => method.findings.map(id => index.findings.get(id)).filter(finding => finding?.kind === 'survived');
 
 /** Tint, branch markers and the survived mutants for each line of a file, innermost method last so a nested function wins its lines. */
 function lineMarks(file, index) {
@@ -408,7 +408,7 @@ function lineMarks(file, index) {
   for (const unit of units.filter(Boolean)) {
     at(unit.line)?.starts.push(unit);
     if (file.kind === 'test') continue;
-    for (const line of unit.branches ?? []) if (at(line)) at(line).branch = true;
+    for (const line of unit.branches) if (at(line)) at(line).branch = true;
     for (const finding of listedMutants(unit, index)) if (at(finding.line)) at(finding.line).gap = true;
   }
   return marks;
@@ -442,7 +442,7 @@ const unsure = probability => (typeof probability === 'number' && probability < 
 
 /** The note under a survived mutant: the line as written and as changed, and which tests miss it, with its buttons. */
 function mutantNote(method, finding, index) {
-  const mutant = (method.mutants ?? []).find(item => item.id === finding.mutant);
+  const mutant = method.mutants.find(item => item.id === finding.mutant);
   const diff = mutant ? `<pre class="diff"><del>- ${escape(mutant.original.trim())}</del>\n<ins>+ ${escape(mutant.mutated.trim())}</ins></pre>` : '';
   const missed = mutant ? mutant.asked.filter(id => !mutant.killed_by.includes(id)).map(id => unitLink(id, index)) : [];
   return `<div class="note gap" data-finding="${escape(finding.id)}"><div class="problem"><p class="verdict bad"><b>${escape(problemName('survived'))}</b> `
@@ -478,7 +478,7 @@ function testNote(test, findings, index) {
 function notesOf(file, index, report) {
   const notes = new Map(), placed = new Set();
   const add = (line, html) => { if (!notes.has(line)) notes.set(line, []); notes.get(line).push(html); };
-  const owned = ids => (ids ?? []).map(id => index.findings.get(id)).filter(Boolean);
+  const owned = ids => ids.map(id => index.findings.get(id)).filter(Boolean);
   if (file.kind === 'test') {
     for (const test of file.tests.map(id => index.tests.get(id)).filter(Boolean)) {
       const findings = owned(test.findings);
@@ -567,6 +567,8 @@ function fixSteps(finding, index) {
       const kept = index.tests.get(test.redundant_with);
       lines.push(`The test ${name} kills the same mutants as "${kept ? testName(kept) : test.redundant_with}"${kept ? ` (${at(kept)})` : ''}, and no others.`,
         'Compare the two. Delete this one if it asserts nothing the other does not; otherwise move what differs into the other and delete this one.');
+    } else if (finding.kind === 'mocked') {
+      lines.push(`The test ${name} mocks every method it calls, so it tests its own mocks: ${finding.note}`, 'Call the real code under test and keep mocks only for what leaves the process: the network, the database, the clock. Delete the test if nothing it checks is worth keeping.');
     } else if (WEAK.has(finding.kind)) {
       lines.push(`The test ${name} has a problem: ${finding.note}`, 'Make it drive the code under test and assert on what that code returns. Delete it if nothing it checks is worth keeping.');
     } else if (finding.kind === 'infra') {
