@@ -1,6 +1,6 @@
 import type { Node } from "./node";
-import type { Reference, ReferenceKind, SourceLocation } from "./types";
-import { isComment, isFunction, location, walkNodes } from "./metrics";
+import type { Reference, ReferenceKind, SourceLocation, Parameter } from "./types";
+import { ANONYMOUS_FUNCTION_TYPES, isComment, isFunction, location, walkNodes } from "./metrics";
 import { walk, type SyntaxIndex, type Visitor } from "./visit";
 import type { Held } from "./types";
 import { callableName } from "./extensions";
@@ -141,6 +141,8 @@ function makeReference(
     alias?: string | null;
     reexport?: boolean;
     held?: Held | null;
+    args?: Array<Held | null>;
+    named?: Record<string, Held>;
   },
 ): Reference {
   const point = node.startPosition;
@@ -155,6 +157,8 @@ function makeReference(
     alias: values.alias ?? null,
     ...(values.reexport ? { reexport: true } : {}),
     ...(values.held ? { held: values.held } : {}),
+    ...(values.args ? { args: values.args } : {}),
+    ...(values.named ? { named: values.named } : {}),
     source: sourceRef(node),
     line: point.row + 1,
     column: point.column + 1,
@@ -549,6 +553,16 @@ function callReference(node: Node, language: string): string {
     const rebound = solidityCallee(callee);
     if (rebound) return validReference(rebound, language);
   }
+  // `commands[name](io)` or `OTHERS[language](index)`: a table of functions called through a key the source computes. Which one
+  // runs is the key's; that it is one of the table's is the table's, and the call is recorded as the table's, `commands[]`.
+  if (callee && ['subscript_expression', 'subscript', 'index_expression'].includes(callee.type)) {
+    const table = child(callee, 'object', 'value') ?? callee.namedChildren[0] ?? null, index = child(callee, 'index') ?? callee.namedChildren[1] ?? null;
+    const name = table ? validReference(pathText(table, language), language) : '<dynamic>';
+    if (name !== '<dynamic>' && index) {
+      const literal = ['string', 'string_literal'].includes(index.type) ? text(index).replace(/^["'`]|["'`]$/g, '') : null;
+      return literal && /^[\p{L}_$][\p{L}\p{N}_$]*$/u.test(literal) ? `${name}.${literal}` : `${name}[]`;
+    }
+  }
   const named = validReference(pathText(callee, language), language);
   // `"x".size()`, `Thing::new().get()` or `Entry(day).debit()`: the receiver is no name, but the member is. `$` cannot begin a name
   // in these languages, so `$receiver` stands for one the tree cannot name without being mistaken for one.
@@ -662,7 +676,106 @@ function callReferenceRecord(node: Node, language: string): Reference {
     name: reference,
     reference,
     ...(hint ? { held: hint } : {}),
+    ...(argumentsOf(node, language) ?? {}),
   });
+}
+
+const ARGUMENT_LISTS = new Set(['arguments', 'argument_list', 'value_arguments', 'call_suffix', 'FnCallArguments']);
+const ARGUMENT_WRAPPERS = new Set(['argument', 'value_argument', 'call_argument']);
+/**
+ * What a call passes: each positional argument's value, and each named one's, when the source says. An object literal passed
+ * whole, `{ analyzer, reader: make() }`, is kept as its fields, since a parameter destructured from it takes one of them. This is
+ * what lets a method called on a parameter be found: the parameter holds what the callers pass.
+ */
+export function argumentsOf(node: Node, language: string): { args?: Array<Held | null>; named?: Record<string, Held> } | null {
+  let list = child(node, 'arguments') ?? node.namedChildren.find(item => ARGUMENT_LISTS.has(item.type)) ?? null;
+  if (list?.type === 'call_suffix') list = list.namedChildren.find(item => item.type === 'value_arguments') ?? null;
+  if (!list) return null;
+  const args: Array<Held | null> = [], named: Record<string, Held> = {};
+  for (const item of list.namedChildren.filter(entry => !isComment(entry))) {
+    // Python's `key=value`, Ruby's `key: value`, Swift's and Kotlin's labelled arguments: by name, not by position.
+    const label = item.type === 'keyword_argument' || item.type === 'pair' || (item.type === 'value_argument' && child(item, 'name')) ? child(item, 'name', 'key') : null;
+    if (label) {
+      const held = valueOf(child(item, 'value') ?? item.namedChildren.at(-1) ?? null, language);
+      if (held) named[text(label)] = held;
+      continue;
+    }
+    const value = ARGUMENT_WRAPPERS.has(item.type) ? child(item, 'value') ?? item.namedChildren.at(-1) ?? null : item;
+    args.push(value ? objectFields(value, language) ?? valueOf(value, language) : null);
+  }
+  const some = args.some(Boolean);
+  if (!some && !Object.keys(named).length) return null;
+  return { ...(some ? { args } : {}), ...(Object.keys(named).length ? { named } : {}) };
+}
+
+/**
+ * An object literal's fields as what each holds: `{ analyzer }` holds the local analyzer, `{ reader: make() }` what make returns,
+ * `{ update(n) {...} }` and `{ update: n => ... }` the function written there.
+ */
+function objectFields(node: Node, language: string): Held | null {
+  if (node.type !== 'object') return null;
+  const fields: Record<string, Held> = {};
+  for (const item of node.namedChildren) {
+    if (item.type === 'shorthand_property_identifier') fields[text(item)] = { local: text(item) };
+    else if (item.type === 'pair') {
+      const key = child(item, 'key'), held = valueOf(child(item, 'value'), language);
+      if (key && held) fields[text(key).replace(/^["']|["']$/g, '')] = held;
+    } else if (item.type === 'method_definition') {
+      const key = child(item, 'name');
+      if (key) fields[text(key)] = { fn: `function:${item.startIndex}` };
+    }
+  }
+  return Object.keys(fields).length ? { fields } : null;
+}
+
+const PARAMETER_LISTS = new Set(['formal_parameters', 'parameters', 'parameter_list', 'function_value_parameters', 'method_parameters', 'ParamDeclList', 'parameter_clause', 'lambda_parameters']);
+const PARAMETER_NAMES = new Set(['identifier', 'simple_identifier', 'variable_name', 'IDENTIFIER', 'field_identifier']);
+/** The name a parameter binds: its own identifier, or for a typed or defaulted one, the identifier that is not its type. */
+function parameterName(item: Node): string | null {
+  if (PARAMETER_NAMES.has(item.type)) return text(item);
+  const named = child(item, 'name', 'pattern', 'parameter');
+  if (named && PARAMETER_NAMES.has(named.type)) return text(named);
+  const walk = (node: Node): string | null => {
+    for (const inner of node.namedChildren) {
+      if (PARAMETER_NAMES.has(inner.type)) return text(inner);
+      if (inner.type.endsWith('type') || inner.type.includes('type_')) continue;
+      const found = walk(inner);
+      if (found) return found;
+    }
+    return null;
+  };
+  return walk(named ?? item);
+}
+
+/**
+ * The parameters a function declares, in order, with the property each destructured one takes from the object passed in its
+ * place: `function run(files, { analyzer, reader: read })` declares files at 0, analyzer at 1 from `analyzer`, read at 1 from
+ * `reader`. A rest or splat parameter holds the arguments nobody named, so it is left out.
+ */
+export function parametersOf(node: Node): Parameter[] {
+  const list = child(node, 'parameters') ?? node.namedChildren.find(item => PARAMETER_LISTS.has(item.type)) ?? null;
+  if (!list) return [];
+  const params: Parameter[] = [];
+  const items = list.namedChildren.filter(item => !isComment(item) && !/rest|splat|variadic|spread/.test(item.type) && item.type !== 'this');
+  items.forEach((item, index) => {
+    const pattern = item.type === 'object_pattern' ? item : child(item, 'pattern')?.type === 'object_pattern' ? child(item, 'pattern') : null;
+    if (pattern) {
+      for (const field of pattern.namedChildren) {
+        if (field.type === 'shorthand_property_identifier_pattern') params.push({ name: text(field), index, field: text(field) });
+        // `{ debug = () => {} }`: a destructured property with a default.
+        else if (field.type === 'object_assignment_pattern' && child(field, 'left')?.type === 'shorthand_property_identifier_pattern') params.push({ name: text(child(field, 'left')), index, field: text(child(field, 'left')) });
+        else if (field.type === 'pair_pattern') {
+          const key = child(field, 'key'), value = child(field, 'value');
+          const bound = value?.type === 'assignment_pattern' ? child(value, 'left') : value;
+          if (key && bound && PARAMETER_NAMES.has(bound.type)) params.push({ name: text(bound), index, field: text(key) });
+        }
+      }
+      return;
+    }
+    const name = parameterName(item);
+    if (name) params.push({ name, index });
+  });
+  return params;
 }
 
 /** Identifiers that can name a function where one is used as a value rather than called. */
@@ -1020,6 +1133,10 @@ function valueOf(value: Node | null, language: string): Held | null {
   if (['this', 'self'].includes(value.type) || (value.type === 'identifier' && text(value) === 'self') || (value.type === 'variable_name' && text(value) === '$this')) return { type: '$self' };
   // A local handed on: `t` at the end of a Rust function, `return entry`, followed to what that local holds.
   if (value.type === 'identifier') return { local: text(value) };
+  // A function written in place, `{ readSource: file => read(file) }` or `return { update }`: the value is that function.
+  if (ANONYMOUS_FUNCTION_TYPES.has(value.type)) return { fn: `function:${value.startIndex}` };
+  // An object literal: what each of its fields holds, so a member of it, or a parameter destructured from it, is found.
+  if (value.type === 'object') return objectFields(value, language);
   // `items[0]`: an element of a typed list is of the list's element type, which is what a `Money[]` is recorded as.
   if (['subscript_expression', 'index_expression', 'subscript', 'element_reference'].includes(value.type)) return valueOf(child(value, 'object', 'value') ?? value.namedChildren[0] ?? null, language);
   if (CALL_TYPES.has(value.type)) {
@@ -1147,7 +1264,8 @@ function bindingOf(node: Node, language: string): { name: string; held: Held } |
   const held = valueOf(value, language) ?? (constructed ? { type: constructed } : null);
   const declared = node.type === 'VarDecl' ? zigBareType(type) : bareType(type);
   if (!declared && !held) return null;
-  return { name: written, held: declared ? { type: declared } : held! };
+  // An object literal keeps its fields beside the declared type: `const OTHERS: Record<string, Reader> = { go: goTests }` is a table.
+  return { name: written, held: held?.fields ? { ...held, ...(declared ? { type: declared } : {}) } : declared ? { type: declared } : held! };
 }
 
 /**
@@ -1360,7 +1478,8 @@ export function referenceVisitor(language: string): Visitor & { finish(index: Sy
   } else if (IMPORT_TYPES.has(node.type) || (language === "kotlin" && node.type === "import_header")) {
     // Each of these languages places a name by package or module, which its own reader records; the generic reader's record of
     // the directive as a whole would bind nothing.
-    if (language === "csharp" || language === "c_sharp") { const using = csharpUsingReference(node); if (using) references.push(using); }
+    // `using` is a keyword to the TypeScript grammar: as a variable name it broke the parse of this whole file.
+    if (language === "csharp" || language === "c_sharp") { const directive = csharpUsingReference(node); if (directive) references.push(directive); }
     else if (language === "swift") { const imported = swiftImportReference(node); if (imported) references.push(imported); }
     else if (language === "scala") references.push(...scalaImportReferences(node));
     else {

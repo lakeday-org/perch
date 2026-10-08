@@ -60,7 +60,8 @@ export function methodsOf(path, analysis, lines) {
     add({ node: declaration.id, name, qualified_name: declaration.qualified_name, line: declaration.line, end_line: declaration.end_line, metrics: trim(declaration.metrics),
       branches: declaration.metrics?.branch_lines ?? [], ...(declaration.test ? { test: declaration.test } : {}), ...(declaration.internal ? { internal: true } : {}),
       ...(declaration.support ? { support: true } : {}),
-      ...(declaration.extension ? { extension: true } : {}) },
+      ...(declaration.extension ? { extension: true } : {}),
+      ...(declaration.params?.length ? { params: declaration.params } : {}) },
       shownSource(lines, declaration.line, declaration.end_line));
   }
   // A comment directly above a function belongs to that function, not to the top-level unit.
@@ -95,6 +96,16 @@ const FRAMEWORK_CALLS = new Set(['describe', 'context', 'suite', 'it', 'test', '
 
 /** What a binding or a return says a value is: an instance of a type, a call's result, or another local's value. */
 const heldBy = reference => reference.held ?? null;
+/** A held value with each function written in place named as the method it is, or dropped where it is no named method. */
+function namedFunctions(held, byNode) {
+  if (!held) return null;
+  if (held.fn) return byNode.has(held.fn) ? { fn: byNode.get(held.fn) } : null;
+  if (held.fields) {
+    const fields = Object.fromEntries(Object.entries(held.fields).map(([key, value]) => [key, namedFunctions(value, byNode)]).filter(([, value]) => value));
+    return Object.keys(fields).length ? { fields } : null;
+  }
+  return held.on ? { ...held, on: namedFunctions(held.on, byNode) ?? undefined } : held;
+}
 
 /** One parsed file as the scan keeps it: its methods, and the calls, values, reads, bindings, imports and mocks that link them. */
 export function fileRecord(file, source, analysis) {
@@ -109,6 +120,13 @@ export function fileRecord(file, source, analysis) {
    * the grammar rather than a function, keeps its calls, and failing that to the file's top-level unit.
    */
   const top = methods.find(method => method.node === null), topLines = new Set(top?.lines ?? []);
+  // The named method each nested one is written in: a callback or a closure runs only if its parent did, so its parent reaches it.
+  const declared = new Map(analysis.declarations.map(declaration => [declaration.id, declaration]));
+  for (const method of methods) {
+    for (let id = method.node && declared.get(method.node)?.parent_id; id; id = declared.get(id)?.parent_id ?? null) {
+      if (byNode.has(id)) { method.parent = byNode.get(id); break; }
+    }
+  }
   const ownerOf = (source, byte, line) => {
     if (source !== 'file') for (let id = source; id; id = parents.get(id) ?? null) if (byNode.has(id)) return byNode.get(id);
     return (byte === null ? null : ownerAt(spans, byte)) ?? (topLines.has(line) ? top.id : null);
@@ -126,7 +144,9 @@ export function fileRecord(file, source, analysis) {
     const setup = (!from || from === top?.id) && !FRAMEWORK_CALLS.has(reference.name.split('.')[0]) ? setupFor(byte) : [];
     // What a receiver the tree cannot name holds, when the source says: `Thing::new().get()` is a get of whatever new returns.
     const via = reference.held ?? null;
-    return (setup.length ? setup : [from]).filter(Boolean).map(owner => ({ name: reference.name, from: owner, line: reference.line, ...(via ? { via } : {}) }));
+    const args = reference.args?.map(held => namedFunctions(held, byNode) ?? null), named = reference.named && Object.fromEntries(Object.entries(reference.named).map(([key, held]) => [key, namedFunctions(held, byNode)]).filter(([, held]) => held));
+    return (setup.length ? setup : [from]).filter(Boolean).map(owner => ({ name: reference.name, from: owner, line: reference.line, ...(via ? { via } : {}),
+      ...(args?.some(Boolean) ? { args } : {}), ...(named && Object.keys(named).length ? { named } : {}) }));
   });
   // What the framework calls before a test, its class's setUp or a fixture's SetUp, is a call the test makes.
   for (const method of methods) {
@@ -145,10 +165,13 @@ export function fileRecord(file, source, analysis) {
     .filter(read => read.from && !seen.has(`${read.from}:${read.name}`) && seen.add(`${read.from}:${read.name}`));
   // What a variable holds and what a function returns, when the source says: how `ledger.post()` is found to be Ledger's post.
   const binds = analysis.references.filter(reference => reference.kind === 'bind')
-    .map(reference => ({ name: reference.name, ...heldBy(reference), from: ownerOf(reference.source, reference.location.start.byte, reference.line) }));
+    .map(reference => ({ name: reference.name, ...(namedFunctions(heldBy(reference), byNode) ?? {}), from: ownerOf(reference.source, reference.location.start.byte, reference.line) }));
   for (const reference of analysis.references.filter(reference => reference.kind === 'returns')) {
     const owner = methods.find(method => method.id === ownerOf(reference.source, reference.location.start.byte, reference.line));
-    if (owner && !owner.returns && owner.node !== null) owner.returns = heldBy(reference);
+    // Declared first, then what the body hands back: `createAnalyzer(): Analyzer { return new LanguagePackAnalyzer(); }` declares
+    // an interface and builds a class, and a caller's method is found on the class when the interface declares none.
+    const held = namedFunctions(heldBy(reference), byNode);
+    if (owner && owner.node !== null && held) { if (!owner.returns) owner.returns = held; else if (!owner.yields) owner.yields = held; }
   }
   // Each class's bases, by the name the class goes by here.
   const extended = {};

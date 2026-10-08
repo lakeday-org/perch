@@ -478,7 +478,8 @@ describe('C and C++', () => {
     const { graph, method } = await repository(files);
     expect(method('src/cart.cpp::round_down').internal).toBe(true);
     expect(method('src/cart.cpp::apply_discount').internal).toBeUndefined();
-    expect(graph.callees('test/cart_test.cpp::ApplyDiscount.TakesTenPercentOff')).toEqual(['src/cart.cpp::apply_discount']);
+    // The test reaches apply_discount, and the lambda it wrote, which reaches apply_discount again.
+    expect(graph.callees('test/cart_test.cpp::ApplyDiscount.TakesTenPercentOff').sort()).toEqual(['src/cart.cpp::apply_discount', 'test/cart_test.cpp::ApplyDiscount.TakesTenPercentOff.charge']);
     expect(graph.callees('test/cart_test.cpp::ApplyDiscount.TakesTenPercentOff.charge')).toEqual(['src/cart.cpp::apply_discount']);
     expect(graph.callees('test/cart_test.cpp::catch style')).toEqual(['src/cart.cpp::apply_discount']);
     expect(graph.external('test/cart_test.cpp::ApplyDiscount.TakesTenPercentOff').map(call => call.name).sort()).toEqual(

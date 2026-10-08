@@ -4,7 +4,7 @@ import { PARSE_VERSION, type AnalyzeOptions, type Analyzer, type Declaration, ty
 import { downloading, normalizeLanguage } from './languages';
 import { Node } from './node';
 import { functionDepth, functionName, isComment, isFunction, isNamed, nonblankRows, parentFunctionName, qualityMetrics, qualifiedFunctionName, location, measure } from './metrics';
-import { referenceVisitor } from './references';
+import { parametersOf, referenceVisitor } from './references';
 import { walk, type SyntaxIndex } from './visit';
 import { measureComplexity } from './complexity';
 import { hasSyntaxError, internalLinkage } from './extensions';
@@ -85,7 +85,7 @@ function declarationsOf(items: StructureItem[], nodes: Map<string, Node>, langua
         function_depth: functionDepth(node), line: span.startLine! + 1,
         end_line: Math.max(span.startLine! + 1, span.endLine! + (span.endColumn! > 0 ? 1 : 0)),
         location: location(node), metrics: qualityMetrics(measure(node, true, nonblank, index), measureComplexity(node, language, true, index)),
-        test: test?.test ?? null, internal: internalLinkage(node, language),
+        test: test?.test ?? null, internal: internalLinkage(node, language), params: parametersOf(node),
         ...(!test && supportsTests(node, held, language) ? { support: true } : {}),
         // `fun String.size()` is a top-level function called as a member of whatever receiver it names, not a class's method.
         ...(language === 'kotlin' && node.childForFieldName('receiver') ? { extension: true } : {}) });

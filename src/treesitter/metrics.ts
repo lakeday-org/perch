@@ -169,7 +169,7 @@ export const FUNCTION_TYPES = new Set([
 
 const EXCLUDED_FUNCTION_TYPES = new Set(["function_declarator"]);
 
-const ANONYMOUS_FUNCTION_TYPES = new Set([
+export const ANONYMOUS_FUNCTION_TYPES = new Set([
   "arrow_function",
   "function_expression",
   "lambda",

@@ -166,6 +166,8 @@ const IMPLICIT_THIS = new Set(['java', 'kotlin', 'cpp', 'c_sharp', 'scala', 'swi
  * `const x = @import("m")`, and Ruby's `require`, which loads a file's constants for every file after it.
  */
 const PASSES_IMPORTS = new Set(['rust', 'python', 'zig', 'ruby']);
+/** Languages where reading a member can run a method: Scala's uniform access, JavaScript's and Python's getters. */
+const UNIFORM_ACCESS = new Set(['scala', 'javascript', 'typescript', 'tsx', 'python']);
 /** Names a method uses for the object or class it belongs to. */
 /** The name a C++ `using namespace` directive is recorded under among a file's imports, the namespace as its module. */
 const USING_NAMESPACE = '<namespace>', USING_NAME = '<using>';
@@ -797,6 +799,62 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
     }
     return null;
   };
+  // What each method is called with, by every caller that says: the values a method's parameters hold.
+  const calledWith = new Map();
+  const remember = (file, call, to) => {
+    if (!call.args && !call.named) return;
+    if (!calledWith.has(to)) calledWith.set(to, []);
+    calledWith.get(to).push({ file, from: call.from, args: call.args ?? [], named: call.named ?? {} });
+  };
+  /**
+   * Whether a call's head names a parameter of the method making it: `analyzer.analyzeSource()` inside
+   * `analyzeFiles(files, { analyzer })`, or `readSource(file)` where readSource is a function the caller passed.
+   */
+  const onParameter = (call) => {
+    const parts = call.name.split(/::|\./);
+    return parts.length <= 2 && (nodes.get(call.from)?.params ?? []).some(param => param.name === parts[0]);
+  };
+  /** The method a held value is, when it is a function: one written in place, or a name that resolves to one. */
+  const functionOf = (file, held, from) => {
+    if (!held) return null;
+    if (held.fn) return nodes.has(held.fn) ? held.fn : null;
+    if (held.local) { const bound = bindingFor(file, held.local, from); return bound ? functionOf(file, bound, from) : resolve(file, held.local, from) ?? parameterValues(from, held.local).map(site => functionOf(site.file, site.held, site.from)).find(Boolean) ?? null; }
+    return null;
+  };
+  const deferred = [];
+  /**
+   * A method called on a parameter is a method of whatever the callers pass for it: `analyzer.analyzeSource()` inside
+   * `analyzeFiles(files, { analyzer })` runs the analyzeSource of the analyzer each caller built. The value is read where the
+   * caller wrote it, by the caller's own file and bindings, and each class the callers pass is reached. A caller found through
+   * another parameter is a caller too, so the rounds repeat until no call is newly resolved.
+   */
+  /** What each caller passes for a parameter: the value and the caller it was written in. */
+  const parameterValues = (from, head, depth = 0) => {
+    const param = depth > 4 ? null : (nodes.get(from)?.params ?? []).find(item => item.name === head);
+    const values = [];
+    for (const site of param ? calledWith.get(from) ?? [] : []) {
+      // By position, or by name where the caller labelled it: `run([], Parser(), reader=Reader())`.
+      let held = site.args[param.index] ?? site.named[param.name] ?? null;
+      if (param.field !== undefined) held = held?.fields?.[param.field] ?? site.named[param.field] ?? null;
+      if (held) values.push({ held, file: site.file, from: site.from });
+    }
+    return values;
+  };
+  const parameterKinds = (from, head, depth = 0) => parameterValues(from, head, depth)
+    .map(({ held, file, from: at }) => ({ kind: classOf(file, held, at, depth), file })).filter(item => item.kind);
+  /** Every method of a class, in the files the class name resolves to from this file by the file's own language. */
+  const classMethods = (file, name) => {
+    let targets, declared = name;
+    if (PACKAGED.has(file.language)) { targets = classFiles(file, name) ?? []; declared = declaredName(file, name); }
+    else if (file.language === 'swift') targets = swiftClassFiles(file, name) ?? [];
+    else if (NATIVE.has(file.language)) targets = files.filter(item => NATIVE.has(item.language)).map(item => item.path);
+    else {
+      const imported = file.imports.find(item => item.alias === name);
+      targets = imported ? [resolveIn(file.path, imported.module, file.language, paths)].filter(Boolean) : [file.path];
+      if (imported && imported.name !== '*') declared = imported.name;
+    }
+    return targets.flatMap(path => byPath.get(path).file.methods.filter(method => method.qualified_name.startsWith(`${declared}.`)).map(method => method.id));
+  };
   const CONSTRUCTOR_NAMES = new Set(['__init__', 'constructor', 'new', 'init', 'initialize', '__construct']);
   /**
    * The class a value is an instance of: the type it was declared or constructed with, or for a call, the class of what the call
@@ -811,10 +869,12 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
     }
     // A type is written in a file, and names the class that file sees by that name.
     if (value.type) return { name: value.type.split(/::|\./).at(-1), full: value.type.replaceAll('::', '.'), from, path: file.path };
-    // Another local's value: `let t = Thing::new(); t` hands on what t holds.
+    // Another local's value: `let t = Thing::new(); t` hands on what t holds. A local nothing binds is a parameter, which holds
+    // what the callers pass.
     if (value.local) {
       const held = bindingFor(file, value.local, from);
-      return held && held !== value ? classOf(file, held, from, depth + 1) : null;
+      if (held) return held !== value ? classOf(file, held, from, depth + 1) : null;
+      return parameterKinds(from, value.local, depth + 1)[0]?.kind ?? null;
     }
     if (!value.call) return null;
     // `x.debit(...)` on what another value holds: the member of that value's class, then whatever it returns. A chain is as long
@@ -826,8 +886,11 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
     if (!target) return /^[A-Z]/.test(parts.at(-2) ?? '') ? { name: parts.at(-2), full: parts.slice(0, -1).join('.'), path: file.path, from } : /^[A-Z]/.test(parts[0]) && parts.length === 1 ? { name: parts[0], path: file.path, from } : null;
     const node = nodes.get(target), owner = node.qualified_name.split('.');
     if (owner.length > 1 && (CONSTRUCTOR_NAMES.has(owner.at(-1)) || owner.at(-1) === owner.at(-2))) return { name: owner.at(-2), full: owner.slice(0, -1).join('.'), path: node.path, from };
+    // What it declares it returns, when that is a class with members; otherwise what its body builds.
     const returned = node.returns && classOf(byPath.get(node.path).file, node.returns, target, depth + 1);
-    if (returned) return returned;
+    if (returned && classMethods(byPath.get(node.path).file, returned.name).length) return returned;
+    const built = node.yields && classOf(byPath.get(node.path).file, node.yields, target, depth + 1);
+    if (built ?? returned) return built ?? returned;
     return owner.length > 1 && /^[A-Z]/.test(owner.at(-2)) ? { name: owner.at(-2), full: owner.slice(0, -1).join('.'), path: node.path, from } : null;
   };
   /** Where a class is defined: the file that defines a method of it, by the same lookup a member uses, or its bases' record. */
@@ -927,8 +990,31 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
     if (NATIVE.has(file.language)) return linked(kind.from ?? null, [...(kind.full ?? kind.name).split('.'), member], file, false);
     return null;
   };
+  /**
+   * `counter.update()` where counter holds what a factory returned: `return { draw, update: n => ... }` names the function the
+   * member is, written in the factory. Null when the factory returns no object literal with that member.
+   */
+  const memberOfReturned = (file, held, member, from) => {
+    const target = held?.call ? resolve(file, held.call, from, 1) : null;
+    const node = target && nodes.get(target);
+    if (!node) return null;
+    // `return { draw, update }` written out, or `const store = { ... }; return store;` through the local it returns.
+    const fields = tableFields(byPath.get(node.path).file, node.returns ?? node.yields, target);
+    return fields?.[member] ? functionOf(byPath.get(node.path).file, fields[member], target) : null;
+  };
+  /** The fields of the object literal a value is, followed through the locals that hold it. */
+  const tableFields = (file, held, from, depth = 0) => {
+    for (let value = held, hop = 0; value && hop < 4; hop++) {
+      if (value.fields) return value.fields;
+      if (!value.local) return null;
+      value = bindingFor(file, value.local, from) ?? parameterValues(from, value.local, depth)[0]?.held ?? null;
+    }
+    return null;
+  };
   const viaBinding = (file, name, member, from, depth = 0) => {
     const binding = bindingFor(file, name, from);
+    const returned = binding && memberOfReturned(file, binding, member, from);
+    if (returned) return returned;
     const elsewhere = binding ? null : bindingElsewhere(file, name, from);
     const kind = binding ? classOf(file, binding, from, depth) : elsewhere && classOf(elsewhere.file, elsewhere.held, elsewhere.from ?? from, depth);
     return kind ? memberOf(file, kind, member) : null;
@@ -939,14 +1025,36 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
   // Scala's uniform access: `entry.isBalanced` written without parentheses runs the parameterless method of that name, so a
   // member read that resolves, by the rules a call does, to a method of what the receiver holds is a call to it. A class cannot
   // declare a field and a method under one name, so a read that reaches a method reaches what the program runs.
-  const uniformAccess = file => (file.language === 'scala' ? (file.reads ?? []) : []);
+  // JavaScript's and Python's getters are read the same way, and a read that reaches a method of the receiver's class reaches
+  // the getter the language runs.
+  const uniformAccess = file => (UNIFORM_ACCESS.has(file.language) ? (file.reads ?? []) : []);
   for (const file of files) {
     for (const call of [...file.calls, ...uniformAccess(file)]) {
-      const to = resolve(file, call.name, call.from, 0, call.via ?? null);
+      // `commands[name](io)`, or `const command = commands[name]; command(io)`: every function in the table, since the key is
+      // the run's to choose.
+      const tableName = call.name.endsWith('[]') ? call.name.slice(0, -2) : !call.name.includes('.') && !call.name.includes('::') ? call.name : null;
+      const to = call.name.endsWith('[]') ? null : resolve(file, call.name, call.from, 0, call.via ?? null);
+      if (!to && tableName) {
+        const fields = tableFields(file, { local: tableName }, call.from);
+        if (fields) {
+          for (const held of Object.values(fields)) {
+            const target = functionOf(file, held, call.from);
+            if (!target || target === call.from) continue;
+            link(callees, call.from, target);
+            link(callers, target, call.from);
+            dynamic.add(`${call.from}->${target}`);
+            if (!sites.has(`${call.from}->${target}`)) sites.set(`${call.from}->${target}`, call.line);
+          }
+          continue;
+        }
+        if (call.name.endsWith('[]')) continue;
+      }
       if (!to) {
         // A member of a receiver the tree cannot name says nothing about what leaves the repository: `expect(x).not.toThrow()`.
         // Nor does a read that reaches no method: it is a field, or a member of something outside the repository.
         if (call.name.startsWith('$receiver.') || !file.calls.includes(call)) continue;
+        // A method of a parameter: decided once every caller is known, by what the callers pass.
+        if (onParameter(call)) deferred.push({ file, call });
         // What a method calls outside the repository: a library, the runtime, the operating system.
         if (!external.has(call.from)) external.set(call.from, new Map());
         external.get(call.from).set(`${call.name}:${call.line}`, { name: call.name, line: call.line });
@@ -955,8 +1063,43 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
       if (to === call.from) continue;
       link(callees, call.from, to);
       link(callers, to, call.from);
+      remember(file, call, to);
       const key = `${call.from}->${to}`;
       if (!sites.has(key)) sites.set(key, call.line);
+    }
+  }
+  for (let waiting = deferred.splice(0); waiting.length;) {
+    const again = [];
+    for (const { file, call } of waiting) {
+      const [head, member] = call.name.split(/::|\./);
+      // `readSource(file)`: the function the caller passed. `analyzer.analyzeSource()`: a method of the class the caller passed.
+      const found = member === undefined
+        ? parameterValues(call.from, head).map(site => functionOf(site.file, site.held, site.from))
+        : parameterKinds(call.from, head).map(({ kind, file: at }) => memberOf(at, kind, member));
+      const targets = new Set(found.filter(to => to && to !== call.from));
+      if (!targets.size) { again.push({ file, call }); continue; }
+      external.get(call.from)?.delete(`${call.name}:${call.line}`);
+      for (const to of targets) {
+        link(callees, call.from, to);
+        link(callers, to, call.from);
+        remember(file, call, to);
+        const key = `${call.from}->${to}`;
+        if (!sites.has(key)) sites.set(key, call.line);
+      }
+    }
+    if (again.length === waiting.length) break;
+    waiting = again;
+  }
+  // A function written inside another, a callback or a closure, runs only when its parent runs and is handed on by it: a visitor
+  // given to a walk, a worker's handler, a retry's body. The parent reaches it, whoever ends up calling it.
+  for (const file of files) {
+    for (const method of file.methods) {
+      // A test is a root, run by its framework: a subtest is not reached by the test it is written in.
+      if (!method.parent || method.test || callees.get(method.parent)?.has(method.id)) continue;
+      link(callees, method.parent, method.id);
+      link(callers, method.id, method.parent);
+      dynamic.add(`${method.parent}->${method.id}`);
+      if (!sites.has(`${method.parent}->${method.id}`)) sites.set(`${method.parent}->${method.id}`, method.line);
     }
   }
   // Functions passed as values: the dispatcher that eventually calls them has no name for them, so the edge comes from the handover.
@@ -978,19 +1121,6 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
   for (const file of files) for (const read of file.reads ?? []) readsBy.set(read.from, [...(readsBy.get(read.from) ?? []), { name: read.name, line: read.line }]);
 
   const methodsOf = path => byPath.get(path)?.file.methods.map(method => method.id) ?? [];
-  /** Every method of a class, in the files the class name resolves to from this file by the file's own language. */
-  const classMethods = (file, name) => {
-    let targets, declared = name;
-    if (PACKAGED.has(file.language)) { targets = classFiles(file, name) ?? []; declared = declaredName(file, name); }
-    else if (file.language === 'swift') targets = swiftClassFiles(file, name) ?? [];
-    else if (NATIVE.has(file.language)) targets = files.filter(item => NATIVE.has(item.language)).map(item => item.path);
-    else {
-      const imported = file.imports.find(item => item.alias === name);
-      targets = imported ? [resolveIn(file.path, imported.module, file.language, paths)].filter(Boolean) : [file.path];
-      if (imported && imported.name !== '*') declared = imported.name;
-    }
-    return targets.flatMap(path => byPath.get(path).file.methods.filter(method => method.qualified_name.startsWith(`${declared}.`)).map(method => method.id));
-  };
   /**
    * A Python patch target: the longest prefix of the path that is a module, the way mock imports it, and then the name bound in
    * that module, which is a function, a class, or something the module imported. Nothing left over means the whole module.
