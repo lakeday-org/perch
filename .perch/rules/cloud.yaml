@@ -16,6 +16,7 @@
 - name: local-commands-skip-cloud-config
   where: src/cli.js
   ensure: >-
-    Read main. ~/.perch/config.toml is read only for login, scan and check.
+    Read main. ~/.perch/config.toml is read only for the commands that reach
+    Perch Cloud or a model: login, scan, coverage, check, ci and cloud.
     Reading it before every command, so that a broken file fails perch issues
     or perch close, breaks this rule.
