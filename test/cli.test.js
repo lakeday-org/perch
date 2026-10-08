@@ -270,6 +270,29 @@ describe('cli', () => {
     expect(drawn.join('').split('\r\x1b[K').map(line => line.slice(2))).toContain('checking file 1 of 1');
   });
 
+  it('scan prints a rule broken in a file that already printed a defect', async () => {
+    const repo = await realpath(await makeFixture());
+    cleanups.push(repo);
+    // A `mentions` rule is asked as a unit of its own beside the walk, so its answer lands after clamp.js has printed its defect.
+    await writeFile(join(repo, 'perch.yaml'), 'rules:\n  - name: clamp-bounds\n    where: mentions hi\n    ensure: A value above hi comes back as hi.\n');
+    await commitAll(repo, 'add a rule');
+    vi.spyOn(process, 'cwd').mockReturnValue(repo);
+    const service = scriptedSystemOne({ 'src/clamp.js::clamp': { has_bug: 0.95 } });
+    vi.stubGlobal('fetch', async (url, init) => {
+      const { state, questions } = JSON.parse(init.body);
+      return new Response(JSON.stringify(await service.ask(state, questions)));
+    });
+    const { out, err, io } = capture();
+    io.env = { HOME: repo, PERCH_API_KEY: 'key', PERCH_BASE_URL: 'https://api.typesafe.ai/v1/systemone' };
+    expect(await main(['scan', repo, '--out', join(repo, '.perch')], io), err.join('\n')).toBe(3);
+    const printed = out.join('\n').split('\n');
+    const rows = printed.filter(line => /^ {2}[0-9a-f]{8} {2}/.test(line));
+    expect(rows.some(line => line.includes('defect'))).toBe(true);
+    expect(rows.filter(line => / lint .* clamp-bounds /.test(line))).toHaveLength(1);
+    // The summary counts what the scan found, so what it printed has to add up to it.
+    expect(printed.at(-1)).toMatch(new RegExp(`^✖ ${rows.length} problems in 1 file, all failing$`));
+  });
+
   it.each(['scan', 'check'])('%s names itself, its release, its run and its scan on each request to Perch Cloud', async command => {
     const repo = await realpath(await makeFixture());
     cleanups.push(repo);

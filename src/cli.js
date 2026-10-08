@@ -23,7 +23,7 @@ import { createMeter, metered } from './meter.js';
 import { coverageFindings, coverageRepository, withoutSource } from './coverage.js';
 import { renderCoverageSite } from './coverage-html.js';
 import { COVERAGE_KINDS, coverageCount, coverageDetails, formatCoverage, formatCoverageDiff, listedFindings, parseCoverageFilters } from './coverage-report.js';
-import { formatDoctor, formatFilterKeys, gating, useColor, formatFinding, formatIssues, formatCheck, formatRules, formatScanReport, issueCount, relative, scanCount, scanTally, TOP, visibleFindings } from './report.js';
+import { formatDoctor, formatFilterKeys, gating, useColor, formatFinding, formatIssues, formatCheck, formatRules, formatScanReport, issueCount, relative, scanCount, scanTally, shownIssues, TOP, visibleFindings } from './report.js';
 
 /**
  * Stamped into the bundle at build time, so it reports what is running rather than a number read off a package.json that may not
@@ -488,12 +488,14 @@ const commands = {
         error => io.note(`Could not update scan progress in Perch Cloud: ${error.message}`)) : null;
     // A file prints the moment it is finished rather than at the end, so a long run says what it is finding while it finds it.
     const said = new Set();
-    const say = (path, findings) => {
-      const block = formatScanReport(narrow(visibleFindings(findings), filters, min), { min, filters, summary: false, empty: '' });
+    const say = (_path, findings) => {
+      const shown = narrow(visibleFindings(findings), filters, min);
+      const block = formatScanReport(shown, { min, filters, summary: false, empty: '' });
       if (!block) return;
-      // Only a file that printed counts as said. A file whose methods were quiet still gets findings later, from the rules about
-      // whole files and from the searches, and marking it reported on the way past dropped every one of them.
-      said.add(path);
+      // What printed is said, not the file it is in. The rules about whole files, the `mentions` rules and the searches answer
+      // beside the walk, often after their file has gone past, and marking the file reported dropped every one of them while
+      // the tally still counted them.
+      for (const finding of shown) if (shownIssues(finding, min, filters).length) said.add(finding.id);
       methods.clear();
       io.stdout(block + '\n');
     };
@@ -520,9 +522,10 @@ const commands = {
     const everything = visibleFindings(splitStale(await store.issues(min, { scan }), scan).current)
       .filter(finding => inScope(finding.path));
     const issues = narrow(everything, filters, min);
-    // Whatever has not gone past already: the rules about files and tests, which report once they have all answered. Then the tally, which
-    // counts the whole run. What was read and what it cost is context for a person watching, and goes under it on stderr.
-    const rest = issues.filter(finding => !said.has(finding.path));
+    // Whatever has not gone past already: the rules asked outside a method's reading, which report once they have all answered.
+    // Then the tally, which counts the whole run. What was read and what it cost is context for a person watching, and goes under
+    // it on stderr.
+    const rest = issues.filter(finding => !said.has(finding.id));
     // A run that read no method and asked no rule found nothing because it looked at nothing. Saying "nothing to report" there
     // described the configuration as the code, so it says what emptied the scope instead.
     const readNothing = !run.methods && !run.checked;
