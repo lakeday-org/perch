@@ -341,13 +341,13 @@ describe('perch coverage', () => {
     expect(find('survived', 'src/cart.ts::checkout')[0].probability).toBeCloseTo(0.95 * 0.9);
     // That no test reaches restock is the call graph's alone, and the call graph alone lists no problem.
     expect(find('survived', 'cart.py::restock')).toEqual([]);
-    // The two boundaries: each survives all three tests at 0.9, and matters at 0.9.
+    // The two boundaries: the likeliest test to kill each is at 0.1, so each survives at 0.9, and matters at 0.9.
     const uncaught = find('survived', 'cart.py::apply_discount');
     expect(uncaught.map(finding => [finding.line, finding.note])).toEqual([
       [5, 'With `<=` instead of `<`, none of the 3 tests reaching it fails.'],
       [7, 'With `>=` instead of `>`, none of the 3 tests reaching it fails.'],
     ]);
-    for (const finding of uncaught) expect(finding.probability).toBeCloseTo(0.9 ** 3 * 0.9);
+    for (const finding of uncaught) expect(finding.probability).toBeCloseTo(0.9 * 0.9);
     expect(new Set(uncaught.map(finding => finding.id)).size).toBe(2);
     expect(find('infra', 'tests/test_cart.py::test_rate')[0]).toMatchObject({ probability: 0.9, note: 'Calls a live service with nothing mocked: requests.get at rates.py:5.' });
     // The model is shown the call and where it is, and the method making it is in the graph it reads.
@@ -372,7 +372,7 @@ describe('perch coverage', () => {
     const first = discount.mutants.find(mutant => mutant.kind === 'boundary');
     expect(first).toMatchObject({ line: 5, column: 15, from: '<', to: '<=', original: '    if percent < 0:', mutated: '    if percent <= 0:', asked: discount.tests.map(item => item.id) });
     expect(first.id).toMatch(/^5:15:boundary:[0-9a-f]{8}$/);
-    expect(first.survives).toBeCloseTo(0.9 ** 3);
+    expect(first.survives).toBeCloseTo(0.9);
     // The negative-price test kills every mutant of total; the plain one misses only the boundary.
     const total = methods.get('src/cart.ts::total');
     expect(total).toMatchObject({ killed: 8 });
@@ -467,6 +467,18 @@ describe('perch coverage', () => {
     const over = await run(await repository(), scripted({ methods: { checkout: { matters: 0.9, kills: { 'cart > checks out': 0.05 } } } }));
     expect(over.findings.filter(finding => finding.unit === checks.id).map(finding => finding.kind)).toEqual(['checks_nothing']);
     expect(over.tests.find(test => test.id === checks.id).useful).toBe(false);
+  });
+
+  it('kills a mutant only when one test is likely enough to fail against it', async () => {
+    // checkout's tests at 0.65: under KILLED, so its mutants survive the score, and at 0.35 to survive none is listed either.
+    const under = await run(await repository(), scripted({ methods: { checkout: { matters: 0.9, kills: { 'cart > checks out': 0.65 } } } }));
+    const checkout = report => report.methods.find(method => method.id === 'src/cart.ts::checkout');
+    expect(checkout(under).mutants.map(mutant => mutant.killed)).toEqual(checkout(under).mutants.map(() => false));
+    expect(checkout(under).mutants[0]).toMatchObject({ killed_by: [], asked: ['test/cart.test.ts::cart > checks out'], fails: [0.65] });
+    expect(under.findings.filter(finding => finding.unit === 'src/cart.ts::checkout')).toEqual([]);
+    const over = await run(await repository(), scripted({ methods: { checkout: { matters: 0.9, kills: { 'cart > checks out': 0.7 } } } }));
+    expect(checkout(over).mutants.map(mutant => mutant.killed)).toEqual(checkout(over).mutants.map(() => true));
+    expect(checkout(over).mutants[0].killed_by).toEqual(['test/cart.test.ts::cart > checks out']);
   });
 
   it('keeps a survived mutant on its own line when code above the method moves it down', async () => {

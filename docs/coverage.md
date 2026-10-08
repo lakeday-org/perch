@@ -30,8 +30,8 @@ $ perch coverage
 Source files      Mutation score  Survived  No coverage
 src/cart.ts       71% (10 of 14)         4            0
 src/checkout.ts     60% (3 of 5)         2            0
-src/inventory.ts    88% (7 of 8)         1            0
-All source        74% (20 of 27)         7            0
+src/inventory.ts    63% (5 of 8)         2            0
+All source        67% (18 of 27)         8            0
 
 Test files                    Quality  Duplicates  Checks nothing  Live services
 test/cart.test.ts        43% (3 of 7)           4               0              1
@@ -41,13 +41,10 @@ All tests               58% (7 of 12)           4               1              1
 
 src/cart.ts
   ID        Line  Problem   Confidence  Test or method  Note
-  0399f832    12  survived         61%  applyDiscount   With `101` instead of `100`, none of the …
-  1be27338    12  survived         61%  applyDiscount   With `>` instead of `>=`, none of the 5 t…
-
-src/checkout.ts
-  ID        Line  Problem   Confidence  Test or method  Note
-  be0be057     6  survived         72%  placeOrder      With `false` as the condition, the 1 test…
-  0fa7ab4e     6  survived         63%  placeOrder      With `''` instead of `'An item is out of …
+  0399f832    12  survived         87%  applyDiscount   With `101` instead of `100`, none of the …
+  1be27338    12  survived         87%  applyDiscount   With `>` instead of `>=`, none of the 5 t…
+  20fb814a    12  survived         87%  applyDiscount   With `1` instead of `0`, none of the 5 te…
+  883b4b21    12  survived         84%  applyDiscount   With `false` as the condition, none of th…
 
 test/cart.test.ts
   ID        Line  Problem    Confidence  Test or method        Note
@@ -60,15 +57,16 @@ test/cart.test.ts
 test/inventory.test.ts
   ID        Line  Problem  Confidence  Test or method         Note
   98a1a024    23  mocked            -  canFulfil > returns …  Mocks every method it calls: canFul…
-shop at commit 0ade512: 4 methods, 12 tests, 13 problems, 10 shown, --all for the rest
+shop at commit 0ade512: 4 methods, 12 tests, 14 problems, 10 shown, --all for the rest
 Report: .perch/coverage/index.html
 28 requests  0 tokens in  $0.0000
 ```
 
-The mutation score is the share of mutants killed by at least one test. Methods
-tested is the number of methods at least one test reaches through the call
-graph. Perch lists each survived mutant with the edit it made and the number of
-tests that miss it. The confidence is how sure Perch is that no test kills the
+The mutation score is the share of mutants killed by at least one test. A test
+kills a mutant when Perch puts its chance of failing against it at 70% or more.
+No coverage is the number of mutants in methods no test reaches through the call
+graph; they count against the score. Perch lists each survived mutant with the
+edit it made and the number of tests that miss it. The confidence is how sure Perch is that no test kills the
 mutant and that the mutant changes what a caller sees. A test that checks
 nothing kills no mutant in the code it reaches. A duplicate kills exactly the
 mutants an earlier test kills. A test that mocks what it tests calls only
@@ -97,8 +95,9 @@ mutant, without running any of them. So Perch can read any repository in a few
 minutes, even one you can't build locally, and you can run it on a pull request
 in CI without a test job. Perch reads no CI output: no coverage reports, no test
 results. It predicts the test results and shows how confident it is in each
-prediction. The prediction errs towards calling a mutant killed, so the score
-reads high; a mutant it lists as survived almost always has.
+prediction. Run for real on 149 mutants of Perch's own code, the tests killed
+38; Perch called 41 killed, 30 of them right, and 100 of the 108 it called
+survived had survived.
 
 Perch only looks at the code your test frameworks run. It loads the same config
 files as Vitest, Jest, pytest and coverage.py, which lets it ignore scripts,
@@ -203,14 +202,15 @@ changed on the branch:
 $ perch coverage --since main
 src/cart.ts
   ID        Line  Problem   Confidence  Test or method  Note
-  0399f832    12  survived         59%  applyDiscount   With `101` instead of `100`, none of the …
-  20fb814a    12  survived         57%  applyDiscount   With `1` instead of `0`, none of the 5 te…
-  1be27338    12  survived         57%  applyDiscount   With `>` instead of `>=`, none of the 5 t…
+  20fb814a    12  survived         86%  applyDiscount   With `1` instead of `0`, none of the 5 te…
+  1be27338    12  survived         85%  applyDiscount   With `>` instead of `>=`, none of the 5 t…
+  0399f832    12  survived         84%  applyDiscount   With `101` instead of `100`, none of the …
+  883b4b21    12  survived         81%  applyDiscount   With `false` as the condition, none of th…
 
 test/cart.test.ts
   ID        Line  Problem    Confidence  Test or method        Note
   427fce7a    22  redundant         76%  applyDiscount > tak…  Kills the same mutants as applyDis…
-shop at commit 6fe98ce: 4 methods, 12 tests, 4 problems in changed code, 8 elsewhere
+shop at commit 6fe98ce: 4 methods, 12 tests, 5 problems in changed code, 9 elsewhere
 Report: .perch/coverage/index.html
 28 requests  0 tokens in  $0.0000
 ```

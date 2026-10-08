@@ -33,6 +33,12 @@ import { describeMutant, mutantId, mutantsOf } from './mutants.js';
 export const DEFAULT_PARALLEL = 8;
 /** How many neighbours a state shows at most: the methods a test reaches, or the tests that reach a method. */
 export const MAX_SHOWN = 8;
+/**
+ * A test kills a mutant when its chance of failing against it is at least this. The model's kill answers run high: on 149
+ * mutants of this repository run for real, a test it put at 0.5 to 0.7 failed one time in five, one it put at 0.7 or over two
+ * times in three, and judged by the likeliest of its tests 41 mutants were killed against 38 that were. At 0.5 it was 68.
+ */
+export const KILLED = 0.7;
 
 /** The questions perch asks about tests and methods, read once from the file they are declared in. */
 /** What an answer is kept under: what was shown, which questions were asked, and who answered. Any of them changing asks again. */
@@ -337,18 +343,18 @@ export function judgeTests(tests, mutants, min) {
     const list = asked.get(test.id);
     if (!list || list.length < 2 || checksNothing.has(test.id)) continue;
     const sorted = [...list].sort((a, b) => a.key.localeCompare(b.key));
-    if (!sorted.some(item => item.p >= min)) continue;
-    const key = JSON.stringify(sorted.map(item => [item.key, item.p >= min]));
+    if (!sorted.some(item => item.p >= KILLED)) continue;
+    const key = JSON.stringify(sorted.map(item => [item.key, item.p >= KILLED]));
     const first = byKills.get(key);
     if (!first) { byKills.set(key, { id: test.id, mutants: sorted }); continue; }
     // Deleting this one loses nothing when the first kills every mutant it kills: the chance of that is the first's chance on
     // the mutant it is least sure of among those.
-    const agree = Math.min(...sorted.map((item, at) => (item.p >= min ? first.mutants[at].p : 1)));
+    const agree = Math.min(...sorted.map((item, at) => (item.p >= KILLED ? first.mutants[at].p : 1)));
     if (agree < min) continue;
     redundantWith.set(test.id, first.id);
     pairProbability.set(test.id, agree);
   }
-  const kills = new Map([...asked].map(([testId, list]) => [testId, list.filter(item => item.p >= min).map(item => item.key)]));
+  const kills = new Map([...asked].map(([testId, list]) => [testId, list.filter(item => item.p >= KILLED).map(item => item.key)]));
   const useful = new Set(tests.filter(test => !checksNothing.has(test.id) && !redundantWith.has(test.id)).map(test => test.id));
   return { useful, checksNothing, redundantWith, pairProbability, kills, asked: new Map([...asked].map(([testId, list]) => [testId, list.length])) };
 }
@@ -539,14 +545,19 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     const usefulTests = method.tests.filter(item => judged.useful.has(item.id)).map(item => item.id);
     const covered = method.tests.length > 0;
     // Each mutant: how likely it is that no test shown kills it, and that it changes behaviour at all. A mutant is killed when
-    // some test is likely enough to fail against it; one that survives, and matters, is listed. A mutant of a method no test
-    // reaches has no coverage: nothing was asked, nothing is listed, and it counts against the score.
+    // one test is likely enough to fail against it, KILLED or over, and survives by the chance that the likeliest misses. The
+    // answers are not multiplied across tests: eight tests each a little likely to fail multiplied into a near-certain kill,
+    // and against real runs three in four of those kills were wrong, while every mutant no single test was likely to kill had
+    // survived. One that survives, and matters, is listed. A mutant of a method no test reaches has no coverage: nothing was
+    // asked, nothing is listed, and it counts against the score.
     const mutants = (answers.mutants.get(method.id) ?? []).map(({ mutant, matters, kills }) => {
       const id = mutantId(mutant);
       const base = { id, kind: mutant.kind, line: mutant.line, column: mutant.column, from: mutant.from, to: mutant.to, original: mutant.original, mutated: mutant.mutated };
       if (!covered) return { ...base, matters: null, survives: null, killed: false, killed_by: [], asked: [], finding: null };
-      const survives = kills.reduce((total, [, p]) => total * (1 - p), 1);
-      const item = { ...base, matters, survives, killed: 1 - survives >= min, killed_by: kills.filter(([, p]) => p >= min).map(([testId]) => testId), asked: kills.map(([testId]) => testId), finding: null };
+      const survives = 1 - Math.max(0, ...kills.map(([, p]) => p));
+      // fails is the chance each test in asked fails against the mutant, in the same order.
+      const item = { ...base, matters, survives, killed: 1 - survives >= KILLED, killed_by: kills.filter(([, p]) => p >= KILLED).map(([testId]) => testId),
+        asked: kills.map(([testId]) => testId), fails: kills.map(([, p]) => p), finding: null };
       const count = kills.length;
       item.finding = add({ kind: 'survived', subject: 'method', unit: method.id, key: `${method.id}#${id}`, path: node.path, line: mutant.line, name: node.qualified_name,
         probability: survives * matters, mutant: id,
