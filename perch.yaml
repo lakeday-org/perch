@@ -162,6 +162,19 @@ rules:
     # Floored at 75. docs/cli.md reads in the sixties with headings that are all plain noun phrases: perch scan, Exit codes.
     # The real ones read in the eighties and nineties.
     min: 75
+  # Bounded to the headings and the first table, where a page names what it covers. A thing described with a clause instead of
+  # named reads as machine prose: "Read what CI found" for CI results, "the issues one run found" for a run's issues.
+  - name: docs-plain-names
+    where: "{README.md,skill.md,docs/**/*.md}"
+    ensure: >-
+      Read the page's headings and the descriptions in its first table, and
+      nothing else. Each names its subject plainly, the way a person would say
+      it out loud: a noun, or a short verb and noun, such as CI results, Exit
+      codes, List this branch's CI runs, or Show one run's issues. One that
+      describes its subject with a clause instead of naming it breaks this
+      rule: Read what CI found, Check the tests a change needs, The CI runs
+      Perch Cloud has of the branch, the issues one run found, how it scans
+      this repository. A page with no headings and no table satisfies it.
   # Judges the opening rather than the page. Worded as a claim about every sentence, it ranked pages by length and nothing else:
   # a page rewritten entirely in 34-word run-ons read 92% and the same page in short sentences read 88%.
   - name: docs-sentences-are-short
