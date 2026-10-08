@@ -14,44 +14,55 @@ method your tests reach. For each mutant, it asks a decision model, Jev, which
 of those tests would fail with the mutant in place. Perch runs no tests and
 changes no files.
 
-A mutant is a change to one line of one method: `<` to `<=`, `&&` to `||`, a
-negated condition, a removed `!`, `+` to `-`, a flipped boolean, `0` returned
-instead of a number. These are the operators Stryker and PIT use. If a test
-fails with a mutant in place, the test kills it. If every test passes, the
-mutant survives. A survived mutant is a real gap in your coverage: a test runs
-that line, and nothing checks what it does.
+A mutant is one edit to one method: a call statement removed, an `if` body
+emptied, a condition forced to `true` or `false`, `<` to `<=`, `&&` to `||`,
+`+` to `-`, `n++` to `n--`, a removed `!`, a flipped boolean, a string
+emptied, a number moved by one, a returned value replaced. These are the
+operators Stryker and PIT use. If a test fails with a mutant in place, the test
+kills it. If every test passes, the mutant survives. A survived mutant is a
+real gap in your coverage: a test runs that code, and nothing checks what it
+does.
 
 Point it at a repository:
 
 ```console
 $ perch coverage
 Source files      Methods tested  Mutation score  Survived
-src/cart.ts               2 of 2    71% (5 of 7)         2
-src/checkout.ts           1 of 1   100% (2 of 2)         0
-src/inventory.ts          1 of 1   100% (4 of 4)         0
-All source                4 of 4  85% (11 of 13)         2
+src/cart.ts               2 of 2  71% (10 of 14)         4
+src/checkout.ts           1 of 1    60% (3 of 5)         2
+src/inventory.ts          1 of 1    88% (7 of 8)         1
+All source                4 of 4  74% (20 of 27)         7
 
 Test files                    Quality  Duplicates  Checks nothing  Live services
 test/cart.test.ts        43% (3 of 7)           4               0              1
 test/checkout.test.ts   100% (1 of 1)           0               0              0
-test/inventory.test.ts  100% (4 of 4)           0               0              0
-All tests               67% (8 of 12)           4               0              1
+test/inventory.test.ts   75% (3 of 4)           0               1              0
+All tests               58% (7 of 12)           4               1              1
 
 src/cart.ts
   ID        Line  Problem   Confidence  Test or method  Note
-  3945b1f7    12  survived         62%  applyDiscount   With `>` instead of `>=`, none of the 5 tests reaching it…
-  d6f68653    12  survived         57%  applyDiscount   With `1` instead of `0`, none of the 5 tests reaching it …
+  0399f832    12  survived         61%  applyDiscount   With `101` instead of `100`, none of the …
+  1be27338    12  survived         61%  applyDiscount   With `>` instead of `>=`, none of the 5 t…
+
+src/checkout.ts
+  ID        Line  Problem   Confidence  Test or method  Note
+  be0be057     6  survived         72%  placeOrder      With `false` as the condition, the 1 test…
+  0fa7ab4e     6  survived         63%  placeOrder      With `''` instead of `'An item is out of …
 
 test/cart.test.ts
-  ID        Line  Problem    Confidence  Test or method              Note
-  d0eacd17    10  redundant         95%  applyDiscount > takes 20 …  Kills the same mutants as applyDiscount > ta…
-  7ff46fdf    14  redundant         95%  applyDiscount > takes 25 …  Kills the same mutants as applyDiscount > ta…
-  3055e1ad    18  redundant         95%  applyDiscount > takes 50 …  Kills the same mutants as applyDiscount > ta…
-  427fce7a    22  redundant         95%  applyDiscount > takes 75 …  Kills the same mutants as applyDiscount > ta…
-  472ae559    32  infra             88%  subtotal > matches the to…  Calls a live service with nothing mocked: fe…
-shop at commit 8f797f0: 4 methods, 12 tests, 7 problems
+  ID        Line  Problem    Confidence  Test or method        Note
+  d0eacd17    10  redundant         94%  applyDiscount > tak…  Kills the same mutants as applyDis…
+  7ff46fdf    14  redundant         94%  applyDiscount > tak…  Kills the same mutants as applyDis…
+  3055e1ad    18  redundant         94%  applyDiscount > tak…  Kills the same mutants as applyDis…
+  427fce7a    22  redundant         94%  applyDiscount > tak…  Kills the same mutants as applyDis…
+  472ae559    32  infra             88%  subtotal > matches …  Calls a live service with nothing …
+
+test/inventory.test.ts
+  ID        Line  Problem  Confidence  Test or method         Note
+  98a1a024    23  mocked            -  canFulfil > returns …  Mocks every method it calls: canFul…
+shop at commit 0ade512: 4 methods, 12 tests, 13 problems, 10 shown, --all for the rest
 Report: .perch/coverage/index.html
-14 requests  22k tokens in / 1k out  $0.0064
+28 requests  6k tokens in / 318 out  $0.0017
 ```
 
 The mutation score is the share of mutants killed by at least one test. Methods
@@ -60,8 +71,11 @@ graph. Perch lists each survived mutant with the edit it made and the number of
 tests that miss it. The confidence is how sure Perch is that no test kills the
 mutant and that the mutant changes what a caller sees. A test that checks
 nothing kills no mutant in the code it reaches. A duplicate kills exactly the
-mutants an earlier test kills. A problem with a `-` for confidence is on a test
-or method the model couldn't be asked about. Use `--all` to see every row.
+mutants an earlier test kills. A test that mocks what it tests calls only
+methods it has replaced with its own mocks, so it checks the mocks; that is a
+fact of the call graph and is listed with `-` for confidence, as is a problem on
+a test or method the model couldn't be asked about. Use `--all` to see every
+row.
 
 Perch also writes an HTML report. It shows each line of source with its problems
 under it. For a survived mutant, it shows the original and the mutated version
@@ -83,7 +97,8 @@ mutant, without running any of them. So Perch can read any repository in a few
 minutes, even one you can't build locally, and you can run it on a pull request
 in CI without a test job. Perch reads no CI output: no coverage reports, no test
 results. It predicts the test results and shows how confident it is in each
-prediction.
+prediction. The prediction errs towards calling a mutant killed, so the score
+reads high; a mutant it lists as survived almost always has.
 
 Perch only looks at the code your test frameworks run. It loads the same config
 files as Vitest, Jest, pytest and coverage.py, which lets it ignore scripts,
@@ -92,16 +107,28 @@ problems in changed code.
 
 ## What gets mutated
 
-Perch creates up to ten mutants for each method your tests reach. It tries the
-most telling mutations first: boundary values in comparisons, swapping
-connectives like `&&` and `||`, negating conditions, dropping `!`, changing
-arithmetic operators, flipping booleans, and returning `0`. If perch can't find
-a line to mutate in the method, because it's a one-line delegation or a getter,
-it creates zero mutants. Perch counts the method as reached, but there's nothing
-to kill. If your tests don't reach the method, perch also creates zero mutants,
-and the method counts against Methods tested. Perch doesn't list it as a
-problem, because it can't know whether the method needs a test from the call
-graph alone.
+Perch makes every mutant a method has; there is no cap. Each is one edit:
+
+| Kind | Edit |
+| --- | --- |
+| `removal` | A statement that only calls something is removed: `save(order);` is gone. |
+| `block` | An `if` body is emptied. |
+| `condition` | A condition is replaced by `true`, and by `false`; a loop's only by `false`. |
+| `boundary` | A comparison moves to its boundary or flips: `<` to `<=`, `==` to `!=`. |
+| `logic` | `&&` and `\|\|` swap, `and` and `or` in Python and Lua. |
+| `arithmetic` | `+`, `-`, `*`, `/` and `%` swap. |
+| `update` | `+=` and `-=` swap, `n++` becomes `n--`. |
+| `not` | A `!` or `not` is dropped. |
+| `negative` | A leading minus is dropped. |
+| `boolean` | `true` becomes `false` and back. |
+| `string` | A string literal is emptied. Names are left alone: what is imported, an object's key, a docstring. |
+| `number` | An integer moves by one; `0` becomes `1` and `1` becomes `0`. |
+| `return` | A returned number is zeroed, a string emptied, a list or object emptied, and in JavaScript, Python, Ruby, PHP and Lua any other value becomes the language's null. |
+
+A method with none of these, a one-line delegate or a getter, gets no
+mutants and counts as reached with nothing to kill. A method no test reaches
+gets none either: it counts against Methods tested and is not listed as a
+problem, because the call graph alone can't say whether it needs a test.
 
 ## What it reads
 
@@ -175,15 +202,16 @@ changed on the branch:
 $ perch coverage --since main
 src/cart.ts
   ID        Line  Problem   Confidence  Test or method  Note
-  3945b1f7    12  survived         60%  applyDiscount   With `>` instead of `>=`, none of the 5 tests reaching it…
-  d6f68653    12  survived         58%  applyDiscount   With `1` instead of `0`, none of the 5 tests reaching it …
+  0399f832    12  survived         59%  applyDiscount   With `101` instead of `100`, none of the …
+  20fb814a    12  survived         57%  applyDiscount   With `1` instead of `0`, none of the 5 te…
+  1be27338    12  survived         57%  applyDiscount   With `>` instead of `>=`, none of the 5 t…
 
 test/cart.test.ts
-  ID        Line  Problem    Confidence  Test or method              Note
-  427fce7a    22  redundant         96%  applyDiscount > takes 75 …  Kills the same mutants as applyDiscount > ta…
-shop at commit 861c607: 4 methods, 12 tests, 3 problems in changed code, 4 elsewhere
+  ID        Line  Problem    Confidence  Test or method        Note
+  427fce7a    22  redundant         76%  applyDiscount > tak…  Kills the same mutants as applyDis…
+shop at commit 6fe98ce: 4 methods, 12 tests, 4 problems in changed code, 8 elsewhere
 Report: .perch/coverage/index.html
-14 requests  12k tokens in / 666 out  $0.0036
+28 requests  2k tokens in / 111 out  $0.0006
 ```
 
 With `--since`, perch exits 3 only when it finds a problem in changed code. It

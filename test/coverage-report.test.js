@@ -8,7 +8,7 @@ import { coverageCount, coverageDetails, formatCoverage, formatCoverageDiff, lis
  */
 const totalsOf = values => ({ methods: 0, reached: 0, useful_reached: 0, mutants: 0, killed: 0, score: null, survived: 0, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0, ...values });
 const report = {
-  version: 1, revision: '9f8e7d6c5b4a', root: '/repo', created_at: '2026-09-28T10:00:00.000Z', model: 'jev-1', depth: 3, min: 50,
+  revision: '9f8e7d6c5b4a', root: '/repo', created_at: '2026-09-28T10:00:00.000Z', model: 'jev-1', depth: 3, min: 50,
   totals: { methods: 6, reached: 4, useful_reached: 4, mutants: 15, killed: 8, score: 8 / 15, survived: 3,
     tests: 5, useful: 3, redundant: 1, weak: 1, infra: 0, drop: { count: 2, unreached: [] } },
   files: [
@@ -118,7 +118,7 @@ describe('coverage report', () => {
     expect(rowOf(text, 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '3 of 3', '58% (7 of 12)', '1']);
     // A second value is another alternative for the same key, and a spelling with a space or a hyphen is the same kind.
     expect(parseCoverageFilters('kind=checks nothing,redundant')).toEqual([{ key: 'kind', value: 'checks_nothing' }, { key: 'kind', value: 'redundant' }]);
-    expect(() => parseCoverageFilters('kind=bogus')).toThrow(/kind "bogus" is not one of survived, redundant/);
+    expect(() => parseCoverageFilters('kind=bogus')).toThrow(/kind "bogus" is not one of survived, redundant, checks_nothing, mocked, infra/);
     expect(() => parseCoverageFilters('type=defect')).toThrow(/filters on kind, not "type"/);
   });
 
@@ -195,7 +195,7 @@ describe('perch coverage', () => {
   it('rejects an unknown kind', async () => {
     const { err, io } = capture();
     expect(await main(['coverage', '--filter', 'kind=bogus'], io)).toBe(2);
-    expect(err.join('\n')).toContain('kind "bogus" is not one of survived, redundant, checks_nothing, infra');
+    expect(err.join('\n')).toContain('kind "bogus" is not one of survived, redundant, checks_nothing, mocked, infra');
     expect(err.join('\n')).toContain('perch coverage --help');
     expect(await main(['coverage', '--depth', '0'], io)).toBe(2);
     expect(err.join('\n')).toContain('--depth must be a positive integer');
