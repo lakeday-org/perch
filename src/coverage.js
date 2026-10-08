@@ -23,7 +23,7 @@ import { buildGraph, resolveModule } from './graph.js';
 import { AuthenticationError } from './systemone.js';
 import { compile, parseQuestions, readAnswer } from './ask.js';
 import { excerpt, leadingComment, shownLines, spanOf } from './questions.js';
-import { identity, openStore, readJson } from './store.js';
+import { identity, openStore } from './store.js';
 import { estimateTokens, IncompleteCheckError, TOKEN_LIMITS, withTokenRetries } from './tokens.js';
 import { matches, readIgnored } from './units.js';
 import { covers } from './scan.js';
@@ -220,7 +220,6 @@ export function computeCoverage({ scan, graph, depth = DEFAULT_DEPTH, inScope = 
   const nodes = [...graph.nodes.values()];
   // A file's code outside every function is the scan's to read: no test calls it, so as a method it would never be reached.
   const methods = nodes.filter(node => !node.test && node.qualified_name !== TOP_LEVEL && inScope(node.path));
-  for (const node of methods) if (!Array.isArray(node.branches)) throw new Error(`${node.id} was analyzed without branch lines; the analysis is from an older perch`);
   const inScopeIds = new Set(methods.map(node => node.id));
   const byPosition = (a, b) => a.path.localeCompare(b.path) || a.line - b.line;
   const tests = [];
@@ -263,7 +262,12 @@ export function computeCoverage({ scan, graph, depth = DEFAULT_DEPTH, inScope = 
     const touches = [...new Set(evidence.map(item => item.category))].sort();
     // The test's own helpers it calls through, shown with it: what a test asserts on often comes back from one.
     const helpers = [...through].filter(id => id !== node.id).sort();
-    const test = { id: node.id, node, direct, reach: reached, cuts: [...cut].sort(), mocks, touches, evidence, ...(helpers.length ? { helpers } : {}) };
+    // A test that mocks every method it calls tests its own mocks. Both halves are the graph's: the calls it and its helpers make
+    // resolved to methods of the repository, and each of those is replaced by a mock the test sets up. A call the graph could
+    // not resolve is not evidence either way, so it does not count.
+    const resolved = [...new Set([node.id, ...through].flatMap(id => graph.callees(id)))].filter(id => { const target = graph.nodes.get(id); return target && !target.test; });
+    const mocked = resolved.length > 0 && resolved.every(id => cut.has(id));
+    const test = { id: node.id, node, direct, reach: reached, cuts: [...cut].sort(), mocks, touches, evidence, mocked, ...(helpers.length ? { helpers } : {}) };
     tests.push(test);
     // A test none of whose calls resolve to a method in the repository is still asked about: a test that asserts on a stub it
     // built itself reaches nothing, and that is exactly what the decides question is for. That its calls resolve to nothing is a
@@ -461,7 +465,7 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, paralle
         ...macros[at].slice(0, 2).map(macro => ({ id: macro.id, path: macro.path, source: macro.source.split('\n').slice(0, limit).join('\n'), note: MACRO })),
       ]);
       return {
-        method: { path: node.path, name: node.qualified_name, source: sourceOf(node, lines), mutation: { kind: mutant.kind, original: mutant.original.trim(), mutated: mutant.mutated.trim() } },
+        method: { path: node.path, name: node.qualified_name, source: sourceOf(node, lines), mutation: { kind: mutant.kind, edit: describeMutant(mutant), original: mutant.original.trim(), mutated: mutant.mutated.trim() } },
         graph: { nodes, edges: edgesAmong(graph, [node.id, ...nodes.map(item => item.id)]) },
       };
     }, budget, `method ${node.qualified_name}`);
@@ -524,9 +528,10 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     findings.push(full);
     return full.id;
   };
-  // The tests that could go: checking nothing, or repeating another. One whose problem was closed is one someone chose to keep,
-  // and one that could not be asked about is not said to check nothing.
+  // The tests that could go: checking nothing, mocking what they test, or repeating another. One whose problem was closed is
+  // one someone chose to keep, and one that could not be asked about is not said to check nothing.
   const dropped = new Set(coverage.tests.filter(test => (judged.checksNothing.has(test.id) && !isClosed('checks_nothing', test.id))
+    || (test.mocked && !isClosed('mocked', test.id))
     || (judged.redundantWith.has(test.id) && !isClosed('redundant', test.id))).map(test => test.id));
 
   const methods = coverage.methods.map(method => {
@@ -564,6 +569,9 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     }
     if (judged.checksNothing.has(test.id)) own.push(add({ kind: 'checks_nothing', subject: 'test', unit: test.id, path: node.path, line: node.line, name: node.qualified_name,
       probability: judged.checksNothing.get(test.id), note: `Kills none of the ${plural(judged.asked.get(test.id), 'mutant')} in the code it reaches.` }));
+    // A fact of the graph, with no answer behind it: the calls resolved, and every one is cut by a mock of the test's own.
+    if (test.mocked) own.push(add({ kind: 'mocked', subject: 'test', unit: test.id, path: node.path, line: node.line, name: node.qualified_name, probability: null,
+      note: `Mocks every method it calls: ${test.cuts.map(id => id.split('::').at(-1)).join(', ')}.` }));
     const leaks = test.evidence.filter(item => LEAKS.has(item.category));
     const shown = leaks.slice(0, 3).map(item => `${item.name} at ${item.path}:${item.line}`).join(', ');
     // The call graph finds the network and database calls a test can reach; the answer decides whether it makes one to a live
@@ -572,9 +580,9 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
       probability: said?.infra ?? null, note: `Calls a live service with nothing mocked: ${shown}.` }));
     return { id: test.id, path: node.path, name: node.case.name, suite: node.case.suite, line: node.line, end_line: node.end_line, framework: node.case.framework,
       direct: test.direct, reach: test.reach, cuts: test.cuts, touches: test.touches, unresolved: test.unresolved ?? null,
-      infra: said?.infra ?? null,
+      infra: said?.infra ?? null, mocked: test.mocked,
       asked: judged.asked.get(test.id) ?? 0, kills: judged.kills.get(test.id) ?? [],
-      useful: judged.useful.has(test.id), redundant_with: keptId, findings: own.filter(Boolean) };
+      useful: judged.useful.has(test.id) && !test.mocked, redundant_with: keptId, findings: own.filter(Boolean) };
   });
 
   // Counted from an index of each kind's units: scanning every finding once per file was quadratic in a large repository.
@@ -596,7 +604,7 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     return { methods: methodList.length, reached: methodList.filter(method => method.tests.length).length, useful_reached: methodList.filter(method => method.useful.length).length,
       mutants, killed, score: mutants ? killed / mutants : null, survived: count(methodIds, 'survived'),
       tests: testList.length, useful: testList.filter(test => test.useful).length,
-      redundant: testList.filter(test => test.redundant_with).length, weak: testList.filter(test => judged.checksNothing.has(test.id)).length, infra: count(testIds, 'infra') };
+      redundant: testList.filter(test => test.redundant_with).length, weak: testList.filter(test => judged.checksNothing.has(test.id) || test.mocked).length, infra: count(testIds, 'infra') };
   };
   const methodsIn = Map.groupBy(methods, method => method.path), testsIn = Map.groupBy(tests, test => test.path);
   const files = coverage.files.map(file => {
@@ -609,7 +617,7 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
   const drop = { count: tests.filter(test => dropped.has(test.id)).length,
     unreached: methods.filter(method => method.tests.length && method.tests.every(item => dropped.has(item.id))).map(method => method.id) };
   const totals = { ...totalsOf(methods, tests), drop };
-  return { version: REPORT_VERSION, revision, root, target: label, github, created_at: createdAt, model, depth: coverage.depth, min,
+  return { revision, root, target: label, github, created_at: createdAt, model, depth: coverage.depth, min,
     totals, files, methods, tests, findings, failed: answers.failed, closed: closedFindings, baseline: null, diff: null, usage };
 }
 
@@ -644,9 +652,9 @@ export function diffReports(before, after) {
     return { id, path: either.path, name: either.name, before: state(was), after: state(is) };
   }).filter(change => !same(change.before, change.after));
   const testsBefore = new Set(before.tests.map(test => test.id)), testsAfter = new Set(after.tests.map(test => test.id));
-  // A problem closed since is set aside, not fixed; and one reopened since is not new. Older reports carry no closed list.
-  const findingsBefore = new Set([...before.findings, ...(before.closed ?? [])].map(finding => finding.id));
-  const findingsAfter = new Set([...after.findings, ...(after.closed ?? [])].map(finding => finding.id));
+  // A problem closed since is set aside, not fixed; and one reopened since is not new.
+  const findingsBefore = new Set([...before.findings, ...before.closed].map(finding => finding.id));
+  const findingsAfter = new Set([...after.findings, ...after.closed].map(finding => finding.id));
   return {
     from: { revision: before.revision, created_at: before.created_at }, to: { revision: after.revision, created_at: after.created_at },
     totals, files, methods,
@@ -654,12 +662,6 @@ export function diffReports(before, after) {
     findings: { fixed: before.findings.filter(finding => !findingsAfter.has(finding.id)), new: after.findings.filter(finding => !findingsBefore.has(finding.id)) },
   };
 }
-
-/**
- * The shape of a saved report. A report saved by a perch that wrote another shape is not compared with: its methods count
- * different things, and a diff between the two would be a diff between vocabularies.
- */
-const REPORT_VERSION = 3;
 
 /** Where a coverage run keeps what it saves, under --out. */
 export const coveragePaths = out => {
@@ -682,9 +684,8 @@ async function writeReport(path, report) {
   await openStore(dirname(path)).writeLines(path, rows);
 }
 
-/** A report saved by writeReport, or by an earlier perch as one JSON document. Null when there is none. */
+/** A report saved by writeReport. Null when there is none. */
 async function readReport(path) {
-  if (path.endsWith('.json')) return readJson(path, null);
   const [header, ...rows] = await openStore(dirname(path)).readLines(path);
   if (!header) return null;
   for (const [key, item] of rows) header[key].push(item);
@@ -694,8 +695,8 @@ async function readReport(path) {
 /** The problems in the last coverage run whose id starts with `ref`, listed or closed, for `perch close` and `perch reopen`. */
 export async function coverageFindings(out, ref) {
   const { latest: path } = coveragePaths(out);
-  const latest = await readReport(path) ?? await readReport(path.replace(/\.jsonl$/, '.json'));
-  return [...(latest?.findings ?? []), ...(latest?.closed ?? [])].filter(finding => finding.id.startsWith(ref));
+  const latest = await readReport(path);
+  return latest ? [...latest.findings, ...latest.closed].filter(finding => finding.id.startsWith(ref)) : [];
 }
 
 /** A report without each file's text, which is the repository's and is read again from it. It was most of a saved report. */
@@ -713,12 +714,12 @@ export async function saveCoverageReport(out, report) {
 /** The newest saved report `wanted` accepts. `named(revision7)` narrows by file name first, so only candidates are read whole. */
 async function newestReport(out, named, wanted) {
   const { reports } = coveragePaths(out);
-  const names = (await readdir(reports).catch(error => { if (error.code === 'ENOENT') return []; throw error; })).filter(name => /\.jsonl?$/.test(name))
-    .sort((a, b) => b.replace(/\.jsonl?$/, '').localeCompare(a.replace(/\.jsonl?$/, '')));
+  const names = (await readdir(reports).catch(error => { if (error.code === 'ENOENT') return []; throw error; })).filter(name => name.endsWith('.jsonl'))
+    .sort((a, b) => b.localeCompare(a));
   for (const name of names) {
-    if (!named(name.replace(/\.jsonl?$/, '').slice(-7))) continue;
+    if (!named(name.slice(0, -'.jsonl'.length).slice(-7))) continue;
     const report = await readReport(join(reports, name));
-    if (report && report.version === REPORT_VERSION && wanted(report)) return report;
+    if (report && wanted(report)) return report;
   }
   return null;
 }

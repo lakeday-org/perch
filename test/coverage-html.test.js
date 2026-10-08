@@ -42,7 +42,7 @@ const gone = { id: 'f4f4f4f4', kind: 'survived', subject: 'method', unit: 'src/c
  */
 function sampleReport({ diff = true } = {}) {
   return {
-    version: 1, revision: 'bbbbbbb2222222', root: '/work/shop', created_at: '2026-09-28T10:00:00.000Z', model: 'jev-1', depth: 3, min: 0.5,
+    revision: 'bbbbbbb2222222', root: '/work/shop', created_at: '2026-09-28T10:00:00.000Z', model: 'jev-1', depth: 3, min: 0.5,
     totals: { methods: 3, reached: 2, useful_reached: 2, mutants: 6, killed: 3, score: 0.5, survived: 1, tests: 2, useful: 1, redundant: 1, weak: 0, infra: 0,
       drop: { count: 1, unreached: [] } },
     files: [
