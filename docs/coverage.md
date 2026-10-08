@@ -27,11 +27,11 @@ Point it at a repository:
 
 ```console
 $ perch coverage
-Source files      Methods tested  Mutation score  Survived
-src/cart.ts               2 of 2  71% (10 of 14)         4
-src/checkout.ts           1 of 1    60% (3 of 5)         2
-src/inventory.ts          1 of 1    88% (7 of 8)         1
-All source                4 of 4  74% (20 of 27)         7
+Source files      Mutation score  Survived  No coverage
+src/cart.ts       71% (10 of 14)         4            0
+src/checkout.ts     60% (3 of 5)         2            0
+src/inventory.ts    88% (7 of 8)         1            0
+All source        74% (20 of 27)         7            0
 
 Test files                    Quality  Duplicates  Checks nothing  Live services
 test/cart.test.ts        43% (3 of 7)           4               0              1
@@ -62,7 +62,7 @@ test/inventory.test.ts
   98a1a024    23  mocked            -  canFulfil > returns …  Mocks every method it calls: canFul…
 shop at commit 0ade512: 4 methods, 12 tests, 13 problems, 10 shown, --all for the rest
 Report: .perch/coverage/index.html
-28 requests  6k tokens in / 318 out  $0.0017
+28 requests  0 tokens in  $0.0000
 ```
 
 The mutation score is the share of mutants killed by at least one test. Methods
@@ -212,7 +212,7 @@ test/cart.test.ts
   427fce7a    22  redundant         76%  applyDiscount > tak…  Kills the same mutants as applyDis…
 shop at commit 6fe98ce: 4 methods, 12 tests, 4 problems in changed code, 8 elsewhere
 Report: .perch/coverage/index.html
-28 requests  2k tokens in / 111 out  $0.0006
+28 requests  0 tokens in  $0.0000
 ```
 
 With `--since`, perch exits 3 only when it finds a problem in changed code. It
