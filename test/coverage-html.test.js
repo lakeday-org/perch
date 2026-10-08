@@ -43,21 +43,21 @@ const gone = { id: 'f4f4f4f4', kind: 'survived', subject: 'method', unit: 'src/c
 function sampleReport({ diff = true } = {}) {
   return {
     revision: 'bbbbbbb2222222', root: '/work/shop', created_at: '2026-09-28T10:00:00.000Z', model: 'jev-1', depth: 3, min: 0.5,
-    totals: { methods: 3, reached: 2, useful_reached: 2, mutants: 6, killed: 3, score: 0.5, survived: 1, tests: 2, useful: 1, redundant: 1, weak: 0, infra: 0,
+    totals: { methods: 3, covered: 2, useful_covered: 2, mutants: 6, killed: 3, no_coverage: 0, score: 0.5, covered_score: 0.5, survived: 1, tests: 2, useful: 1, redundant: 1, weak: 0, infra: 0,
       drop: { count: 1, unreached: [] } },
     files: [
       { path: 'src/cart.py', kind: 'source', language: 'python', lines: cartLines, methods: ['src/cart.py::apply_discount', 'src/cart.py::total'], tests: [],
-        totals: { methods: 2, reached: 1, useful_reached: 1, mutants: 6, killed: 3, score: 0.5, survived: 1, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0 } },
+        totals: { methods: 2, covered: 1, useful_covered: 1, mutants: 6, killed: 3, no_coverage: 0, score: 0.5, covered_score: 0.5, survived: 1, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0 } },
       { path: 'src/util.py', kind: 'source', language: 'python', lines: utilLines, methods: ['src/util.py::round_money'], tests: [],
-        totals: { methods: 1, reached: 1, useful_reached: 1, mutants: 0, killed: 0, score: null, survived: 0, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0 } },
+        totals: { methods: 1, covered: 1, useful_covered: 1, mutants: 0, killed: 0, no_coverage: 0, score: null, covered_score: null, survived: 0, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0 } },
       { path: 'tests/test_cart.py', kind: 'test', language: 'python', lines: testLines, methods: [],
         tests: ['tests/test_cart.py::test_discount_10', 'tests/test_cart.py::test_discount_20'],
-        totals: { methods: 0, reached: 0, useful_reached: 0, mutants: 0, killed: 0, score: null, survived: 0, tests: 2, useful: 1, redundant: 1, weak: 0, infra: 0 } },
+        totals: { methods: 0, covered: 0, useful_covered: 0, mutants: 0, killed: 0, no_coverage: 0, score: null, covered_score: null, survived: 0, tests: 2, useful: 1, redundant: 1, weak: 0, infra: 0 } },
     ],
     methods: [
       { id: 'src/cart.py::apply_discount', path: 'src/cart.py', name: 'apply_discount', line: 3, end_line: 11, risk: 12, branches: [4, 6, 9],
         tests: [{ id: 'tests/test_cart.py::test_discount_10', depth: 1 }, { id: 'tests/test_cart.py::test_discount_20', depth: 1 }],
-        useful: ['tests/test_cart.py::test_discount_10'], findings: [edge.id], killed: 3,
+        useful: ['tests/test_cart.py::test_discount_10'], findings: [edge.id], covered: true, killed: 3,
         // Six mutants: the boundary at line 6 survives both tests; the rest are killed by test_discount_10 (and the duplicate).
         mutants: [
           { id: '6:7:>>>=', kind: 'boundary', line: 6, column: 7, from: '>', to: '>=', original: '    if percent > 100:', mutated: '    if percent >= 100:', matters: 0.9, survives: 0.9, killed: false, killed_by: [], asked: ['tests/test_cart.py::test_discount_10', 'tests/test_cart.py::test_discount_20'], finding: edge.id },
@@ -65,9 +65,9 @@ function sampleReport({ diff = true } = {}) {
             .map(([id, line, from, to, killed]) => ({ id, kind: 'condition', line, column: 4, from, to, original: '', mutated: '', matters: 0.9, survives: killed ? 0.05 : 0.6, killed, killed_by: killed ? ['tests/test_cart.py::test_discount_10', 'tests/test_cart.py::test_discount_20'] : [], asked: ['tests/test_cart.py::test_discount_10', 'tests/test_cart.py::test_discount_20'], finding: null })),
         ],
       },
-      { id: 'src/cart.py::total', path: 'src/cart.py', name: 'total', line: 14, end_line: 15, risk: 2, branches: [], tests: [], useful: [], killed: 0, mutants: [], findings: [] },
+      { id: 'src/cart.py::total', path: 'src/cart.py', name: 'total', line: 14, end_line: 15, risk: 2, branches: [], tests: [], useful: [], covered: false, killed: 0, mutants: [], findings: [] },
       { id: 'src/util.py::round_money', path: 'src/util.py', name: 'round_money', line: 1, end_line: 2, risk: 1, branches: [],
-        tests: [{ id: 'tests/test_cart.py::test_discount_10', depth: 2 }], useful: ['tests/test_cart.py::test_discount_10'], killed: 0, mutants: [], findings: [] },
+        tests: [{ id: 'tests/test_cart.py::test_discount_10', depth: 2 }], useful: ['tests/test_cart.py::test_discount_10'], covered: true, killed: 0, mutants: [], findings: [] },
     ],
     tests: [
       { id: 'tests/test_cart.py::test_discount_10', path: 'tests/test_cart.py', name: 'test_discount_10', suite: [], line: 3, end_line: 4, framework: 'pytest',
@@ -84,12 +84,12 @@ function sampleReport({ diff = true } = {}) {
     baseline: diff ? { revision: 'aaaaaaa1111111', created_at: '2026-09-20T10:00:00.000Z' } : null,
     diff: diff ? {
       from: { revision: 'aaaaaaa1111111', created_at: '2026-09-20T10:00:00.000Z' }, to: { revision: 'bbbbbbb2222222', created_at: '2026-09-28T10:00:00.000Z' },
-      totals: { methods: { before: 3, after: 3 }, reached: { before: 1, after: 2 }, mutants: { before: 6, after: 6 }, killed: { before: 2, after: 3 }, score: { before: 0.41, after: 0.5 }, survived: { before: 2, after: 1 }, tests: { before: 1, after: 2 },
+      totals: { methods: { before: 3, after: 3 }, covered: { before: 1, after: 2 }, mutants: { before: 6, after: 6 }, killed: { before: 2, after: 3 }, no_coverage: { before: 3, after: 0 }, score: { before: 0.41, after: 0.5 }, covered_score: { before: 0.6, after: 0.5 }, survived: { before: 2, after: 1 }, tests: { before: 1, after: 2 },
         useful: { before: 1, after: 1 }, redundant: { before: 0, after: 1 }, weak: { before: 0, after: 0 }, infra: { before: 0, after: 0 } },
-      files: [{ path: 'src/cart.py', before: { methods: 2, reached: 0, useful_reached: 0, mutants: 6, killed: 0, score: 0, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0 },
-        after: { methods: 2, reached: 1, useful_reached: 1, mutants: 6, killed: 3, score: 0.5, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0 } }],
+      files: [{ path: 'src/cart.py', before: { methods: 2, covered: 0, useful_covered: 0, mutants: 6, killed: 0, no_coverage: 6, score: 0, covered_score: null, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0 },
+        after: { methods: 2, covered: 1, useful_covered: 1, mutants: 6, killed: 3, no_coverage: 0, score: 0.5, covered_score: 0.5, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0 } }],
       methods: [{ id: 'src/cart.py::apply_discount', path: 'src/cart.py', name: 'apply_discount',
-        before: { reached: false, mutants: 6, killed: 0 }, after: { reached: true, mutants: 6, killed: 3 } }],
+        before: { covered: false, mutants: 6, killed: 0 }, after: { covered: true, mutants: 6, killed: 3 } }],
       tests: { added: ['tests/test_cart.py::test_discount_20'], removed: ['tests/test_old.py::test_gone'] },
       findings: { fixed: [gone], new: [redundant] },
     } : null,
@@ -204,8 +204,8 @@ describe('coverage HTML report', () => {
 
   it('shows changes since the compared run', () => {
     expect(viewOf(html, 'changes')).toContain('Changes since <code>aaaaaaa</code>');
-    // Reached went from 1 of 3 to 2 of 3: one phrase with its unit, then the commit.
-    expect(card(html, 'Methods tested')).toContain('<span class="delta good">+1 method</span> <span class="since">since aaaaaaa</span>');
+    // No coverage went from 3 mutants to 0: one phrase with its unit, then the commit.
+    expect(card(html, 'No coverage')).toContain('<span class="delta good">−3 mutants</span> <span class="since">since aaaaaaa</span>');
     expect(html).toContain('tests/test_old.py::test_gone');
     // A problem that went away is counted, not listed: nothing in such a list asks for anything.
     expect(viewOf(html, 'changes')).toContain('1 problem from that run is gone.');
@@ -227,7 +227,8 @@ describe('coverage HTML report', () => {
     // The mutation score: mutants killed of all mutants.
     const score = card(html, 'Mutation score');
     expect(score).toContain('50%');
-    expect(score).toContain('3 of 6 mutants killed');
+    expect(score).toContain('3 of 6 mutants killed, 50% on covered code');
+    expect(card(html, 'No coverage')).toContain('0<span class="of"> of 6</span>');
     expect(card(html, 'Survived')).toContain('1<span class="of"> of 6</span>');
     const cartRow = viewOf(html, 'sources').match(/<tr data-path="src\/cart.py">.*?<\/tr>/s)[0];
     expect(cartRow).toContain('3/6');
@@ -377,12 +378,12 @@ describe('coverage HTML report', () => {
   it('breaks each test file down by why tests are not worth keeping, and each source file by survived mutants', () => {
     const heads = view => [...viewOf(html, view).matchAll(/<th data-sort="[a-z]+"[^>]*>([^<]+)</g)].map(match => match[1]);
     expect(heads('tests')).toEqual(['File', 'Quality', 'Duplicates', 'Checks nothing', 'Live services']);
-    expect(heads('sources')).toEqual(['File', 'Methods tested', 'Mutation score', 'Survived']);
+    expect(heads('sources')).toEqual(['File', 'Mutation score', 'Survived', 'No coverage']);
     // test_cart.py: one duplicate, test_discount_20.
     const row = viewOf(html, 'tests').match(/<tr data-path="tests\/test_cart.py">.*?<\/tr>/s)[0];
     expect(row).toContain('<td class="num" data-v="1">1</td><td class="num zero" data-v="0">0</td><td class="num zero" data-v="0">0</td>');
-    // cart.py has the one survived mutant.
-    expect(viewOf(html, 'sources').match(/<tr data-path="src\/cart.py">.*?<\/tr>/s)[0]).toContain('<td class="num" data-v="1">1</td></tr>');
+    // cart.py has the one survived mutant, and no mutant without coverage.
+    expect(viewOf(html, 'sources').match(/<tr data-path="src\/cart.py">.*?<\/tr>/s)[0]).toContain('<td class="num" data-v="1">1</td><td class="num zero" data-v="0">0</td></tr>');
   });
 
   it('fetches nothing from anywhere', () => {

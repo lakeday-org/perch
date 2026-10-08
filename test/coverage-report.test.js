@@ -6,16 +6,16 @@ import { coverageCount, coverageDetails, formatCoverage, formatCoverageDiff, lis
  * A report written out by hand, in the shape the contract gives it, so the formatting is checked against numbers chosen here rather
  * than numbers the engine happened to produce. Two source files, one test file, and findings of three kinds.
  */
-const totalsOf = values => ({ methods: 0, reached: 0, useful_reached: 0, mutants: 0, killed: 0, score: null, survived: 0, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0, ...values });
+const totalsOf = values => ({ methods: 0, covered: 0, useful_covered: 0, mutants: 0, killed: 0, no_coverage: 0, score: null, covered_score: null, survived: 0, tests: 0, useful: 0, redundant: 0, weak: 0, infra: 0, ...values });
 const report = {
   revision: '9f8e7d6c5b4a', root: '/repo', created_at: '2026-09-28T10:00:00.000Z', model: 'jev-1', depth: 3, min: 50,
-  totals: { methods: 6, reached: 4, useful_reached: 4, mutants: 15, killed: 8, score: 8 / 15, survived: 3,
+  totals: { methods: 6, covered: 4, useful_covered: 4, mutants: 15, killed: 8, no_coverage: 0, score: 8 / 15, covered_score: 8 / 15, survived: 3,
     tests: 5, useful: 3, redundant: 1, weak: 1, infra: 0, drop: { count: 2, unreached: [] } },
   files: [
     { path: 'src/tax.py', kind: 'source', language: 'python', lines: [], methods: ['m4', 'm5', 'm6'], tests: [],
-      totals: totalsOf({ methods: 3, reached: 1, useful_reached: 1, mutants: 3, killed: 1, score: 1 / 3, survived: 2 }) },
+      totals: totalsOf({ methods: 3, covered: 1, useful_covered: 1, mutants: 3, killed: 1, score: 1 / 3, survived: 2 }) },
     { path: 'src/cart.py', kind: 'source', language: 'python', lines: [], methods: ['m1', 'm2', 'm3'], tests: [],
-      totals: totalsOf({ methods: 3, reached: 3, useful_reached: 3, mutants: 12, killed: 7, score: 7 / 12, survived: 1 }) },
+      totals: totalsOf({ methods: 3, covered: 3, useful_covered: 3, mutants: 12, killed: 7, score: 7 / 12, survived: 1 }) },
     { path: 'tests/test_cart.py', kind: 'test', language: 'python', lines: [], methods: [], tests: ['t1', 't2', 't3', 't4', 't5'],
       totals: totalsOf({ tests: 5, useful: 3, redundant: 1, weak: 1, infra: 0 }) },
   ],
@@ -43,13 +43,13 @@ const report = {
   diff: {
     from: { revision: '1a2b3c4d5e6f', created_at: '2026-09-20T10:00:00.000Z' },
     to: { revision: '9f8e7d6c5b4a', created_at: '2026-09-28T10:00:00.000Z' },
-    totals: { methods: { before: 6, after: 6 }, reached: { before: 4, after: 4 }, score: { before: 0.45, after: 0.54 },
+    totals: { methods: { before: 6, after: 6 }, covered: { before: 4, after: 4 }, mutants: { before: 13, after: 15 }, no_coverage: { before: 2, after: 0 }, score: { before: 0.45, after: 0.54 },
       tests: { before: 3, after: 5 }, useful: { before: 2, after: 3 }, redundant: { before: 0, after: 1 }, weak: { before: 1, after: 1 },
       infra: { before: 0, after: 0 }, survived: { before: 4, after: 3 } },
     files: [
-      { path: 'src/cart.py', before: totalsOf({ methods: 3, reached: 2, score: 0.3 }), after: totalsOf({ methods: 3, reached: 3, score: 0.41 }) },
+      { path: 'src/cart.py', before: totalsOf({ methods: 3, covered: 2, mutants: 10, no_coverage: 2, score: 0.3 }), after: totalsOf({ methods: 3, covered: 3, mutants: 12, score: 0.41 }) },
       { path: 'tests/test_cart.py', before: totalsOf({ tests: 3, useful: 2, weak: 1 }), after: totalsOf({ tests: 5, useful: 3, redundant: 1, weak: 1 }) },
-      { path: 'src/old.py', before: totalsOf({ methods: 1, reached: 1, score: 1 }), after: null },
+      { path: 'src/old.py', before: totalsOf({ methods: 1, covered: 1, mutants: 3, killed: 3, score: 1 }), after: null },
     ],
     methods: [],
     tests: { added: ['t4', 't5'], removed: [] },
@@ -65,17 +65,18 @@ describe('coverage report', () => {
   it('prints source and test tables with totals', () => {
     const text = formatCoverage(report, { min: 0.5, ...plain });
     const source = text.split('\n\n')[0].split('\n');
-    expect(source[0]).toMatch(/^Source files\s+Methods tested\s+Mutation score\s+Survived$/);
+    expect(source[0]).toMatch(/^Source files\s+Mutation score\s+Survived\s+No coverage$/);
     // Files in path order, whatever order the report had them in.
     expect(source.slice(1).map(line => line.split(/\s{2,}/)[0])).toEqual(['src/cart.py', 'src/tax.py', 'All source']);
     // Of cart.py's 12 mutants, 7 are killed, and one survivor is over the floor.
-    expect(rowOf(text, 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '3 of 3', '58% (7 of 12)', '1']);
+    expect(rowOf(text, 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '58% (7 of 12)', '1', '0']);
     // tax.py's two listed survivors: one over the floor, one whose method could not be asked.
-    expect(rowOf(text, 'src/tax.py').split(/\s{2,}/)).toEqual(['src/tax.py', '1 of 3', '33% (1 of 3)', '2']);
-    expect(rowOf(text, 'All source').split(/\s{2,}/)).toEqual(['All source', '4 of 6', '53% (8 of 15)', '3']);
-    // A file with no mutants is a dash and not a zero.
-    const bare = { ...report, files: [{ ...report.files[0], totals: totalsOf({ methods: 3, reached: 1, useful_reached: 1 }) }], findings: [] };
-    expect(rowOf(formatCoverage(bare, { min: 0.5, ...plain }), 'src/tax.py').split(/\s{2,}/)).toEqual(['src/tax.py', '1 of 3', '-', '0']);
+    expect(rowOf(text, 'src/tax.py').split(/\s{2,}/)).toEqual(['src/tax.py', '33% (1 of 3)', '2', '0']);
+    expect(rowOf(text, 'All source').split(/\s{2,}/)).toEqual(['All source', '53% (8 of 15)', '3', '0']);
+    // A file with no mutants is a dash and not a zero; mutants no test reaches are counted apart.
+    const bare = { ...report, files: [{ ...report.files[0], totals: totalsOf({ methods: 3, covered: 1, useful_covered: 1 }) }, { ...report.files[1], totals: totalsOf({ methods: 3, covered: 1, mutants: 12, killed: 7, no_coverage: 4, score: 7 / 12 }) }], findings: [] };
+    expect(rowOf(formatCoverage(bare, { min: 0.5, ...plain }), 'src/tax.py').split(/\s{2,}/)).toEqual(['src/tax.py', '-', '0', '0']);
+    expect(rowOf(formatCoverage(bare, { min: 0.5, ...plain }), 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '58% (7 of 12)', '0', '4']);
     // Quality is the tests worth keeping, of all of them; then why the rest are not, and what the tests touch.
     expect(rowOf(text, 'Test files').split(/\s{2,}/)).toEqual(['Test files', 'Quality', 'Duplicates', 'Checks nothing', 'Live services']);
     expect(rowOf(text, 'tests/test_cart.py ').split(/\s{2,}/)).toEqual(['tests/test_cart.py', '60% (3 of 5)', '1', '1', '0']);
@@ -115,7 +116,7 @@ describe('coverage report', () => {
     expect(text).not.toContain('c0ffee11');
     expect(text).not.toContain('b7d31e22');
     expect(text).not.toContain('d4e5f6a7');
-    expect(rowOf(text, 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '3 of 3', '58% (7 of 12)', '1']);
+    expect(rowOf(text, 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '58% (7 of 12)', '1', '0']);
     // A second value is another alternative for the same key, and a spelling with a space or a hyphen is the same kind.
     expect(parseCoverageFilters('kind=checks nothing,redundant')).toEqual([{ key: 'kind', value: 'checks_nothing' }, { key: 'kind', value: 'redundant' }]);
     expect(() => parseCoverageFilters('kind=bogus')).toThrow(/kind "bogus" is not one of survived, redundant, checks_nothing, mocked, infra/);
@@ -140,11 +141,11 @@ describe('coverage report', () => {
 
   it('prints per-file changes for --diff', () => {
     const lines = formatCoverageDiff(report, plain).split('\n');
-    expect(lines[0].split(/\s{2,}/)).toEqual(['Since 1a2b3c4', 'Methods', 'Reached', 'Mutation score', 'Tests', 'Keep', 'Redundant', 'Checks nothing']);
-    expect(rowOf(lines.join('\n'), 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '3', '3 (+1)', '41% (+11)', '0', '0', '0', '0']);
-    expect(rowOf(lines.join('\n'), 'src/old.py').split(/\s{2,}/)).toEqual(['src/old.py', '1', '1', '100%', '0', '0', '0', '0', 'removed']);
-    expect(rowOf(lines.join('\n'), 'tests/test_cart.py').split(/\s{2,}/)).toEqual(['tests/test_cart.py', '0', '0', '-', '5 (+2)', '3 (+1)', '1 (+1)', '1']);
-    expect(lines.at(-1).split(/\s{2,}/)).toEqual(['All', '6', '4', '54% (+9)', '5 (+2)', '3 (+1)', '1 (+1)', '1']);
+    expect(lines[0].split(/\s{2,}/)).toEqual(['Since 1a2b3c4', 'Mutants', 'Mutation score', 'No coverage', 'Tests', 'Keep', 'Redundant', 'Checks nothing']);
+    expect(rowOf(lines.join('\n'), 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '12 (+2)', '41% (+11)', '0 (-2)', '0', '0', '0', '0']);
+    expect(rowOf(lines.join('\n'), 'src/old.py').split(/\s{2,}/)).toEqual(['src/old.py', '3', '100%', '0', '0', '0', '0', '0', 'removed']);
+    expect(rowOf(lines.join('\n'), 'tests/test_cart.py').split(/\s{2,}/)).toEqual(['tests/test_cart.py', '0', '-', '0', '5 (+2)', '3 (+1)', '1 (+1)', '1']);
+    expect(lines.at(-1).split(/\s{2,}/)).toEqual(['All', '15 (+2)', '54% (+9)', '0 (-2)', '5 (+2)', '3 (+1)', '1 (+1)', '1']);
     expect(formatCoverageDiff({ ...report, diff: null })).toBe('');
   });
 });
@@ -186,7 +187,8 @@ describe('perch coverage', () => {
     const { out, io } = capture();
     expect(await main(['coverage', '--help'], io)).toBe(0);
     expect(out[0]).toContain('perch coverage: Test coverage, and which tests are worth keeping');
-    for (const flag of ['--depth N', '--diff REF', '--html FILE', '--filter', '--min', '--paths', '--json']) expect(out[0]).toContain(flag);
+    for (const flag of ['--diff REF', '--html FILE', '--filter', '--min', '--paths', '--json']) expect(out[0]).toContain(flag);
+    expect(out[0]).not.toContain('--depth');
     expect(out[0]).toContain('PERCH_BASE_URL');
     expect(await main(['--help'], io)).toBe(0);
     expect(out.at(-1)).toContain('coverage [target]');
@@ -197,8 +199,6 @@ describe('perch coverage', () => {
     expect(await main(['coverage', '--filter', 'kind=bogus'], io)).toBe(2);
     expect(err.join('\n')).toContain('kind "bogus" is not one of survived, redundant, checks_nothing, mocked, infra');
     expect(err.join('\n')).toContain('perch coverage --help');
-    expect(await main(['coverage', '--depth', '0'], io)).toBe(2);
-    expect(err.join('\n')).toContain('--depth must be a positive integer');
     expect(await main(['coverage', '--closed'], io)).toBe(2);
   });
 });

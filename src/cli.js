@@ -49,7 +49,6 @@ const options = {
     { coverage: `Only problems it is at least P percent sure of (default ${BELIEVED * 100}; --min 0 shows everything)` }],
   filter: ['--filter k=v', 'Only issues matching, e.g. type=security, kind=too big, severity=P1 (comma-separated)', ['scan', 'issues', 'coverage'],
     { coverage: 'Only problems of these kinds, e.g. kind=survived,kind=redundant' }],
-  depth: ['--depth N', 'How many calls deep to follow each test (default 3)', ['coverage']],
   diff: ['--diff REF', 'Compare with the run saved at this branch or commit', ['coverage']],
   html: ['--html FILE', 'Where to write the HTML report (default coverage/index.html under --out)', ['coverage']],
   gate: ['--gate yes|no', 'Whether breaking this one fails a scan. Defaults to yes for a defect, a vulnerability or a rule', ['rules']],
@@ -141,7 +140,7 @@ ${column(own.map(([flag, text, , differs]) => [flag, differs?.[name] ?? text]))}
  */
 export const EXIT = { clean: 0, broke: 1, usage: 2, found: 3 };
 
-const valued = new Set(['paths', 'parallel', 'min', 'filter', 'depth', 'diff', 'html', 'out', 'reason', 'kind', 'limit', 'page', 'since', 'rules',
+const valued = new Set(['paths', 'parallel', 'min', 'filter', 'diff', 'html', 'out', 'reason', 'kind', 'limit', 'page', 'since', 'rules',
   'ensure', 'ensure_present', 'ensure_absent', 'where', 'except', 'each', 'sees', 'type', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', 'gate', 'file']);
 const switches = new Set(['force', 'all', 'json', 'verbose', 'closed', 'types', 'help', 'version']);
 
@@ -562,7 +561,6 @@ const commands = {
     let filters;
     try { filters = parseCoverageFilters(io.flags.filter ?? ''); } catch (error) { throw new UsageError(error.message); }
     const parallel = positiveInteger('--parallel', io.flags.parallel, DEFAULT_PARALLEL);
-    const depth = io.flags.depth === undefined ? undefined : positiveInteger('--depth', io.flags.depth);
     const min = threshold(io.flags.min) / 100;
     const meter = createMeter();
     const resolved = await resolveTarget(io.argument ?? '.', { out: io.flags.out });
@@ -576,7 +574,7 @@ const commands = {
     try {
       report = await coverageRepository({ root: resolved.root, revision: await gitRevision(resolved.root), label: resolved.label, github: resolved.github,
         out: resolved.out, systemOne, analyzer: createSourceAnalyzer(), paths, named: [resolved.scope, ...parsePaths(io.flags)].filter(Boolean),
-        depth, parallel, min, diff: io.flags.diff ?? null, since: io.flags.since ?? null, scanProgress: files.update, testProgress: tests.update, methodProgress: methods.update,
+        parallel, min, diff: io.flags.diff ?? null, since: io.flags.since ?? null, scanProgress: files.update, testProgress: tests.update, methodProgress: methods.update,
         log: io.debug, debug: io.debug });
     } finally { files.clear(); tests.clear(); methods.clear(); }
     report = { ...report, usage: meter.toJSON() };

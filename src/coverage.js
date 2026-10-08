@@ -29,8 +29,6 @@ import { matches, readIgnored } from './units.js';
 import { covers } from './scan.js';
 import { describeMutant, mutantId, mutantsOf } from './mutants.js';
 
-/** How many calls deep a test is followed into the code it reaches, unless --depth says otherwise. */
-export const DEFAULT_DEPTH = 3;
 /** Tests or methods in flight at once. */
 export const DEFAULT_PARALLEL = 8;
 /** How many neighbours a state shows at most: the methods a test reaches, or the tests that reach a method. */
@@ -213,10 +211,11 @@ const describeMock = ({ target, line }) => {
  * The static half of coverage: for every test, what it reaches through the call graph and what its mocks cut, and for every method
  * in scope, which tests reach it and how far away they are. No model is asked anything here.
  *
- * The walk is breadth first to `depth` calls. It does not enter anything in a test file, since a helper there is not code under
- * test, and it does not enter or pass through a method a mock of the test replaces.
+ * The walk is breadth first and follows every call until there are no more: how far a test's reach goes is the code's to say.
+ * It does not enter anything in a test file, since a helper there is not code under test, and it does not enter or pass through
+ * a method a mock of the test replaces.
  */
-export function computeCoverage({ scan, graph, depth = DEFAULT_DEPTH, inScope = () => true, runs = () => true, named = inScope }) {
+export function computeCoverage({ scan, graph, inScope = () => true, runs = () => true, named = inScope }) {
   const nodes = [...graph.nodes.values()];
   // A file's code outside every function is the scan's to read: no test calls it, so as a method it would never be reached.
   const methods = nodes.filter(node => !node.test && node.qualified_name !== TOP_LEVEL && inScope(node.path));
@@ -232,7 +231,7 @@ export function computeCoverage({ scan, graph, depth = DEFAULT_DEPTH, inScope = 
     // depth of the call to it and never counted as reached. Stopping at it left a test that tests through a helper reaching nothing.
     const through = new Set([node.id]);
     let frontier = [node.id];
-    for (let level = 1; level <= depth && frontier.length; level++) {
+    for (let level = 1; frontier.length; level++) {
       const next = [], expand = [...frontier];
       while (expand.length) {
         for (const callee of graph.callees(expand.pop()).sort()) {
@@ -290,7 +289,7 @@ export function computeCoverage({ scan, graph, depth = DEFAULT_DEPTH, inScope = 
   }
   const paths = new Set([...units.map(unit => unit.node.path), ...tests.map(test => test.node.path)]);
   const files = scan.files.filter(file => paths.has(file.path)).sort((a, b) => a.path.localeCompare(b.path));
-  return { depth, tests, methods: units, files, failed };
+  return { tests, methods: units, files, failed };
 }
 
 /**
@@ -355,9 +354,10 @@ export function judgeTests(tests, mutants, min) {
 }
 
 /**
- * Ask System One about the tests that need asking, then about every mutant of every reached method. A test is asked only what
+ * Ask System One about the tests that need asking, then about every mutant of every covered method. A test is asked only what
  * the graph left open: whether it calls a live service, when it can reach one. A method is asked once per mutant, with the tests
- * reaching it in view: `matters`, and `kills` for each test. A method no test reaches is asked nothing.
+ * reaching it in view: `matters`, and `kills` for each test. A method no test reaches has its mutants made and asked nothing:
+ * they have no coverage, and count against the score as Stryker and PIT count them.
  *
  * Every unit is asked on every run: the endpoint caches answers, perch does not. A unit that fails is recorded in `failed` with
  * its error and carries no answers; an authentication failure stops the run, since every other request would get the same
@@ -444,10 +444,10 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, paralle
   const sourceText = async path => { if (!sources.has(path)) sources.set(path, (await linesOf({ path })).join('\n')); return sources.get(path); };
   const mutantUnits = [];
   for (const method of coverage.methods) {
-    if (!method.tests.length) continue;
     const { node } = method;
     const language = graph.files.get(node.path)?.file.language;
     const generated = mutantsOf({ source: await sourceText(node.path), language, line: node.line, end_line: node.end_line });
+    if (!method.tests.length) { mutants.set(method.id, generated.map(mutant => ({ mutant, matters: null, kills: [] }))); continue; }
     const shown = method.tests.slice(0, MAX_SHOWN).map(item => item.id);
     for (const mutant of generated) mutantUnits.push({ id: `${method.id}#${mutantId(mutant)}`, node, method, mutant, shown });
   }
@@ -537,13 +537,16 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
   const methods = coverage.methods.map(method => {
     const { node } = method;
     const usefulTests = method.tests.filter(item => judged.useful.has(item.id)).map(item => item.id);
+    const covered = method.tests.length > 0;
     // Each mutant: how likely it is that no test shown kills it, and that it changes behaviour at all. A mutant is killed when
-    // some test is likely enough to fail against it; one that survives, and matters, is listed.
+    // some test is likely enough to fail against it; one that survives, and matters, is listed. A mutant of a method no test
+    // reaches has no coverage: nothing was asked, nothing is listed, and it counts against the score.
     const mutants = (answers.mutants.get(method.id) ?? []).map(({ mutant, matters, kills }) => {
-      const survives = kills.reduce((total, [, p]) => total * (1 - p), 1);
       const id = mutantId(mutant);
-      const item = { id, kind: mutant.kind, line: mutant.line, column: mutant.column, from: mutant.from, to: mutant.to, original: mutant.original, mutated: mutant.mutated,
-        matters, survives, killed: 1 - survives >= min, killed_by: kills.filter(([, p]) => p >= min).map(([testId]) => testId), asked: kills.map(([testId]) => testId), finding: null };
+      const base = { id, kind: mutant.kind, line: mutant.line, column: mutant.column, from: mutant.from, to: mutant.to, original: mutant.original, mutated: mutant.mutated };
+      if (!covered) return { ...base, matters: null, survives: null, killed: false, killed_by: [], asked: [], finding: null };
+      const survives = kills.reduce((total, [, p]) => total * (1 - p), 1);
+      const item = { ...base, matters, survives, killed: 1 - survives >= min, killed_by: kills.filter(([, p]) => p >= min).map(([testId]) => testId), asked: kills.map(([testId]) => testId), finding: null };
       const count = kills.length;
       item.finding = add({ kind: 'survived', subject: 'method', unit: method.id, key: `${method.id}#${id}`, path: node.path, line: mutant.line, name: node.qualified_name,
         probability: survives * matters, mutant: id,
@@ -551,7 +554,7 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
       return item;
     });
     return { id: method.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, risk: node.metrics?.risk_score ?? null,
-      branches: method.branches, tests: method.tests, useful: usefulTests,
+      branches: method.branches, tests: method.tests, useful: usefulTests, covered,
       mutants, killed: mutants.filter(item => item.killed).length, findings: mutants.map(item => item.finding).filter(Boolean) };
   });
   const testById = new Map(coverage.tests.map(test => [test.id, test]));
@@ -600,9 +603,12 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
   };
   const totalsOf = (methodList, testList) => {
     const testIds = new Set(testList.map(test => test.id)), methodIds = new Set(methodList.map(method => method.id));
+    // The score as Stryker and PIT count it: killed of every mutant, the ones no test reaches included. The covered score leaves
+    // those out and says how the tests do on what they reach.
     const mutants = methodList.reduce((total, method) => total + method.mutants.length, 0), killed = methodList.reduce((total, method) => total + method.killed, 0);
-    return { methods: methodList.length, reached: methodList.filter(method => method.tests.length).length, useful_reached: methodList.filter(method => method.useful.length).length,
-      mutants, killed, score: mutants ? killed / mutants : null, survived: count(methodIds, 'survived'),
+    const no_coverage = methodList.filter(method => !method.covered).reduce((total, method) => total + method.mutants.length, 0);
+    return { methods: methodList.length, covered: methodList.filter(method => method.covered).length, useful_covered: methodList.filter(method => method.useful.length).length,
+      mutants, killed, no_coverage, score: mutants ? killed / mutants : null, covered_score: mutants - no_coverage ? killed / (mutants - no_coverage) : null, survived: count(methodIds, 'survived'),
       tests: testList.length, useful: testList.filter(test => test.useful).length,
       redundant: testList.filter(test => test.redundant_with).length, weak: testList.filter(test => judged.checksNothing.has(test.id) || test.mocked).length, infra: count(testIds, 'infra') };
   };
@@ -617,7 +623,7 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
   const drop = { count: tests.filter(test => dropped.has(test.id)).length,
     unreached: methods.filter(method => method.tests.length && method.tests.every(item => dropped.has(item.id))).map(method => method.id) };
   const totals = { ...totalsOf(methods, tests), drop };
-  return { revision, root, target: label, github, created_at: createdAt, model, depth: coverage.depth, min,
+  return { revision, root, target: label, github, created_at: createdAt, model, min,
     totals, files, methods, tests, findings, failed: answers.failed, closed: closedFindings, baseline: null, diff: null, usage };
 }
 
@@ -632,7 +638,7 @@ export function branchOf(report, { ref, base, files: changed }) {
   return { ref, base, units, findings: report.findings.filter(finding => changedUnits.has(finding.unit)).map(finding => finding.id) };
 }
 
-const DIFF_TOTALS = ['methods', 'reached', 'mutants', 'killed', 'score', 'survived', 'tests', 'useful', 'redundant', 'weak', 'infra'];
+const DIFF_TOTALS = ['methods', 'covered', 'mutants', 'killed', 'no_coverage', 'score', 'covered_score', 'survived', 'tests', 'useful', 'redundant', 'weak', 'infra'];
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 /**
  * What changed between two saved reports, unit by unit. Methods, tests, files and findings are matched by id, so a method whose
@@ -645,7 +651,7 @@ export function diffReports(before, after) {
   const files = union(filesBefore.keys(), filesAfter.keys()).sort()
     .map(path => ({ path, before: filesBefore.get(path) ?? null, after: filesAfter.get(path) ?? null }))
     .filter(change => !same(change.before, change.after));
-  const state = method => (method ? { reached: method.tests.length > 0, mutants: method.mutants.length, killed: method.killed } : null);
+  const state = method => (method ? { covered: method.covered, mutants: method.mutants.length, killed: method.killed } : null);
   const methodsBefore = new Map(before.methods.map(method => [method.id, method])), methodsAfter = new Map(after.methods.map(method => [method.id, method]));
   const methods = union(methodsBefore.keys(), methodsAfter.keys()).sort().map(id => {
     const was = methodsBefore.get(id), is = methodsAfter.get(id), either = is ?? was;
@@ -758,9 +764,8 @@ const lineReader = (root, graph) => {
  * `paths` narrows which methods and tests are reported, not what is parsed: a test outside it is still followed when it reaches a
  * method inside. `named` paths are read even when perch.yaml's ignore covers them, as a scan does.
  */
-export async function coverageRepository({ root, revision, label = root, github = null, out, systemOne, analyzer, paths = [], named = [], depth, parallel = DEFAULT_PARALLEL,
+export async function coverageRepository({ root, revision, label = root, github = null, out, systemOne, analyzer, paths = [], named = [], parallel = DEFAULT_PARALLEL,
   min = 0.5, diff = null, since = null, scanProgress = () => {}, testProgress = () => {}, methodProgress = () => {}, log = () => {}, debug = () => {} }) {
-  const walk = depth ?? DEFAULT_DEPTH;
   // A baseline asked for by name is found before anything is asked, so naming a commit with no report costs no requests.
   const requested = diff === null || diff === undefined ? null : await findBaseline({ out, root, revision, diff });
   // So is what the branch changed since --since: a ref git cannot find fails here, not after the questions.
@@ -775,7 +780,7 @@ export async function coverageRepository({ root, revision, label = root, github 
   for (const framework of scope?.frameworks ?? []) if (framework.error) log(`could not load ${framework.config}: ${framework.error}`);
   const chosen = path => covered(path) && !ignored.some(glob => matches(glob, path));
   const inScope = path => chosen(path) && (!scope || scope.source(path));
-  const coverage = computeCoverage({ scan, graph, depth: walk, inScope, named: chosen, runs: path => !scope || scope.test(path) });
+  const coverage = computeCoverage({ scan, graph, inScope, named: chosen, runs: path => !scope || scope.test(path) });
   const linesOf = lineReader(root, graph);
   const answers = await askCoverage({ coverage, graph, linesOf, systemOne, min, parallel, testProgress, methodProgress, log, debug });
   const lines = new Map();

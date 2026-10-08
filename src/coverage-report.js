@@ -20,7 +20,7 @@ const points = value => (value === null || value === undefined ? null : Math.rou
 const change = (before, after) => (before === null || after === null || before === undefined || after === undefined || before === after
   ? '' : ` (${after > before ? '+' : ''}${after - before})`);
 const short = revision => String(revision ?? '?').slice(0, 7);
-/** The mutation score, as a share and a count: `67% (4 of 6)`, or a dash for a file with no mutants. */
+/** The mutation score, killed of every mutant, as a share and a count: `67% (4 of 6)`, or a dash for a file with no mutants. */
 const scoreCell = totals => (totals.mutants ? `${percent(totals.killed / totals.mutants)} (${totals.killed} of ${totals.mutants})` : '-');
 
 /**
@@ -86,13 +86,14 @@ function sourceTable(report, onList, { width, color }) {
   const files = report.files.filter(file => file.kind === 'source' && file.totals.methods)
     .sort((a, b) => a.path.localeCompare(b.path));
   if (!files.length) return '';
-  // The mutation score is the mutants some test is predicted to kill, of all mutants; survived is counted from the problems
-  // listed under the table, at the same floor, so the two agree.
-  const header = ['Source files', 'Methods tested', 'Mutation score', 'Survived'];
+  // The mutation score is the mutants some test is predicted to kill, of every mutant, the ones no test reaches included, as
+  // Stryker and PIT count it. Survived is counted from the problems listed under the table, at the same floor, so the two agree;
+  // no coverage is the mutants in methods no test reaches, which nothing was asked about.
+  const header = ['Source files', 'Mutation score', 'Survived', 'No coverage'];
   const gaps = onList.filter(finding => finding.kind === 'survived');
   const gapsIn = Map.groupBy(gaps, finding => finding.path);
   const survived = path => (path === null ? gaps.length : gapsIn.get(path)?.length ?? 0);
-  const row = (name, totals, path) => [name, `${totals.reached} of ${totals.methods}`, scoreCell(totals), survived(path)];
+  const row = (name, totals, path) => [name, scoreCell(totals), survived(path), totals.no_coverage];
   const rows = files.map(file => row(relative(file.path), file.totals, file.path));
   rows.push(row('All source', report.totals, null));
   return painted(fitted(header, rows, ['left', 'right', 'right', 'right'], { width }), color, true).join('\n');
@@ -163,7 +164,7 @@ export function formatCoverage(report, { min = BELIEVED, filters = [], all = fal
 function diffCells(before, after) {
   const now = after ?? before;
   const moved = (key, show = value => value) => (after && before ? `${show(after[key])}${change(before[key], after[key])}` : show(now[key]));
-  return [now.methods, moved('reached'), after && before ? `${ratio(after.score)}${change(points(before.score), points(after.score))}` : ratio(now.score),
+  return [moved('mutants'), after && before ? `${ratio(after.score)}${change(points(before.score), points(after.score))}` : ratio(now.score), moved('no_coverage'),
     moved('tests'), moved('useful'), moved('redundant'), moved('weak')];
 }
 
@@ -176,14 +177,14 @@ export function formatCoverageDiff(report, { width = WIDTH(), color = COLOR() } 
   if (!diff) return '';
   const since = `Since ${short(diff.from?.revision)}`;
   if (!diff.files?.length) return `Nothing changed per file since ${short(diff.from?.revision)}.`;
-  const header = [since, 'Methods', 'Reached', 'Mutation score', 'Tests', 'Keep', 'Redundant', 'Checks nothing', ''];
+  const header = [since, 'Mutants', 'Mutation score', 'No coverage', 'Tests', 'Keep', 'Redundant', 'Checks nothing', ''];
   const rows = [...diff.files].sort((a, b) => a.path.localeCompare(b.path)).map(file => [relative(file.path), ...diffCells(file.before, file.after),
     !file.before ? 'added' : !file.after ? 'removed' : '']);
   const totals = diff.totals;
   const pair = key => ({ before: totals[key]?.before ?? null, after: totals[key]?.after ?? null });
   const count = key => `${pair(key).after ?? '-'}${change(pair(key).before, pair(key).after)}`;
-  rows.push(['All', pair('methods').after ?? '-', count('reached'),
-    `${ratio(pair('score').after)}${change(points(pair('score').before), points(pair('score').after))}`,
+  rows.push(['All', count('mutants'),
+    `${ratio(pair('score').after)}${change(points(pair('score').before), points(pair('score').after))}`, count('no_coverage'),
     count('tests'), count('useful'), count('redundant'), count('weak'), '']);
   return painted(fitted(header, rows, ['left', 'right', 'right', 'right', 'right', 'right', 'right', 'right', 'left'], { width }), color, true).join('\n');
 }

@@ -126,9 +126,10 @@ Perch makes every mutant a method has; there is no cap. Each is one edit:
 | `return` | A returned number is zeroed, a string emptied, a list or object emptied, and in JavaScript, Python, Ruby, PHP and Lua any other value becomes the language's null. |
 
 A method with none of these, a one-line delegate or a getter, gets no
-mutants and counts as reached with nothing to kill. A method no test reaches
-gets none either: it counts against Methods tested and is not listed as a
-problem, because the call graph alone can't say whether it needs a test.
+mutants and counts as covered with nothing to kill. A method no test reaches
+gets its mutants too, but perch asks nothing about them: they have no coverage,
+they count against the score, and none is listed as a problem, because whether
+the method needs a test is not something the call graph can say.
 
 ## What it reads
 

@@ -237,7 +237,7 @@ describe('test reach', () => {
     expect(test.helpers).toEqual(['test/cart.test.js::run']);
   });
 
-  it('stops at mocks, test files and the depth limit', async () => {
+  it('stops at mocks and test files, and nowhere else', async () => {
     const repo = await repository();
     const scan = await analyzeTree({ root: repo.root, revision: repo.revision, out: repo.out, analyzer });
     const graph = buildGraph(scan.files);
@@ -269,9 +269,6 @@ describe('test reach', () => {
     expect(methods.get('cart.py::restock').tests).toEqual([]);
     expect(methods.get('cart.py::apply_discount').branches).toEqual([5, 7]);
     expect(methods.get('pricing.py::round_money').tests.map(item => item.depth)).toEqual([2, 2, 2]);
-    // One call deep, round_money is out of reach.
-    const shallow = byId(computeCoverage({ scan, graph, depth: 1 }).tests);
-    expect(shallow.get('tests/test_cart.py::test_discount_10').reach).toEqual([{ id: 'cart.py::apply_discount', depth: 1 }]);
   });
 });
 
@@ -385,16 +382,21 @@ describe('perch coverage', () => {
     expect(methods.get('rates.py::fetch_rate').mutants).toHaveLength(3);
     expect(methods.get('cart.py::item_count')).toMatchObject({ killed: 2, tests: [{ id: 'tests/test_cart.py::test_count_mocked', depth: 1 }] });
     expect(methods.get('cart.py::item_count').mutants.map(mutant => mutant.kind)).toEqual(['body', 'return']);
-    expect(methods.get('cart.py::restock')).toMatchObject({ killed: 0, mutants: [], tests: [] });
+    // No test reaches restock: its eight mutants are made, asked about nothing, and have no coverage.
+    expect(methods.get('cart.py::restock')).toMatchObject({ killed: 0, covered: false, tests: [] });
+    expect(methods.get('cart.py::restock').mutants).toHaveLength(8);
+    expect(methods.get('cart.py::restock').mutants.every(mutant => !mutant.killed && mutant.asked.length === 0 && mutant.survives === null && mutant.finding === null)).toBe(true);
 
-    expect(report.totals).toMatchObject({ methods: 8, reached: 7, useful_reached: 6, mutants: 40, killed: 34, score: 34 / 40, survived: 6, tests: 10, useful: 7, redundant: 2, weak: 1, infra: 1,
+    // The score counts restock's eight uncovered mutants against the tests, as Stryker does; the covered score leaves them out.
+    expect(report.totals).toMatchObject({ methods: 8, covered: 7, useful_covered: 6, mutants: 48, killed: 34, no_coverage: 8, score: 34 / 48, covered_score: 34 / 40, survived: 6, tests: 10, useful: 7, redundant: 2, weak: 1, infra: 1,
       drop: { count: 3 } });
     // saves an order is the only test reaching save, and it is dropped for checking nothing.
     expect(report.totals.drop.unreached).toEqual(['src/db.ts::save']);
     const cartFile = report.files.find(file => file.path === 'cart.py');
     expect(cartFile.kind).toBe('source');
-    expect(cartFile.totals).toMatchObject({ methods: 3, reached: 2, useful_reached: 2, mutants: 21, killed: 19, survived: 2 });
-    expect(cartFile.totals.score).toBeCloseTo(19 / 21);
+    expect(cartFile.totals).toMatchObject({ methods: 3, covered: 2, useful_covered: 2, mutants: 29, killed: 19, no_coverage: 8, survived: 2 });
+    expect(cartFile.totals.score).toBeCloseTo(19 / 29);
+    expect(cartFile.totals.covered_score).toBeCloseTo(19 / 21);
     expect(cartFile.lines[4]).toBe('    if percent < 0:');
     expect(report.files.find(file => file.path === 'tests/test_cart.py').totals).toMatchObject({ tests: 6, useful: 4, redundant: 2, weak: 0, infra: 1 });
 
@@ -494,7 +496,7 @@ describe('perch coverage', () => {
     expect(total.useful).toEqual(['test/cart.test.ts::cart > adds prices', 'test/cart.test.ts::cart > rejects a negative price', 'test/cart.test.ts::cart > checks out']);
     // Every one of total's mutants failed, once each; the failures are listed by the method.
     expect(report.failed.filter(unit => unit.unit === 'src/cart.ts::total')).toHaveLength(8);
-    expect(report.totals).toMatchObject({ useful: 7, mutants: 32 });
+    expect(report.totals).toMatchObject({ useful: 7, mutants: 40 });
   });
 
   it('stops on rejected credentials', async () => {
@@ -524,13 +526,14 @@ def tax(value):
     const { diff } = after;
     expect(diff.tests).toEqual({ added: ['tests/test_cart.py::test_restock'], removed: [] });
     const methods = byId(diff.methods);
-    // Eight mutants of restock once a test reaches it; its boundary survives that test.
-    expect(methods.get('cart.py::restock')).toMatchObject({ before: { reached: false, mutants: 0, killed: 0 }, after: { reached: true, mutants: 8, killed: 7 } });
-    expect(methods.get('pricing.py::tax')).toMatchObject({ before: null, after: { reached: false, mutants: 0 } });
+    // restock's eight mutants had no coverage; once a test reaches it, seven are killed and its boundary survives.
+    expect(methods.get('cart.py::restock')).toMatchObject({ before: { covered: false, mutants: 8, killed: 0 }, after: { covered: true, mutants: 8, killed: 7 } });
+    expect(methods.get('pricing.py::tax')).toMatchObject({ before: null, after: { covered: false, mutants: 3, killed: 0 } });
     expect(methods.has('cart.py::apply_discount')).toBe(false);
     expect(diff.findings.fixed).toEqual([]);
     expect(diff.findings.new.map(finding => `${finding.kind} ${finding.unit}`)).toEqual(['survived cart.py::restock']);
-    expect(diff.totals.score).toEqual({ before: 34 / 40, after: 41 / 48 });
+    expect(diff.totals.score).toEqual({ before: 34 / 48, after: 41 / 51 });
+    expect(diff.totals.no_coverage).toEqual({ before: 8, after: 3 });
     expect(diff.totals.methods).toEqual({ before: 8, after: 9 });
     expect(diff.totals.tests).toEqual({ before: 10, after: 11 });
     expect(diff.files.map(file => file.path)).toEqual(['cart.py', 'pricing.py', 'tests/test_cart.py']);
@@ -651,8 +654,8 @@ describe('perch coverage from the command line', () => {
       const table = out.join('\n').split('\n\n')[0].split('\n').map(line => line.trim().split(/\s{2,}/));
       const rows = Object.fromEntries(table.map(([path, ...cells]) => [path, cells]));
       // The endpoint answers 0.9 to every yes-or-no, so every mutant is killed.
-      expect(rows['src/cart.ts']).toEqual(['2 of 2', '100% (10 of 10)', '0']);
-      expect(rows['src/db.ts']).toEqual(['1 of 1', '100% (3 of 3)', '0']);
+      expect(rows['src/cart.ts']).toEqual(['100% (10 of 10)', '0', '0']);
+      expect(rows['src/db.ts']).toEqual(['100% (3 of 3)', '0', '0']);
       const page = await readFile(join(repo.root, 'out', 'index.html'), 'utf8');
       expect(page).toMatch(/^<!doctype html>/);
       expect(page).toContain('Run details');
