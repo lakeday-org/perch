@@ -115,8 +115,9 @@ your working tree is never touched:
 2. It runs each mutant against only the tests that reach it, and stops at the
    first test that fails, as Stryker does. A run that takes half as long again
    as it should, plus five seconds, catches the mutant too: the mutant made
-   something never finish. A mutant the tests can't even load against broke
-   the code, and is left out.
+   something never finish. So does a run the mutant crashes before its tests
+   report. A mutant the code can't even be built or loaded with is invalid,
+   and is left out.
 3. It asks the decision model about the survivors only: would a caller ever see
    this change, or is it harmless, like a log message, or an edit that changes
    nothing? Harmless survivors are equivalent mutants, and are left out of the
@@ -134,8 +135,10 @@ the whole run, so a mutated test can write only inside its copy:
 - **pytest:** pytest collects your suite once. Each mutant runs in a process
   forked from it, with the mutated function swapped in.
 - **Vitest, Jest, Mocha, Jasmine and node:test:** perch writes every mutant
-  into the code at once, each behind a switch, as Stryker does. Your framework
-  transforms the code once, and each mutant is one run with its switch on.
+  into the code at once, each behind a switch, as Stryker does. Vitest, Jest
+  and Mocha stay loaded in a worker per core, and each mutant is one run inside
+  it with its switch on. Jasmine and node:test start for each mutant, with the
+  code already transformed.
 - **Rust and C#:** the same switches, built once by cargo or dotnet. A mutant
   the compiler rejects, a value a constant needs at compile time, is taken out
   and the code built again; it counts as invalid, as Stryker.NET counts it.

@@ -17,6 +17,7 @@ import { dirname, join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { mutantId } from '../mutants.js';
 import { startDriver } from './driver.js';
+import { startWorkers, WORKER_IO } from './workers.js';
 import { instrument, PRELUDE, SCHEMATA_LANGUAGES, TS_HEAD } from './schemata.js';
 
 const run = promisify(execFile);
@@ -33,13 +34,125 @@ const __perch_flush = () => {
   __perch_state.test = '';
 };`;
 
+/**
+ * Mocha kept loaded: the repository's own config and the test script's flags read once by Mocha's own loader, its requires and
+ * root hooks loaded once, and each mutant a fresh Mocha over the files it needs, ES modules among them loaded again under a query
+ * of their own. Each test's result comes from the runner's events; a hook that fails fails the tests it was for.
+ */
+const MOCHA_WORKER = `${WORKER_IO}
+import { createRequire } from 'node:module';
+import { resolve } from 'node:path';
+const require = createRequire(process.env.PERCH_ROOT + '/package.json');
+const Mocha = require('mocha');
+const { loadOptions } = require('mocha/lib/cli/options');
+const { handleRequires } = require('mocha/lib/cli/run-helpers');
+globalThis.__perch_state = { active: -1, test: '', hits: null };
+const { spec, reporter, reporterOption, reporterOptions, grep, fgrep, watch, parallel, jobs, ...options } = loadOptions(JSON.parse(process.env.PERCH_FLAGS));
+const rootHooks = await handleRequires(options.require || []);
+class Silent { constructor(runner) { this.runner = runner; } }
+__perch_say({ ready: true });
+let round = 0;
+const testsOf = suite => [...suite.tests, ...suite.suites.flatMap(testsOf)];
+for await (const line of __perch_commands) {
+  const { id, mutant, files, pattern, bail } = JSON.parse(line);
+  globalThis.__perch_state.active = mutant;
+  const mocha = new Mocha({ ...options, rootHooks, reporter: Silent, bail: Boolean(bail), ...(pattern ? { grep: new RegExp(pattern) } : {}) });
+  for (const file of files) mocha.addFile(resolve(file));
+  const n = round++;
+  const results = [];
+  const record = (test, status) => { if (test && test.file) results.push([test.file, test.titlePath().join(' > '), status]); };
+  try {
+    await mocha.loadFilesAsync({ esmDecorator: file => file + '?perch=' + n });
+    await new Promise(done => {
+      const runner = mocha.run(() => done());
+      runner.on('pass', test => record(test, 'passed'));
+      runner.on('fail', test => {
+        if (test.type !== 'hook') return record(test, 'failed');
+        const tests = test.ctx && test.ctx.currentTest ? [test.ctx.currentTest] : testsOf(test.parent);
+        for (const item of tests) record(item, 'failed');
+      });
+    });
+  } catch (error) { results.push(['', '', 'crashed', String(error && error.stack || error)]); }
+  try { mocha.unloadFiles(); mocha.dispose(); } catch {}
+  __perch_say({ id, results });
+}
+`;
+
+/**
+ * Jest kept loaded: runCLI called again for each mutant, in band, over the files it needs. Each test file gets a fresh
+ * environment, which reads the mutant from PERCH_MUTANT as it starts.
+ */
+const JEST_WORKER = `${WORKER_IO}
+import { createRequire } from 'node:module';
+const require = createRequire(process.env.PERCH_ROOT + '/package.json');
+const { runCLI } = require('jest');
+__perch_say({ ready: true });
+for await (const line of __perch_commands) {
+  const { id, mutant, files, pattern } = JSON.parse(line);
+  process.env.PERCH_MUTANT = String(mutant);
+  const results = [];
+  try {
+    const { results: run } = await runCLI({ _: files, $0: 'jest', ...(pattern ? { testNamePattern: pattern } : {}), runInBand: true, ci: true, silent: true, watchman: false, reporters: [], passWithNoTests: true }, [process.cwd()]);
+    for (const file of run.testResults) {
+      for (const item of file.testResults) if (item.status === 'passed' || item.status === 'failed') results.push([file.testFilePath, [...item.ancestorTitles, item.title].join(' > '), item.status]);
+      if (file.testExecError) results.push([file.testFilePath, '', 'crashed', String(file.testExecError.message)]);
+    }
+  } catch (error) { results.push(['', '', 'error', String(error && error.stack || error)]); }
+  __perch_say({ id, results });
+}
+`;
+
+/**
+ * Vitest kept loaded: one Vitest made with the repository's config, and each mutant a run of the test files it needs, the mutant
+ * named in the worker's own file, which the hooks read. Vitest's API has moved between versions: 2 globs and runs files, 3 and
+ * later test specifications, and the name filter moved from an override to a setter.
+ */
+const VITEST_WORKER = `${WORKER_IO}
+import { createRequire } from 'node:module';
+import { writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+const require = createRequire(process.env.PERCH_ROOT + '/package.json');
+const api = await import(pathToFileURL(require.resolve('vitest/node')).href);
+// Vitest's caches go to perch's scratch directory: the repository's node_modules is linked in to be read, not written.
+const vitest = await api.createVitest('test', { watch: false, reporters: [{ onInit() {} }], cache: false }, { cacheDir: process.env.PERCH_CACHE });
+const specs = vitest.getRelevantTestSpecifications ? await vitest.getRelevantTestSpecifications() : vitest.globTestSpecifications ? await vitest.globTestSpecifications() : await vitest.globTestFiles();
+const fileOf = spec => spec.moduleId ?? spec[1];
+const titles = task => { const names = []; for (let at = task; at && at.filepath === undefined; at = at.suite) if (at.name) names.unshift(at.name); return names; };
+__perch_say({ ready: true });
+for await (const line of __perch_commands) {
+  const { id, mutant, files, pattern } = JSON.parse(line);
+  writeFileSync(process.env.PERCH_ACTIVE, String(mutant));
+  const wanted = new Set(files.map(file => resolve(file)));
+  const chosen = specs.filter(spec => wanted.has(fileOf(spec)));
+  if (vitest.setGlobalTestNamePattern) vitest.setGlobalTestNamePattern(pattern ? new RegExp(pattern) : /.*/); else vitest.configOverride.testNamePattern = pattern ? new RegExp(pattern) : undefined;
+  const results = [];
+  try {
+    const run = vitest.runTestSpecifications ? await vitest.runTestSpecifications(chosen, false) : (await vitest.runFiles(chosen, false), null);
+    const tasks = run && run.testModules ? run.testModules.map(module => module.task) : vitest.state.getFiles().filter(file => wanted.has(file.filepath));
+    const walk = task => {
+      if (task.type === 'test' && task.result && (task.result.state === 'pass' || task.result.state === 'fail')) results.push([task.file.filepath, titles(task).join(' > '), task.result.state === 'pass' ? 'passed' : 'failed']);
+      for (const child of task.tasks || []) walk(child);
+      if (task.filepath && task.result && task.result.state === 'fail' && !(task.tasks || []).length) results.push([task.filepath, '', 'crashed', JSON.stringify(task.result.errors || [])]);
+    };
+    for (const task of tasks) walk(task);
+  } catch (error) { results.push(['', '', 'error', String(error && error.stack || error)]); }
+  __perch_say({ id, results });
+}
+`;
+
 /** Each framework: how it is run, the hooks that name the test running, and how it reports what passed. */
 const FRAMEWORKS = {
   vitest: {
     bin: 'vitest', module: 'esm', results: 'json',
-    hooks: `import { beforeEach, afterEach, expect } from 'vitest';
+    // A warm worker names the mutant to run in a file of its own, read as the test file loads and before its tests: a worker
+    // Vitest keeps between runs would not see a variable set after it started.
+    hooks: `import { beforeAll, beforeEach, afterEach, expect } from 'vitest';
 import * as __perch_fs from 'node:fs';
 ${STATE}
+const __perch_active = () => { if (__perch_env.PERCH_ACTIVE) { try { __perch_state.active = Number(__perch_fs.readFileSync(__perch_env.PERCH_ACTIVE, 'utf8')); } catch {} } };
+__perch_active();
+beforeAll(__perch_active);
 beforeEach(() => { const state = expect.getState(); __perch_state.test = JSON.stringify([state.testPath, state.currentTestName]); });
 afterEach(__perch_flush);`,
     args: ({ files, pattern, out, bail }) => ['run', ...files, ...(pattern ? ['-t', pattern] : []), '--reporter=json', `--outputFile=${out}`, ...(bail ? ['--bail=1'] : [])],
@@ -65,7 +178,7 @@ if (!globalThis.__perch_hooked) {
     __perch_flush();
   });
 }`,
-    args: ({ files, pattern, bail }) => [...files, ...(pattern ? ['--grep', pattern] : []), '--reporter', 'dot', ...(bail ? ['--bail'] : [])],
+    args: ({ files, pattern, bail, flags }) => [...flags, ...files, ...(pattern ? ['--grep', pattern] : []), '--reporter', 'dot', ...(bail ? ['--bail'] : [])],
   },
   jasmine: {
     bin: 'jasmine', module: 'cjs', results: 'hooks',
@@ -120,22 +233,45 @@ const NODE_REPORTER = `export default async function* perch(source) {
 
 const escape = text => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 
+/**
+ * A title perch read as a template, as a regular expression for the titles the run gives it: `should include ${method}` and
+ * Jest's and Vitest's `.each` placeholders, `adds %d and $b`, match whatever the run put there. A plain title matches itself.
+ */
+const PLACEHOLDER = /\$\{[^}]*\}|%[sdifjoOpc#]|\$[A-Za-z_][\w.]*/g;
+const titlePattern = title => {
+  let out = '', at = 0;
+  for (const match of title.matchAll(PLACEHOLDER)) { out += `${escape(title.slice(at, match.index))}.*?`; at = match.index + match[0].length; }
+  return out + escape(title.slice(at));
+};
+
 /** The node_modules directories of the repository, outside any other: a workspace has one per package beside the root's. */
 async function installed(root) {
   const { stdout } = await run('find', [root, '-maxdepth', '4', '-name', 'node_modules', '-type', 'd', '-prune', '-not', '-path', '*/.git/*'], { maxBuffer: 1 << 24 });
   return stdout.split('\n').filter(Boolean).map(path => relative(root, path)).filter(path => !path.split('/').slice(0, -1).includes('node_modules'));
 }
 
-/** node:test's flags from the package's own test script: `node --test --experimental-test-module-mocks 'test/*.ts'` keeps the flag. */
-async function nodeFlags(root) {
+/** Flags of the command that take the next word as their value. */
+const VALUED = new Set(['--import', '--require', '-r', '--loader', '--experimental-loader', '--ui', '-u', '--timeout', '-t', '--slow', '-s', '--file', '--extension', '--config', '--spec']);
+/** Flags perch sets itself, or that would change how a run reports or stops. */
+const OWN = /^(--test(-|$)|--watch|--reporter|-R$|--reporter-option|-O$|--grep|-g$|--fgrep|-f$|--bail|-b$|--parallel|-p$|--jobs|-j$|--forbid-only|--exit$)/;
+
+/**
+ * The flags the package's own test script gives the framework's command: `node --test --experimental-test-module-mocks` keeps
+ * the flag, `mocha --require test/support/env --check-leaks test/` keeps both and not the directory.
+ */
+async function scriptFlags(root, command) {
   const script = JSON.parse(await readFile(join(root, 'package.json'), 'utf8').catch(() => '{}')).scripts?.test ?? '';
   const words = script.match(/'[^']*'|"[^"]*"|\S+/g) ?? [];
+  const start = words.findIndex(word => word === command || word.endsWith(`/${command}`));
+  if (start < 0) return [];
   const flags = [];
-  for (let at = 0; at < words.length; at++) {
+  for (let at = start + 1; at < words.length && !['&&', '||', ';', '|'].includes(words[at]); at++) {
     const word = words[at];
-    if (!word.startsWith('-') || /^--test(-|$)/.test(word) || word === '--watch') continue;
+    if (!word.startsWith('-')) continue;
+    const valued = VALUED.has(word.split('=')[0]) && !word.includes('=');
+    if (OWN.test(word)) { if (valued || ['--reporter', '-R', '--reporter-option', '-O', '--grep', '-g', '--fgrep', '-f', '--jobs', '-j'].includes(word)) at++; continue; }
     flags.push(word);
-    if (['--import', '--require', '-r', '--loader', '--experimental-loader'].includes(word) && words[at + 1]) flags.push(words[++at].replace(/^['"]|['"]$/g, ''));
+    if (valued && words[at + 1]) flags.push(words[++at].replace(/^['"]|['"]$/g, ''));
   }
   return flags;
 }
@@ -143,16 +279,29 @@ async function nodeFlags(root) {
 /** A runner for one framework. */
 export function javascriptRunner(framework) {
   const spec = FRAMEWORKS[framework];
-  let ids = new Map(), keys = new Map(), unplaced = new Map(), tests = new Map(), testFiles = [], flags = [], hooksFile = null, reporter = null, root = null;
+  let ids = new Map(), keys = new Map(), unplaced = new Map(), tests = new Map(), templates = new Map(), suffixes = new Map(), testFiles = [], flags = [], hooksFile = null, reporter = null, root = null;
 
   /** Each hook-named test, `[file, name]`, as perch's id: the file from the root, then the names, joined as perch joins them. */
   const idOf = (copy, raw) => {
     const [file, name] = JSON.parse(raw);
-    const path = relative(copy, file);
+    return resolve(relative(copy, file), name);
+  };
+  /**
+   * The perch test a run's name in a file is: the same name, Jest's spaced one, or the one template that fits it. Failing those,
+   * the test whose names end the run's: a test written in a helper that suites call, or under a suite called through a
+   * condition, `(skip ? describe.skip : describe)(...)`, is named by the parser without the suites the run puts it in. The
+   * longest such ending, when one test has it.
+   */
+  const resolve = (path, name) => {
     const direct = `${path}::${name}`;
     if (tests.has(direct)) return direct;
-    // Jest names a test by its suites and title joined with spaces.
-    return tests.get(`${path}\0${name}`) ?? direct;
+    if (tests.has(`${path}\0${name}`)) return tests.get(`${path}\0${name}`);
+    const fits = (templates.get(path) ?? []).filter(item => item.pattern.test(name));
+    if (fits.length === 1) return fits[0].id;
+    const ending = (suffixes.get(path) ?? []).filter(item => item.pattern.test(name));
+    const longest = Math.max(...ending.map(item => item.length));
+    const best = ending.filter(item => item.length === longest);
+    return best.length === 1 ? best[0].id : direct;
   };
   /** A results file as each test's result, by perch's id. */
   const readResults = async (copy, out, covering) => {
@@ -164,8 +313,10 @@ export function javascriptRunner(framework) {
         const path = relative(copy, file.name);
         for (const item of file.assertionResults ?? []) {
           if (!['passed', 'failed'].includes(item.status)) continue;
-          const id = `${path}::${[...item.ancestorTitles, item.title].join(' > ')}`;
-          results.set(id, { test: id, status: item.status, time: (item.duration ?? 0) / 1000 });
+          const id = resolve(path, [...item.ancestorTitles, item.title].join(' > '));
+          // A template's cases are one test: it fails if any case does, and takes as long as all of them.
+          const had = results.get(id);
+          results.set(id, { test: id, status: had?.status === 'failed' ? 'failed' : item.status, time: (had?.time ?? 0) + (item.duration ?? 0) / 1000 });
         }
         // A file that failed to load fails every test in it it was asked to run.
         if (file.status === 'failed' && !(file.assertionResults ?? []).some(item => item.status === 'failed')) {
@@ -240,13 +391,22 @@ export function javascriptRunner(framework) {
         const bang = text.startsWith('#!') ? text.indexOf('\n') + 1 : 0;
         await writeFile(full, `${text.slice(0, bang)}${line}\n${text.slice(bang)}`);
       }
+      templates = new Map();
+      suffixes = new Map();
       for (const node of graph.nodes.values()) {
         if (!node.case || !SCHEMATA_LANGUAGES.has(graph.files.get(node.path)?.file.language)) continue;
         tests.set(node.id, node);
-        tests.set(`${node.path}\0${node.id.slice(node.path.length + 2).split(' > ').join(' ')}`, node.id);
+        const titles = node.id.slice(node.path.length + 2).split(' > ');
+        tests.set(`${node.path}\0${titles.join(' ')}`, node.id);
+        if (node.case.parametrized) {
+          if (!templates.has(node.path)) templates.set(node.path, []);
+          templates.get(node.path).push({ id: node.id, pattern: new RegExp(`^${titles.map(titlePattern).join('(?: > | )')}$`) });
+        }
+        if (!suffixes.has(node.path)) suffixes.set(node.path, []);
+        suffixes.get(node.path).push({ id: node.id, length: titles.length, pattern: new RegExp(`(?:^|> | )${titles.map(titlePattern).join('(?: > | )')}$`) });
       }
+      flags = await scriptFlags(root, framework === 'node:test' ? 'node' : spec.bin);
       if (framework === 'node:test') {
-        flags = await nodeFlags(root);
         reporter = join(copy.scratch, 'perch-node-reporter.mjs');
         await writeFile(reporter, NODE_REPORTER);
       }
@@ -261,7 +421,7 @@ export function javascriptRunner(framework) {
       const driver = await startDriver({ scratch, writable: [copy, scratch] });
       let ran;
       try {
-        ran = await driver.exec(command(tool), spec.args({ files: framework === 'node:test' ? testFiles : [], out, flags, reporter }),
+        ran = await driver.exec(command(tool), spec.args({ files: ['vitest', 'jest'].includes(framework) ? [] : testFiles, out, flags, reporter }),
           { cwd: copy, env: { PERCH_COVERAGE: '1', PERCH_HITS: hits, PERCH_RESULTS: out, FORCE_COLOR: '0' } });
       } finally { await driver.close(); }
       const results = await readResults(copy, out, null);
@@ -283,10 +443,42 @@ export function javascriptRunner(framework) {
       return { executed, hits: reached, hitMethods, unplaced: new Set([...unplaced.keys()].map(id => keys.get(id).key)), results, seconds: (Date.now() - started) / 1000 };
     },
 
-    /** Each mutant run by starting the framework with its number set, over the files of the tests that run it and only those tests. */
-    async session({ copies: [copy] }) {
-      const driver = await startDriver({ scratch: copy.scratch, writable: [copy.dir, copy.scratch] });
+    /**
+     * Each mutant run with its number set, over the files of the tests that run it and only those tests: in a worker that keeps
+     * Mocha or Jest loaded, or by starting Vitest, Jasmine or node:test.
+     */
+    async session({ copies: [copy], parallel = 1 }) {
+      const warm = { mocha: MOCHA_WORKER, jest: JEST_WORKER, vitest: VITEST_WORKER }[framework];
+      const workers = warm ? await startWorkers({ script: warm, count: parallel, scratch: copy.scratch, writable: [copy.dir, copy.scratch], cwd: copy.dir,
+        env: index => ({ PERCH_ROOT: copy.dir, PERCH_FLAGS: JSON.stringify(flags), PERCH_ACTIVE: join(copy.scratch, `active-${index}`), PERCH_CACHE: join(copy.scratch, `cache-${index}`), FORCE_COLOR: '0' }) }) : null;
+      const driver = warm ? null : await startDriver({ scratch: copy.scratch, writable: [copy.dir, copy.scratch] });
       let count = 0;
+      /** The run's results by perch's id, or null when nothing ran: what a crash or an error before any test leaves. */
+      const runWarm = async ({ id, files, pattern, bail, timeout }) => {
+        const reply = await workers.run({ id: count++, mutant: id, files, pattern, bail }, timeout);
+        if (reply.timedOut) return { timedOut: true };
+        if (reply.crashed) return { code: 1, results: null, output: reply.output };
+        const results = new Map();
+        let crashed = null;
+        for (const [file, name, status, error] of reply.results) {
+          // The framework itself failing is perch's environment, not the mutant: the run stops and says so.
+          if (status === 'error') throw new Error(`${framework} failed running a mutant: ${String(error).split('\n').slice(0, 4).join(' | ')}`);
+          if (status === 'crashed') { crashed = error; continue; }
+          const test = resolve(relative(copy.dir, file), name);
+          results.set(test, { test, status: results.get(test)?.status === 'failed' ? 'failed' : status });
+        }
+        return { code: crashed ? 1 : 0, results: results.size ? results : null, output: crashed ?? '' };
+      };
+      const runCold = async ({ id, files, pattern, bail, timeout, nodes }) => {
+        const out = join(copy.scratch, `run-${count++}.${spec.results === 'json' ? 'json' : 'jsonl'}`);
+        if (spec.results !== 'json') await writeFile(out, '');
+        const ran = await driver.exec(command({ root }), spec.args({ files, pattern, out, bail, flags, reporter }),
+          { cwd: copy.dir, env: { PERCH_MUTANT: String(id), PERCH_RESULTS: out, FORCE_COLOR: '0' }, timeout });
+        if (ran.timedOut) return { timedOut: true };
+        const results = await readResults(copy.dir, out, nodes);
+        await rm(out, { force: true });
+        return { code: ran.code, results, output: ran.output };
+      };
       return {
         async run({ mutant, method, nodes, timeout, bail = false }) {
           const id = ids.get(`${method.id}#${mutantId(mutant)}`);
@@ -295,19 +487,20 @@ export function javascriptRunner(framework) {
           // Each framework matches a test's name with its suites before it: Jest, Mocha, Jasmine and Vitest 2 joined by spaces,
           // Vitest 3 on by ` > `. node:test is run by file.
           const names = nodes.map(test => test.slice(test.indexOf('::') + 2));
-          const pattern = framework === 'node:test' ? null : `^(${names.map(name => name.split(' > ').map(escape).join('(?: > | )')).join('|')})$`;
-          const out = join(copy.scratch, `run-${count++}.${spec.results === 'json' ? 'json' : 'jsonl'}`);
-          await writeFile(out, '').catch(() => {});
-          if (spec.results === 'json') await rm(out, { force: true });
-          const ran = await driver.exec(command({ root }), spec.args({ files, pattern, out, bail, flags, reporter }),
-            { cwd: copy.dir, env: { PERCH_MUTANT: String(id), PERCH_RESULTS: out, FORCE_COLOR: '0' }, timeout });
+          // A name is matched by its ending, as resolve matches it: a test the parser named without all its suites runs under them.
+          const pattern = framework === 'node:test' ? null : `(?:^|> | )(?:${names.map(name => name.split(' > ').map(titlePattern).join('(?: > | )')).join('|')})$`;
+          const ran = await (warm ? runWarm : runCold)({ id, files, pattern, bail, timeout, nodes });
           if (ran.timedOut) return { status: 'timeout' };
-          const results = await readResults(copy.dir, out, nodes);
-          await rm(out, { force: true });
-          if (!results || !nodes.some(test => results.has(test))) return { status: 'invalid', error: ran.output.trim().split('\n').slice(-3).join(' | ') };
+          const { results } = ran;
+          if (!results || !nodes.some(test => results.has(test))) {
+            // The run ended in an error before any test said how it did: the mutant crashed loading the tests, which they notice
+            // as surely as a failed assertion. The same command ran the suite clean before anything was switched on.
+            if (ran.code !== 0) return { status: 'ran', results: new Map(nodes.map(test => [test, { test, status: 'failed' }])) };
+            return { status: 'invalid', error: ran.output.trim().split('\n').slice(-3).join(' | ') };
+          }
           return { status: 'ran', results: new Map([...results].filter(([test]) => nodes.includes(test))) };
         },
-        close: () => driver.close(),
+        close: async () => { await workers?.close(); await driver?.close(); },
       };
     },
   };

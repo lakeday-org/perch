@@ -618,12 +618,23 @@ export async function runMutants({ coverage, generated, sourceText, runner, tool
       });
       // Tests in one file that run exactly the same mutants, three or more: each against all of them, to compare what they kill.
       const groups = Map.groupBy([...coversOf.keys()].filter(test => coversOf.get(test).length >= 3), test => `${test.split('::')[0]}\0${[...coversOf.get(test)].sort().join('\0')}`);
-      // One run per mutant, of every test that still needs it.
+      // Tests in a group part on the first mutant they do differently against, so the group first runs a few of the mutants one of
+      // its tests is known to kill, the likeliest to part them, all at once. Only tests still alike after that, which may be one
+      // written twice, run every mutant they have not; one run per mutant, of every test that still needs it.
+      const outcomeOf = (test, id) => results.get(id).kills.find(([other]) => other === test)?.[1];
+      const alike = (a, b) => coversOf.get(a).every(id => { const x = outcomeOf(a, id), y = outcomeOf(b, id); return x === undefined || y === undefined || x === y; });
+      const settling = [...groups.values()].filter(group => group.length > 1);
+      const parting = settling.flatMap(group => coversOf.get(group[0]).filter(id => group.some(test => outcomeOf(test, id) === 1)).slice(0, 3)
+        .map(id => ({ id, tests: group.filter(test => outcomeOf(test, id) === undefined) })).filter(item => item.tests.length));
+      debug(`running ${parting.length} mutants against groups of tests that run exactly the same mutants, to part them`);
+      await pool(parting, ({ id, tests }) => runOnce(session, byId.get(id), tests, false));
       const fill = new Map();
-      for (const group of [...groups.values()].filter(item => item.length > 1)) {
-        for (const test of group) for (const id of unknown(test)) { if (!fill.has(id)) fill.set(id, []); fill.get(id).push(test); }
+      for (const group of settling) {
+        for (const test of group.filter(item => group.some(other => other !== item && alike(item, other)))) {
+          for (const id of unknown(test)) { if (!fill.has(id)) fill.set(id, []); fill.get(id).push(test); }
+        }
       }
-      debug(`running ${fill.size} mutants again against the tests that run exactly the same mutants as another`);
+      debug(`running ${fill.size} mutants again against the tests still alike, to compare them`);
       await pool([...fill], ([id, tests]) => runOnce(session, byId.get(id), tests, false));
     }
   } finally { await session?.close(); }

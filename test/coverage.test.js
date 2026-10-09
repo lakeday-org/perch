@@ -596,11 +596,14 @@ describe('perch coverage', () => {
     expect(first).toMatchObject({ line: 5, column: 15, from: '<', to: '<=', original: '    if percent < 0:', mutated: '    if percent <= 0:', asked: discount.tests.map(item => item.id) });
     expect(first.id).toMatch(/^5:15:boundary:[0-9a-f]{8}$/);
     expect(first).toMatchObject({ survives: 1, matters: 0.9, fails: [0, 0, 0] });
-    // The negative-price test kills every mutant of total; the plain one misses only the boundary.
+    // Every mutant of total is killed. A run stops at its first failing test, so killed_by names the tests that failed before
+    // it stopped: the boundary, which the plain test misses, is killed by the negative-price test alone, and the plain test was
+    // run against it and passed.
     const total = methods.get('src/cart.ts::total');
     expect(total).toMatchObject({ killed: 8 });
-    expect(total.mutants.every(mutant => mutant.killed_by.includes('test/cart.test.ts::cart > rejects a negative price'))).toBe(true);
-    expect(total.mutants.filter(mutant => !mutant.killed_by.includes('test/cart.test.ts::cart > adds prices')).map(mutant => mutant.kind)).toEqual(['boundary']);
+    const edge = total.mutants.find(mutant => mutant.kind === 'boundary');
+    expect(edge.killed_by).toEqual(['test/cart.test.ts::cart > rejects a negative price']);
+    expect(edge.fails[edge.asked.indexOf('test/cart.test.ts::cart > adds prices')]).toBe(0);
     expect(methods.get('rates.py::fetch_rate')).toMatchObject({ killed: 3 });
     expect(methods.get('rates.py::fetch_rate').mutants).toHaveLength(3);
     expect(methods.get('cart.py::item_count')).toMatchObject({ killed: 2, tests: [{ id: 'tests/test_cart.py::test_count_mocked', depth: 1 }] });

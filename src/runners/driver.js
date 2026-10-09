@@ -10,9 +10,12 @@ import { createInterface } from 'node:readline';
 import { sandboxed } from './sandbox.js';
 
 const DRIVER = `import { spawn } from 'node:child_process';
+import { writeSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 let open = 0, ended = false;
-const say = message => process.stdout.write(JSON.stringify(message) + '\\n');
+// Replies go out on a descriptor of their own: whatever else writes to standard output cannot be mistaken for one. JSON allows
+// the Unicode line and paragraph separators raw in a string, and a line reader splits on them, so they go out escaped.
+const say = message => writeSync(3, JSON.stringify(message).replace(/\\u2028/g, '\\\\u2028').replace(/\\u2029/g, '\\\\u2029') + '\\n');
 const settle = () => { if (ended && !open) process.exit(0); };
 createInterface({ input: process.stdin }).on('line', line => {
   const { id, command, args, cwd, env, timeout } = JSON.parse(line);
@@ -36,14 +39,14 @@ export async function startDriver({ scratch, writable }) {
   const file = join(scratch, 'perch-driver.mjs');
   await writeFile(file, DRIVER);
   const run = sandboxed(process.execPath, [file], writable);
-  const child = spawn(run.command, run.args, { detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(run.command, run.args, { detached: true, stdio: ['pipe', 'ignore', 'pipe', 'pipe'] });
   let stderr = '';
   child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-4000); });
   const waiting = new Map();
   let next = 0;
   const exited = new Promise(resolve => child.on('close', resolve));
   exited.then(code => { for (const { reject } of waiting.values()) reject(new Error(`perch's command driver stopped (exit ${code}): ${stderr.trim()}`)); });
-  createInterface({ input: child.stdout }).on('line', line => {
+  createInterface({ input: child.stdio[3] }).on('line', line => {
     const message = JSON.parse(line);
     const call = waiting.get(message.id);
     waiting.delete(message.id);
