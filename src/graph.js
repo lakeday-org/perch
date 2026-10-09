@@ -1100,7 +1100,10 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
     const fields = tableFields(byPath.get(node.path).file, node.returns ?? node.yields, target);
     return fields?.[member] ? functionOf(byPath.get(node.path).file, fields[member], target) : null;
   };
-  /** The fields of the object literal a value is, followed through the locals that hold it. */
+  /**
+   * The fields of the object literal a value is, followed through the locals that hold it and what a caller passed for a
+   * parameter. It reads bindings and links no call: what a caller does with a field it finds is the caller's to resolve.
+   */
   const tableFields = (file, held, from, depth = 0) => {
     for (let value = held, hop = 0; value && hop < 4; hop++) {
       if (value.fields) return value.fields;
