@@ -134,11 +134,11 @@ function headline(report) {
     const onCovered = totals.covered_score === null ? '' : `, ${percent(totals.covered_score)} on covered code`;
     const equivalent = totals.equivalent ? `; ${escape(totals.equivalent)} equivalent left out` : '';
     tiles.push(tile('sources', 'Mutation score', share(score), `${escape(totals.killed)} of ${escape(totals.mutants)} mutants killed${onCovered}${equivalent}`,
-      changed([moving('score', '', { points: true })]) + bar(score), 'Mutants some test is predicted to fail against, of every mutant but the equivalent ones, which change nothing a caller could observe; the ones in methods no test reaches are included. The score on covered code leaves those out.'));
+      changed([moving('score', '', { points: true })]) + bar(score), 'Mutants some test failed against, of every mutant but the equivalent ones, which change nothing a caller could observe; the ones on lines no test runs are included. The score on covered code leaves those out.'));
     tiles.push(tile('problems', 'Survived', `${escape(totals.survived)}<span class="of"> of ${escape(totals.mutants)}</span>`, 'mutants no test kills',
-      changed([moving('survived', 'mutants', { better: 'down' })]), 'Mutants no test reaching the method is predicted to fail against, that would change what a caller sees. Each is listed with the edit and the tests that miss it.'));
+      changed([moving('survived', 'mutants', { better: 'down' })]), 'Mutants every test that runs them passed against, that would change what a caller sees. Each is listed with the edit and the tests that miss it.'));
     tiles.push(tile('sources', 'No coverage', `${escape(totals.no_coverage)}<span class="of"> of ${escape(totals.mutants)}</span>`, `in ${escape(totals.methods - totals.covered)} of ${escape(totals.methods)} methods no test reaches`,
-      changed([moving('no_coverage', 'mutants', { better: 'down' })]), 'Mutants in methods no test calls, through any number of calls. Nothing was asked about them; they count against the score.'));
+      changed([moving('no_coverage', 'mutants', { better: 'down' })]), 'Mutants on lines no test runs. Nothing was run or asked about them; they count against the score.'));
   }
   const drop = totals.drop ?? { count: 0 };
   // The tests that repeat another or check nothing: the number a person acts on. More is worse, so the bar is toned by the
@@ -259,14 +259,14 @@ function mutantBlock(method, finding, index, { at = false } = {}) {
     + `<div class="problem-acts">${acts()}${dismissMark}</div></div>${diffOf(mutantOf(method, finding))}</div>`;
 }
 
-/** The tests asked about a method's mutants: the ones that may run it. A report without the count says how many reach it. */
-const testsOf = method => method.asked_tests ?? method.tests.length;
-/** A method's mutants the score counts: all but the equivalent ones, which no test can kill. */
-const scoredOf = method => method.mutants.length - (method.equivalent ?? 0);
+/** The tests run against a method's mutants: the ones that ran its lines and passed before anything was changed. */
+const testsOf = method => method.asked_tests;
+/** A method's mutants the score counts: all but the equivalent ones, which no test can kill, and the invalid ones, which broke the code. */
+const scoredOf = method => method.mutants.length - method.equivalent - method.invalid;
 
 /** The heads of a table of methods to test, with or without the file column. */
-const methodHeads = () => `<th>Method</th>${th('Mutation score', true, true, 'Mutants the method\'s tests are predicted to kill, of all its mutants.')}${th('Survived', true, false, 'Mutants no test kills.')}`
-  + `${th('Tests', true, false, 'Tests that may run the method: each was asked about its mutants.')}<th>What to add</th>`;
+const methodHeads = () => `<th>Method</th>${th('Mutation score', true, true, 'Mutants the method\'s tests failed against, of all its mutants but the equivalent ones.')}${th('Survived', true, false, 'Mutants no test kills.')}`
+  + `${th('Tests', true, false, 'Tests that run the method: each was run against its mutants.')}<th>What to add</th>`;
 
 /**
  * One method to add a test to: its name and place, its score, how many mutants survived, how many tests reach it, and the test
@@ -391,10 +391,10 @@ function sourceTable(report, index) {
   const totals = { ...report.totals, survived: report.totals.survived };
   const foot = `<tr><td>All source files <span class="muted">${escape(files.length)}</span></td>${counts(totals)}</tr>`;
   const heads = '<th>File</th>'
-    + th('Mutation score', true, true, 'Mutants some test is predicted to fail against, of every mutant, the ones no test reaches included.')
-    + th('Killed', true, false, 'Mutants some test is predicted to fail against.')
+    + th('Mutation score', true, true, 'Mutants some test failed against, of every mutant but the equivalent ones, the ones no test runs included.')
+    + th('Killed', true, false, 'Mutants some test failed against, or that made the tests run past their time limit.')
     + th('Survived', true, false, 'Mutants no test kills, listed under All problems.')
-    + th('No coverage', true, false, 'Mutants in methods no test reaches. Nothing was asked about them; they count against the score.');
+    + th('No coverage', true, false, 'Mutants on lines no test runs. Nothing was run or asked about them; they count against the score.');
   return view('sources', 'Source files', '',
     `<div class="filter"><input type="search" class="filter-files" placeholder="Filter files" aria-label="Filter files"></div>`
     + `<section class="panel" id="sources"><div class="scroll"><table class="grid tree files"><thead><tr>${heads}</tr></thead><tbody>${rows.join('')}</tbody><tfoot>${foot}</tfoot></table></div></section>`);
@@ -507,7 +507,7 @@ function lineMarks(file, index) {
   return marks;
 }
 
-/** The tests nearest a method, the ones calling it directly first: the eight perch asked about its mutants. A count stands for the rest. */
+/** The tests that run a method, the ones calling it directly first, eight of them. A count stands for the rest. */
 const REACH_SHOWN = 8;
 function reachedBy(method, index) {
   const useful = new Set(method.useful);
@@ -607,7 +607,7 @@ function fileStats(file) {
   }
   const score = scoreValue(totals);
   return stat('no coverage', escape(totals.no_coverage), 'Mutants in methods no test reaches, which count against the score.')
-    + (score === null ? '' : stat('mutation score', `<span class="${band(score)}-text">${percent(score)}</span> <small>${escape(totals.killed)}/${escape(totals.mutants)}</small>`, 'Mutants some test is predicted to fail against, of every mutant in the file\'s reached methods.'))
+    + (score === null ? '' : stat('mutation score', `<span class="${band(score)}-text">${percent(score)}</span> <small>${escape(totals.killed)}/${escape(totals.mutants)}</small>`, 'Mutants some test failed against, of every mutant in the file but the equivalent ones.'))
     + stat('survived', escape(totals.survived), 'Mutants no test kills, listed below.');
 }
 

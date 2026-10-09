@@ -1,7 +1,7 @@
 /**
- * The test frameworks perch can run itself. A runner says whether it can run here, runs the whole suite once with per-test
- * coverage, and runs a set of tests against the copy as it stands. A repository whose framework has no runner, or whose
- * runner cannot run here, is read by the call graph, and the report says its numbers are estimates.
+ * The test frameworks perch runs. A runner says whether it can run here, runs the whole suite once with per-test coverage, and
+ * runs a set of tests against the copy as it stands. Its suite run returns `executed`, the lines each test ran by file, keyed by
+ * perch's test id, and `results`, each case it ran by the runner's own id, with its test, status and time.
  */
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';

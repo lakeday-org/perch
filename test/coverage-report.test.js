@@ -21,11 +21,11 @@ const report = {
   ],
   // The methods the survived mutants are on, with the mutant each finding names, as buildReport writes them.
   methods: [
-    { id: 'm1', path: 'src/cart.py', name: 'apply_discount', line: 12, end_line: 20, tests: [{ id: 't1', depth: 1 }, { id: 't2', depth: 1 }], useful: ['t1'], covered: true, killed: 5, findings: ['d4e5f6a7'],
+    { id: 'm1', path: 'src/cart.py', name: 'apply_discount', line: 12, end_line: 20, tests: [{ id: 't1', depth: 1 }, { id: 't2', depth: 1 }], useful: ['t1'], covered: true, killed: 5, equivalent: 0, invalid: 0, asked_tests: 2, findings: ['d4e5f6a7'],
       mutants: [{ id: '17:7:>>>=', kind: 'boundary', line: 17, column: 7, from: '>', to: '>=', original: '', mutated: '' }, { id: '50:9:&&>||', kind: 'logic', line: 50, column: 9, from: '&&', to: '||', original: '', mutated: '' }] },
-    { id: 'm4', path: 'src/tax.py', name: 'rate_for', line: 5, end_line: 12, tests: [{ id: 't1', depth: 2 }], useful: ['t1'], covered: true, killed: 1, findings: ['c0ffee11'],
+    { id: 'm4', path: 'src/tax.py', name: 'rate_for', line: 5, end_line: 12, tests: [{ id: 't1', depth: 2 }], useful: ['t1'], covered: true, killed: 1, equivalent: 0, invalid: 0, asked_tests: 1, findings: ['c0ffee11'],
       mutants: [{ id: '9:7:<><=', kind: 'boundary', line: 9, column: 7, from: '<', to: '<=', original: '', mutated: '' }, { id: '10:4:x', kind: 'return', line: 10, column: 4, from: 'rate', to: 'None', original: '', mutated: '' }] },
-    { id: 'm5', path: 'src/tax.py', name: 'round_tax', line: 28, end_line: 32, tests: [{ id: 't1', depth: 3 }], useful: ['t1'], covered: true, killed: 0, findings: ['b7d31e22'],
+    { id: 'm5', path: 'src/tax.py', name: 'round_tax', line: 28, end_line: 32, tests: [{ id: 't1', depth: 3 }], useful: ['t1'], covered: true, killed: 0, equivalent: 0, invalid: 0, asked_tests: 1, findings: ['b7d31e22'],
       mutants: [{ id: '30:11:*>/', kind: 'arithmetic', line: 30, column: 11, from: '*', to: '/', original: '', mutated: '' }] },
   ],
   tests: [

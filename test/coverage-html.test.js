@@ -57,7 +57,7 @@ function sampleReport({ diff = true } = {}) {
     methods: [
       { id: 'src/cart.py::apply_discount', path: 'src/cart.py', name: 'apply_discount', line: 3, end_line: 11, risk: 12, branches: [4, 6, 9],
         tests: [{ id: 'tests/test_cart.py::test_discount_10', depth: 1 }, { id: 'tests/test_cart.py::test_discount_20', depth: 1 }],
-        useful: ['tests/test_cart.py::test_discount_10'], findings: [edge.id], covered: true, killed: 3,
+        useful: ['tests/test_cart.py::test_discount_10'], findings: [edge.id], covered: true, killed: 3, equivalent: 0, invalid: 0, asked_tests: 2,
         // Six mutants: the boundary at line 6 survives both tests; the rest are killed by test_discount_10 (and the duplicate).
         mutants: [
           { id: '6:7:>>>=', kind: 'boundary', line: 6, column: 7, from: '>', to: '>=', original: '    if percent > 100:', mutated: '    if percent >= 100:', matters: 0.9, survives: 0.9, killed: false, killed_by: [], asked: ['tests/test_cart.py::test_discount_10', 'tests/test_cart.py::test_discount_20'], finding: edge.id },
@@ -65,9 +65,9 @@ function sampleReport({ diff = true } = {}) {
             .map(([id, line, from, to, killed]) => ({ id, kind: 'condition', line, column: 4, from, to, original: '', mutated: '', matters: 0.9, survives: killed ? 0.05 : 0.6, killed, killed_by: killed ? ['tests/test_cart.py::test_discount_10', 'tests/test_cart.py::test_discount_20'] : [], asked: ['tests/test_cart.py::test_discount_10', 'tests/test_cart.py::test_discount_20'], finding: null })),
         ],
       },
-      { id: 'src/cart.py::total', path: 'src/cart.py', name: 'total', line: 14, end_line: 15, risk: 2, branches: [], tests: [], useful: [], covered: false, killed: 0, mutants: [], findings: [] },
+      { id: 'src/cart.py::total', path: 'src/cart.py', name: 'total', line: 14, end_line: 15, risk: 2, branches: [], tests: [], useful: [], covered: false, killed: 0, equivalent: 0, invalid: 0, asked_tests: 0, mutants: [], findings: [] },
       { id: 'src/util.py::round_money', path: 'src/util.py', name: 'round_money', line: 1, end_line: 2, risk: 1, branches: [],
-        tests: [{ id: 'tests/test_cart.py::test_discount_10', depth: 2 }], useful: ['tests/test_cart.py::test_discount_10'], covered: true, killed: 0, mutants: [], findings: [] },
+        tests: [{ id: 'tests/test_cart.py::test_discount_10', depth: 2 }], useful: ['tests/test_cart.py::test_discount_10'], covered: true, killed: 0, equivalent: 0, invalid: 0, asked_tests: 1, mutants: [], findings: [] },
     ],
     tests: [
       { id: 'tests/test_cart.py::test_discount_10', path: 'tests/test_cart.py', name: 'test_discount_10', suite: [], line: 3, end_line: 4, framework: 'pytest',

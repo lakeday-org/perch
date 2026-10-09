@@ -8,8 +8,8 @@ import { createSourceAnalyzer } from '../src/analysis.js';
 import { buildGraph } from '../src/graph.js';
 import { AuthenticationError } from '../src/systemone.js';
 import { TOKEN_LIMITS } from '../src/tokens.js';
-import { computeCoverage, coverageRepository, diffReports, judgeTests, readReports } from '../src/coverage.js';
-import { available } from '../src/runners/pytest.js';
+import { computeCoverage, coverageRepository, diffReports, judgeTests } from '../src/coverage.js';
+import { available, executedBy, testOf } from '../src/runners/pytest.js';
 import { main } from '../src/cli.js';
 import { createServer } from 'node:http';
 import { commitAll, initRepo } from './helpers.js';
@@ -216,23 +216,15 @@ function scripted({ fail = new Set(), error = name => new Error(`scripted failur
 
 /**
  * A test runner standing in for running the fixture's tests, which this machine may have no Python or Node toolchain for. Its
- * coverage run says each test ran every line of the methods the call graph has it reach, written as LCOV with one record per
- * test, as a runner that measures test by test writes it; `executed` replaces that. Against a mutant, a test fails when its
- * script above gives it 0.7 or more for the mutant's kind. Every test id is its own node, and every run takes no time.
+ * suite run says each test in `executed` ran those lines; every test is its own case, passing, in no time. Against a mutant, a
+ * test fails when its script above gives it 0.7 or more for the mutant's kind.
  */
-function scriptedRunner({ methods = {}, executed = null, languages = ['python', 'typescript', 'tsx', 'javascript'] } = {}) {
+function scriptedRunner({ methods = {}, executed, languages = ['python', 'typescript', 'tsx', 'javascript'] } = {}) {
   const runs = [];
   return {
     name: 'scripted', languages: new Set(languages), runs,
     available: async () => ({}),
-    async coverageRun({ copy, scratch, paths }) {
-      const lcov = [...executed].flatMap(([test, files]) => [...files].flatMap(([path, lines]) =>
-        [`TN:${test}`, `SF:${path}`, ...[...lines].map(line => `DA:${line},1`), 'end_of_record']));
-      const file = join(scratch, 'lcov.info');
-      await writeFile(file, `${lcov.join('\n')}\n`);
-      const reports = await readReports({ root: copy, files: [{ kind: 'lcov', path: file }], paths });
-      return { reports, results: new Map([...executed.keys()].map(test => [test, { test, status: 'passed', time: 0 }])), seconds: 0 };
-    },
+    coverageRun: async () => ({ executed, results: new Map([...executed.keys()].map(test => [test, { test, status: 'passed', time: 0 }])), seconds: 0 }),
     async runTests({ nodes, mutant, method }) {
       const name = method.node.qualified_name, script = methods[name] ?? METHODS[name] ?? {};
       runs.push({ name, mutant, nodes });
@@ -334,68 +326,78 @@ describe('reach measured by the test run', () => {
     cleanups.push(root);
     await mkdir(join(root, 'shop'));
     await mkdir(join(root, 'tests'));
-    await mkdir(join(root, 'reports'));
     await writeFile(join(root, 'shop', 'calc.py'), 'def add(a, b):\n    if a > 100:\n        return 0\n    return a + b\n\n\ndef sub(a, b):\n    return a - b\n');
     await writeFile(join(root, 'tests', 'test_calc.py'), 'from shop.calc import add, sub\n\n\ndef test_small():\n    assert add(1, 1) == 2\n\n\ndef test_large():\n    assert add(200, 1) == 0\n\n\ndef test_never():\n    if False:\n        sub(1, 1)\n');
     await initRepo(root);
-    // What pytest-cov writes with --cov-context=test and `coverage json --show-contexts`: each line, and the tests that ran it.
-    // test_small ran lines 2 and 4, test_large lines 2 and 3; sub's line 8 never ran; the def lines ran at import, under no test.
-    const ran = name => `tests/test_calc.py::${name}|run`;
-    const report = { meta: { format: 3, version: '7.6.1', timestamp: '2026-10-09T00:00:00', branch_coverage: false, show_contexts: true },
-      files: { 'shop/calc.py': { executed_lines: [1, 2, 3, 4, 7], missing_lines: [8], excluded_lines: [],
-        contexts: { 1: [''], 2: [ran('test_small'), ran('test_large')], 3: [ran('test_large')], 4: [ran('test_small')], 7: [''] } } } };
-    await writeFile(join(root, 'reports', 'coverage.json'), JSON.stringify(report));
-    return { root, revision: await revision(root), out: join(root, '.perch'), report: join(root, 'reports', 'coverage.json') };
-  }
-
-  /** A run whose coverage is the given file, as the runner's own test run would have written it. */
-  async function measured(repo, systemOne, path) {
-    const runner = { ...scriptedRunner({ methods: systemOne.methods }), async coverageRun({ copy, paths }) {
-      const reports = await readReports({ root: copy, files: [{ kind: 'contexts', path }], paths });
-      const results = new Map(['test_small', 'test_large', 'test_never'].map(name => [`tests/test_calc.py::${name}`, { test: `tests/test_calc.py::${name}`, status: 'passed', time: 0 }]));
-      return { reports, results, seconds: 0 };
-    } };
-    return { report: await run(repo, systemOne, { runner }), runs: runner.runs };
+    return { root, revision: await revision(root), out: join(root, '.perch') };
   }
 
   it('runs a mutant only against the tests that ran its line, and calls a line no test ran no coverage', async () => {
     const repo = await measuredRepo();
+    // test_small ran lines 2 and 4, test_large lines 2 and 3; sub's line 8 never ran, though the graph has test_never reach it.
+    const ran = lines => new Map([['shop/calc.py', new Set(lines)]]);
+    const executed = new Map([['tests/test_calc.py::test_small', ran([2, 4])], ['tests/test_calc.py::test_large', ran([2, 3])], ['tests/test_calc.py::test_never', new Map()]]);
     const systemOne = scripted({ methods: { add: { matters: 0.9, kill: 0.9 } } });
-    const { report, runs } = await measured(repo, systemOne, repo.report);
+    const runner = scriptedRunner({ methods: systemOne.methods, executed });
+    const report = await run(repo, systemOne, { runner });
     const add = report.methods.find(method => method.id === 'shop/calc.py::add'), sub = report.methods.find(method => method.id === 'shop/calc.py::sub');
-    expect(add.measured_by).toBe('test');
     const asked = line => add.mutants.filter(mutant => mutant.line === line && !mutant.no_coverage).map(mutant => mutant.asked);
     // `return 0` on line 3 ran only under test_large, `a + b` on line 4 only under test_small; the condition on line 2 under both.
     for (const tests of asked(3)) expect(tests).toEqual(['tests/test_calc.py::test_large']);
     for (const tests of asked(4)) expect(tests).toEqual(['tests/test_calc.py::test_small']);
     for (const tests of asked(2)) expect([...tests].sort()).toEqual(['tests/test_calc.py::test_large', 'tests/test_calc.py::test_small']);
     expect(asked(4).length).toBeGreaterThan(0);
-    // The graph reaches sub through test_never, but the run says its body never ran: every mutant of it has no coverage, and no
-    // request was made about it.
+    // Every mutant of sub has no coverage, and none was run or asked about.
     expect(sub.covered).toBe(false);
     expect(sub.mutants.length).toBeGreaterThan(0);
     expect(sub.mutants.every(mutant => mutant.no_coverage && !mutant.asked.length)).toBe(true);
-    expect(runs.filter(item => item.name === 'sub')).toEqual([]);
+    expect(runner.runs.filter(item => item.name === 'sub')).toEqual([]);
+    expect(systemOne.calls.filter(call => call.name === 'sub')).toEqual([]);
     expect(report.totals.no_coverage).toBe(sub.mutants.length + add.mutants.filter(mutant => mutant.no_coverage).length);
+  });
 
-    // coverage.py's own data file says the same in bitmaps and arcs, and is read the same way.
+  it('keeps a test the graph misses when the run says it ran code in scope, and lists a run test perch has no test for', async () => {
+    const repo = await measuredRepo();
+    // test_never really runs sub's body, whatever the graph says; pytest also ran a test the parse never found.
+    const executed = new Map([['tests/test_calc.py::test_never', new Map([['shop/calc.py', new Set([8])]])], ['tests/test_calc.py::test_generated', new Map()]]);
+    const logged = [];
+    const report = await run(repo, scripted(), { runner: scriptedRunner({ executed, methods: { sub: { kill: 0.9 } } }), log: line => logged.push(line) });
+    expect(report.methods.find(method => method.id === 'shop/calc.py::sub').tests.map(item => item.id)).toEqual(['tests/test_calc.py::test_never']);
+    expect(report.measured.unmatched_tests).toBe(1);
+    expect(logged).toContain('scripted ran 1 tests perch found no test for, so what they kill is not counted: tests/test_calc.py::test_generated');
+  });
+});
+
+describe('the pytest runner', () => {
+  it('names a node by its test, and reads each test\'s lines out of coverage.py\'s data file', async () => {
+    expect(testOf('tests/test_x.py::TestCart::TestInner::test_deep')).toBe('tests/test_x.py::TestCart.TestInner.test_deep');
+    expect(testOf('tests/test_x.py::test_param[1-a::b]')).toBe('tests/test_x.py::test_param');
+    const dir = await mkdtemp(join(tmpdir(), 'perch-coveragepy-'));
+    cleanups.push(dir);
+    const copy = join(dir, 'copy');
     const { DatabaseSync } = await import('node:sqlite');
-    const dbPath = join(repo.root, 'reports', '.coverage');
-    const db = new DatabaseSync(dbPath);
+    const db = new DatabaseSync(join(dir, '.coverage'));
     db.exec('create table file (id integer primary key, path text); create table context (id integer primary key, context text);'
       + ' create table line_bits (file_id integer, context_id integer, numbits blob); create table arc (file_id integer, context_id integer, fromno integer, tono integer);');
-    db.prepare('insert into file values (1, ?)').run('shop/calc.py');
-    for (const [id, context] of [[1, ''], [2, 'tests/test_calc.py::test_small|run'], [3, 'tests/test_calc.py::test_large|run']]) db.prepare('insert into context values (?, ?)').run(id, context);
-    // Lines 1 and 7 at import as bits; test_small's lines 2 and 4 as bits; test_large's lines 2 and 3 as arcs, with an exit arc.
+    // The copy's file, absolute as coverage.py writes it, and one outside the copy, which is not the repository's.
+    db.prepare('insert into file values (1, ?)').run(join(copy, 'shop/calc.py'));
+    db.prepare('insert into file values (2, ?)').run('/usr/lib/python3/os.py');
+    for (const [id, context] of [[1, ''], [2, 'tests/test_calc.py::test_small|run'], [3, 'tests/test_calc.py::TestBig::test_large[1]|run'], [4, 'tests/test_calc.py::TestBig::test_large[2]|setup']]) {
+      db.prepare('insert into context values (?, ?)').run(id, context);
+    }
+    // Lines 1 and 7 at import, under no test, as bits; test_small's lines 2 and 4 as bits; test_large's cases' lines as arcs.
     const bits = lines => { const bytes = new Uint8Array(2); for (const line of lines) bytes[line >> 3] |= 1 << (line & 7); return bytes; };
     db.prepare('insert into line_bits values (1, 1, ?)').run(bits([1, 7]));
     db.prepare('insert into line_bits values (1, 2, ?)').run(bits([2, 4]));
+    db.prepare('insert into line_bits values (2, 2, ?)').run(bits([9]));
     for (const [from, to] of [[-1, 2], [2, 3], [3, -1]]) db.prepare('insert into arc values (1, 3, ?, ?)').run(from, to);
+    db.prepare('insert into arc values (1, 4, ?, ?)').run(5, 6);
     db.close();
-    const { report: again } = await measured(repo, scripted({ methods: { add: { matters: 0.9, kill: 0.9 } } }), dbPath);
-    const asked2 = line => again.methods.find(method => method.id === 'shop/calc.py::add').mutants.filter(mutant => mutant.line === line && !mutant.no_coverage).map(mutant => mutant.asked);
-    for (const line of [2, 3, 4]) expect(asked2(line)).toEqual(asked(line));
-    expect(again.methods.find(method => method.id === 'shop/calc.py::sub').mutants.every(mutant => mutant.no_coverage)).toBe(true);
+    const executed = await executedBy(join(dir, '.coverage'), copy);
+    expect([...executed].map(([test, files]) => [test, [...files].map(([path, lines]) => [path, [...lines].sort((a, b) => a - b)])]).sort()).toEqual([
+      ['tests/test_calc.py::TestBig.test_large', [['shop/calc.py', [2, 3, 5, 6]]]],
+      ['tests/test_calc.py::test_small', [['shop/calc.py', [2, 4]]]],
+    ]);
   });
 });
 
@@ -415,7 +417,7 @@ describe.skipIf(!pytest.python)('running the tests', () => {
     await initRepo(root);
     const systemOne = scripted({ methods: { scale: { matters: 0.9 } } });
     const report = await coverageRepository({ root, revision: await revision(root), out: join(root, '.perch'), analyzer, systemOne, parallel: 2 });
-    expect(report.measured).toMatchObject({ runner: 'pytest', files: { test: 1, run: 0, none: 0 } });
+    expect(report.measured).toMatchObject({ runner: 'pytest', unmatched_tests: 0 });
     const method = name => report.methods.find(item => item.id === `shop/calc.py::${name}`);
     // add's mutants are killed by running test_add against them; nothing was asked about them.
     const arithmetic = method('add').mutants.find(mutant => mutant.kind === 'arithmetic');
@@ -900,13 +902,12 @@ it('finds duplicate tests among 40,000 in about linear time', () => {
   for (let index = 0; index < 20000; index++) {
     const ids = [0, 1].map(copy => `test/t${index}.test.js::t${copy}`);
     for (const [copy, id] of ids.entries()) tests.push({ id, node: { path: `test/t${index}.test.js`, line: copy + 1 } });
-    mutants.set(`src/m${index}.js::m`, [0, 1, 2].map(at => ({ mutant: { line: at + 1, column: 0, from: '<', to: '<=' }, matters: 0.9, kills: ids.map(id => [id, at < 2 ? 1 : 0]) })));
+    mutants.set(`src/m${index}.js::m`, [0, 1, 2].map(at => ({ mutant: { line: at + 1, column: 0, from: '<', to: '<=' }, kills: ids.map(id => [id, at < 2 ? 1 : 0]) })));
   }
   const started = performance.now();
-  const { redundantWith, pairProbability, useful, checksNothing } = judgeTests(tests, mutants, 0.5);
+  const { redundantWith, useful, checksNothing } = judgeTests(tests, mutants);
   expect(performance.now() - started).toBeLessThan(2000);
   expect(useful.size).toBe(20000);
   expect(checksNothing.size).toBe(0);
   expect(redundantWith.get('test/t3.test.js::t1')).toBe('test/t3.test.js::t0');
-  expect(pairProbability.get('test/t3.test.js::t1')).toBe(1);
 });

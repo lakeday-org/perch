@@ -89,9 +89,9 @@ function sourceTable(report, onList, { width, color }) {
   const files = report.files.filter(file => file.kind === 'source' && file.totals.methods)
     .sort((a, b) => score(a.totals) - score(b.totals) || b.totals.no_coverage - a.totals.no_coverage || a.path.localeCompare(b.path));
   if (!files.length) return '';
-  // The mutation score is the mutants some test is predicted to kill, of every mutant, the ones no test reaches included, as
-  // Stryker and PIT count it. Survived is counted from the problems listed under the table, at the same floor, so the two agree;
-  // no coverage is the mutants in methods no test reaches, which nothing was asked about.
+  // The mutation score is the mutants some test failed against, of every mutant but the equivalent ones, the ones no test runs
+  // included, as Stryker and PIT count it. Survived is counted from the problems listed under the table, at the same floor, so
+  // the two agree; no coverage is the mutants on lines no test ran, which nothing was run or asked about.
   const header = ['Source files', 'Mutation score', 'Survived', 'No coverage'];
   const gaps = onList.filter(finding => finding.kind === 'survived');
   const gapsIn = Map.groupBy(gaps, finding => finding.path);
@@ -145,7 +145,7 @@ function methodBlock(report, findings, { width, color, all }) {
     .sort((a, b) => b.list.length - a.list.length || testsOf(a.method) - testsOf(b.method) || a.method.path.localeCompare(b.method.path) || a.method.line - b.method.line);
   const shown = all ? entries : entries.slice(0, TOP);
   const HEAD = ['Method', 'Where', 'Killed', 'Survived', 'Tests'];
-  const rows = shown.map(({ method, list }) => ({ cells: [method.name, `${relative(method.path)}:${method.line}`, `${method.killed} of ${method.mutants.length - (method.equivalent ?? 0)}`, String(list.length), String(testsOf(method))],
+  const rows = shown.map(({ method, list }) => ({ cells: [method.name, `${relative(method.path)}:${method.line}`, `${method.killed} of ${method.mutants.length - method.equivalent - method.invalid}`, String(list.length), String(testsOf(method))],
     advice: methodAdvice(list.map(finding => method.mutants.find(mutant => mutant.id === finding.mutant)).filter(Boolean)) }));
   const widths = HEAD.map((name, column) => Math.max(name.length, ...rows.map(row => row.cells[column].length)));
   const pad = (cells, aligns) => cells.map((cell, column) => (aligns[column] === 'right' ? cell.padStart(widths[column]) : cell.padEnd(widths[column]))).join('  ').trimEnd();
@@ -155,8 +155,8 @@ function methodBlock(report, findings, { width, color, all }) {
   return lines.join('\n');
 }
 
-/** The tests asked about a method's mutants: the ones that may run it. A report without the count says how many reach it. */
-const testsOf = method => method.asked_tests ?? method.tests.length;
+/** The tests run against a method's mutants: the ones that ran its lines and passed before anything was changed. */
+const testsOf = method => method.asked_tests;
 
 /** How many methods have a survived mutant among the findings. */
 const methodsWithSurvivors = findings => new Set(findings.filter(finding => finding.kind === 'survived').map(finding => finding.unit)).size;

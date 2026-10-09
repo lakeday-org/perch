@@ -7,9 +7,8 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
-import { readJunit } from '../test-reports.js';
-import { readReports } from '../coverage.js';
+import { isAbsolute, join } from 'node:path';
+import { readCoverageDb, readJunit } from '../test-reports.js';
 import { sandboxed } from './sandbox.js';
 
 export const name = 'pytest';
@@ -50,17 +49,23 @@ export async function available({ root }) {
 const importPath = copy => ({ PYTHONPATH: [copy, join(copy, 'src'), process.env.PYTHONPATH].filter(Boolean).join(':') });
 
 /**
- * A JUnit testcase as pytest's node id and as perch's test id: `tests.test_x.TestCart` and `adds[2]` are the node
- * `tests/test_x.py::TestCart::adds[2]` and the test `tests/test_x.py::TestCart.adds`. The file is the longest prefix of the
- * classname that is a file in the copy.
+ * pytest's node id as perch's test id: the node `tests/test_x.py::TestCart::adds[2]` is a case of the test
+ * `tests/test_x.py::TestCart.adds`, the file then its classes and function, dotted, without the parameters.
  */
-function ids(testcase, copy) {
+export const testOf = nodeid => {
+  const [path, ...rest] = nodeid.replace(/\[.*\]$/s, '').split('::');
+  return `${path}::${rest.join('.')}`;
+};
+
+/**
+ * A JUnit testcase as pytest's node id: `tests.test_x.TestCart` and `adds[2]` are the node `tests/test_x.py::TestCart::adds[2]`.
+ * The file is the longest prefix of the classname that is a file in the copy.
+ */
+function nodeOf(testcase, copy) {
   const parts = String(testcase.classname ?? '').split('.');
   for (let at = parts.length; at > 0; at--) {
     const path = `${parts.slice(0, at).join('/')}.py`;
-    if (!existsSync(join(copy, path))) continue;
-    const owner = parts.slice(at);
-    return { node: `${path}::${[...owner, testcase.name].join('::')}`, test: `${path}::${[...owner, testcase.name.replace(/\[.*$/s, '')].join('.')}` };
+    if (existsSync(join(copy, path))) return [path, ...parts.slice(at), testcase.name].join('::');
   }
   return null;
 }
@@ -70,24 +75,45 @@ async function results(xml, copy) {
   const read = readJunit(await readFile(xml, 'utf8'), xml);
   const byNode = new Map();
   for (const testcase of read) {
-    const id = ids(testcase, copy);
-    if (id) byNode.set(id.node, { test: id.test, status: testcase.status, time: testcase.time ?? 0 });
+    const node = nodeOf(testcase, copy);
+    if (node) byNode.set(node, { test: testOf(node), status: testcase.status, time: testcase.time ?? 0 });
   }
   return byNode;
 }
 
 /**
- * The whole suite once, with each test's lines recorded as its own coverage context. Returns what it measured, read as perch reads
- * a test run, every testcase's result and time by node id, and how long the run took.
+ * The lines each test ran, by perch's test id, from coverage.py's data file. pytest-cov names each test's lines by its node id
+ * and the phase, `tests/test_x.py::adds|run`; lines run under no test, at import, are no test's. coverage.py writes paths
+ * absolute unless the project asks for relative ones; either way a path outside the copy is not the repository's.
  */
-export async function coverageRun({ copy, scratch, paths, tool: { python }, timeout = 0 }) {
+export async function executedBy(data, copy) {
+  const executed = new Map();
+  for (const file of (await readCoverageDb(data)).files) {
+    const path = isAbsolute(file.path) ? (file.path.startsWith(`${copy}/`) ? file.path.slice(copy.length + 1) : null) : file.path;
+    if (path === null) continue;
+    for (const [context, lines] of file.contexts) {
+      if (context === '') continue;
+      const test = testOf(context.replace(/\|(setup|run|teardown)$/, ''));
+      if (!executed.has(test)) executed.set(test, new Map());
+      const into = executed.get(test);
+      if (!into.has(path)) into.set(path, new Set());
+      for (const line of lines) into.get(path).add(line);
+    }
+  }
+  return executed;
+}
+
+/**
+ * The whole suite once, with each test's lines recorded as its own coverage context. Returns the lines each test ran, every
+ * testcase's result and time by node id, and how long the run took.
+ */
+export async function coverageRun({ copy, scratch, tool: { python }, timeout = 0 }) {
   const data = join(scratch, '.coverage'), xml = join(scratch, 'baseline.xml');
   const started = Date.now();
   const run = await exec(python, ['-m', 'pytest', '-p', 'no:cacheprovider', `--cov=${copy}`, '--cov-context=test', '--cov-report=', `--junitxml=${xml}`],
     { cwd: copy, env: { ...importPath(copy), COVERAGE_FILE: data }, timeout, writable: [copy, scratch] });
   if (!existsSync(xml) || !existsSync(data)) throw new Error(`pytest did not run the suite (exit ${run.code}): ${run.output.trim().split('\n').slice(-5).join(' | ')}`);
-  const reports = await readReports({ root: copy, files: [{ kind: 'contexts', path: data }, { kind: 'junit', path: xml }], paths });
-  return { reports, results: await results(xml, copy), seconds: (Date.now() - started) / 1000 };
+  return { executed: await executedBy(data, copy), results: await results(xml, copy), seconds: (Date.now() - started) / 1000 };
 }
 
 /**
