@@ -34,6 +34,7 @@ import { matches, readIgnored } from './units.js';
 import { covers } from './scan.js';
 import { describeMutant, mutantId, mutantsOf } from './mutants.js';
 import { copiesOf, runnerFor } from './runners/index.js';
+import { sandboxKind } from './runners/sandbox.js';
 
 /** Tests or methods in flight at once. */
 export const DEFAULT_PARALLEL = 8;
@@ -1473,6 +1474,7 @@ export async function coverageRepository({ root, revision, label = root, github 
   const usable = runner ? await runner.available({ root }) : null;
   if (runner && !usable.python) log(`${runner.name} cannot run here, so what the tests run and catch is estimated: ${usable.reason}`);
   let coverage, ran = null, measured = null;
+  if (runner && usable.python && !sandboxKind()) log(`${runner.name} runs unsandboxed here: install bubblewrap so a mutated test can write only inside its copy`);
   if (runner && usable.python) {
     const { copies, remove } = await copiesOf({ root, revision, count: parallel });
     try {
@@ -1484,7 +1486,7 @@ export async function coverageRepository({ root, revision, label = root, github 
       const sourceText = async path => (await linesOf({ path })).join('\n');
       ran = await runMutants({ coverage, graph, sourceText, runner, python: usable.python, copies, base, progress: methodProgress, debug });
       const statuses = [...ran.values()].flat();
-      measured = { runner: runner.name, suite_seconds: Math.round(base.seconds), mutants_run: statuses.filter(item => !item.uncovered).length,
+      measured = { runner: runner.name, sandbox: sandboxKind(), suite_seconds: Math.round(base.seconds), mutants_run: statuses.filter(item => !item.uncovered).length,
         timeouts: statuses.filter(item => item.status === 'timeout').length, invalid: statuses.filter(item => item.status === 'invalid').length };
     } finally { await remove(); }
   } else coverage = computeCoverage({ scan, graph, inScope, named: chosen, runs });

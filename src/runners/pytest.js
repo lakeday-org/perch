@@ -9,21 +9,28 @@ import { existsSync } from 'node:fs';
 import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readJunit } from '../test-reports.js';
+import { sandboxed } from './sandbox.js';
 
 export const name = 'pytest';
 
-/** A command's exit code and output, or `timedOut` when it ran past `timeout` milliseconds and was stopped. */
-export function exec(command, args, { cwd, env = {}, timeout = 0 } = {}) {
+/**
+ * A command's exit code and output, or `timedOut` when it ran past `timeout` milliseconds and was stopped. With `writable`, it
+ * runs sandboxed, able to write only there and to the temporary directory. Whatever it started is killed with it when it ends,
+ * however it ends: a process a mutated test left running must not outlive the run that started it.
+ */
+export function exec(command, args, { cwd, env = {}, timeout = 0, writable = null } = {}) {
+  const run = writable ? sandboxed(command, args, writable) : { command, args };
   return new Promise(resolve => {
-    const child = spawn(command, args, { cwd, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    const child = spawn(run.command, run.args, { cwd, env: { ...process.env, PWD: cwd, ...env }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    const killGroup = () => { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone already */ } };
     let output = '', timedOut = false;
     const keep = chunk => { output = (output + chunk).slice(-20000); };
     child.stdout.on('data', keep);
     child.stderr.on('data', keep);
     // The whole process group: pytest's own children, a server a test started, go with it.
-    const timer = timeout ? setTimeout(() => { timedOut = true; try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone already */ } }, timeout) : null;
+    const timer = timeout ? setTimeout(() => { timedOut = true; killGroup(); }, timeout) : null;
     child.on('error', error => { if (timer) clearTimeout(timer); resolve({ code: null, output: error.message, timedOut }); });
-    child.on('close', code => { if (timer) clearTimeout(timer); resolve({ code, output, timedOut }); });
+    child.on('close', code => { if (timer) clearTimeout(timer); killGroup(); resolve({ code, output, timedOut }); });
   });
 }
 
@@ -74,7 +81,7 @@ export async function coverageRun({ copy, python, scratch, timeout = 0 }) {
   const data = join(scratch, '.coverage'), xml = join(scratch, 'baseline.xml');
   const started = Date.now();
   const run = await exec(python, ['-m', 'pytest', '-p', 'no:cacheprovider', `--cov=${copy}`, '--cov-context=test', '--cov-report=', `--junitxml=${xml}`],
-    { cwd: copy, env: { ...importPath(copy), COVERAGE_FILE: data }, timeout });
+    { cwd: copy, env: { ...importPath(copy), COVERAGE_FILE: data }, timeout, writable: [copy, scratch] });
   if (!existsSync(xml) || !existsSync(data)) throw new Error(`pytest did not run the suite (exit ${run.code}): ${run.output.trim().split('\n').slice(-5).join(' | ')}`);
   return { data, xml, results: await results(xml, copy), seconds: (Date.now() - started) / 1000 };
 }
@@ -87,7 +94,7 @@ export async function runTests({ copy, python, scratch, nodes, timeout, tag }) {
   const xml = join(scratch, `run-${tag}.xml`);
   await rm(xml, { force: true });
   const run = await exec(python, ['-m', 'pytest', '-q', '-p', 'no:cacheprovider', '--no-cov', `--junitxml=${xml}`, ...nodes],
-    { cwd: copy, env: importPath(copy), timeout });
+    { cwd: copy, env: importPath(copy), timeout, writable: [copy, scratch] });
   if (run.timedOut) return { status: 'timeout' };
   if (!existsSync(xml)) return { status: 'invalid', output: run.output };
   const found = await results(xml, copy);
