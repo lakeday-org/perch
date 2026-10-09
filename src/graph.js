@@ -183,15 +183,64 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
   const resolveIn = (from, module, language, known) => resolveModule(from, module, language, known, crates);
   const nodes = new Map(), byPath = new Map(), paths = new Set(files.map(file => file.path));
   for (const file of files) {
-    const byQualified = new Map();
+    const byQualified = new Map(), sameName = new Map();
     for (const method of file.methods) {
       // Everything in a test file is test code. A test case in a source file, Rust's `#[cfg(test)] mod tests`, is a test too,
       // and `case` says which test it is.
       nodes.set(method.id, { ...method, path: file.path, language: file.language, test: Boolean(file.test) || Boolean(method.test) || Boolean(method.support), case: method.test ?? null });
-      byQualified.set(method.qualified_name, method.id);
+      // The first declaration under a name is the one a name finds; the rest are its overloads, reached beside it.
+      if (!byQualified.has(method.qualified_name)) byQualified.set(method.qualified_name, method.id);
+      if (!sameName.has(method.qualified_name)) sameName.set(method.qualified_name, []);
+      sameName.get(method.qualified_name).push(method.id);
     }
-    byPath.set(file.path, { file, byQualified });
+    byPath.set(file.path, { file, byQualified, sameName });
   }
+  /**
+   * The other methods a file declares under the same qualified name: Java's overloads, Python's typing stubs, a trait's method
+   * implemented for more than one trait. A call that resolves to one may run any whose parameters take what was passed, or any
+   * at all when nothing says how many arguments there were.
+   */
+  const overloadsOf = (to, call = null) => {
+    const node = nodes.get(to);
+    const all = node ? byPath.get(node.path)?.sameName.get(node.qualified_name) ?? [] : [];
+    if (all.length < 2) return [];
+    const count = call?.args ? call.args.length + Object.keys(call.named ?? {}).length : null;
+    return all.filter(id => id !== to && (count === null || !(nodes.get(id).params?.length) || nodes.get(id).params.length >= count));
+  };
+  // Every class by each base it names, so a call on the base finds what may run: the same member in each class that names it.
+  const subclassesOf = new Map();
+  for (const file of files) {
+    for (const [name, bases] of Object.entries(file.bases ?? {})) {
+      for (const base of bases) {
+        const key = String(base).split(/::|\./).at(-1);
+        if (!subclassesOf.has(key)) subclassesOf.set(key, []);
+        subclassesOf.get(key).push({ path: file.path, name });
+      }
+    }
+  }
+  /**
+   * The implementations a call on a method may run besides the one it names: the same member in every class that extends or
+   * implements the method's class, and in theirs. `adapter.write(..)` on a TypeAdapter runs whichever adapter was built, so it
+   * reaches every write written for one.
+   */
+  const overridesOf = (to, depth = 0, seen = new Set()) => {
+    const node = nodes.get(to);
+    if (!node || depth > 3 || seen.has(to)) return [];
+    seen.add(to);
+    const parts = node.qualified_name.split('.');
+    if (parts.length < 2) return [];
+    const member = parts.at(-1), owner = parts.at(-2);
+    const found = [];
+    for (const sub of subclassesOf.get(owner) ?? []) {
+      const entry = byPath.get(sub.path);
+      const suffix = `${sub.name}.${member}`;
+      for (const [qualified, id] of entry?.byQualified ?? []) {
+        if (id === to || !(qualified === suffix || qualified.endsWith(`.${suffix}`))) continue;
+        found.push(id, ...overloadsOf(id), ...overridesOf(id, depth + 1, seen));
+      }
+    }
+    return found;
+  };
   /** The method one file defines under exactly this qualified name. A bare name is a top-level definition, never a member. */
   const defined = (path, qualified) => byPath.get(path)?.byQualified.get(qualified) ?? null;
   /**
@@ -830,11 +879,14 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
    */
   /** What each caller passes for a parameter: the value and the caller it was written in. */
   const parameterValues = (from, head, depth = 0) => {
-    const param = depth > 4 ? null : (nodes.get(from)?.params ?? []).find(item => item.name === head);
+    const params = nodes.get(from)?.params ?? [];
+    const param = depth > 4 ? null : params.find(item => item.name === head);
+    // A Python method's first parameter is the receiver, which no caller passes: `invoke(self, cli)` is called as `r.invoke(cli)`.
+    const receiver = params[0] && RECEIVERS.has(params[0].name) && params[0].index === 0 ? 1 : 0;
     const values = [];
     for (const site of param ? calledWith.get(from) ?? [] : []) {
       // By position, or by name where the caller labelled it: `run([], Parser(), reader=Reader())`.
-      let held = site.args[param.index] ?? site.named[param.name] ?? null;
+      let held = site.args[param.index - receiver] ?? site.named[param.name] ?? null;
       if (param.field !== undefined) held = held?.fields?.[param.field] ?? site.named[param.field] ?? null;
       if (held) values.push({ held, file: site.file, from: site.from });
     }
@@ -874,7 +926,7 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
     if (value.local) {
       const held = bindingFor(file, value.local, from);
       if (held) return held !== value ? classOf(file, held, from, depth + 1) : null;
-      return parameterKinds(from, value.local, depth + 1)[0]?.kind ?? null;
+      return parameterKinds(from, value.local, depth + 1)[0]?.kind ?? classNamed(file, value.local, from, depth + 1) ?? decoratedKind(file, value.local, from, depth + 1);
     }
     if (!value.call) return null;
     // `x.debit(...)` on what another value holds: the member of that value's class, then whatever it returns. A chain is as long
@@ -882,6 +934,11 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
     const onKind = value.on ? classOf(file, value.on, from, depth) : null;
     const target = value.on ? (onKind && memberOf(file, onKind, value.call.split('.').at(-1))) : resolve(file, value.call, from, depth + 1);
     const parts = value.call.split(/::|\./);
+    // `cls(name=..)` where cls is a local holding a class: an instance of whatever the local holds.
+    if (!target && parts.length === 1 && !value.on) {
+      const bound = bindingFor(file, parts[0], from);
+      if (bound && bound !== value) { const held = classOf(file, bound, from, depth + 1); if (held) return held; }
+    }
     // `Rota::Shift.new` with no initialize of its own: an instance of the class the call is made on, by its whole name.
     if (!target) return /^[A-Z]/.test(parts.at(-2) ?? '') ? { name: parts.at(-2), full: parts.slice(0, -1).join('.'), path: file.path, from } : /^[A-Z]/.test(parts[0]) && parts.length === 1 ? { name: parts[0], path: file.path, from } : null;
     const node = nodes.get(target), owner = node.qualified_name.split('.');
@@ -892,6 +949,47 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
     const built = node.yields && classOf(byPath.get(node.path).file, node.yields, target, depth + 1);
     if (built ?? returned) return built ?? returned;
     return owner.length > 1 && /^[A-Z]/.test(owner.at(-2)) ? { name: owner.at(-2), full: owner.slice(0, -1).join('.'), path: node.path, from } : null;
+  };
+  /** A local that names a class rather than holding a value: `cls = Command`, an instance of Command when it is called. */
+  const classNamed = (file, name, from, depth) => {
+    if (depth > 6) return null;
+    const target = resolve(file, name, from, depth + 1);
+    const node = target && nodes.get(target), owner = node ? node.qualified_name.split('.') : [];
+    if (owner.length > 1 && (CONSTRUCTOR_NAMES.has(owner.at(-1)) || owner.at(-1) === owner.at(-2))) return { name: owner.at(-2), full: owner.slice(0, -1).join('.'), path: node.path, from };
+    // A Rust unit struct or a class with no constructor to call, named as a value: `value.serialize(Serializer)`.
+    return !target && /^[A-Z]/.test(name) && !name.includes('.') && classMethods(file, name).length ? { name, path: file.path, from } : null;
+  };
+  /** What a method makes: the class of what it returns, through a function it returns when it returns one. */
+  const madeBy = (id, depth) => {
+    const node = nodes.get(id);
+    if (!node || depth > 4) return null;
+    const held = node.yields ?? node.returns;
+    if (!held) return null;
+    // Handing a function on costs no depth: the class is as far down as the value that makes it.
+    if (held.fn) return nodes.has(held.fn) ? madeBy(held.fn, depth) : null;
+    const file = byPath.get(node.path).file;
+    // `return decorator` naming the function written inside: what that function makes.
+    if (held.local && !bindingFor(file, held.local, id)) {
+      const inner = resolve(file, held.local, id, depth + 1);
+      const made = inner && inner !== id && nodes.has(inner) ? madeBy(inner, depth) : null;
+      if (made) return made;
+    }
+    return classOf(file, held, id, depth);
+  };
+  /**
+   * A definition a decorator remade: `@click.command()` over `def cli()` leaves cli holding the Command the decorator built, so
+   * `cli.main()` is Command's main. The class is what the decorator's function makes, through the function it returns.
+   */
+  const decoratedKind = (file, name, from, depth) => {
+    if (depth > 6) return null;
+    const id = resolve(file, name, from, depth + 1);
+    const node = id && nodes.get(id);
+    for (const decorator of node?.decorators ?? []) {
+      const target = resolve(byPath.get(node.path).file, decorator, id, depth + 1);
+      const made = target && madeBy(target, depth);
+      if (made) return made;
+    }
+    return null;
   };
   /** Where a class is defined: the file that defines a method of it, by the same lookup a member uses, or its bases' record. */
   const classFile = (file, kind) => {
@@ -1022,6 +1120,18 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
 
   const callees = new Map(), callers = new Map(), sites = new Map(), dynamic = new Set(), external = new Map();
   const link = (map, from, to) => { if (!map.has(from)) map.set(from, new Set()); map.get(from).add(to); };
+  /** An edge the program may take without a call naming it: an override, an overload, a method of a value handed on. */
+  const linkDynamic = (from, to, line) => {
+    if (to === from || callees.get(from)?.has(to)) return;
+    link(callees, from, to);
+    link(callers, to, from);
+    dynamic.add(`${from}->${to}`);
+    if (!sites.has(`${from}->${to}`)) sites.set(`${from}->${to}`, line);
+  };
+  /** What a resolved call may run besides what it names, each remembered with the call's arguments. */
+  const beside = (file, call, to) => {
+    for (const extra of new Set([...overloadsOf(to, call), ...overridesOf(to)])) { linkDynamic(call.from, extra, call.line); remember(file, call, extra); }
+  };
   // Scala's uniform access: `entry.isBalanced` written without parentheses runs the parameterless method of that name, so a
   // member read that resolves, by the rules a call does, to a method of what the receiver holds is a call to it. A class cannot
   // declare a field and a method under one name, so a read that reaches a method reaches what the program runs.
@@ -1066,6 +1176,7 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
       remember(file, call, to);
       const key = `${call.from}->${to}`;
       if (!sites.has(key)) sites.set(key, call.line);
+      beside(file, call, to);
     }
   }
   for (let waiting = deferred.splice(0); waiting.length;) {
@@ -1085,9 +1196,21 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
         remember(file, call, to);
         const key = `${call.from}->${to}`;
         if (!sites.has(key)) sites.set(key, call.line);
+        beside(file, call, to);
       }
     }
-    if (again.length === waiting.length) break;
+    if (again.length === waiting.length) {
+      // A method called on a parameter no caller types, given a value of a repository class: `value.serialize(&mut ser)` where
+      // value is any T. Whatever runs may call any method of what it was handed, so the caller reaches every one.
+      for (const { file, call } of again) {
+        for (const held of [...(call.args ?? []), ...Object.values(call.named ?? {})]) {
+          const kind = held && classOf(file, held, call.from, 1);
+          const home = kind?.path && byPath.get(kind.path)?.file;
+          for (const id of kind ? classMethods(home ?? file, kind.name) : []) if (nodes.has(id)) linkDynamic(call.from, id, call.line);
+        }
+      }
+      break;
+    }
     waiting = again;
   }
   // A function written inside another, a callback or a closure, runs only when its parent runs and is handed on by it: a visitor

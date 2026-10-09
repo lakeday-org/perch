@@ -502,22 +502,58 @@ const insideTypeArguments = (node: Node, within: Node): boolean => {
   return false;
 };
 
+/** Whether a node is a class with no name of its own: Java's `new Base() { ... }`, Kotlin's `object : Base() { ... }`. */
+export const isAnonymousClass = (node: Node): boolean => (node.type === "object_creation_expression" && node.namedChildren.some(item => item.type === "class_body"))
+  || node.type === "object_literal";
+
 function scopeName(node: Node): string | null {
   // A JavaScript object literal is named by what holds it: `const types = { boolean() {} }` has `types.boolean`. One with
-  // nothing holding it, an argument or a return value, adds no name.
-  if (node.type === "object") {
+  // nothing holding it, an argument or a return value, adds no name. An anonymous class is named the same way: the adapter a
+  // field BOOLEAN holds has BOOLEAN.write, and one a method returns adds no name of its own.
+  if (node.type === "object" || isAnonymousClass(node)) {
     const holder = node.parent;
     const name = holder?.type === "variable_declarator" ? holder.childForFieldName("name")
       : holder?.type === "assignment_expression" ? holder.childForFieldName("left") : holder?.type === "pair" ? holder.childForFieldName("key") : null;
     return name && /^[\p{L}_$][\p{L}\p{N}_$.]*$/u.test(name.text) ? name.text : null;
   }
   let name = extraScopeName(node) ?? node.childForFieldName("name");
-  if (!name && node.type === "impl_item") {
-    name = node.childForFieldName("type");
-    if (name?.type === "generic_type") name = name.childForFieldName("type");
-  }
+  if (!name && node.type === "impl_item") return implTypeName(node);
   if (!name) name = node.namedChildren.find((child) => NAME_TYPES.has(child.type)) ?? null;
   return text(name) || null;
+}
+
+/**
+ * The type an impl block is for, by its own name: `&'a mut Serializer<W, F>` is Serializer, `dyn Read` is Read, `ser::Visitor`
+ * is Visitor. Named by the whole type as written, a trait's methods for `&mut Serializer` belonged to no class a value could be.
+ */
+export function implTypeName(node: Node): string | null {
+  let type = node.childForFieldName("type");
+  for (let hops = 0; type && hops < 6; hops++) {
+    if (["generic_type", "reference_type", "dynamic_type", "pointer_type", "bounded_type", "abstract_type"].includes(type.type)) {
+      type = type.childForFieldName("type") ?? type.namedChildren.find((child) => !["lifetime", "mutable_specifier", "type_arguments"].includes(child.type)) ?? null;
+    } else if (type.type === "scoped_type_identifier") type = type.childForFieldName("name");
+    else break;
+  }
+  return text(type) || null;
+}
+
+/**
+ * The name the declarations inside a node are qualified by: the scopes around it and its own, `TypeAdapters.BOOLEAN` for the
+ * anonymous class a field holds and `TypeAdapters.longAdapter` for one a method returns. What a class's bases are recorded
+ * under, so a call on the base finds the members of the class by the same name its members carry.
+ */
+export function qualifiedScopeName(node: Node, renamed: Renamed = notRenamed): string | null {
+  const parts: string[] = [];
+  for (let parent: Node | null = node; parent; parent = parent.parent) {
+    const known = renamed(parent);
+    if (known !== null) { parts.push(known); break; }
+    if (isFunction(parent)) parts.push(functionName(parent));
+    else if (SCOPE_TYPES.has(parent.type) || extraScopeName(parent) || isAnonymousClass(parent)) {
+      const name = scopeName(parent);
+      if (name) parts.push(name);
+    }
+  }
+  return parts.filter(Boolean).reverse().join(".") || null;
 }
 
 function receiverName(node: Node): string | null {
@@ -562,7 +598,7 @@ function readQualifiedName(node: Node, renamed: Renamed): string {
     if (known !== null) { parts.push(known); break; }
     if (isFunction(parent)) {
       parts.push(functionName(parent));
-    } else if (SCOPE_TYPES.has(parent.type) || extraScopeName(parent)) {
+    } else if (SCOPE_TYPES.has(parent.type) || extraScopeName(parent) || isAnonymousClass(parent)) {
       const name = scopeName(parent);
       if (name) parts.push(name);
     }

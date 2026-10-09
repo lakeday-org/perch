@@ -1,6 +1,6 @@
 import type { Node } from "./node";
 import type { Reference, ReferenceKind, SourceLocation, Parameter } from "./types";
-import { ANONYMOUS_FUNCTION_TYPES, isComment, isFunction, location, walkNodes } from "./metrics";
+import { ANONYMOUS_FUNCTION_TYPES, implTypeName, isAnonymousClass, isComment, isFunction, location, qualifiedScopeName, walkNodes } from "./metrics";
 import { walk, type SyntaxIndex, type Visitor } from "./visit";
 import type { Held } from "./types";
 import { callableName } from "./extensions";
@@ -1302,9 +1302,26 @@ function goResult(node: Node): Node | null {
   return first ? child(first, 'type') ?? first : null;
 }
 
-/** The classes a class extends or implements, by name: `class A(Base)`, `extends Base implements I`, `: public Base`. */
+
+/**
+ * The classes a class extends or implements, by name: `class A(Base)`, `extends Base implements I`, `: public Base`. A Rust
+ * `impl Trait for Type` makes Type one that implements Trait; an anonymous class extends the type it is made from.
+ */
 function basesOf(node: Node): string[] {
   const names: Node[] = [];
+  if (node.type === 'impl_item') {
+    let trait = child(node, 'trait');
+    if (trait?.type === 'generic_type') trait = child(trait, 'type') ?? trait.namedChildren[0] ?? null;
+    if (trait?.type === 'scoped_type_identifier') trait = child(trait, 'name');
+    return trait ? [text(trait)] : [];
+  }
+  if (isAnonymousClass(node)) {
+    let base = node.type === 'object_creation_expression' ? child(node, 'type')
+      : node.namedChildren.find(item => item.type === 'delegation_specifier')?.namedChildren.flatMap(item => [...walkNodes(item)]).find(item => item.type === 'user_type' || item.type === 'type_identifier') ?? null;
+    // Java's generic_type gives its name no field: `TypeAdapter<Boolean>` is its first child.
+    if (base?.type === 'generic_type') base = child(base, 'type') ?? base.namedChildren[0] ?? null;
+    return base ? [text(base).split('<')[0]] : [];
+  }
   // Scala's `class A extends B with C`: the extends clause lists each type. Python's class_definition has superclasses instead.
   if (['class_definition', 'object_definition', 'trait_definition'].includes(node.type)) names.push(...(child(node, 'extend')?.namedChildren.filter(item => item.type.endsWith('type') || item.type === 'type_identifier') ?? []));
   if (node.type === 'class_definition') names.push(...(child(node, 'superclasses')?.namedChildren ?? []));
@@ -1452,8 +1469,8 @@ export function referenceVisitor(language: string): Visitor & { finish(index: Sy
   // A class's bases: where a method or a field it does not define itself is found.
   const bases = basesOf(node);
   if (bases.length) {
-    const name = text(child(node, 'name'));
-    for (const base of bases) references.push(makeReference('extends', node, { name, reference: base }));
+    const name = node.type === 'impl_item' ? implTypeName(node) ?? '' : isAnonymousClass(node) ? qualifiedScopeName(node) ?? '' : text(child(node, 'name'));
+    if (name) for (const base of bases) references.push(makeReference('extends', node, { name, reference: base }));
   }
   const bindings = language === 'go' ? goBindings(node) : [bindingOf(node, language) ?? parameterOf(node)].filter((item): item is { name: string; held: Held } => item !== null);
   for (const binding of bindings) references.push(makeReference('bind', node, { name: binding.name, reference: binding.name, held: binding.held }));

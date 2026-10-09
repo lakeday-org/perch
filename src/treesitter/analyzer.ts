@@ -86,6 +86,7 @@ function declarationsOf(items: StructureItem[], nodes: Map<string, Node>, langua
         end_line: Math.max(span.startLine! + 1, span.endLine! + (span.endColumn! > 0 ? 1 : 0)),
         location: location(node), metrics: qualityMetrics(measure(node, true, nonblank, index), measureComplexity(node, language, true, index)),
         test: test?.test ?? null, internal: internalLinkage(node, language), params: parametersOf(node),
+        ...(decoratorsOf(node, language).length ? { decorators: decoratorsOf(node, language) } : {}),
         ...(!test && supportsTests(node, held, language) ? { support: true } : {}),
         // `fun String.size()` is a top-level function called as a member of whatever receiver it names, not a class's method.
         ...(language === 'kotlin' && node.childForFieldName('receiver') ? { extension: true } : {}) });
@@ -93,6 +94,12 @@ function declarationsOf(items: StructureItem[], nodes: Map<string, Node>, langua
     result.push(...declarationsOf(item.children ?? [], nodes, language, nonblank, cases, blockMacros, held, index));
   }
   return result;
+}
+
+/** The decorators on a Python definition, each by the name it is called by: `@click.command()` is `click.command`. */
+function decoratorsOf(node: Node, language: string): string[] {
+  if (language !== 'python' || node.parent?.type !== 'decorated_definition') return [];
+  return node.parent.namedChildren.filter(item => item.type === 'decorator').map(item => item.text.replace(/^@/, '').split('(')[0].trim()).filter(Boolean);
 }
 
 /** The 1-based number of a node's last line. A node that ends at the start of a line ends on the line before it. */

@@ -328,3 +328,57 @@ describe('a function written inside another', () => {
     expect(graph.callees('src/read.js::readAll.enter')).toEqual(['src/read.js::mark']);
   });
 });
+
+describe('what a call may run besides what it names', () => {
+  async function repository(files, options = {}) {
+    const { analyzeFiles } = await import('../src/analysis.js');
+    const { createAnalyzer } = await import('../src/treesitter/index.ts');
+    const scan = await analyzeFiles(Object.keys(files).map(path => ({ type: 'blob', path, sha: path })), { analyzer: createAnalyzer(), readSource: file => files[file.path] });
+    return buildGraph(scan.files, options);
+  }
+
+  it('reaches every override of a method called on its base, anonymous classes included, and every overload of a name', async () => {
+    const graph = await repository({
+      'src/Adapter.java': 'public abstract class Adapter<T> {\n  public abstract void write(Writer out, T value);\n}\n',
+      'src/Adapters.java': 'public class Adapters {\n  public static final Adapter<Boolean> BOOLEAN = new Adapter<Boolean>() {\n    public void write(Writer out, Boolean value) {\n      out.value(value);\n    }\n  };\n\n  static Adapter<Long> longAdapter() {\n    return new Adapter<Long>() {\n      public void write(Writer out, Long value) {\n        out.value(value);\n      }\n    };\n  }\n}\n',
+      'src/Gson.java': 'public class Gson {\n  public void toJson(Object value) {\n    toJson(value, null);\n  }\n\n  public void toJson(Object value, Writer out) {\n    Adapter<Object> adapter = getAdapter(value);\n    adapter.write(out, value);\n  }\n\n  Adapter<Object> getAdapter(Object value) {\n    return null;\n  }\n}\n',
+      'test/GsonTest.java': 'class GsonTest {\n  @Test\n  void writesBoolean() {\n    new Gson().toJson(true);\n  }\n}\n',
+    });
+    // The anonymous class a field holds is named by the field; one a method returns by the method. Each extends Adapter.
+    expect(graph.files.get('src/Adapters.java').file.bases).toEqual({ 'Adapters.BOOLEAN': ['Adapter'], 'Adapters.longAdapter': ['Adapter'] });
+    expect([...graph.nodes.keys()].filter(id => id.endsWith('.write'))).toEqual(['src/Adapter.java::Adapter.write', 'src/Adapters.java::Adapters.BOOLEAN.write', 'src/Adapters.java::Adapters.longAdapter.write']);
+    // `adapter.write(..)` on an Adapter runs whichever adapter was built: the abstract method, and every write written for one.
+    expect(graph.callees('src/Gson.java::Gson.toJson#2').sort()).toEqual(['src/Adapter.java::Adapter.write', 'src/Adapters.java::Adapters.BOOLEAN.write', 'src/Adapters.java::Adapters.longAdapter.write', 'src/Gson.java::Gson.getAdapter']);
+    expect(graph.isDynamic('src/Gson.java::Gson.toJson#2', 'src/Adapters.java::Adapters.BOOLEAN.write')).toBe(true);
+    expect(graph.isDynamic('src/Gson.java::Gson.toJson#2', 'src/Adapter.java::Adapter.write')).toBe(false);
+    // A call by a name a class declares twice reaches both overloads whose parameters take what was passed.
+    expect(graph.callees('test/GsonTest.java::GsonTest.writesBoolean').sort()).toEqual(['src/Gson.java::Gson.toJson', 'src/Gson.java::Gson.toJson#2']);
+    expect(graph.isDynamic('test/GsonTest.java::GsonTest.writesBoolean', 'src/Gson.java::Gson.toJson#2')).toBe(true);
+  });
+
+  it('names a Rust impl by its type, records the trait it implements, and reaches the methods of a value handed to a call on an untyped parameter', async () => {
+    const graph = await repository({
+      'src/ser.rs': "pub struct Serializer<W> {\n    writer: W,\n}\n\nimpl<W> Serializer<W> {\n    pub fn new(writer: W) -> Self {\n        Serializer { writer }\n    }\n}\n\nimpl<'a, W> ser::Serializer for &'a mut Serializer<W> {\n    fn serialize_u64(self, value: u64) -> Result<()> {\n        self.writer.write(value)\n    }\n}\n\npub fn to_writer<W, T: Serialize>(writer: W, value: &T) {\n    let mut ser = Serializer::new(writer);\n    value.serialize(&mut ser);\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn writes() {\n        to_writer(Vec::new(), &1u64);\n    }\n}\n",
+    });
+    // The trait's methods belong to Serializer, not to `&'a mut Serializer<W>`.
+    expect([...graph.nodes.keys()].filter(id => id.includes('serialize_u64'))).toEqual(['src/ser.rs::Serializer.serialize_u64']);
+    expect(graph.files.get('src/ser.rs').file.bases).toEqual({ Serializer: ['Serializer'] });
+    // `value.serialize(&mut ser)`: value is any T, so whatever serialize runs may call any method of the Serializer it was handed.
+    expect(graph.callees('src/ser.rs::to_writer').sort()).toEqual(['src/ser.rs::Serializer.new', 'src/ser.rs::Serializer.serialize_u64']);
+    expect(graph.isDynamic('src/ser.rs::to_writer', 'src/ser.rs::Serializer.serialize_u64')).toBe(true);
+    expect(graph.callers('src/ser.rs::to_writer')).toEqual(['src/ser.rs::writes']);
+  });
+
+  it('gives a decorated definition the class its decorator makes', async () => {
+    const graph = await repository({
+      'cli/core.py': 'class Command:\n    def __init__(self, name, callback):\n        self.name = name\n        self.callback = callback\n\n    def main(self, args):\n        return self.callback()\n',
+      'cli/decorators.py': 'from .core import Command\n\n\ndef command(name=None, cls=None):\n    if cls is None:\n        cls = Command\n\n    def decorator(f):\n        return cls(name, f)\n\n    return decorator\n',
+      'cli/testing.py': 'class Runner:\n    def invoke(self, cli, args):\n        return cli.main(args)\n',
+      'tests/test_cli.py': 'from cli.decorators import command\nfrom cli.testing import Runner\n\n\ndef test_hello():\n    @command()\n    def hello():\n        return 1\n\n    assert Runner().invoke(hello, []) == 1\n',
+    });
+    // `@command()` over `def hello()` leaves hello holding the Command the decorator built, so the runner's `cli.main` is Command's.
+    expect(graph.nodes.get('tests/test_cli.py::test_hello.hello').decorators).toEqual(['command']);
+    expect(graph.callees('cli/testing.py::Runner.invoke')).toEqual(['cli/core.py::Command.main']);
+  });
+});
+

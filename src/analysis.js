@@ -61,7 +61,7 @@ export function methodsOf(path, analysis, lines) {
       branches: declaration.metrics?.branch_lines ?? [], ...(declaration.test ? { test: declaration.test } : {}), ...(declaration.internal ? { internal: true } : {}),
       ...(declaration.support ? { support: true } : {}),
       ...(declaration.extension ? { extension: true } : {}),
-      ...(declaration.params?.length ? { params: declaration.params } : {}) },
+      ...(declaration.params?.length ? { params: declaration.params } : {}), ...(declaration.decorators?.length ? { decorators: declaration.decorators } : {}) },
       shownSource(lines, declaration.line, declaration.end_line));
   }
   // A comment directly above a function belongs to that function, not to the top-level unit.

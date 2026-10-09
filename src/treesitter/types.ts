@@ -1,7 +1,7 @@
 import type { LanguageId } from "./languages";
 
 /** Part of a saved parse's id. Bump it when a change alters parse output, so saved parses are redone. */
-export const PARSE_VERSION = "language-pack-1.20-v30" as const;
+export const PARSE_VERSION = "language-pack-1.20-v31" as const;
 
 export interface SourcePoint {
   /** One-based source line. */
@@ -124,6 +124,8 @@ export interface Declaration {
   internal: boolean;
   /** The parameters it declares, in order. */
   params: Parameter[];
+  /** The decorators on it, by the name each is called by: `click.command` for `@click.command()`. */
+  decorators?: string[];
   /** Test code that is no test: a helper in a test class or file, a fixture. */
   support?: boolean;
   /** A Kotlin extension function: `fun String.size()`, declared for a receiver type rather than in a class. */
