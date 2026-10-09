@@ -107,33 +107,51 @@ line that was checked: a test can call a method, assert nothing about the
 result, and still turn every line it touched green. Mutation testing asks the
 question coverage can't: if this line were wrong, would any test notice?
 
-Perch runs your tests itself, in copies of the repository at the commit, so
+Perch runs your tests itself, in a copy of the repository at the commit, so
 your working tree is never touched:
 
-1. It runs the suite once with per-test coverage, to learn exactly which tests
-   run each line. A mutant on a line no test runs has no coverage.
-2. It plants each mutant and runs only the tests that run its line. A test
-   that fails catches it. A run that takes three times as long as it should
-   catches it too: the mutant made something never finish. A mutant the tests
-   can't even load against broke the code, and is left out.
+1. It runs the suite once and records which tests reach each mutant. A mutant
+   no test reaches has no coverage.
+2. It runs each mutant against only the tests that reach it, and stops at the
+   first test that fails, as Stryker does. A run that takes half as long again
+   as it should, plus five seconds, catches the mutant too: the mutant made
+   something never finish. A mutant the tests can't even load against broke
+   the code, and is left out.
 3. It asks the decision model about the survivors only: would a caller ever see
    this change, or is it harmless, like a log message, or an edit that changes
    nothing? Harmless survivors are equivalent mutants, and are left out of the
    score. Stryker and PIT can't tell them apart from real gaps.
 
 The tests that kill nothing they run, and the tests that kill exactly what
-another test kills, come from the same real results.
+another test kills, come from the same real results. A test that killed nothing
+is run alone against the rest of its mutants before perch says so. Tests in one
+file that reach exactly the same mutants are run against all of them before
+perch calls one a duplicate.
 
-Perch runs pytest today, with the Python on your `PATH`, so activate the
-project's environment first. It needs `pytest-cov` installed there. If perch
-can't run your tests, it stops and says what's missing. In a repository that
-also has tests in another language, perch leaves out the code only those tests
-run, and says so.
+Nothing is set up again for each mutant. Each test run is sandboxed once, for
+the whole run, so a mutated test can write only inside its copy:
+
+- **pytest:** pytest collects your suite once. Each mutant runs in a process
+  forked from it, with the mutated function swapped in.
+- **Vitest, Jest, Mocha, Jasmine and node:test:** perch writes every mutant
+  into the code at once, each behind a switch, as Stryker does. Your framework
+  transforms the code once, and each mutant is one run with its switch on.
+
+Perch saves each mutant's outcome. A later run reuses it while the mutant's
+code, the tests that reach it, every file those tests run, and your dependency
+manifests are unchanged.
+
+Perch runs pytest with the Python on your `PATH`, so activate the project's
+environment first. It needs `pytest-cov` installed there. For JavaScript and
+TypeScript it runs the framework installed in your `node_modules`, so install
+your dependencies first. node:test needs Node 22 or later. If perch can't run
+your tests, it stops and says what's missing. In a repository that also has
+tests in a language perch has no runner for, perch leaves out the code only
+those tests run, and says so.
 
 Perch only looks at the code your test frameworks run. It reads the same config
-files as pytest and coverage.py, which lets it ignore scripts,
-examples and docs tooling that no test covers. On a branch, Perch only lists
-problems in changed code.
+files as Vitest, Jest, pytest and coverage.py, which lets it ignore scripts,
+examples and docs tooling that no test covers.
 
 ## What gets mutated
 
@@ -172,9 +190,17 @@ rather than listing each one.
 `perch coverage` reads the code your test frameworks run and measure. It
 ignores release scripts, examples, documentation tooling and CI actions.
 
-Perch reads pytest's `testpaths` and `python_files` options from `pytest.ini`,
-`pyproject.toml`, `tox.ini` or `setup.cfg`, and the `source` and `omit` options
-from your coverage.py configuration.
+- **Vitest and Jest:** perch loads your configuration using the copy of the
+  framework you've installed, so it runs over the same tests the framework
+  would run. The coverage configuration's `include` and `exclude` options decide
+  which files are source code. If you don't have an `include` option, the
+  source is the code your tests import, plus the files beside your tests.
+- **Mocha, Jasmine and node:test:** perch reads every test it finds, and the
+  code beside it. node:test keeps the flags your `test` script passes to
+  `node`, such as `--experimental-test-module-mocks`.
+- **pytest:** perch reads the `testpaths` and `python_files` options from
+  `pytest.ini`, `pyproject.toml`, `tox.ini` or `setup.cfg`, and the `source`
+  and `omit` options from your coverage.py configuration.
 
 Perch tells you which frameworks it decided on when you run it with
 `--verbose`:
@@ -192,9 +218,10 @@ can leave out more files and directories with the `ignore:` option in
 
 ## Supported languages and frameworks
 
-Perch runs pytest suites today. The table below is every language perch finds
-tests in, the frameworks it recognises, the mocks it reads as cutting a test's
-reach, and what it does not follow yet:
+Perch runs pytest, Vitest, Jest, Mocha, Jasmine and node:test suites. The
+table below is every language perch finds tests in, the frameworks it
+recognises, the mocks it reads as cutting a test's reach, and what it does not
+follow yet:
 
 | Language | Test frameworks | Mocks | Not followed yet |
 | --- | --- | --- | --- |
@@ -235,10 +262,16 @@ Where to add tests
 tests/test_cart.py
   ID        Line  Problem    Confidence  Test or method   Note
   cebd9d70    18  redundant        100%  test_free_small  Kills the same mutants as test_free at …
-shop at commit ac68c9e: 6 methods, 13 tests, 6 problems in changed code, 20 elsewhere, --all for every mutant
+shop at commit ac68c9e: 6 methods, 13 tests, 6 problems in changed code, 3 elsewhere, --all for every mutant, 26 mutants outside the change not run
 Report: .perch/coverage/index.html
-21 requests  4k tokens in / 125 out  $0.0006
+6 requests  0 tokens in  $0.0000
 ```
+
+On a branch, perch runs only the mutants in code the branch changed, and the
+ones its changed tests reach. Every other mutant keeps the outcome saved by an
+earlier run, when it still holds; one with no saved outcome isn't run, and the
+last line counts it. A test that reaches a mutant that wasn't run isn't called
+a duplicate or said to check nothing.
 
 With `--since`, perch exits 3 only when it finds a problem in changed code. It
 compares the results with a previous run only when you also pass `--diff` to say

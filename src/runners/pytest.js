@@ -1,19 +1,24 @@
 /**
- * pytest, run by perch: once over the whole suite with per-test coverage, to learn which tests run each line, and then once per
- * mutant over the tests that run it, to learn which of them fail. It runs in a copy of the repository at the commit being read,
- * with the Python on PATH, so an activated virtual environment is the one used, and the copy ahead of the installed package on
- * the import path, so a test imports the copy's code and not an editable install of the original.
+ * pytest, run by perch: once over the whole suite with per-test coverage, to learn which tests run each line, and then as a
+ * server that collected the suite once and runs each mutant in a forked child, against the tests that run it. It runs in a copy
+ * of the repository at the commit being read, with the Python on PATH, so an activated virtual environment is the one used, and
+ * the copy ahead of the installed package on the import path, so a test imports the copy's code and not an editable install of
+ * the original.
  */
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { readFile, rm } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
+import { createInterface } from 'node:readline';
 import { isAbsolute, join } from 'node:path';
 import { readCoverageDb, readJunit } from '../test-reports.js';
 import { sandboxed } from './sandbox.js';
+import { SERVER } from './pytest-server.js';
 
 export const name = 'pytest';
 /** The languages whose code and tests a pytest run covers. */
 export const languages = new Set(['python']);
+/** One copy whatever the parallelism: mutants are swapped in memory, in forked children, and never written to it. */
+export const copiesFor = () => 1;
 
 /**
  * A command's exit code and output, or `timedOut` when it ran past `timeout` milliseconds and was stopped. With `writable`, it
@@ -117,18 +122,56 @@ export async function coverageRun({ copy, scratch, tool: { python }, timeout = 0
 }
 
 /**
- * The given tests, by node id, against the copy as it stands: one process, every test's result. `invalid` when pytest could not
- * collect them, which a mutant that breaks an import makes happen; `timeout` when they ran past the limit.
+ * The mutant server: pytest collects the suite once in the copy, sandboxed once for the whole run, and then runs each mutant it
+ * is sent in a forked child, `parallel` at a time. `run` takes the mutated file's text and the tests to run, by node id, and
+ * returns `ran` with each test's result, `timeout`, or `invalid` when the mutated code could not be loaded.
  */
-export async function runTests({ copy, scratch, nodes, timeout, tag, tool: { python } }) {
-  const xml = join(scratch, `run-${tag}.xml`);
-  await rm(xml, { force: true });
-  const run = await exec(python, ['-m', 'pytest', '-q', '-p', 'no:cacheprovider', '--no-cov', `--junitxml=${xml}`, ...nodes],
-    { cwd: copy, env: importPath(copy), timeout, writable: [copy, scratch] });
-  if (run.timedOut) return { status: 'timeout' };
-  if (!existsSync(xml)) return { status: 'invalid', output: run.output };
-  const found = await results(xml, copy);
-  // Exit 2 is an interrupted run, 3 an internal error, 4 a usage error: what was collected, if anything, says nothing.
-  if ([2, 3, 4].includes(run.code) && ![...found.values()].some(item => item.status === 'passed' || item.status === 'failed')) return { status: 'invalid', output: run.output };
-  return { status: 'ran', results: found };
+export async function session({ copies: [copy], tool: { python }, parallel }) {
+  await writeFile(join(copy.scratch, 'perch_server.py'), SERVER);
+  const command = sandboxed(python, ['-m', 'pytest', '-q', '-p', 'no:cacheprovider', '--no-cov', '-p', 'perch_server'], [copy.dir, copy.scratch]);
+  const path = importPath(copy.dir).PYTHONPATH;
+  const child = spawn(command.command, command.args, { cwd: copy.dir, detached: true, stdio: ['ignore', 'pipe', 'pipe', 'pipe', 'pipe'],
+    // A library that touched macOS's frameworks before the fork would otherwise abort the child.
+    env: { ...process.env, PWD: copy.dir, PYTHONPATH: `${copy.scratch}:${path}`, PERCH_ROOT: copy.dir, PERCH_PARALLEL: String(parallel), OBJC_DISABLE_INITIALIZE_FORK_SAFETY: 'YES' } });
+  let output = '';
+  const keep = chunk => { output = (output + chunk).slice(-20000); };
+  child.stdout.on('data', keep);
+  child.stderr.on('data', keep);
+  const waiting = new Map();
+  let ready, failed;
+  const started = new Promise((resolve, reject) => { ready = resolve; failed = reject; });
+  const exited = new Promise(resolve => child.on('close', resolve));
+  exited.then(code => {
+    const error = new Error(`pytest's mutant server stopped (exit ${code}): ${output.trim().split('\n').slice(-5).join(' | ')}`);
+    failed(error);
+    for (const { reject } of waiting.values()) reject(error);
+  });
+  createInterface({ input: child.stdio[4] }).on('line', line => {
+    const message = JSON.parse(line);
+    if (message.ready) { ready(message); return; }
+    const call = waiting.get(message.id);
+    waiting.delete(message.id);
+    call?.resolve(message);
+  });
+  await started;
+  let next = 0;
+  return {
+    async run({ path: file, source, method, mutant, nodes, timeout, bail = false }) {
+      const id = next++;
+      const answer = new Promise((resolve, reject) => waiting.set(id, { resolve, reject }));
+      child.stdio[3].write(`${JSON.stringify({ id, path: file, source: source.toString('utf8'), name: method.node.qualified_name.split('.').at(-1), line: method.node.line,
+        signature: mutant.statements.length === 0, nodes, timeout, bail })}\n`);
+      const reply = await answer;
+      const timing = { elapsed: reply.elapsed, apply: reply.apply, child: reply.child };
+      if (reply.status !== 'ran') return { status: reply.status, error: reply.error, timing };
+      return { status: 'ran', timing, results: new Map(reply.results.map(item => [item.node, { test: testOf(item.node), status: item.status }])) };
+    },
+    async close() {
+      child.stdio[3].end();
+      const timer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ } }, 10000);
+      await exited;
+      clearTimeout(timer);
+      try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ }
+    },
+  };
 }

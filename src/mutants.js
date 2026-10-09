@@ -358,7 +358,8 @@ function bodyMutant(root, language, line, end_line) {
   if (declared === null) return null;
   const name = typeName(declared);
   const braced = body.text.startsWith('{');
-  if (NOTHING.has(name)) return { body, to: braced ? '{}' : language === 'python' ? 'pass' : '' };
+  // A body that is one expression, `x => x + 1`, has nothing to empty but the expression, which is the lambda mutant's.
+  if (NOTHING.has(name)) return braced ? { body, to: '{}' } : language === 'python' ? { body, to: 'pass' } : ['ruby', 'lua'].includes(language) ? { body, to: '' } : null;
   if (language === 'rust' && name === 'String') return { body, to: '{ String::new() }' };
   const zero = ZEROS[name];
   if (zero === undefined || !braced) return null;
@@ -418,6 +419,8 @@ export function mutantsOf({ source, language, line, end_line }) {
   const methods = tableFor(METHODS, normalized), functions = tableFor(FUNCTIONS, normalized);
   const collections = { ...COLLECTIONS, ...COLLECTIONS_BY_LANGUAGE[normalized] }, fill = FILLABLE[family], chains = CHAINS[family];
   const walk = node => {
+    // A type is erased or checked before anything runs: an edit inside one changes no behaviour a test could see.
+    if (TYPES.test(node.type)) return;
     if (node.startPosition.row + 1 <= end_line && node.endPosition.row + 1 >= line) {
       if (BINARY.has(node.type) || UPDATED.has(node.type) || (normalized === 'bash' && node.type === 'list')) {
         const operator = operatorOf(node);
@@ -530,6 +533,9 @@ export function mutantsOf({ source, language, line, end_line }) {
   if (whole) add('body', whole.body, whole.to);
   return found.sort((a, b) => a.line - b.line || a.column - b.column || KINDS.indexOf(a.kind) - KINDS.indexOf(b.kind));
 }
+
+/** A type as each grammar writes one: an annotation, an alias, an interface, a literal or generic type, type arguments. */
+const TYPES = /^(type|type_annotation|type_alias_declaration|interface_declaration|type_arguments|type_parameters|type_parameter|type_arguments_list|[a-z_]+_type)$/;
 
 /** Every kind of mutant, in the order two at the same place are listed. */
 export const KINDS = ['body', 'boundary', 'logic', 'arithmetic', 'update', 'condition', 'block', 'removal', 'method', 'chaining', 'lambda', 'not', 'negative', 'boolean', 'return', 'collection', 'string', 'number', 'regex'];

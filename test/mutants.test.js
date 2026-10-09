@@ -25,6 +25,14 @@ describe('mutants', () => {
     for (const mutant of mutants) expect(KINDS).toContain(mutant.kind);
   });
 
+  it('leaves types alone, which change nothing a test runs', () => {
+    const ts = 'function f(a: 0 | 1, b: Array<"x">): 2 | 3 {\n  const c: Record<"k", 4> = { k: 4 };\n  return a + 5;\n}\n';
+    expect(edits(mutantsOf({ source: ts, language: 'typescript', line: 1, end_line: 4 }))).toEqual([
+      'collection 2 { k: 4 }>{}', 'number 2 4>5', 'arithmetic 3 +>-', 'number 3 5>6']);
+    const py = 'def f(a: Literal[1] = 2) -> "str":\n    return a\n';
+    expect(edits(mutantsOf({ source: py, language: 'python', line: 1, end_line: 2 }))).toEqual(['number 1 2>3', 'return 2 a>None']);
+  });
+
   it('removes calls, empties bodies, empties strings and replaces returned values', () => {
     const source = 'function f(items, n) {\n  save(items);\n  await flush();\n  n += 1;\n  const name = "hello";\n  if (n > 2) { log("big"); return "x"; } else { return []; }\n  return { a: 1 };\n}\n';
     const mutants = mutantsOf({ source, language: 'javascript', line: 1, end_line: 8 });

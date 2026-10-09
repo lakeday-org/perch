@@ -262,6 +262,9 @@ export function coverageCount(report, { min = BELIEVED, filters = [], all = fals
   else if (!all && !filters.length && (methods || survived.length - methods > TOP)) parts.push('--all for every mutant');
   const failed = report.failed.length;
   if (failed) parts.push(`${failed} could not be asked (--json)`);
+  // A branch run reuses what an earlier run saved and runs only the changed code's mutants; the rest are counted, not guessed.
+  if (totals.skipped) parts.push(`${plural(totals.skipped, 'mutant')} outside the change not run`);
+  if (report.measured?.reused) parts.push(`${report.measured.reused} reused from the last run`);
   // A config that would not load means every test the parser found was read instead, which changes what is counted.
   for (const framework of report.scope?.frameworks ?? []) if (framework.error) parts.push(`${framework.config} did not load (--verbose)`);
   return `${relative(report.target ?? report.root ?? '.')} at commit ${report.revision?.slice(0, 7) ?? '?'}: ${parts.join(', ')}`;

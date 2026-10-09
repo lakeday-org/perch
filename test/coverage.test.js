@@ -222,19 +222,25 @@ function scripted({ fail = new Set(), error = name => new Error(`scripted failur
 function scriptedRunner({ methods = {}, executed, languages = ['python', 'typescript', 'tsx', 'javascript'] } = {}) {
   const runs = [];
   return {
-    name: 'scripted', languages: new Set(languages), runs,
+    name: 'scripted', languages: new Set(languages), runs, copiesFor: () => 1,
     available: async () => ({}),
     coverageRun: async () => ({ executed, results: new Map([...executed.keys()].map(test => [test, { test, status: 'passed', time: 0 }])), seconds: 0 }),
-    async runTests({ nodes, mutant, method }) {
-      const name = method.node.qualified_name, script = methods[name] ?? METHODS[name] ?? {};
-      runs.push({ name, mutant, nodes });
-      const fails = test => {
-        const given = script.kills?.[test.split('::').at(-1)];
-        return (typeof given === 'number' ? given : given?.[mutant.kind] ?? given?.['*'] ?? script.kill ?? 0.9) >= 0.7;
-      };
-      return { status: 'ran', results: new Map(nodes.map(test => [test, { test, status: fails(test) ? 'failed' : 'passed' }])) };
-    },
+    session: async () => ({ run, close: async () => {} }),
   };
+  async function run({ nodes, mutant, method, bail }) {
+    const name = method.node.qualified_name, script = methods[name] ?? METHODS[name] ?? {};
+    runs.push({ name, mutant, nodes });
+    const fails = test => {
+      const given = script.kills?.[test.split('::').at(-1)];
+      return (typeof given === 'number' ? given : given?.[mutant.kind] ?? given?.['*'] ?? script.kill ?? 0.9) >= 0.7;
+    };
+    const results = new Map();
+    for (const test of nodes) {
+      results.set(test, { test, status: fails(test) ? 'failed' : 'passed' });
+      if (bail && fails(test)) break;
+    }
+    return { status: 'ran', results };
+  }
 }
 
 /** What each test runs by the call graph: every line of every method it reaches. */
@@ -310,7 +316,7 @@ describe('the survivors of a run', () => {
     const runner = scriptedRunner({ executed: await reached(repo) });
     let at = 0;
     const report = await run(repo, scripted({ methods: { add: { matters: 0.9, kill: 0.1 } } }), { runner: { ...runner,
-      runTests: async () => ({ status: outcomes[at++ % 2], results: new Map() }) } });
+      session: async () => ({ run: async () => ({ status: outcomes[at++ % 2] }), close: async () => {} }) } });
     const add = report.methods.find(method => method.id === 'shop/calc.py::add');
     const timedOut = add.mutants.filter(mutant => mutant.timeout), invalid = add.mutants.filter(mutant => mutant.invalid);
     expect(timedOut.length + invalid.length).toBe(add.mutants.length);
@@ -511,7 +517,7 @@ describe('perch coverage', () => {
     const removal = systemOne.calls.find(call => call.name === 'checkout').state;
     expect(removal.method.mutation).toEqual({ kind: 'removal', edit: 'the call `save(amount);` removed', original: 'save(amount);', mutated: '' });
     // Every mutant of a method a test runs is run against those tests; restock's, which no test runs, against none.
-    expect(runner.runs.filter(item => item.name === 'apply_discount')).toHaveLength(19);
+    expect(new Set(runner.runs.filter(item => item.name === 'apply_discount').map(item => item.mutant))).toHaveProperty('size', 19);
     expect(runner.runs.filter(item => item.name === 'restock')).toEqual([]);
 
     const tests = byId(report.tests);
@@ -858,6 +864,43 @@ describe.skipIf(!pytest.python)('perch coverage from the command line', () => {
 });
 
 describe('perch coverage on a branch', () => {
+  it('reuses a mutant\'s outcome until its code, its tests or what they run changes', async () => {
+    const repo = await repository();
+    const first = scriptedRunner({ executed: await reached(repo) });
+    const before = await run(repo, scripted(), { runner: first });
+    expect(first.runs.length).toBeGreaterThan(0);
+    // Nothing changed: every mutant's outcome is the saved one, and nothing runs.
+    const again = scriptedRunner({ executed: await reached(repo) });
+    const same = await run(repo, scripted(), { runner: again });
+    expect(again.runs).toEqual([]);
+    expect(same.measured).toMatchObject({ reused: before.measured.mutants_run, mutants_run: 0 });
+    expect(same.totals).toEqual(before.totals);
+    // pricing.py changes: round_money runs again, and so does every mutant whose tests run pricing.py, apply_discount's among them.
+    await write(repo.root, { 'pricing.py': `${FILES['pricing.py']}\n\ndef tax(value):\n    return value * 0.2\n` });
+    await commitAll(repo.root, 'tax');
+    const moved = { ...repo, revision: await revision(repo.root) };
+    const third = scriptedRunner({ executed: await reached(moved) });
+    await run(moved, scripted(), { runner: third });
+    expect([...new Set(third.runs.map(item => item.name))].sort()).toEqual(['apply_discount', 'round_money']);
+  });
+
+  it('runs only the mutants in changed code and those its changed tests run when nothing is saved', async () => {
+    const repo = await repository();
+    await write(repo.root, { 'src/cart.ts': FILES['src/cart.ts'].replace('sum += price;', 'sum += price * 1;') });
+    await commitAll(repo.root, 'branch');
+    const moved = { ...repo, revision: await revision(repo.root) };
+    const runner = scriptedRunner({ executed: await reached(moved) });
+    const report = await run(moved, scripted(), { runner, since: 'main' });
+    // total changed; checkout and save did not, and nothing was saved for them, so they did not run.
+    expect([...new Set(runner.runs.map(item => item.name))]).toEqual(['total']);
+    const methods = byId(report.methods);
+    expect(methods.get('src/cart.ts::checkout').mutants.every(mutant => mutant.skipped)).toBe(true);
+    expect(report.totals.skipped).toBe(report.methods.reduce((sum, method) => sum + method.skipped, 0));
+    expect(report.totals.skipped).toBeGreaterThan(0);
+    // A test that runs a mutant left unrun is judged on nothing: saves an order checks nothing, but nothing it runs ran.
+    expect(report.findings.filter(finding => finding.kind === 'checks_nothing' || finding.kind === 'redundant')).toEqual([]);
+  });
+
   it('reports changed code with --since', async () => {
     const repo = await repository();
     await run(repo, scripted());
@@ -882,8 +925,11 @@ describe('perch coverage on a branch', () => {
     // checkout makes that its test never checks, with the `* 1` it put beside it, and for the save test that asserts nothing.
     const onBranch = report.findings.filter(finding => report.branch.findings.includes(finding.id)).map(finding => `${finding.kind} ${finding.unit}`).sort();
     expect([...new Set(onBranch)]).toEqual(['checks_nothing test/db.test.ts::saves an order', 'survived src/cart.ts::checkout']);
-    // The whole repository was still read and asked about: the branch's tests and what they reach are mostly elsewhere.
-    expect(report.findings.some(finding => finding.unit === 'tests/test_cart.py::test_discount_20')).toBe(true);
+    // Code the branch left alone is not run again: rates.py's outcomes are the ones saved on main, and apply_discount, whose
+    // file the branch touched elsewhere, is left unrun rather than rerun.
+    expect(report.methods.find(method => method.id === 'rates.py::fetch_rate')).toMatchObject({ killed: 3, skipped: 0 });
+    expect(report.measured.reused).toBeGreaterThan(0);
+    expect(report.methods.find(method => method.id === 'cart.py::apply_discount').mutants.every(mutant => mutant.skipped)).toBe(true);
   });
 
   it('fails fast on an unknown --since ref', async () => {
