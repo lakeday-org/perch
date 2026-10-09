@@ -379,18 +379,22 @@ export function mutantsOf({ source, language, line, end_line }) {
   for (let at = 0; at < bytes.length; at++) if (bytes[at] === 10) lineStarts.push(at + 1);
   const found = [], seen = new Set();
   /**
-   * The lines a coverage tool records the edit's statements under: each statement's first line. An edit inside a statement is
-   * on the statement around it, a call argument on its fourth line on the call's first; an emptied body or block is on each
-   * statement it held. A test run that executed none of them never ran the edit.
+   * The lines a coverage tool may record the edit under: the lines the edit is on, and the first line of each statement it is in
+   * or empties. Tools differ: one records a statement by its first line, coverage.py the lines of a condition it actually runs,
+   * `cond` on line three of an `if (`. The edit ran when any of these did. An edit in a function's signature, a default value,
+   * runs whenever the function does, and has none: it is decided by the tests that run the function.
    */
+  const SIGNATURES = /^(parameters|formal_parameters|parameter_list|default_parameter|typed_default_parameter|optional_parameter|lambda_parameters|function_value_parameters)$/;
   const statementOf = node => {
     for (let at = node; at; at = at.parent) if (at.parent && STATEMENT_CONTAINERS.has(at.parent.type)) return at;
     return node;
   };
   const statementLines = (kind, node) => {
+    for (let at = node; at && !STATEMENT_CONTAINERS.has(at.type); at = at.parent) if (SIGNATURES.test(at.type)) return [];
     const held = kind === 'body' || kind === 'block' ? node.namedChildren.filter(child => !child.type.includes('comment')) : [];
-    const nodes = held.length ? held : [statementOf(node)];
-    return [...new Set(nodes.map(item => item.startPosition.row + 1))];
+    const starts = (held.length ? held : [statementOf(node)]).map(item => item.startPosition.row + 1);
+    const own = Array.from({ length: node.endPosition.row - node.startPosition.row + 1 }, (_, at) => node.startPosition.row + 1 + at);
+    return [...new Set([...starts, ...own])].sort((a, b) => a - b);
   };
   const add = (kind, node, to) => {
     const row = node.startPosition.row, last = node.endPosition.row;

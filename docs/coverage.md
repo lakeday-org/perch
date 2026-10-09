@@ -9,10 +9,11 @@ summary: Find unit tests of low value and discover the real coverage gaps in you
 # Test coverage
 
 Perch Coverage finds low-value unit tests and the real gaps in your test
-coverage. It is predictive mutation testing. Perch generates mutants of every
-method your tests reach. For each mutant, it asks a decision model, Jev, which
-of those tests would fail with the mutant in place. Perch runs no tests and
-changes no files.
+coverage. It is mutation testing with a decision model on top. Perch plants
+small bugs, mutants, in your code and runs your tests against each one. A
+mutant no test catches is a survivor. Most survivors are noise, so perch asks a
+decision model, Jev, which of them a user could ever notice. It lists only
+those, each with the test to write.
 
 A mutant is one edit to one method. Perch removes a call statement, empties an
 `if` body, forces a condition to `true` or `false`, or swaps an operator: `<`
@@ -67,10 +68,11 @@ Report: .perch/coverage/index.html
 29 requests  2k tokens in / 93 out  $0.0005
 ```
 
-The mutation score is the share of mutants killed by at least one test. A test
-kills a mutant when Perch puts its chance of failing against it at 70% or more.
-No coverage counts the mutants in methods no test reaches through the call
-graph. They count against the score. Source files are listed worst first, and
+The mutation score is the share of mutants killed by at least one test, leaving
+out equivalent mutants, which no test could kill. A test kills a mutant when it
+fails with the mutant in place. Where perch can't run the tests, it's when the
+model puts that chance at 70% or more. No coverage counts the mutants on lines
+no test runs. They count against the score. Source files are listed worst first, and
 test files only when something in them needs fixing.
 
 Under the tables, Perch lists the methods to add a test to, most survived
@@ -96,23 +98,34 @@ button. The report is one file, unless your repository has more than 8 MB of
 source. Then each file gets its own page in the `files/` directory next to
 `index.html`.
 
-## How it differs from a coverage report
+## How it works
 
 A coverage report tells you which lines your tests ran. A line that ran is not a
 line that was checked: a test can call a method, assert nothing about the
 result, and still turn every line it touched green. Mutation testing asks the
 question coverage can't: if this line were wrong, would any test notice?
 
-Mutation testing tools like Stryker and PIT run your entire test suite against
-each mutant. That takes hours on a large repository, and you have to set up
-their toolchain first. Perch predicts what your tests would do against each
-mutant, without running any of them. So Perch can read any repository in a few
-minutes, even one you can't build locally, and you can run it on a pull request
-in CI without a test job. Perch reads no CI output: no coverage reports, no test
-results. It predicts the test results and shows how confident it is in each
-prediction. Run for real on 149 mutants of Perch's own code, the tests killed
-38; Perch called 41 killed, 30 of them right, and 100 of the 108 it called
-survived had survived.
+Perch runs your tests itself, in copies of the repository at the commit, so
+your working tree is never touched:
+
+1. It runs the suite once with per-test coverage, to learn exactly which tests
+   run each line. A mutant on a line no test runs has no coverage.
+2. It plants each mutant and runs only the tests that run its line. A test
+   that fails catches it. A run that takes three times as long as it should
+   catches it too: the mutant made something never finish. A mutant the tests
+   can't even load against broke the code, and is left out.
+3. It asks the decision model about the survivors only: would a caller ever see
+   this change, or is it harmless, like a log message, or an edit that changes
+   nothing? Harmless survivors are equivalent mutants, and are left out of the
+   score. Stryker and PIT can't tell them apart from real gaps.
+
+The tests that kill nothing they run, and the tests that kill exactly what
+another test kills, come from the same real results.
+
+Perch runs pytest today, with the Python on your `PATH`, so activate the
+project's environment first. It needs `pytest-cov` installed there. For any
+other framework, perch estimates which tests run each method from the call
+graph and predicts what they catch, and the report says it's an estimate.
 
 Perch only looks at the code your test frameworks run. It loads the same config
 files as Vitest, Jest, pytest and coverage.py, which lets it ignore scripts,

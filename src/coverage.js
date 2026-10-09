@@ -1028,6 +1028,7 @@ async function planMutants({ coverage, graph, sourceText, order }) {
       // The lines a coverage tool records the edit's statements under. A report that wrote what could have run, with a count of
       // zero for what did not, says so of a line; coverage.py's data file holds only what ran, so in a method it measured, a
       // statement line it does not hold did not run.
+      // None for an edit in the signature: it runs when the function does, so the tests that run the function decide it.
       const lines = mutant.statements ?? [mutant.line];
       const known = !measured ? [] : measured.executed_only ? (method.measured || method.tests.length ? lines : []) : lines.filter(line => measured.lines.has(line));
       const ran = line => (measured?.lines.get(line) ?? 0) > 0;

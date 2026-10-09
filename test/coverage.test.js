@@ -364,8 +364,10 @@ describe.skipIf(!pytest.python)('running the tests', () => {
     await mkdir(join(root, 'shop'));
     await mkdir(join(root, 'tests'));
     // add is checked exactly; scale only for running without error, so its arithmetic survives; untouched never runs.
-    await writeFile(join(root, 'shop', 'calc.py'), 'def add(a, b):\n    return a + b\n\n\ndef scale(a, factor):\n    return a * factor\n\n\ndef untouched(a):\n    return a - 1\n');
-    await writeFile(join(root, 'tests', 'test_calc.py'), 'from shop.calc import add, scale\n\n\ndef test_add():\n    assert add(2, 3) == 5\n\n\ndef test_scale_runs():\n    scale(2, 3)\n');
+    // bump's default is decided at import and used by a call; small's condition runs over three lines, which coverage.py records
+    // by the lines it executes rather than the `if (` line.
+    await writeFile(join(root, 'shop', 'calc.py'), 'def add(a, b):\n    return a + b\n\n\ndef scale(a, factor):\n    return a * factor\n\n\ndef untouched(a):\n    return a - 1\n\n\ndef bump(a, by=1):\n    return a + by\n\n\ndef small(a):\n    if (\n        a < 10\n    ):\n        return True\n    return False\n');
+    await writeFile(join(root, 'tests', 'test_calc.py'), 'from shop.calc import add, bump, scale, small\n\n\ndef test_add():\n    assert add(2, 3) == 5\n\n\ndef test_scale_runs():\n    scale(2, 3)\n\n\ndef test_bump():\n    assert bump(1) == 2\n\n\ndef test_small():\n    assert small(9) is True\n    assert small(10) is False\n');
     await writeFile(join(root, 'pytest.ini'), '[pytest]\ntestpaths = tests\n');
     await initRepo(root);
     const systemOne = scripted({ methods: { scale: { matters: 0.9 } } });
@@ -383,6 +385,9 @@ describe.skipIf(!pytest.python)('running the tests', () => {
     expect(systemOne.calls.filter(call => call.name === 'scale').every(call => Object.keys(call.questions).join() === 'matters')).toBe(true);
     // untouched ran under no test: its mutants have no coverage, and nothing was run or asked about them.
     expect(method('untouched').mutants.every(mutant => mutant.no_coverage)).toBe(true);
+    // The default `1` becoming `0` is caught by the test that calls bump; the boundary on small's middle line by test_small.
+    expect(method('bump').mutants.find(mutant => mutant.kind === 'number')).toMatchObject({ killed: true, killed_by: ['tests/test_calc.py::test_bump'] });
+    expect(method('small').mutants.find(mutant => mutant.kind === 'boundary')).toMatchObject({ killed: true, killed_by: ['tests/test_calc.py::test_small'] });
     // test_scale_runs kills nothing it runs: it checks nothing, from what really happened.
     expect(report.findings.some(finding => finding.kind === 'checks_nothing' && finding.unit === 'tests/test_calc.py::test_scale_runs')).toBe(true);
   }, 120000);
