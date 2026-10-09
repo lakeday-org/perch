@@ -372,7 +372,7 @@ describe('what a call may run besides what it names', () => {
   it('reads a call on a bounded type parameter as a call on the trait, and runs every implementation', async () => {
     const graph = await repository({
       'src/read.rs': "pub trait Read<'de> {\n    fn next(&mut self) -> Option<u8>;\n}\n\npub struct SliceRead<'a> {\n    slice: &'a [u8],\n}\n\nimpl<'a> Read<'a> for SliceRead<'a> {\n    fn next(&mut self) -> Option<u8> {\n        self.slice.first().copied()\n    }\n}\n\npub struct StrRead<'a> {\n    delegate: SliceRead<'a>,\n}\n\nimpl<'a> Read<'a> for StrRead<'a> {\n    fn next(&mut self) -> Option<u8> {\n        self.delegate.next()\n    }\n}\n",
-      'src/de.rs': "use crate::read::Read;\n\npub struct Deserializer<R> {\n    read: R,\n}\n\nimpl<'de, R: Read<'de>> Deserializer<R> {\n    pub fn new(read: R) -> Self {\n        Deserializer { read }\n    }\n\n    pub fn peek(&mut self) -> Option<u8> {\n        self.read.next()\n    }\n}\n\npub fn parse<V>(visitor: V) where V: Visitor {\n    visitor.visit()\n}\n",
+      'src/de.rs': "use crate::read::Read;\n\npub struct Deserializer<R> {\n    read: R,\n}\n\nimpl<'de, R: Read<'de>> Deserializer<R> {\n    pub fn new(read: R) -> Self {\n        Deserializer { read }\n    }\n\n    pub fn peek(&mut self) -> Option<u8> {\n        self.read.next()\n    }\n}\n\npub fn parse<V>(visitor: V) where V: Visitor {\n    visitor.visit()\n}\n\npub fn from_trait<R, T>(read: R) -> T where R: Read<'static>, T: Deserialize {\n    let mut de = Deserializer::new(read);\n    tri!(T::deserialize(&mut de))\n}\n",
     });
     // The field `read: R` is a Read, by R's bound; the trait declares next without a body, a declaration the call resolves to
     // that runs every implementation, as a Java abstract method does.
@@ -383,6 +383,9 @@ describe('what a call may run besides what it names', () => {
     expect(graph.isDynamic('src/de.rs::Deserializer.peek', 'src/read.rs::StrRead.next')).toBe(true);
     // A concrete field runs its own type's method, and nothing else.
     expect(graph.callees('src/read.rs::StrRead.next')).toEqual(['src/read.rs::SliceRead.next']);
+    // `tri!(T::deserialize(&mut de))`: the call inside the macro hands the deserializer on, so from_trait reaches its methods.
+    expect(graph.callees('src/de.rs::from_trait').sort()).toEqual(['src/de.rs::Deserializer.new', 'src/de.rs::Deserializer.peek']);
+    expect(graph.isDynamic('src/de.rs::from_trait', 'src/de.rs::Deserializer.peek')).toBe(true);
   });
 
   it('gives a decorated definition the class its decorator makes', async () => {

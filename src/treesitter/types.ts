@@ -1,7 +1,7 @@
 import type { LanguageId } from "./languages";
 
 /** Part of a saved parse's id. Bump it when a change alters parse output, so saved parses are redone. */
-export const PARSE_VERSION = "language-pack-1.20-v33" as const;
+export const PARSE_VERSION = "language-pack-1.20-v34" as const;
 
 export interface SourcePoint {
   /** One-based source line. */

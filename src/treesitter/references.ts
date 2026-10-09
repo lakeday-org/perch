@@ -929,6 +929,21 @@ function rustImplBound(struct: Node, name: string): string | null {
   return null;
 }
 
+/**
+ * What a call inside a macro passes, from its argument tokens: each top-level item that is a name, `&mut de` or `de`, as the
+ * local it is. Anything else is null, an argument whose value the tokens do not spell. `tri!(T::deserialize(&mut de))` hands
+ * the deserializer on, and what it was handed to may run any of its methods.
+ */
+function macroArguments(tree: Node): Array<Held | null> {
+  const tokens = Array.from({ length: tree.childCount }, (_, index) => tree.child(index)!).slice(1, -1);
+  const items: Node[][] = [[]];
+  for (const token of tokens) { if (token.type === ",") items.push([]); else items[items.length - 1].push(token); }
+  return items.filter(item => item.length).map(item => {
+    const bare = item.filter(token => !["&", "mut"].includes(token.text));
+    return bare.length === 1 && bare[0].type === "identifier" ? { local: bare[0].text } : null;
+  });
+}
+
 /** The standard library's macros: a call of one names nothing in the repository. */
 const STD_MACROS = new Set(['assert', 'assert_eq', 'assert_ne', 'debug_assert', 'debug_assert_eq', 'debug_assert_ne', 'format', 'format_args', 'print', 'println', 'eprint', 'eprintln',
   'write', 'writeln', 'vec', 'panic', 'todo', 'unimplemented', 'unreachable', 'matches', 'dbg', 'cfg', 'env', 'option_env', 'concat', 'stringify', 'include', 'include_str', 'include_bytes',
@@ -978,7 +993,8 @@ function rustMacroCalls(tree: Node): Reference[] {
     if (broken || (start >= 1 && ["::", ".", "fn"].includes(tokens[start - 1].type))) continue;
     const name = validReference(parts.join(""));
     if (name === "<dynamic>") continue;
-    calls.push(makeReference("call", tokens[start], { name, reference: name }));
+    const args = macroArguments(next);
+    calls.push(makeReference("call", tokens[start], { name, reference: name, ...(args.some(Boolean) ? { args } : {}) }));
     const local = parts.length === 3 && parts[1] === "." ? parts[0] : null;
     results.set(after + 1, local ? { call: `$receiver.${tokens[at].text}`, on: { local } } : { call: name });
   }
