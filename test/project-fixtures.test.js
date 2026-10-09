@@ -1,6 +1,6 @@
 /**
- * perch coverage on projects laid out the way real ones are: test/fixtures/projects/<name>/, with the reports their own test run
- * wrote. What each expected.json says was read off the project; what perch makes of it must agree.
+ * perch coverage on projects laid out the way real ones are: test/fixtures/projects/<name>/. What each expected.json says was read
+ * off the project; what perch makes of it must agree.
  */
 import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
@@ -14,7 +14,7 @@ import { computeCoverage } from '../src/coverage.js';
 import { frameworkScope } from '../src/test-scope.js';
 
 const projects = fileURLToPath(new URL('./fixtures/projects/', import.meta.url));
-const SKIPPED = new Set(['node_modules', 'target', 'build', 'dist', 'out', '.git', '.perch', 'reports', '.venv', '__pycache__', '.pytest_cache']);
+const SKIPPED = new Set(['node_modules', 'target', 'build', 'dist', 'out', '.git', '.perch', '.venv', '__pycache__', '.pytest_cache']);
 
 /** Every file of the project, as a repository's tracked paths are. */
 async function tracked(root, prefix = '') {

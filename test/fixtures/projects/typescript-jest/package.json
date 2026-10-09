@@ -5,8 +5,12 @@
   "license": "Apache-2.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
-  "engines": { "node": ">=18" },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "test": "jest",
@@ -18,7 +22,6 @@
     "@jest/globals": "^30.0.0",
     "@types/node": "^22.10.0",
     "jest": "^30.0.0",
-    "jest-junit": "^17.0.0",
     "ts-jest": "^29.4.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.3"
