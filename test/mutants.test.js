@@ -195,6 +195,12 @@ describe('mutants', () => {
       'method 3 strtoupper>strtolower', 'method 3 trim($a)>$a', 'method 4 array_filter($items)>$items']);
   });
 
+  it('finds nothing to swap in a method Object has a property for', () => {
+    // toString, valueOf and constructor are properties of every plain object; the tables are looked up as tables, not objects.
+    const source = 'function f(a) {\n  return a.toString() + a.valueOf() + a.constructor() + hasOwnProperty(a);\n}\n';
+    expect(edits(mutantsOf({ source, language: 'javascript', line: 1, end_line: 3 })).filter(edit => edit.startsWith('method'))).toEqual([]);
+  });
+
   it('empties collections, fills empty ones, makes chains unconditional, blanks arrow functions and edits patterns', () => {
     const js = 'function f(a, items) {\n  const x = a?.b?.(1)?.[0];\n  const arr = [1, 2], empty = [], obj = { k: 1 }, s = "", r = /^a+\\d?$/g;\n  const g = x => x + 1;\n  for (let i = 0; i < 3; i++) {}\n  a ??= 1; a %= 2;\n  return a ?? items;\n}\n';
     const mutants = mutantsOf({ source: js, language: 'javascript', line: 1, end_line: 8 });

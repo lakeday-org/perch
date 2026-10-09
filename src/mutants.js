@@ -128,19 +128,22 @@ const FUNCTION_PAIRS = {
 };
 const FUNCTIONS_DROPPED = { python: 'sorted reversed', go: 'strings.TrimSpace', php: 'trim array_filter array_reverse array_unique' };
 const DROP = Symbol('drop');
-/** One table per language: name → the name it becomes, or DROP. TypeScript and TSX read as JavaScript, C as C++ where it says so. */
+/**
+ * One table per language: name → the name it becomes, or DROP. TypeScript and TSX read as JavaScript. The tables have no
+ * prototype, so a call to `toString` or `constructor` finds nothing rather than Object's own.
+ */
 function swapTable(pairs, dropped) {
   const tables = {};
   for (const [language, text] of Object.entries(pairs)) {
-    const table = tables[language] ??= {};
+    const table = tables[language] ??= Object.create(null);
     for (const pair of text.split(',')) { const [a, b] = pair.trim().split(' '); table[a] = b; table[b] = a; }
   }
-  for (const [language, text] of Object.entries(dropped)) { const table = tables[language] ??= {}; for (const name of text.split(' ')) table[name] = DROP; }
+  for (const [language, text] of Object.entries(dropped)) { const table = tables[language] ??= Object.create(null); for (const name of text.split(' ')) table[name] = DROP; }
   return tables;
 }
 const METHODS = swapTable(PAIRS, DROPPED), FUNCTIONS = swapTable(FUNCTION_PAIRS, FUNCTIONS_DROPPED);
 const SAME_TABLES = { typescript: 'javascript', tsx: 'javascript' };
-const tableFor = (tables, language) => tables[SAME_TABLES[language] ?? language] ?? {};
+const tableFor = (tables, language) => tables[SAME_TABLES[language] ?? language] ?? Object.create(null);
 /** The node that names a member of something: `a.b` as each grammar holds it. */
 const MEMBERS = new Set(['member_expression', 'attribute', 'selector_expression', 'field_expression', 'member_access_expression', 'dot_index_expression', 'navigation_expression']);
 const RECEIVER_FIELDS = ['object', 'operand', 'value', 'expression', 'argument', 'table', 'target'];
@@ -446,7 +449,7 @@ export function mutantsOf({ source, language, line, end_line }) {
         }
       }
       // A list or an object emptied, and an empty list filled, where the language lets an empty one stand on its own.
-      if (node.type in collections && !isReturn(node.parent)) {
+      if (Object.hasOwn(collections, node.type) && !isReturn(node.parent)) {
         const items = node.namedChildren.filter(child => !child.type.includes('comment'));
         // C#'s `new[] { 1, 2 }` and a collection expression take their type from what is in them; `new int[] { 1, 2 }` does not.
         const untyped = node.type === 'initializer_expression' && node.parent?.type !== 'array_creation_expression';
