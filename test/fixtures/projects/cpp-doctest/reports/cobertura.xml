@@ -1,0 +1,1067 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!DOCTYPE coverage SYSTEM 'http://cobertura.sourceforge.net/xml/coverage-04.dtd'>
+<coverage line-rate="0.8505154639175257" branch-rate="0.507177033492823" lines-covered="165" lines-valid="194" branches-covered="106" branches-valid="209" complexity="0.0" timestamp="1790880040" version="gcovr 8.6">
+  <sources>
+    <source>.</source>
+  </sources>
+  <packages>
+    <package name="include.throttle" line-rate="0.9215686274509803" branch-rate="0.38" complexity="0.0">
+      <classes>
+        <class name="clock_hpp" filename="include/throttle/clock.hpp" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+          <methods>
+            <method name="throttle::Clock::Clock" signature="()" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="throttle::Clock::~Clock" signature="()" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="12" hits="11" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::ManualClock::~ManualClock" signature="()" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="throttle::ManualClock::ManualClock" signature="(std::__1::chrono::duration&lt;long long, std::__1::ratio&lt;1l, 1000l&gt;&gt;)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="25" hits="22" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::ManualClock::now" signature="() const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="27" hits="195" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::ManualClock::advance" signature="(std::__1::chrono::duration&lt;long long, std::__1::ratio&lt;1l, 1000l&gt;&gt;)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="29" hits="4" branch="false"/>
+                <line number="30" hits="4" branch="false"/>
+                <line number="31" hits="4" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="12" hits="11" branch="false"/>
+            <line number="25" hits="22" branch="false"/>
+            <line number="27" hits="195" branch="false"/>
+            <line number="29" hits="4" branch="false"/>
+            <line number="30" hits="4" branch="false"/>
+            <line number="31" hits="4" branch="false"/>
+          </lines>
+        </class>
+        <class name="duration_hpp" filename="include/throttle/duration.hpp" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+          <methods/>
+          <lines/>
+        </class>
+        <class name="limiter_hpp" filename="include/throttle/limiter.hpp" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+          <methods>
+            <method name="throttle::LimiterConfig::LimiterConfig" signature="()" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="13" hits="4" branch="false"/>
+                <line number="14" hits="4" branch="false"/>
+                <line number="15" hits="4" branch="false"/>
+                <line number="16" hits="4" branch="false"/>
+                <line number="17" hits="4" branch="false"/>
+                <line number="18" hits="4" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::Limiter::~Limiter" signature="()" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="throttle::Limiter::tracked" signature="() const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="27" hits="1" branch="false"/>
+              </lines>
+            </method>
+            <method name="&lt;unknown function 36&gt;" signature="" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="36" hits="4" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="13" hits="4" branch="false"/>
+            <line number="14" hits="4" branch="false"/>
+            <line number="15" hits="4" branch="false"/>
+            <line number="16" hits="4" branch="false"/>
+            <line number="17" hits="4" branch="false"/>
+            <line number="18" hits="4" branch="false"/>
+            <line number="27" hits="1" branch="false"/>
+            <line number="36" hits="4" branch="false"/>
+          </lines>
+        </class>
+        <class name="lru_cache_hpp" filename="include/throttle/lru_cache.hpp" line-rate="0.8918918918918919" branch-rate="0.38" complexity="0.0">
+          <methods>
+            <method name="throttle::LruCache&lt;int, int&gt;::~LruCache" signature="()" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="throttle::LruCache&lt;std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;, int&gt;::~LruCache" signature="()" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="throttle::LruCache&lt;std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;, throttle::TokenBucket&gt;::~LruCache" signature="()" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="throttle::LruCache&lt;int, int&gt;::LruCache" signature="(unsigned long)" line-rate="1.0" branch-rate="0.4166666666666667" complexity="0.0">
+              <lines>
+                <line number="15" hits="6" branch="false"/>
+                <line number="16" hits="3" branch="true" condition-coverage="75% (3/4)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="75%"/>
+                  </conditions>
+                </line>
+                <line number="17" hits="1" branch="true" condition-coverage="25% (2/8)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="25%"/>
+                  </conditions>
+                </line>
+                <line number="19" hits="6" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::LruCache&lt;std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;, int&gt;::LruCache" signature="(unsigned long)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="throttle::LruCache&lt;std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;, throttle::TokenBucket&gt;::LruCache" signature="(unsigned long)" line-rate="0.75" branch-rate="0.16666666666666666" complexity="0.0">
+              <lines>
+                <line number="15" hits="8" branch="false"/>
+                <line number="16" hits="4" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="17" hits="0" branch="true" condition-coverage="0% (0/4)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="0%"/>
+                  </conditions>
+                </line>
+                <line number="19" hits="8" branch="false"/>
+              </lines>
+            </method>
+            <method name="int&amp; throttle::LruCache&lt;int, int&gt;::get_or_create&lt;DOCTEST_ANON_FUNC_3()::$_0&gt;" signature="(int const&amp;, DOCTEST_ANON_FUNC_3()::$_0)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="int&amp; throttle::LruCache&lt;int, int&gt;::get_or_create&lt;DOCTEST_ANON_FUNC_3()::$_1&gt;" signature="(int const&amp;, DOCTEST_ANON_FUNC_3()::$_1)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="int&amp; throttle::LruCache&lt;int, int&gt;::get_or_create&lt;DOCTEST_ANON_FUNC_7()::$_0&gt;" signature="(int const&amp;, DOCTEST_ANON_FUNC_7()::$_0)" line-rate="1.0" branch-rate="0.35714285714285715" complexity="0.0">
+              <lines>
+                <line number="23" hits="6" branch="false"/>
+                <line number="24" hits="6" branch="false"/>
+                <line number="25" hits="6" branch="true" condition-coverage="42% (6/14)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="42%"/>
+                  </conditions>
+                </line>
+                <line number="26" hits="2" branch="false"/>
+                <line number="27" hits="2" branch="false"/>
+                <line number="29" hits="4" branch="true" condition-coverage="28% (4/14)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="28%"/>
+                  </conditions>
+                </line>
+                <line number="30" hits="1" branch="false"/>
+                <line number="31" hits="1" branch="false"/>
+                <line number="32" hits="1" branch="false"/>
+                <line number="33" hits="4" branch="false"/>
+                <line number="34" hits="4" branch="false"/>
+                <line number="35" hits="4" branch="false"/>
+                <line number="36" hits="6" branch="false"/>
+              </lines>
+            </method>
+            <method name="int&amp; throttle::LruCache&lt;std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;, int&gt;::get_or_create&lt;DOCTEST_ANON_FUNC_1()::$_0&gt;" signature="(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt; const&amp;, DOCTEST_ANON_FUNC_1()::$_0)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="int&amp; throttle::LruCache&lt;std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;, int&gt;::get_or_create&lt;DOCTEST_ANON_FUNC_1()::$_1&gt;" signature="(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt; const&amp;, DOCTEST_ANON_FUNC_1()::$_1)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="int&amp; throttle::LruCache&lt;std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;, int&gt;::get_or_create&lt;DOCTEST_ANON_FUNC_1()::$_2&gt;" signature="(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt; const&amp;, DOCTEST_ANON_FUNC_1()::$_2)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="int&amp; throttle::LruCache&lt;std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;, int&gt;::get_or_create&lt;DOCTEST_ANON_FUNC_1()::$_3&gt;" signature="(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt; const&amp;, DOCTEST_ANON_FUNC_1()::$_3)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="throttle::TokenBucket&amp; throttle::LruCache&lt;std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;, throttle::TokenBucket&gt;::get_or_create&lt;throttle::Limiter::admit(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt; const&amp;)::$_0&gt;" signature="(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt; const&amp;, throttle::Limiter::admit(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt; const&amp;)::$_0)" line-rate="0.7692307692307693" branch-rate="0.75" complexity="0.0">
+              <lines>
+                <line number="23" hits="168" branch="false"/>
+                <line number="24" hits="168" branch="false"/>
+                <line number="25" hits="168" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="26" hits="164" branch="false"/>
+                <line number="27" hits="164" branch="false"/>
+                <line number="29" hits="4" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="30" hits="0" branch="false"/>
+                <line number="31" hits="0" branch="false"/>
+                <line number="32" hits="0" branch="false"/>
+                <line number="33" hits="4" branch="false"/>
+                <line number="34" hits="4" branch="false"/>
+                <line number="35" hits="4" branch="false"/>
+                <line number="36" hits="168" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::LruCache&lt;std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;, int&gt;::contains" signature="(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt; const&amp;) const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="38" hits="2" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::LruCache&lt;int, int&gt;::size" signature="() const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="39" hits="1" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::LruCache&lt;std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;, int&gt;::size" signature="() const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines/>
+            </method>
+            <method name="throttle::LruCache&lt;std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt;, throttle::TokenBucket&gt;::size" signature="() const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="39" hits="1" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="15" hits="6" branch="false"/>
+            <line number="15" hits="8" branch="false"/>
+            <line number="16" hits="3" branch="true" condition-coverage="75% (3/4)">
+              <conditions>
+                <condition number="0" type="jump" coverage="75%"/>
+              </conditions>
+            </line>
+            <line number="16" hits="4" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="17" hits="1" branch="true" condition-coverage="25% (2/8)">
+              <conditions>
+                <condition number="0" type="jump" coverage="25%"/>
+              </conditions>
+            </line>
+            <line number="17" hits="0" branch="true" condition-coverage="0% (0/4)">
+              <conditions>
+                <condition number="0" type="jump" coverage="0%"/>
+              </conditions>
+            </line>
+            <line number="19" hits="6" branch="false"/>
+            <line number="19" hits="8" branch="false"/>
+            <line number="23" hits="6" branch="false"/>
+            <line number="23" hits="168" branch="false"/>
+            <line number="24" hits="6" branch="false"/>
+            <line number="24" hits="168" branch="false"/>
+            <line number="25" hits="6" branch="true" condition-coverage="42% (6/14)">
+              <conditions>
+                <condition number="0" type="jump" coverage="42%"/>
+              </conditions>
+            </line>
+            <line number="25" hits="168" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="26" hits="2" branch="false"/>
+            <line number="26" hits="164" branch="false"/>
+            <line number="27" hits="2" branch="false"/>
+            <line number="27" hits="164" branch="false"/>
+            <line number="29" hits="4" branch="true" condition-coverage="28% (4/14)">
+              <conditions>
+                <condition number="0" type="jump" coverage="28%"/>
+              </conditions>
+            </line>
+            <line number="29" hits="4" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="30" hits="1" branch="false"/>
+            <line number="30" hits="0" branch="false"/>
+            <line number="31" hits="1" branch="false"/>
+            <line number="31" hits="0" branch="false"/>
+            <line number="32" hits="1" branch="false"/>
+            <line number="32" hits="0" branch="false"/>
+            <line number="33" hits="4" branch="false"/>
+            <line number="33" hits="4" branch="false"/>
+            <line number="34" hits="4" branch="false"/>
+            <line number="34" hits="4" branch="false"/>
+            <line number="35" hits="4" branch="false"/>
+            <line number="35" hits="4" branch="false"/>
+            <line number="36" hits="6" branch="false"/>
+            <line number="36" hits="168" branch="false"/>
+            <line number="38" hits="2" branch="false"/>
+            <line number="39" hits="1" branch="false"/>
+            <line number="39" hits="1" branch="false"/>
+          </lines>
+        </class>
+        <class name="window_hpp" filename="include/throttle/window.hpp" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+          <methods/>
+          <lines/>
+        </class>
+      </classes>
+    </package>
+    <package name="src" line-rate="0.8251748251748252" branch-rate="0.5471698113207547" complexity="0.0">
+      <classes>
+        <class name="clock_cpp" filename="src/clock.cpp" line-rate="0.0" branch-rate="1.0" complexity="0.0">
+          <methods>
+            <method name="throttle::SteadyClock::now" signature="() const" line-rate="0.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="5" hits="0" branch="false"/>
+                <line number="6" hits="0" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="5" hits="0" branch="false"/>
+            <line number="6" hits="0" branch="false"/>
+          </lines>
+        </class>
+        <class name="duration_cpp" filename="src/duration.cpp" line-rate="1.0" branch-rate="0.7105263157894737" complexity="0.0">
+          <methods>
+            <method name="throttle::(anonymous namespace)::unit_millis" signature="(std::__1::basic_string_view&lt;char, std::__1::char_traits&lt;char&gt;&gt;)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="10" hits="20" branch="false"/>
+                <line number="11" hits="20" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="12" hits="17" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="13" hits="10" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="14" hits="5" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="15" hits="2" branch="false"/>
+                <line number="16" hits="20" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::parse_duration" signature="(std::__1::basic_string_view&lt;char, std::__1::char_traits&lt;char&gt;&gt;)" line-rate="1.0" branch-rate="0.6666666666666666" complexity="0.0">
+              <lines>
+                <line number="20" hits="13" branch="false"/>
+                <line number="21" hits="13" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="22" hits="6" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="24" hits="12" branch="false"/>
+                <line number="25" hits="12" branch="false"/>
+                <line number="26" hits="12" branch="false"/>
+                <line number="27" hits="28" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="28" hits="21" branch="false"/>
+                <line number="29" hits="21" branch="false"/>
+                <line number="30" hits="50" branch="true" condition-coverage="83% (5/6)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="83%"/>
+                  </conditions>
+                </line>
+                <line number="31" hits="29" branch="false"/>
+                <line number="32" hits="29" branch="false"/>
+                <line number="34" hits="21" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="35" hits="1" branch="true" condition-coverage="50% (5/10)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="37" hits="20" branch="false"/>
+                <line number="38" hits="62" branch="true" condition-coverage="83% (5/6)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="83%"/>
+                  </conditions>
+                </line>
+                <line number="39" hits="20" branch="false"/>
+                <line number="40" hits="20" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="41" hits="2" branch="true" condition-coverage="50% (6/12)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="43" hits="18" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="44" hits="2" branch="true" condition-coverage="50% (4/8)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="46" hits="16" branch="false"/>
+                <line number="47" hits="16" branch="false"/>
+                <line number="49" hits="7" branch="false"/>
+                <line number="50" hits="5" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::format_duration" signature="(std::__1::chrono::duration&lt;long long, std::__1::ratio&lt;1l, 1000l&gt;&gt;)" line-rate="1.0" branch-rate="0.7142857142857143" complexity="0.0">
+              <lines>
+                <line number="52" hits="5" branch="false"/>
+                <line number="53" hits="5" branch="false"/>
+                <line number="54" hits="5" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="55" hits="1" branch="false"/>
+                <line number="57" hits="4" branch="false"/>
+                <line number="58" hits="20" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="59" hits="16" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="60" hits="9" branch="true" condition-coverage="50% (3/6)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="61" hits="9" branch="false"/>
+                <line number="62" hits="9" branch="false"/>
+                <line number="64" hits="4" branch="false"/>
+                <line number="65" hits="9" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="10" hits="20" branch="false"/>
+            <line number="11" hits="20" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="12" hits="17" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="13" hits="10" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="14" hits="5" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="15" hits="2" branch="false"/>
+            <line number="16" hits="20" branch="false"/>
+            <line number="20" hits="13" branch="false"/>
+            <line number="21" hits="13" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="22" hits="6" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="24" hits="12" branch="false"/>
+            <line number="25" hits="12" branch="false"/>
+            <line number="26" hits="12" branch="false"/>
+            <line number="27" hits="28" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="28" hits="21" branch="false"/>
+            <line number="29" hits="21" branch="false"/>
+            <line number="30" hits="50" branch="true" condition-coverage="83% (5/6)">
+              <conditions>
+                <condition number="0" type="jump" coverage="83%"/>
+              </conditions>
+            </line>
+            <line number="31" hits="29" branch="false"/>
+            <line number="32" hits="29" branch="false"/>
+            <line number="34" hits="21" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="35" hits="1" branch="true" condition-coverage="50% (5/10)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="37" hits="20" branch="false"/>
+            <line number="38" hits="62" branch="true" condition-coverage="83% (5/6)">
+              <conditions>
+                <condition number="0" type="jump" coverage="83%"/>
+              </conditions>
+            </line>
+            <line number="39" hits="20" branch="false"/>
+            <line number="40" hits="20" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="41" hits="2" branch="true" condition-coverage="50% (6/12)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="43" hits="18" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="44" hits="2" branch="true" condition-coverage="50% (4/8)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="46" hits="16" branch="false"/>
+            <line number="47" hits="16" branch="false"/>
+            <line number="49" hits="7" branch="false"/>
+            <line number="50" hits="5" branch="false"/>
+            <line number="52" hits="5" branch="false"/>
+            <line number="53" hits="5" branch="false"/>
+            <line number="54" hits="5" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="55" hits="1" branch="false"/>
+            <line number="57" hits="4" branch="false"/>
+            <line number="58" hits="20" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="59" hits="16" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="60" hits="9" branch="true" condition-coverage="50% (3/6)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="61" hits="9" branch="false"/>
+            <line number="62" hits="9" branch="false"/>
+            <line number="64" hits="4" branch="false"/>
+            <line number="65" hits="9" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+          </lines>
+        </class>
+        <class name="limiter_cpp" filename="src/limiter.cpp" line-rate="1.0" branch-rate="0.8333333333333334" complexity="0.0">
+          <methods>
+            <method name="throttle::Limiter::Limiter" signature="(throttle::LimiterConfig, throttle::Clock const&amp;)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="8" hits="8" branch="false"/>
+                <line number="9" hits="12" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::Limiter::admit" signature="(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt; const&amp;)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="11" hits="168" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::Limiter::admit(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt; const&amp;)::$_0::operator()" signature="() const" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="12" hits="172" branch="false"/>
+                <line number="13" hits="168" branch="false"/>
+                <line number="14" hits="168" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="15" hits="2" branch="false"/>
+                <line number="16" hits="2" branch="false"/>
+                <line number="17" hits="168" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::Limiter::dequeue" signature="()" line-rate="1.0" branch-rate="0.75" complexity="0.0">
+              <lines>
+                <line number="20" hits="2" branch="false"/>
+                <line number="21" hits="2" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="22" hits="1" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="24" hits="1" branch="false"/>
+                <line number="25" hits="1" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="8" hits="8" branch="false"/>
+            <line number="9" hits="12" branch="false"/>
+            <line number="11" hits="168" branch="false"/>
+            <line number="12" hits="172" branch="false"/>
+            <line number="13" hits="168" branch="false"/>
+            <line number="14" hits="168" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="15" hits="2" branch="false"/>
+            <line number="16" hits="2" branch="false"/>
+            <line number="17" hits="168" branch="false"/>
+            <line number="20" hits="2" branch="false"/>
+            <line number="21" hits="2" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="22" hits="1" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="24" hits="1" branch="false"/>
+            <line number="25" hits="1" branch="false"/>
+          </lines>
+        </class>
+        <class name="metrics_cpp" filename="src/metrics.cpp" line-rate="0.0" branch-rate="0.0" complexity="0.0">
+          <methods>
+            <method name="throttle::Metrics::count" signature="(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt; const&amp;, throttle::Decision)" line-rate="0.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="7" hits="0" branch="false"/>
+                <line number="8" hits="0" branch="false"/>
+                <line number="9" hits="0" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::Metrics::total" signature="(std::__1::basic_string&lt;char, std::__1::char_traits&lt;char&gt;, std::__1::allocator&lt;char&gt;&gt; const&amp;) const" line-rate="0.0" branch-rate="0.0" complexity="0.0">
+              <lines>
+                <line number="11" hits="0" branch="false"/>
+                <line number="12" hits="0" branch="false"/>
+                <line number="13" hits="0" branch="true" condition-coverage="0% (0/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="0%"/>
+                  </conditions>
+                </line>
+                <line number="14" hits="0" branch="false"/>
+                <line number="16" hits="0" branch="false"/>
+                <line number="17" hits="0" branch="true" condition-coverage="0% (0/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="0%"/>
+                  </conditions>
+                </line>
+                <line number="18" hits="0" branch="false"/>
+                <line number="19" hits="0" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::Metrics::render" signature="() const" line-rate="0.0" branch-rate="0.0" complexity="0.0">
+              <lines>
+                <line number="21" hits="0" branch="false"/>
+                <line number="22" hits="0" branch="false"/>
+                <line number="23" hits="0" branch="true" condition-coverage="0% (0/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="0%"/>
+                  </conditions>
+                </line>
+                <line number="24" hits="0" branch="true" condition-coverage="0% (0/8)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="0%"/>
+                  </conditions>
+                </line>
+                <line number="25" hits="0" branch="true" condition-coverage="0% (0/8)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="0%"/>
+                  </conditions>
+                </line>
+                <line number="26" hits="0" branch="true" condition-coverage="0% (0/16)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="0%"/>
+                  </conditions>
+                </line>
+                <line number="29" hits="0" branch="true" condition-coverage="0% (0/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="0%"/>
+                  </conditions>
+                </line>
+                <line number="30" hits="0" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="7" hits="0" branch="false"/>
+            <line number="8" hits="0" branch="false"/>
+            <line number="9" hits="0" branch="false"/>
+            <line number="11" hits="0" branch="false"/>
+            <line number="12" hits="0" branch="false"/>
+            <line number="13" hits="0" branch="true" condition-coverage="0% (0/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="0%"/>
+              </conditions>
+            </line>
+            <line number="14" hits="0" branch="false"/>
+            <line number="16" hits="0" branch="false"/>
+            <line number="17" hits="0" branch="true" condition-coverage="0% (0/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="0%"/>
+              </conditions>
+            </line>
+            <line number="18" hits="0" branch="false"/>
+            <line number="19" hits="0" branch="false"/>
+            <line number="21" hits="0" branch="false"/>
+            <line number="22" hits="0" branch="false"/>
+            <line number="23" hits="0" branch="true" condition-coverage="0% (0/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="0%"/>
+              </conditions>
+            </line>
+            <line number="24" hits="0" branch="true" condition-coverage="0% (0/8)">
+              <conditions>
+                <condition number="0" type="jump" coverage="0%"/>
+              </conditions>
+            </line>
+            <line number="25" hits="0" branch="true" condition-coverage="0% (0/8)">
+              <conditions>
+                <condition number="0" type="jump" coverage="0%"/>
+              </conditions>
+            </line>
+            <line number="26" hits="0" branch="true" condition-coverage="0% (0/16)">
+              <conditions>
+                <condition number="0" type="jump" coverage="0%"/>
+              </conditions>
+            </line>
+            <line number="29" hits="0" branch="true" condition-coverage="0% (0/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="0%"/>
+              </conditions>
+            </line>
+            <line number="30" hits="0" branch="false"/>
+          </lines>
+        </class>
+        <class name="policy_cpp" filename="src/policy.cpp" line-rate="0.7647058823529411" branch-rate="0.6363636363636364" complexity="0.0">
+          <methods>
+            <method name="throttle::decide" signature="(throttle::Strategy, bool, unsigned long, unsigned long)" line-rate="0.8888888888888888" branch-rate="0.8333333333333334" complexity="0.0">
+              <lines>
+                <line number="5" hits="174" branch="false"/>
+                <line number="6" hits="174" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="7" hits="164" branch="false"/>
+                <line number="9" hits="10" branch="true" condition-coverage="75% (3/4)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="75%"/>
+                  </conditions>
+                </line>
+                <line number="11" hits="3" branch="false"/>
+                <line number="13" hits="6" branch="false"/>
+                <line number="15" hits="1" branch="false"/>
+                <line number="17" hits="0" branch="false"/>
+                <line number="18" hits="174" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::decision_name" signature="(throttle::Decision)" line-rate="0.625" branch-rate="0.4" complexity="0.0">
+              <lines>
+                <line number="20" hits="2" branch="false"/>
+                <line number="21" hits="2" branch="true" condition-coverage="40% (2/5)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="40%"/>
+                  </conditions>
+                </line>
+                <line number="23" hits="1" branch="false"/>
+                <line number="25" hits="0" branch="false"/>
+                <line number="27" hits="0" branch="false"/>
+                <line number="29" hits="1" branch="false"/>
+                <line number="31" hits="0" branch="false"/>
+                <line number="32" hits="2" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="5" hits="174" branch="false"/>
+            <line number="6" hits="174" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="7" hits="164" branch="false"/>
+            <line number="9" hits="10" branch="true" condition-coverage="75% (3/4)">
+              <conditions>
+                <condition number="0" type="jump" coverage="75%"/>
+              </conditions>
+            </line>
+            <line number="11" hits="3" branch="false"/>
+            <line number="13" hits="6" branch="false"/>
+            <line number="15" hits="1" branch="false"/>
+            <line number="17" hits="0" branch="false"/>
+            <line number="18" hits="174" branch="false"/>
+            <line number="20" hits="2" branch="false"/>
+            <line number="21" hits="2" branch="true" condition-coverage="40% (2/5)">
+              <conditions>
+                <condition number="0" type="jump" coverage="40%"/>
+              </conditions>
+            </line>
+            <line number="23" hits="1" branch="false"/>
+            <line number="25" hits="0" branch="false"/>
+            <line number="27" hits="0" branch="false"/>
+            <line number="29" hits="1" branch="false"/>
+            <line number="31" hits="0" branch="false"/>
+            <line number="32" hits="2" branch="false"/>
+          </lines>
+        </class>
+        <class name="token_bucket_cpp" filename="src/token_bucket.cpp" line-rate="1.0" branch-rate="0.8333333333333334" complexity="0.0">
+          <methods>
+            <method name="throttle::TokenBucket::TokenBucket" signature="(double, double, throttle::Clock const&amp;)" line-rate="1.0" branch-rate="0.75" complexity="0.0">
+              <lines>
+                <line number="9" hits="25" branch="false"/>
+                <line number="10" hits="25" branch="false"/>
+                <line number="11" hits="13" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="12" hits="2" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="14" hits="23" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::TokenBucket::refill" signature="()" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="16" hits="183" branch="false"/>
+                <line number="17" hits="183" branch="false"/>
+                <line number="18" hits="183" branch="false"/>
+                <line number="19" hits="183" branch="false"/>
+                <line number="20" hits="183" branch="false"/>
+                <line number="21" hits="183" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::TokenBucket::try_acquire" signature="(double)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="23" hits="178" branch="false"/>
+                <line number="24" hits="178" branch="false"/>
+                <line number="25" hits="178" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="26" hits="6" branch="false"/>
+                <line number="28" hits="172" branch="false"/>
+                <line number="29" hits="172" branch="false"/>
+                <line number="30" hits="178" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::TokenBucket::available" signature="()" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="32" hits="2" branch="false"/>
+                <line number="33" hits="2" branch="false"/>
+                <line number="34" hits="2" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::TokenBucket::time_until" signature="(double)" line-rate="1.0" branch-rate="0.8333333333333334" complexity="0.0">
+              <lines>
+                <line number="37" hits="3" branch="false"/>
+                <line number="38" hits="3" branch="false"/>
+                <line number="39" hits="3" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="40" hits="1" branch="true" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="42" hits="2" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="43" hits="1" branch="false"/>
+                <line number="45" hits="1" branch="false"/>
+                <line number="46" hits="2" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="9" hits="25" branch="false"/>
+            <line number="10" hits="25" branch="false"/>
+            <line number="11" hits="13" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="12" hits="2" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="14" hits="23" branch="false"/>
+            <line number="16" hits="183" branch="false"/>
+            <line number="17" hits="183" branch="false"/>
+            <line number="18" hits="183" branch="false"/>
+            <line number="19" hits="183" branch="false"/>
+            <line number="20" hits="183" branch="false"/>
+            <line number="21" hits="183" branch="false"/>
+            <line number="23" hits="178" branch="false"/>
+            <line number="24" hits="178" branch="false"/>
+            <line number="25" hits="178" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="26" hits="6" branch="false"/>
+            <line number="28" hits="172" branch="false"/>
+            <line number="29" hits="172" branch="false"/>
+            <line number="30" hits="178" branch="false"/>
+            <line number="32" hits="2" branch="false"/>
+            <line number="33" hits="2" branch="false"/>
+            <line number="34" hits="2" branch="false"/>
+            <line number="37" hits="3" branch="false"/>
+            <line number="38" hits="3" branch="false"/>
+            <line number="39" hits="3" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="40" hits="1" branch="true" condition-coverage="50% (1/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="42" hits="2" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="43" hits="1" branch="false"/>
+            <line number="45" hits="1" branch="false"/>
+            <line number="46" hits="2" branch="false"/>
+          </lines>
+        </class>
+        <class name="window_cpp" filename="src/window.cpp" line-rate="1.0" branch-rate="0.7857142857142857" complexity="0.0">
+          <methods>
+            <method name="throttle::SlidingWindow::SlidingWindow" signature="(unsigned long, std::__1::chrono::duration&lt;long long, std::__1::ratio&lt;1l, 1000l&gt;&gt;)" line-rate="1.0" branch-rate="0.625" complexity="0.0">
+              <lines>
+                <line number="7" hits="11" branch="false"/>
+                <line number="8" hits="6" branch="true" condition-coverage="75% (3/4)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="75%"/>
+                  </conditions>
+                </line>
+                <line number="9" hits="2" branch="true" condition-coverage="50% (2/4)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="50%"/>
+                  </conditions>
+                </line>
+                <line number="11" hits="11" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::SlidingWindow::expire" signature="(std::__1::chrono::duration&lt;long long, std::__1::ratio&lt;1l, 1000l&gt;&gt;)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="13" hits="10" branch="false"/>
+                <line number="14" hits="12" branch="true" condition-coverage="100% (4/4)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="15" hits="2" branch="false"/>
+                <line number="17" hits="10" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::SlidingWindow::admit" signature="(std::__1::chrono::duration&lt;long long, std::__1::ratio&lt;1l, 1000l&gt;&gt;)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="19" hits="8" branch="false"/>
+                <line number="20" hits="8" branch="false"/>
+                <line number="21" hits="8" branch="true" condition-coverage="100% (2/2)">
+                  <conditions>
+                    <condition number="0" type="jump" coverage="100%"/>
+                  </conditions>
+                </line>
+                <line number="22" hits="2" branch="false"/>
+                <line number="24" hits="6" branch="false"/>
+                <line number="25" hits="6" branch="false"/>
+                <line number="26" hits="8" branch="false"/>
+              </lines>
+            </method>
+            <method name="throttle::SlidingWindow::count" signature="(std::__1::chrono::duration&lt;long long, std::__1::ratio&lt;1l, 1000l&gt;&gt;)" line-rate="1.0" branch-rate="1.0" complexity="0.0">
+              <lines>
+                <line number="28" hits="2" branch="false"/>
+                <line number="29" hits="2" branch="false"/>
+                <line number="30" hits="2" branch="false"/>
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="7" hits="11" branch="false"/>
+            <line number="8" hits="6" branch="true" condition-coverage="75% (3/4)">
+              <conditions>
+                <condition number="0" type="jump" coverage="75%"/>
+              </conditions>
+            </line>
+            <line number="9" hits="2" branch="true" condition-coverage="50% (2/4)">
+              <conditions>
+                <condition number="0" type="jump" coverage="50%"/>
+              </conditions>
+            </line>
+            <line number="11" hits="11" branch="false"/>
+            <line number="13" hits="10" branch="false"/>
+            <line number="14" hits="12" branch="true" condition-coverage="100% (4/4)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="15" hits="2" branch="false"/>
+            <line number="17" hits="10" branch="false"/>
+            <line number="19" hits="8" branch="false"/>
+            <line number="20" hits="8" branch="false"/>
+            <line number="21" hits="8" branch="true" condition-coverage="100% (2/2)">
+              <conditions>
+                <condition number="0" type="jump" coverage="100%"/>
+              </conditions>
+            </line>
+            <line number="22" hits="2" branch="false"/>
+            <line number="24" hits="6" branch="false"/>
+            <line number="25" hits="6" branch="false"/>
+            <line number="26" hits="8" branch="false"/>
+            <line number="28" hits="2" branch="false"/>
+            <line number="29" hits="2" branch="false"/>
+            <line number="30" hits="2" branch="false"/>
+          </lines>
+        </class>
+      </classes>
+    </package>
+  </packages>
+</coverage>

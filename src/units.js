@@ -7,6 +7,7 @@
  */
 import { readdir, readFile } from 'node:fs/promises';
 import { join, sep } from 'node:path';
+import { parse as parseYaml } from 'yaml';
 import { git, listTree } from './git.js';
 import { createFileSelector } from './exclusions.js';
 import { sourceChunks } from './chunks.js';
@@ -55,6 +56,36 @@ export async function readScanTypes(root, revision) {
   const text = await readFile(join(root, RULES_FILE), 'utf8')
     .catch(() => git(['show', `${revision}:${RULES_FILE}`], root).catch(() => null));
   return text === null ? null : parseScanTypes(text, RULES_FILE);
+}
+
+/** The report kinds `coverage_reports` in perch.yaml may list, as `perch coverage` takes them by flag. */
+export const COVERAGE_REPORT_KINDS = ['junit', 'lcov', 'cobertura', 'jacoco', 'contexts'];
+
+/**
+ * `coverage_reports` from perch.yaml: the files CI's test run writes, repository-relative, by kind. A path may be a glob. Null when the file says
+ * nothing about them. A key that is not a report kind, or a list that is not of paths, is a mistake in the file and says so,
+ * since a misspelt kind would otherwise read no report and never mention it.
+ */
+export function parseCoverageReports(text, at) {
+  const doc = text.trim() ? parseYaml(text) : null;
+  if (!doc || Array.isArray(doc) || typeof doc !== 'object' || doc.coverage_reports === undefined) return null;
+  const reports = doc.coverage_reports;
+  if (!reports || typeof reports !== 'object' || Array.isArray(reports)) throw new Error(`${at}: coverage_reports is a map of ${COVERAGE_REPORT_KINDS.join(', ')} to lists of paths`);
+  const read = {};
+  for (const [kind, list] of Object.entries(reports)) {
+    if (!COVERAGE_REPORT_KINDS.includes(kind)) throw new Error(`${at}: coverage_reports has ${kind}, which is not one of ${COVERAGE_REPORT_KINDS.join(', ')}`);
+    if (list === null) { read[kind] = []; continue; }
+    if (!Array.isArray(list) || list.some(path => typeof path !== 'string' || !path.trim())) throw new Error(`${at}: coverage_reports.${kind} is a list of repository paths`);
+    read[kind] = list.map(path => path.trim());
+  }
+  return read;
+}
+
+/** `coverage_reports` from the rule file, or null when it lists none. */
+export async function readCoverageReports(root, revision) {
+  const text = await readFile(join(root, RULES_FILE), 'utf8')
+    .catch(() => git(['show', `${revision}:${RULES_FILE}`], root).catch(() => null));
+  return text === null ? null : parseCoverageReports(text, RULES_FILE);
 }
 
 export async function readRuleFiles(root, revision) {

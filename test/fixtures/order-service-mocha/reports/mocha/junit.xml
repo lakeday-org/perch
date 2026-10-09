@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="Mocha Tests" time="0.031" tests="12" failures="1">
+  <testsuite name="" timestamp="2026-09-29T01:44:33" tests="0" time="0.000" failures="0">
+  </testsuite>
+  <testsuite name="Root Suite &gt; applyDiscount" timestamp="2026-09-29T01:44:33" tests="5" file="test/cart.test.ts" time="0.001" failures="0">
+    <testcase name="takes 10 percent off" time="0.000" classname="applyDiscount">
+    </testcase>
+    <testcase name="takes 20 percent off" time="0.000" classname="applyDiscount">
+    </testcase>
+    <testcase name="takes 25 percent off" time="0.000" classname="applyDiscount">
+    </testcase>
+    <testcase name="takes 50 percent off" time="0.000" classname="applyDiscount">
+    </testcase>
+    <testcase name="takes 75 percent off" time="0.000" classname="applyDiscount">
+    </testcase>
+  </testsuite>
+  <testsuite name="Root Suite &gt; subtotal" timestamp="2026-09-29T01:44:33" tests="2" file="test/cart.test.ts" time="0.028" failures="1">
+    <testcase name="adds up the cart" time="0.000" classname="subtotal">
+    </testcase>
+    <testcase name="matches the total the orders API saved" time="0.020" classname="subtotal">
+      <failure message="Failed to parse URL from undefined/orders/1" type="TypeError"><![CDATA[TypeError: Failed to parse URL from undefined/orders/1
+    at node:internal/deps/undici/undici:16416:13
+    at async Context.<anonymous> (test/cart.test.ts:33:22)]]></failure>
+    </testcase>
+  </testsuite>
+  <testsuite name="Root Suite &gt; placeOrder" timestamp="2026-09-29T01:44:33" tests="1" file="test/checkout.test.ts" time="0.000" failures="0">
+    <testcase name="returns the subtotal when every item is in stock" time="0.000" classname="placeOrder">
+    </testcase>
+  </testsuite>
+  <testsuite name="Root Suite &gt; canFulfil" timestamp="2026-09-29T01:44:33" tests="4" file="test/inventory.test.ts" time="0.001" failures="0">
+    <testcase name="accepts a cart when every item is in stock" time="0.000" classname="canFulfil">
+    </testcase>
+    <testcase name="rejects an empty cart" time="0.000" classname="canFulfil">
+    </testcase>
+    <testcase name="accepts a quantity equal to the stock level" time="0.000" classname="canFulfil">
+    </testcase>
+    <testcase name="returns what the stub returns" time="0.001" classname="canFulfil">
+    </testcase>
+  </testsuite>
+</testsuites>

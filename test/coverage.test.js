@@ -282,6 +282,68 @@ describe('asking every test that runs a method', () => {
   });
 });
 
+describe('reach measured by the test run', () => {
+  async function measuredRepo() {
+    const root = await mkdtemp(join(tmpdir(), 'perch-measured-'));
+    cleanups.push(root);
+    await mkdir(join(root, 'shop'));
+    await mkdir(join(root, 'tests'));
+    await mkdir(join(root, 'reports'));
+    await writeFile(join(root, 'shop', 'calc.py'), 'def add(a, b):\n    if a > 100:\n        return 0\n    return a + b\n\n\ndef sub(a, b):\n    return a - b\n');
+    await writeFile(join(root, 'tests', 'test_calc.py'), 'from shop.calc import add, sub\n\n\ndef test_small():\n    assert add(1, 1) == 2\n\n\ndef test_large():\n    assert add(200, 1) == 0\n\n\ndef test_never():\n    if False:\n        sub(1, 1)\n');
+    await initRepo(root);
+    // What pytest-cov writes with --cov-context=test and `coverage json --show-contexts`: each line, and the tests that ran it.
+    // test_small ran lines 2 and 4, test_large lines 2 and 3; sub's line 8 never ran; the def lines ran at import, under no test.
+    const ran = name => `tests/test_calc.py::${name}|run`;
+    const report = { meta: { format: 3, version: '7.6.1', timestamp: '2026-10-09T00:00:00', branch_coverage: false, show_contexts: true },
+      files: { 'shop/calc.py': { executed_lines: [1, 2, 3, 4, 7], missing_lines: [8], excluded_lines: [],
+        contexts: { 1: [''], 2: [ran('test_small'), ran('test_large')], 3: [ran('test_large')], 4: [ran('test_small')], 7: [''] } } } };
+    await writeFile(join(root, 'reports', 'coverage.json'), JSON.stringify(report));
+    return { root, revision: await revision(root), out: join(root, '.perch'), report: join(root, 'reports', 'coverage.json') };
+  }
+
+  it('asks a mutant only of the tests that ran its line, and calls a line no test ran no coverage', async () => {
+    const repo = await measuredRepo();
+    const systemOne = scripted({ methods: { add: { matters: 0.9, kill: 0.9 } } });
+    const report = await run(repo, systemOne, { reportFlags: { contexts: [repo.report] }, cwd: repo.root });
+    const add = report.methods.find(method => method.id === 'shop/calc.py::add'), sub = report.methods.find(method => method.id === 'shop/calc.py::sub');
+    expect(add.measured_by).toBe('test');
+    const asked = line => add.mutants.filter(mutant => mutant.line === line && !mutant.no_coverage).map(mutant => mutant.asked);
+    // `return 0` on line 3 ran only under test_large, `a + b` on line 4 only under test_small; the condition on line 2 under both.
+    for (const tests of asked(3)) expect(tests).toEqual(['tests/test_calc.py::test_large']);
+    for (const tests of asked(4)) expect(tests).toEqual(['tests/test_calc.py::test_small']);
+    for (const tests of asked(2)) expect([...tests].sort()).toEqual(['tests/test_calc.py::test_large', 'tests/test_calc.py::test_small']);
+    expect(asked(4).length).toBeGreaterThan(0);
+    // The graph reaches sub through test_never, but the run says its body never ran: every mutant of it has no coverage, and no
+    // request was made about it.
+    expect(sub.covered).toBe(false);
+    expect(sub.mutants.length).toBeGreaterThan(0);
+    expect(sub.mutants.every(mutant => mutant.no_coverage && !mutant.asked.length)).toBe(true);
+    expect(systemOne.calls.filter(call => call.name === 'sub')).toEqual([]);
+    expect(report.totals.no_coverage).toBe(sub.mutants.length + add.mutants.filter(mutant => mutant.no_coverage).length);
+    expect(report.measured).toMatchObject({ tools: ['contexts'], files: { test: 1, run: 0, none: 0 }, unmatched_runs: 0, unmatched_paths: 0 });
+
+    // coverage.py's own data file says the same in bitmaps and arcs, and is read the same way.
+    const { DatabaseSync } = await import('node:sqlite');
+    const dbPath = join(repo.root, 'reports', '.coverage');
+    const db = new DatabaseSync(dbPath);
+    db.exec('create table file (id integer primary key, path text); create table context (id integer primary key, context text);'
+      + ' create table line_bits (file_id integer, context_id integer, numbits blob); create table arc (file_id integer, context_id integer, fromno integer, tono integer);');
+    db.prepare('insert into file values (1, ?)').run('shop/calc.py');
+    for (const [id, context] of [[1, ''], [2, 'tests/test_calc.py::test_small|run'], [3, 'tests/test_calc.py::test_large|run']]) db.prepare('insert into context values (?, ?)').run(id, context);
+    // Lines 1 and 7 at import as bits; test_small's lines 2 and 4 as bits; test_large's lines 2 and 3 as arcs, with an exit arc.
+    const bits = lines => { const bytes = new Uint8Array(2); for (const line of lines) bytes[line >> 3] |= 1 << (line & 7); return bytes; };
+    db.prepare('insert into line_bits values (1, 1, ?)').run(bits([1, 7]));
+    db.prepare('insert into line_bits values (1, 2, ?)').run(bits([2, 4]));
+    for (const [from, to] of [[-1, 2], [2, 3], [3, -1]]) db.prepare('insert into arc values (1, 3, ?, ?)').run(from, to);
+    db.close();
+    const again = await run(repo, scripted({ methods: { add: { matters: 0.9, kill: 0.9 } } }), { reportFlags: { contexts: [dbPath] }, cwd: repo.root });
+    const asked2 = line => again.methods.find(method => method.id === 'shop/calc.py::add').mutants.filter(mutant => mutant.line === line && !mutant.no_coverage).map(mutant => mutant.asked);
+    for (const line of [2, 3, 4]) expect(asked2(line)).toEqual(asked(line));
+    expect(again.methods.find(method => method.id === 'shop/calc.py::sub').mutants.every(mutant => mutant.no_coverage)).toBe(true);
+  });
+});
+
 describe('test reach', () => {
   it('walks through a helper in the test file to the code it calls', async () => {
     const root = await mkdtemp(join(tmpdir(), 'perch-helper-'));

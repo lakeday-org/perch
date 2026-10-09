@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="build/order_tests" errors="0" failures="1" tests="11" time="0.000232" timestamp="2026-09-29T01:44:59Z" doctest_version="2.5.3">
+    <testcase classname="test/cart_test.cpp" name="apply_discount takes ten percent off" time="0" status="run"/>
+    <testcase classname="test/cart_test.cpp" name="apply_discount takes twenty percent off" time="0" status="run"/>
+    <testcase classname="test/cart_test.cpp" name="apply_discount takes twenty-five percent off" time="0" status="run"/>
+    <testcase classname="test/cart_test.cpp" name="apply_discount takes fifty percent off" time="0" status="run"/>
+    <testcase classname="test/cart_test.cpp" name="apply_discount takes seventy-five percent off" time="0" status="run"/>
+    <testcase classname="test/cart_test.cpp" name="subtotal adds up the cart" time="0" status="run"/>
+    <testcase classname="test/cart_test.cpp" name="subtotal matches the price service total" time="0.000232" status="run">
+      <failure message="nullptr != nullptr" type="REQUIRE">
+test/cart_test.cpp:36:
+REQUIRE( token != nullptr ) is NOT correct!
+  values: REQUIRE( nullptr != nullptr )
+
+      </failure>
+    </testcase>
+    <testcase classname="test/checkout_test.cpp" name="can_fulfil accepts when every item is in stock" time="0" status="run"/>
+    <testcase classname="test/checkout_test.cpp" name="can_fulfil rejects an empty cart" time="0" status="run"/>
+    <testcase classname="test/checkout_test.cpp" name="can_fulfil accepts a quantity equal to the stock" time="0" status="run"/>
+    <testcase classname="test/checkout_test.cpp" name="can_fulfil returns what the stub returns" time="0" status="run"/>
+    <testcase classname="test/checkout_test.cpp" name="place_order returns the subtotal" time="0" status="run"/>
+  </testsuite>
+</testsuites>

@@ -378,6 +378,20 @@ export function mutantsOf({ source, language, line, end_line }) {
   const lineStarts = [0];
   for (let at = 0; at < bytes.length; at++) if (bytes[at] === 10) lineStarts.push(at + 1);
   const found = [], seen = new Set();
+  /**
+   * The lines a coverage tool records the edit's statements under: each statement's first line. An edit inside a statement is
+   * on the statement around it, a call argument on its fourth line on the call's first; an emptied body or block is on each
+   * statement it held. A test run that executed none of them never ran the edit.
+   */
+  const statementOf = node => {
+    for (let at = node; at; at = at.parent) if (at.parent && STATEMENT_CONTAINERS.has(at.parent.type)) return at;
+    return node;
+  };
+  const statementLines = (kind, node) => {
+    const held = kind === 'body' || kind === 'block' ? node.namedChildren.filter(child => !child.type.includes('comment')) : [];
+    const nodes = held.length ? held : [statementOf(node)];
+    return [...new Set(nodes.map(item => item.startPosition.row + 1))];
+  };
   const add = (kind, node, to) => {
     const row = node.startPosition.row, last = node.endPosition.row;
     if (row + 1 < line || row + 1 > end_line || node.text === to) return;
@@ -388,7 +402,7 @@ export function mutantsOf({ source, language, line, end_line }) {
     const start = lineStarts[row], end = last + 1 < lineStarts.length ? lineStarts[last + 1] - 1 : bytes.length;
     const original = bytes.subarray(start, end).toString('utf8');
     const mutated = Buffer.concat([bytes.subarray(start, node.startIndex), Buffer.from(to), bytes.subarray(node.endIndex, end)]).toString('utf8');
-    found.push({ kind, line: row + 1, column: node.startPosition.column, from: node.text, to, original, mutated });
+    found.push({ kind, line: row + 1, column: node.startPosition.column, from: node.text, to, original, mutated, statements: statementLines(kind, node) });
   };
   const truth = value => (normalized === 'python' ? (value ? 'True' : 'False') : value ? 'true' : 'false');
   // A body emptied: `{}` where braces delimit it, `pass` in Python, nothing where a keyword closes the block. A brace language's
