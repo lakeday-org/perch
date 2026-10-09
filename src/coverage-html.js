@@ -244,7 +244,7 @@ function methodsToTest(report, index, scoped = null) {
     if (!survived.length) continue;
     ranked.push({ method, survived, advice: methodAdvice(survived.map(finding => mutantOf(method, finding)).filter(Boolean)) });
   }
-  return ranked.sort((a, b) => b.survived.length - a.survived.length || a.method.tests.length - b.method.tests.length
+  return ranked.sort((a, b) => b.survived.length - a.survived.length || testsOf(a.method) - testsOf(b.method)
     || a.method.path.localeCompare(b.method.path) || a.method.line - b.method.line);
 }
 
@@ -258,9 +258,12 @@ function mutantBlock(method, finding, index, { at = false } = {}) {
     + `<div class="problem-acts">${acts()}${dismissMark}</div></div>${diffOf(mutantOf(method, finding))}</div>`;
 }
 
+/** The tests asked about a method's mutants: the ones that may run it. A report without the count says how many reach it. */
+const testsOf = method => method.asked_tests ?? method.tests.length;
+
 /** The heads of a table of methods to test, with or without the file column. */
 const methodHeads = () => `<th>Method</th>${th('Mutation score', true, true, 'Mutants the method\'s tests are predicted to kill, of all its mutants.')}${th('Survived', true, false, 'Mutants no test kills.')}`
-  + `${th('Tests', true, false, 'Tests that reach the method through the call graph.')}<th>What to add</th>`;
+  + `${th('Tests', true, false, 'Tests that may run the method: each was asked about its mutants.')}<th>What to add</th>`;
 
 /**
  * One method to add a test to: its name and place, its score, how many mutants survived, how many tests reach it, and the test
@@ -274,7 +277,7 @@ function methodRows(entry, index, { fresh = new Set() } = {}) {
   const score = ratio(method.killed, method.mutants.length);
   return `<tr class="method" data-method="${key}" data-ids="${escape(ids.join(','))}"><td class="act"><button type="button" class="fold" data-open-row aria-label="Show the mutants" title="Show the mutants">›</button>`
     + `${isNew ? '<span class="new-badge">new</span>' : ''}<a class="name" href="${index.href(method.path, method.line)}">${escape(method.name)}</a><span class="path">${escape(method.path)}:${escape(method.line)}</span></td>`
-    + `<td class="bars">${cell(score, { count: `${escape(method.killed)}/${escape(method.mutants.length)}` })}</td><td class="num">${escape(survived.length)}</td><td class="num">${escape(method.tests.length)}</td>`
+    + `<td class="bars">${cell(score, { count: `${escape(method.killed)}/${escape(method.mutants.length)}` })}</td><td class="num">${escape(survived.length)}</td><td class="num">${escape(testsOf(method))}</td>`
     + `<td class="do"><span class="advice">${escape(advice)}</span><div class="acts"><button type="button" data-copy-ids>Copy prompt</button></div></td></tr>`
     + `<tr class="detail" data-detail-for="${key}" hidden><td colspan="5"><ul class="edits">${survived.map(finding => `<li data-finding="${escape(finding.id)}"><a class="at" href="${index.href(method.path, finding.line)}">line ${escape(finding.line)}</a> ${escape(finding.note)}${unsure(finding.probability)}</li>`).join('')}</ul></td></tr>`;
 }

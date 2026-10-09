@@ -32,8 +32,13 @@ import { describeMutant, mutantId, mutantsOf } from './mutants.js';
 
 /** Tests or methods in flight at once. */
 export const DEFAULT_PARALLEL = 8;
-/** How many neighbours a state shows at most: the methods a test reaches, or the tests that reach a method. */
+/** How many neighbours a test's state shows at most: the methods it reaches, and its helpers. */
 export const MAX_SHOWN = 8;
+/**
+ * How many tests one request about a mutant asks at once. Every test that may run the method is asked, a batch at a time, until
+ * one is likely enough to fail; this only decides how many go in one request. A batch too large for the budget is halved.
+ */
+export const KILL_BATCH = 16;
 /**
  * The floor on a test's answer for its kill to count, as min is the floor on a finding's answer for it to be listed. It sits
  * higher than min because the model's kill answers run high; docs/coverage.md has the measurement against real test runs.
@@ -250,7 +255,24 @@ export function computeCoverage({ scan, graph, inScope = () => true, runs = () =
       }
       frontier = next;
     }
-    const reached = [...reach].map(([id, at]) => ({ id, depth: at }));
+    // What the test reaches through calls the source writes, as against through an interface's implementations or a value it
+    // handed to code the graph cannot see: a test reaching a method only those ways may run it, and usually runs another.
+    const written = new Set(), seen = new Set([node.id]);
+    for (let frontier = [node.id]; frontier.length;) {
+      const next = [];
+      for (const from of frontier) {
+        for (const callee of graph.callees(from)) {
+          if (seen.has(callee) || cut.has(callee) || graph.isDynamic(from, callee)) continue;
+          const target = graph.nodes.get(callee);
+          if (!target || target.case) continue;
+          seen.add(callee);
+          if (!target.test) written.add(callee);
+          next.push(callee);
+        }
+      }
+      frontier = next;
+    }
+    const reached = [...reach].map(([id, at]) => ({ id, depth: at, ...(written.has(id) ? {} : { dispatch: true }) }));
     if (!named(node.path) && !reached.some(item => inScopeIds.has(item.id))) continue;
     const direct = reached.filter(item => item.depth === 1).map(item => item.id).sort();
     const testFile = graph.files.get(node.path).file;
@@ -284,7 +306,7 @@ export function computeCoverage({ scan, graph, inScope = () => true, runs = () =
   for (const test of tests) for (const item of test.reach) {
     // Appended in place: copying the list for every test that reaches a method made a helper that every test reaches quadratic.
     if (!reachedBy.has(item.id)) reachedBy.set(item.id, []);
-    reachedBy.get(item.id).push({ id: test.id, depth: item.depth });
+    reachedBy.get(item.id).push({ id: test.id, depth: item.depth, ...(item.dispatch ? { dispatch: true } : {}) });
   }
   const units = methods.sort(byPosition).map(node => ({ id: node.id, node, branches: node.branches,
     tests: (reachedBy.get(node.id) ?? []).sort((a, b) => a.depth - b.depth || a.id.localeCompare(b.id)) }));
@@ -326,10 +348,17 @@ function readAll(questions, answers) {
  * the kept test's chance on the mutant it is least sure of is the duplicate's probability.
  */
 export function judgeTests(tests, mutants, min) {
-  const asked = new Map();
-  for (const [methodId, list] of mutants) for (const item of list) for (const [testId, p] of item.kills) {
+  // Every answer a test gave, and the ones from a mutant's first batch, where every test asked was asked the same thing: a later
+  // batch holds only mutants the tests before it missed, the hardest, and a test asked only those would look as if it checks
+  // nothing.
+  const all = new Map(), asked = new Map();
+  for (const [methodId, list] of mutants) for (const item of list) for (const [testId, p, round = 0] of item.kills) {
+    const entry = { key: `${methodId}#${mutantId(item.mutant)}`, p };
+    if (!all.has(testId)) all.set(testId, []);
+    all.get(testId).push(entry);
+    if (round > 0) continue;
     if (!asked.has(testId)) asked.set(testId, []);
-    asked.get(testId).push({ key: `${methodId}#${mutantId(item.mutant)}`, p });
+    asked.get(testId).push(entry);
   }
   const checksNothing = new Map();
   for (const [testId, list] of asked) {
@@ -339,12 +368,14 @@ export function judgeTests(tests, mutants, min) {
   }
   const redundantWith = new Map(), pairProbability = new Map();
   const byKills = new Map();
+  // Two tests are one written twice only in one file, asked the same three mutants or more: tests in different files reach the
+  // same code from different callers, and two asked about one or two mutants have said too little to be told apart.
   for (const test of [...tests].sort((a, b) => a.node.path.localeCompare(b.node.path) || a.node.line - b.node.line)) {
     const list = asked.get(test.id);
-    if (!list || list.length < 2 || checksNothing.has(test.id)) continue;
+    if (!list || list.length < 3 || checksNothing.has(test.id)) continue;
     const sorted = [...list].sort((a, b) => a.key.localeCompare(b.key));
     if (!sorted.some(item => item.p >= KILLED)) continue;
-    const key = JSON.stringify(sorted.map(item => [item.key, item.p >= KILLED]));
+    const key = `${test.node.path}\0${JSON.stringify(sorted.map(item => [item.key, item.p >= KILLED]))}`;
     const first = byKills.get(key);
     if (!first) { byKills.set(key, { id: test.id, mutants: sorted }); continue; }
     // Deleting this one loses nothing when the first kills every mutant it kills: the chance of that is the first's chance on
@@ -354,7 +385,7 @@ export function judgeTests(tests, mutants, min) {
     redundantWith.set(test.id, first.id);
     pairProbability.set(test.id, agree);
   }
-  const kills = new Map([...asked].map(([testId, list]) => [testId, list.filter(item => item.p >= KILLED).map(item => item.key)]));
+  const kills = new Map([...all].map(([testId, list]) => [testId, list.filter(item => item.p >= KILLED).map(item => item.key)]));
   const useful = new Set(tests.filter(test => !checksNothing.has(test.id) && !redundantWith.has(test.id)).map(test => test.id));
   return { useful, checksNothing, redundantWith, pairProbability, kills, asked: new Map([...asked].map(([testId, list]) => [testId, list.length])) };
 }
@@ -444,49 +475,107 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, paralle
     return answer({ subject: 'test', node, build, typed: () => compile(questions), questions });
   }, tests, testProgress);
 
-  // Every reached method, one request per mutant, with the tests reaching it in view, nearest first. A macro the test checks
-  // through is shown with it, since the check is inside the macro and no call graph reaches it.
+  // Every reached method, one mutant at a time, asked of the tests that may run it: most likely to check it first, a batch to a
+  // request, until one is likely enough to fail. A mutant is called survived only when every one of them has been asked. A macro
+  // the test checks through is shown with it, since the check is inside the macro and no call graph reaches it.
   const sources = new Map();
   const sourceText = async path => { if (!sources.has(path)) sources.set(path, (await linesOf({ path })).join('\n')); return sources.get(path); };
+  const testTexts = new Map();
+  const testText = async id => {
+    if (!testTexts.has(id)) { const test = graph.nodes.get(id); testTexts.set(id, `${test.path}\n${test.qualified_name}\n${(await linesOf(test)).slice(test.line - 1, test.end_line).join('\n')}`.toLowerCase()); }
+    return testTexts.get(id);
+  };
   const mutantUnits = [];
   for (const method of coverage.methods) {
     const { node } = method;
     const language = graph.files.get(node.path)?.file.language;
     const generated = mutantsOf({ source: await sourceText(node.path), language, line: node.line, end_line: node.end_line });
     if (!method.tests.length) { mutants.set(method.id, generated.map(mutant => ({ mutant, matters: null, kills: [] }))); continue; }
-    const shown = method.tests.slice(0, MAX_SHOWN).map(item => item.id);
-    for (const mutant of generated) mutantUnits.push({ id: `${method.id}#${mutantId(mutant)}`, node, method, mutant, shown });
+    const order = await testsToAsk(method, testText);
+    for (const mutant of generated) mutantUnits.push({ id: `${method.id}#${mutantId(mutant)}`, node, method, mutant, order });
   }
   const mutantRows = new Map();
   await settle(mutantUnits, async unit => {
-    const { node, mutant, shown } = unit;
+    const { node, mutant, order } = unit;
     const lines = await linesOf(node);
-    const reaching = await Promise.all(shown.map(async id => ({ id, ...(await neighbourSource({ id })) })));
-    const macros = await Promise.all(reaching.map(item => macrosOf(item.node, graph, linesOf)));
-    // kills_1 asks about test 1, and so on: the question names the test, and the test's node in the graph is noted the same way.
-    const questions = [...mattersAsked, ...shown.map((id, at) => ({ ...killsTemplate, name: `kills_${at + 1}`, ask: `This question is about test ${at + 1}, \`${id}\`. ${killsTemplate.ask}` }))];
-    const build = budget => fitState((limit, count) => {
-      const nodes = reaching.slice(0, count).flatMap((item, at) => [
-        { id: item.id, path: item.node.path, source: excerpt(item.node, item.lines, limit), note: `test ${at + 1}` },
-        ...macros[at].slice(0, 2).map(macro => ({ id: macro.id, path: macro.path, source: macro.source.split('\n').slice(0, limit).join('\n'), note: MACRO })),
-      ]);
-      return {
-        method: { path: node.path, name: node.qualified_name, source: sourceOf(node, lines), mutation: { kind: mutant.kind, edit: describeMutant(mutant), original: mutant.original.trim(), mutated: mutant.mutated.trim() } },
-        graph: { nodes, edges: edgesAmong(graph, [node.id, ...nodes.map(item => item.id)]) },
+    const kills = [];
+    let matters = null;
+    /** One request: the mutant, and these tests, each asked whether it fails against it; `matters` with the first. */
+    const ask = async (shown, first) => {
+      const reaching = await Promise.all(shown.map(async id => ({ id, ...(await neighbourSource({ id })) })));
+      const macros = await Promise.all(reaching.map(item => macrosOf(item.node, graph, linesOf)));
+      // kills_1 asks about test 1, and so on: the question names the test, and the test's node in the graph is noted the same way.
+      const questions = [...(first ? mattersAsked : []), ...shown.map((id, at) => ({ ...killsTemplate, name: `kills_${at + 1}`, ask: `This question is about test ${at + 1}, \`${id}\`. ${killsTemplate.ask}` }))];
+      const make = limit => {
+        const nodes = reaching.flatMap((item, at) => [
+          { id: item.id, path: item.node.path, source: excerpt(item.node, item.lines, limit), note: `test ${at + 1}` },
+          ...macros[at].slice(0, 2).map(macro => ({ id: macro.id, path: macro.path, source: macro.source.split('\n').slice(0, limit).join('\n'), note: MACRO })),
+        ]);
+        return {
+          method: { path: node.path, name: node.qualified_name, source: sourceOf(node, lines), mutation: { kind: mutant.kind, edit: describeMutant(mutant), original: mutant.original.trim(), mutated: mutant.mutated.trim() } },
+          graph: { nodes, edges: edgesAmong(graph, [node.id, ...nodes.map(item => item.id)]) },
+        };
       };
-    }, budget, `method ${node.qualified_name}`);
-    return answer({ subject: 'method', node, build, typed: () => compile(questions), questions });
+      // Every test of the batch is in the state, each shortened as far as it takes; a batch that does not fit at all is split.
+      const build = budget => {
+        for (const limit of [80, 40, 20, 8, 3]) { const state = make(limit); if (estimateTokens(state) <= budget) return state; }
+        throw new IncompleteCheckError(`method ${node.qualified_name} with ${shown.length} tests does not fit the ${budget}-token budget`);
+      };
+      return answer({ subject: 'method', node, build, typed: () => compile(questions), questions });
+    };
+    for (let start = 0, round = 0; start < order.length; round++) {
+      let size = Math.min(KILL_BATCH, order.length - start), row = null;
+      while (!row) {
+        try { row = await ask(order.slice(start, start + size), round === 0); } catch (error) {
+          if (!(error instanceof IncompleteCheckError) || size === 1) throw error;
+          size = Math.ceil(size / 2);
+        }
+      }
+      if (round === 0) matters = row.answers.matters;
+      const batch = order.slice(start, start + size).map((id, at) => [id, row.answers[`kills_${at + 1}`], round]);
+      kills.push(...batch);
+      start += size;
+      if (batch.some(([, p]) => p >= KILLED)) break;
+    }
+    return { matters, kills };
   }, mutantRows, methodProgress);
   for (const unit of mutantUnits) {
     const row = mutantRows.get(unit.id);
     if (!row) continue;
     if (!mutants.has(unit.method.id)) mutants.set(unit.method.id, []);
-    mutants.get(unit.method.id).push({ mutant: unit.mutant, matters: row.answers.matters, kills: unit.shown.map((id, at) => [id, row.answers[`kills_${at + 1}`]]) });
+    mutants.get(unit.method.id).push({ mutant: unit.mutant, matters: row.matters, kills: row.kills });
   }
 
   // Every request failed and none answered, which is an outage or a refusal, not a repository with nothing to say.
   if (failures && !asked) throw new Error(`nothing could be asked: ${failures} failed; last error: ${failed.at(-1).error}`);
   return { tests, mutants, failed, asked };
+}
+
+/** Words too common in tests to say a test is about a method: a method named `get` is not checked by every test that gets. */
+const COMMON_WORDS = new Set(['test', 'tests', 'spec', 'init', 'main', 'self', 'this', 'from', 'into', 'call', 'value', 'data', 'index', 'utils', 'util',
+  'helper', 'helpers', 'common', 'core', 'base', 'mod', 'lib', 'impl', 'default', 'create', 'build', 'make', 'read', 'write', 'parse', 'run', 'new', 'get', 'set']);
+/** The words a test's code would name if it were about a method: the method's own name, its class's, and its file's. */
+function methodWords(node) {
+  const parts = node.qualified_name.split('.');
+  const stem = node.path.split('/').at(-1).replace(/\.[^.]+$/, '');
+  return [...new Set([parts.at(-1), parts.at(-2), stem].filter(Boolean).map(word => word.replace(/^_+|_+$/g, '').toLowerCase()))]
+    .filter(word => word.length >= 4 && !COMMON_WORDS.has(word));
+}
+
+/**
+ * The tests to ask about a method's mutants, most likely to check it first. Every test that calls into it through calls the
+ * source writes may run it; a test that reaches it only through an interface's implementations or a value handed to code the
+ * graph cannot see usually runs another implementation, and is asked when its code names the method, its class or its file.
+ * When no test does either, every test reaching it is asked. Tests naming the method come first, then tests reaching it through
+ * written calls, nearest first.
+ */
+async function testsToAsk(method, testText) {
+  const words = methodWords(method.node);
+  const ranked = await Promise.all(method.tests.map(async item => ({ ...item, named: (await testText(item.id)).split(/[^a-z0-9_]+/).some(token => words.some(word => token.includes(word))) })));
+  const candidates = ranked.filter(item => !item.dispatch || item.named);
+  return (candidates.length ? candidates : ranked)
+    .sort((a, b) => Number(b.named) - Number(a.named) || Number(Boolean(a.dispatch)) - Number(Boolean(b.dispatch)) || a.depth - b.depth || a.id.localeCompare(b.id))
+    .map(item => item.id);
 }
 
 /**
@@ -561,11 +650,13 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
       const count = kills.length;
       item.finding = add({ kind: 'survived', subject: 'method', unit: method.id, key: `${method.id}#${id}`, path: node.path, line: mutant.line, name: node.qualified_name,
         probability: survives * matters, mutant: id,
-        note: `With ${describeMutant(mutant)}, ${count === 1 ? 'the 1 test reaching it still passes' : `none of the ${count} tests reaching it fails`}.` });
+        note: `With ${describeMutant(mutant)}, ${count === 1 ? 'the 1 test that runs it still passes' : `none of the ${count} tests that run it fails`}.` });
       return item;
     });
+    // The tests asked about its mutants: every test that may run it, where `tests` holds every test that reaches it at all.
+    const askedTests = new Set(mutants.flatMap(item => item.asked)).size;
     return { id: method.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, risk: node.metrics?.risk_score ?? null,
-      branches: method.branches, tests: method.tests, useful: usefulTests, covered,
+      branches: method.branches, tests: method.tests, asked_tests: askedTests, useful: usefulTests, covered,
       mutants, killed: mutants.filter(item => item.killed).length, findings: mutants.map(item => item.finding).filter(Boolean) };
   });
   const testById = new Map(coverage.tests.map(test => [test.id, test]));

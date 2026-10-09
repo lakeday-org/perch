@@ -221,6 +221,48 @@ const run = (repo, systemOne, extra = {}) => coverageRepository({ root: repo.roo
 const byId = list => new Map(list.map(item => [item.id, item]));
 const kinds = report => report.findings.map(finding => `${finding.kind} ${finding.unit}`).sort();
 
+describe('asking every test that runs a method', () => {
+  async function calculator() {
+    const root = await mkdtemp(join(tmpdir(), 'perch-batches-'));
+    cleanups.push(root);
+    await mkdir(join(root, 'shop'));
+    await mkdir(join(root, 'tests'));
+    await writeFile(join(root, 'shop', 'calc.py'), 'def add(a, b):\n    return a + b\n');
+    const cases = Array.from({ length: 20 }, (_, at) => `def test_${String(at + 1).padStart(2, '0')}():\n    assert add(${at}, 1) is not None\n`);
+    await writeFile(join(root, 'tests', 'test_calc.py'), `from shop.calc import add\n\n\n${cases.join('\n\n')}`);
+    await initRepo(root);
+    return { root, revision: await revision(root), out: join(root, '.perch') };
+  }
+
+  it('asks the next batch until one test kills the mutant, and every test before calling it survived', async () => {
+    // Test 17 of 20 kills every mutant: the first sixteen miss, so each mutant is asked twice and the second batch kills it.
+    const killed = scripted({ methods: { add: { matters: 0.9, kill: 0.1, kills: { test_17: 0.9 } } } });
+    const report = await run(await calculator(), killed);
+    const add = report.methods.find(method => method.id === 'shop/calc.py::add');
+    expect(add.mutants.length).toBeGreaterThan(1);
+    for (const mutant of add.mutants) {
+      expect(mutant).toMatchObject({ killed: true, killed_by: ['tests/test_calc.py::test_17'] });
+      expect(mutant.asked).toHaveLength(20);
+    }
+    expect(killed.calls.filter(call => call.name === 'add')).toHaveLength(add.mutants.length * 2);
+    // The first request of each mutant asks matters and sixteen tests; the second, the four left.
+    const calls = killed.calls.filter(call => call.name === 'add');
+    const first = calls.find(call => 'matters' in call.questions), second = calls.find(call => !('matters' in call.questions));
+    expect(Object.keys(first.questions)).toEqual(['matters', ...Array.from({ length: 16 }, (_, at) => `kills_${at + 1}`)]);
+    expect(Object.keys(second.questions)).toEqual(['kills_1', 'kills_2', 'kills_3', 'kills_4']);
+    expect(second.state.graph.nodes.map(node => node.id)).toEqual(['tests/test_calc.py::test_17', 'tests/test_calc.py::test_18', 'tests/test_calc.py::test_19', 'tests/test_calc.py::test_20']);
+
+    // No test kills: every one of the twenty is asked before the mutant is listed as survived, and the note says so.
+    const missed = scripted({ methods: { add: { matters: 0.9, kill: 0.1 } } });
+    const quiet = await run(await calculator(), missed);
+    const survived = quiet.findings.filter(finding => finding.kind === 'survived' && finding.unit === 'shop/calc.py::add');
+    expect(survived.length).toBeGreaterThan(0);
+    for (const finding of survived) expect(finding.note).toMatch(/none of the 20 tests that run it fails\.$/);
+    // A test asked only in a later batch was asked about mutants the first sixteen missed: it is not judged on them.
+    expect(quiet.findings.filter(finding => finding.kind === 'checks_nothing').map(finding => finding.unit).every(unit => unit < 'tests/test_calc.py::test_17')).toBe(true);
+  });
+});
+
 describe('test reach', () => {
   it('walks through a helper in the test file to the code it calls', async () => {
     const root = await mkdtemp(join(tmpdir(), 'perch-helper-'));
@@ -337,15 +379,15 @@ describe('perch coverage', () => {
     // The chance it misses all three: 0.95 three times.
     expect(find('checks_nothing', 'test/db.test.ts::saves an order')[0]).toMatchObject({ probability: 0.95 ** 3, note: 'Kills none of the 3 mutants in the code it reaches.' });
     // The call checkout makes to save: removed, the one test still passes, since it asserts only on what checkout returns.
-    expect(find('survived', 'src/cart.ts::checkout')[0]).toMatchObject({ line: 14, note: 'With the call `save(amount);` removed, the 1 test reaching it still passes.' });
+    expect(find('survived', 'src/cart.ts::checkout')[0]).toMatchObject({ line: 14, note: 'With the call `save(amount);` removed, the 1 test that runs it still passes.' });
     expect(find('survived', 'src/cart.ts::checkout')[0].probability).toBeCloseTo(0.95 * 0.9);
     // That no test reaches restock is the call graph's alone, and the call graph alone lists no problem.
     expect(find('survived', 'cart.py::restock')).toEqual([]);
     // The two boundaries: the likeliest test to kill each is at 0.1, so each survives at 0.9, and matters at 0.9.
     const uncaught = find('survived', 'cart.py::apply_discount');
     expect(uncaught.map(finding => [finding.line, finding.note])).toEqual([
-      [5, 'With `<=` instead of `<`, none of the 3 tests reaching it fails.'],
-      [7, 'With `>=` instead of `>`, none of the 3 tests reaching it fails.'],
+      [5, 'With `<=` instead of `<`, none of the 3 tests that run it fails.'],
+      [7, 'With `>=` instead of `>`, none of the 3 tests that run it fails.'],
     ]);
     for (const finding of uncaught) expect(finding.probability).toBeCloseTo(0.9 * 0.9);
     expect(new Set(uncaught.map(finding => finding.id)).size).toBe(2);

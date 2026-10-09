@@ -142,10 +142,10 @@ function methodBlock(report, findings, { width, color, all }) {
   const entries = [...Map.groupBy(survived, finding => finding.unit)].map(([id, list]) => ({ method: methods.get(id),
     list: [...list].sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0) || (a.line ?? 0) - (b.line ?? 0)) }))
     .filter(entry => entry.method)
-    .sort((a, b) => b.list.length - a.list.length || a.method.tests.length - b.method.tests.length || a.method.path.localeCompare(b.method.path) || a.method.line - b.method.line);
+    .sort((a, b) => b.list.length - a.list.length || testsOf(a.method) - testsOf(b.method) || a.method.path.localeCompare(b.method.path) || a.method.line - b.method.line);
   const shown = all ? entries : entries.slice(0, TOP);
   const HEAD = ['Method', 'Where', 'Killed', 'Survived', 'Tests'];
-  const rows = shown.map(({ method, list }) => ({ cells: [method.name, `${relative(method.path)}:${method.line}`, `${method.killed} of ${method.mutants.length}`, String(list.length), String(method.tests.length)],
+  const rows = shown.map(({ method, list }) => ({ cells: [method.name, `${relative(method.path)}:${method.line}`, `${method.killed} of ${method.mutants.length}`, String(list.length), String(testsOf(method))],
     advice: methodAdvice(list.map(finding => method.mutants.find(mutant => mutant.id === finding.mutant)).filter(Boolean)) }));
   const widths = HEAD.map((name, column) => Math.max(name.length, ...rows.map(row => row.cells[column].length)));
   const pad = (cells, aligns) => cells.map((cell, column) => (aligns[column] === 'right' ? cell.padStart(widths[column]) : cell.padEnd(widths[column]))).join('  ').trimEnd();
@@ -154,6 +154,9 @@ function methodBlock(report, findings, { width, color, all }) {
   for (const row of rows) lines.push(`  ${pad(row.cells, aligns)}`, ...wrapped(row.advice, Math.max(40, width - 4), '    '));
   return lines.join('\n');
 }
+
+/** The tests asked about a method's mutants: the ones that may run it. A report without the count says how many reach it. */
+const testsOf = method => method.asked_tests ?? method.tests.length;
 
 /** How many methods have a survived mutant among the findings. */
 const methodsWithSurvivors = findings => new Set(findings.filter(finding => finding.kind === 'survived').map(finding => finding.unit)).size;
