@@ -27,18 +27,24 @@ export async function runnersFor({ scope, root, graph }) {
   const names = new Set((scope?.frameworks ?? []).filter(framework => (Array.isArray(framework.tests) ? framework.tests.length : framework.tests ?? 0) > 0).map(framework => framework.name));
   const found = [];
   if (names.has('pytest')) found.push(pytest);
-  if (names.has('Vitest')) found.push(javascriptRunner('vitest'));
+  if (names.has('Karma')) found.push(javascriptRunner('karma'));
+  else if (names.has('Vitest')) found.push(javascriptRunner('vitest'));
   else if (names.has('Jest')) found.push(javascriptRunner('jest'));
   else if (names.has('JavaScript tests')) {
     const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8').catch(() => '{}'));
     const depends = name => Boolean(manifest.devDependencies?.[name] ?? manifest.dependencies?.[name]);
     const frameworks = new Set([...graph.nodes.values()].filter(node => node.case).map(node => node.case.framework));
-    if (depends('mocha')) found.push(javascriptRunner('mocha'));
+    // Karma runs Jasmine or Mocha in a browser, and a project with it depends on those as well.
+    if (depends('karma')) found.push(javascriptRunner('karma'));
+    else if (depends('mocha')) found.push(javascriptRunner('mocha'));
     else if (depends('jasmine')) found.push(javascriptRunner('jasmine'));
     else if (depends('vitest')) found.push(javascriptRunner('vitest'));
     else if (depends('jest')) found.push(javascriptRunner('jest'));
     else if (frameworks.has('node:test')) found.push(javascriptRunner('node:test'));
   }
+  // Cucumber's tests are feature files the parser does not read: the dependency says it runs them.
+  const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8').catch(() => '{}'));
+  if (manifest.devDependencies?.['@cucumber/cucumber'] ?? manifest.dependencies?.['@cucumber/cucumber']) found.push(javascriptRunner('cucumber'));
   // A compiled language's tests are found by the parser; its build tool runs them.
   const tested = new Set([...graph.nodes.values()].filter(node => node.case).map(node => graph.files.get(node.path)?.file.language));
   if (tested.has('rust')) found.push(cargo);

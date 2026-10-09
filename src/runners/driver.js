@@ -18,11 +18,12 @@ let open = 0, ended = false;
 const say = message => writeSync(3, JSON.stringify(message).replace(/\\u2028/g, '\\\\u2028').replace(/\\u2029/g, '\\\\u2029') + '\\n');
 const settle = () => { if (ended && !open) process.exit(0); };
 createInterface({ input: process.stdin }).on('line', line => {
-  const { id, command, args, cwd, env, timeout } = JSON.parse(line);
+  const { id, command, args, cwd, env, timeout, whole } = JSON.parse(line);
   open++;
   const child = spawn(command, args, { cwd, env: { ...process.env, PWD: cwd, ...env }, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
   let output = '', timedOut = false;
-  const keep = chunk => { output = (output + chunk).slice(-20000); };
+  // A run whose results are in what it prints keeps all of it; any other, the end, where an error says what went wrong.
+  const keep = chunk => { output = whole ? output + chunk : (output + chunk).slice(-20000); };
   child.stdout.on('data', keep);
   child.stderr.on('data', keep);
   const kill = () => { try { process.kill(-child.pid, 'SIGKILL'); } catch {} };
@@ -54,10 +55,10 @@ export async function startDriver({ scratch, writable }) {
   });
   return {
     /** A command's exit code and output, or `timedOut`. */
-    exec(command, args, { cwd, env = {}, timeout = 0 }) {
+    exec(command, args, { cwd, env = {}, timeout = 0, whole = false }) {
       const id = next++;
       const answer = new Promise((resolve, reject) => waiting.set(id, { resolve, reject }));
-      child.stdin.write(`${JSON.stringify({ id, command, args, cwd, env, timeout })}\n`);
+      child.stdin.write(`${JSON.stringify({ id, command, args, cwd, env, timeout, whole })}\n`);
       return answer;
     },
     async close() {

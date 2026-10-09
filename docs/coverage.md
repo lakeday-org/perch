@@ -134,11 +134,12 @@ the whole run, so a mutated test can write only inside its copy:
 
 - **pytest:** pytest collects your suite once. Each mutant runs in a process
   forked from it, with the mutated function swapped in.
-- **Vitest, Jest, Mocha, Jasmine and node:test:** perch writes every mutant
-  into the code at once, each behind a switch, as Stryker does. Vitest, Jest
-  and Mocha stay loaded in a worker per core, and each mutant is one run inside
-  it with its switch on. Jasmine and node:test start for each mutant, with the
-  code already transformed.
+- **Vitest, Jest, Mocha, Jasmine, Karma, Cucumber and node:test:** perch
+  writes every mutant into the code at once, each behind a switch, as Stryker
+  does. Vitest, Jest and Mocha stay loaded in a worker per core, and each
+  mutant is one run inside it with its switch on. Jasmine, Karma, Cucumber and
+  node:test start for each mutant, with the code already transformed. Karma
+  runs in headless Chrome; Cucumber's scenarios are its tests.
 - **Rust and C#:** the same switches, built once by cargo or dotnet. A mutant
   the compiler rejects, a value a constant needs at compile time, is taken out
   and the code built again; it counts as invalid, as Stryker.NET counts it.
@@ -212,8 +213,11 @@ ignores release scripts, examples, documentation tooling and CI actions.
   which files are source code. If you don't have an `include` option, the
   source is the code your tests import, plus the files beside your tests.
 - **Mocha, Jasmine and node:test:** perch reads every test it finds, and the
-  code beside it. node:test keeps the flags your `test` script passes to
-  `node`, such as `--experimental-test-module-mocks`.
+  code beside it. Mocha and node:test keep the flags your `test` script
+  passes, such as `--require test/support/env` or
+  `--experimental-test-module-mocks`.
+- **Karma:** perch loads `karma.conf.js` and covers the files it loads.
+- **Cucumber:** perch reads your feature files, and each scenario is a test.
 - **pytest:** perch reads the `testpaths` and `python_files` options from
   `pytest.ini`, `pyproject.toml`, `tox.ini` or `setup.cfg`, and the `source`
   and `omit` options from your coverage.py configuration.
@@ -237,9 +241,10 @@ can leave out more files and directories with the `ignore:` option in
 
 ## Supported languages and frameworks
 
-Perch runs pytest, Vitest, Jest, Mocha, Jasmine, node:test, cargo test, go test
-and dotnet test suites, with xUnit, NUnit or MSTest, and JUnit 5, JUnit 4,
-TestNG, ScalaTest and MUnit suites on Gradle, Maven or sbt. The table below is every language perch finds tests in, the frameworks it
+Perch runs pytest, Vitest, Jest, Mocha, Jasmine, Karma, Cucumber, node:test,
+cargo test, go test and dotnet test suites, with xUnit, NUnit or MSTest, and
+JUnit 5, JUnit 4, TestNG, ScalaTest and MUnit suites on Gradle, Maven or sbt.
+The table below is every language perch finds tests in, the frameworks it
 recognises, the mocks it reads as cutting a test's reach, and what it does not
 follow yet:
 

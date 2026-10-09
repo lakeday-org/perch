@@ -225,6 +225,22 @@ async function loadJest({ root, config, node, paths }) {
   return { name: 'Jest', version, config, tests, include: include.length ? include : null, exclude: negated, ignore: path => ignore.some(pattern => pattern.test(join(root, path))) };
 }
 
+/**
+ * A Karma config, loaded with a stand-in for Karma's own config object so its `files` are what it set: the patterns of every
+ * file the browser loads, the code under test and the tests alike. Printed on the last line, after a marker.
+ */
+async function loadKarma({ root, config, node, paths }) {
+  const script = `const config = require(${JSON.stringify(join(root, config))});
+const captured = {};
+const fake = new Proxy({ set: values => Object.assign(captured, values) }, { get: (target, key) => (key in target ? target[key] : String(key)) });
+(typeof config === 'function' ? config : config.default)(fake);
+console.log('\\n@@perch' + JSON.stringify((captured.files || []).map(item => (typeof item === 'string' ? item : item.pattern)).filter(Boolean)));`;
+  const output = await run(node, ['-e', script], { cwd: join(root, dirOf(config)) });
+  const patterns = JSON.parse(output.split('@@perch').at(-1)).map(pattern => posix.join(dirOf(config), pattern));
+  const matched = paths.filter(path => patterns.some(pattern => glob(pattern, path)));
+  return { name: 'Karma', version: null, config, tests: matched, include: patterns, exclude: [] };
+}
+
 /** The JavaScript test frameworks a config names, loaded. One that cannot be loaded is reported, and its tests fall back. */
 async function javascriptFrameworks({ root, paths: all, node, ignored, debug }) {
   // A config under a path perch.yaml ignores, such as a fixture app's, is not this repository's suite.
@@ -249,9 +265,11 @@ async function javascriptFrameworks({ root, paths: all, node, ignored, debug }) 
     if (/"vitest"\s*:/.test(text)) vitest.push(path);
     else if (/"jest"\s*:/.test(text)) jest.push(path);
   }
+  // Karma runs whatever its config's files load in a browser, sources and tests alike.
+  const karma = paths.filter(path => /(^|\/)karma\.conf\.c?js$/.test(path)).sort(byDepth);
   const frameworks = [];
   const claimed = new Set();
-  for (const [configs, load, name] of [[vitest.sort(byDepth), loadVitest, 'Vitest'], [jest.sort(byDepth), loadJest, 'Jest']]) {
+  for (const [configs, load, name] of [[vitest.sort(byDepth), loadVitest, 'Vitest'], [jest.sort(byDepth), loadJest, 'Jest'], [karma, loadKarma, 'Karma']]) {
     for (const config of configs) {
       // A nested config whose tests a loaded one already runs is one of its projects.
       if ([...claimed].some(path => under(dirOf(config), path))) continue;
@@ -317,7 +335,9 @@ export async function frameworkScope({ root, tree, scan, graph, node = process.e
   const js = await javascriptFrameworks({ root, paths, node, ignored, debug });
   frameworks.push(...js);
   const loaded = js.filter(framework => framework.tests);
-  const jsTests = loaded.length ? loaded.flatMap(framework => framework.tests) : found.filter(file => JS.has(file.language)).map(file => file.path);
+  const holding = new Set(found.map(file => file.path));
+  const jsTests = loaded.length ? loaded.flatMap(framework => (framework.name === 'Karma' ? framework.tests.filter(path => holding.has(path)) : framework.tests))
+    : found.filter(file => JS.has(file.language)).map(file => file.path);
   if (!js.length && jsTests.length) frameworks.push({ name: 'JavaScript tests', config: null, tests: jsTests });
   for (const path of jsTests) if (byPath.has(path)) tests.add(path);
 

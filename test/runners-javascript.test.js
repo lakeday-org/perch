@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -21,17 +23,30 @@ function model() {
   } };
 }
 
-async function repository(files, { modules = false } = {}) {
+async function repository(files, { modules = false, install = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'perch-js-runner-'));
   cleanups.push(root);
   for (const [path, text] of Object.entries({ ...files, '.gitignore': 'node_modules\n' })) {
     await mkdir(dirname(join(root, path)), { recursive: true });
     await writeFile(join(root, path), text);
   }
-  // perch's own installed Vitest stands in for the repository's.
+  // perch's own installed Vitest stands in for the repository's; any other framework is installed, as the repository's would be.
   if (modules) await symlink(join(process.cwd(), 'node_modules'), join(root, 'node_modules'));
+  if (install) execFileSync('npm', ['install', '--no-audit', '--no-fund', '--silent'], { cwd: root, stdio: 'ignore' });
   await initRepo(root);
   return root;
+}
+
+const CART = 'function applyDiscount(total, percent) {\n  if (percent < 0 || percent > 100) throw new Error(\'bad percent\');\n  return Math.round(total * (100 - percent)) / 100;\n}\n';
+const chrome = ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'].some(path => existsSync(path)) || Boolean(process.env.CHROME_BIN);
+
+/** perch coverage on a repository, with what every installed framework's run must agree on: the discount's arithmetic killed. */
+async function covered(root, runner, test) {
+  const report = await coverageRepository({ root, revision: await revision(root), out: join(root, '.perch'), analyzer, systemOne: model(), parallel: 2 });
+  expect(report.measured).toMatchObject({ runner, invalid: 0, unmatched_tests: 0 });
+  const discount = report.methods.find(item => item.name === 'applyDiscount');
+  expect(discount.mutants.find(mutant => mutant.kind === 'arithmetic')).toMatchObject({ killed: true, killed_by: [test] });
+  return report;
 }
 
 const SOURCE = 'export function add(a: number, b: number): number {\n  return a + b;\n}\n\nexport function scale(a: number, factor: number): number {\n  return a * factor;\n}\n';
@@ -67,6 +82,49 @@ describe('running JavaScript tests', () => {
     expect(add.mutants.find(mutant => mutant.kind === 'arithmetic')).toMatchObject({ killed: true, killed_by: ['test/calc.test.js::calc > adds'] });
     expect(report.findings.some(finding => finding.kind === 'checks_nothing' && finding.unit === 'test/calc.test.js::calc > scales without checking')).toBe(true);
   }, 120000);
+
+  it('runs Jest, Mocha and Jasmine kept loaded, each from its own install', async () => {
+    const spec = "describe('applyDiscount', () => {\n  it('takes 10 percent off', () => {\n    if (applyDiscount(100, 10) !== 90) throw new Error('wrong');\n  });\n});\n";
+    const jest = await repository({
+      'package.json': JSON.stringify({ name: 'shop', private: true, devDependencies: { jest: '^30.0.0' } }),
+      'src/cart.js': `${CART}module.exports = { applyDiscount };\n`,
+      'test/cart.test.js': `const { applyDiscount } = require('../src/cart');\n${spec}`,
+    }, { install: true });
+    await covered(jest, 'jest', 'test/cart.test.js::applyDiscount > takes 10 percent off');
+    const mocha = await repository({
+      'package.json': JSON.stringify({ name: 'shop', private: true, scripts: { test: 'mocha test/' }, devDependencies: { mocha: '^11.0.0' } }),
+      'src/cart.js': `${CART}module.exports = { applyDiscount };\n`,
+      'test/cart.test.js': `const { applyDiscount } = require('../src/cart');\n${spec}`,
+    }, { install: true });
+    await covered(mocha, 'mocha', 'test/cart.test.js::applyDiscount > takes 10 percent off');
+    const jasmine = await repository({
+      'package.json': JSON.stringify({ name: 'shop', private: true, devDependencies: { jasmine: '^5.5.0' } }),
+      'spec/support/jasmine.json': JSON.stringify({ spec_dir: 'spec', spec_files: ['**/*[sS]pec.js'] }),
+      'src/cart.js': `${CART}module.exports = { applyDiscount };\n`,
+      'spec/cart.spec.js': `const { applyDiscount } = require('../src/cart');\n${spec}`,
+    }, { install: true });
+    await covered(jasmine, 'jasmine', 'spec/cart.spec.js::applyDiscount > takes 10 percent off');
+  }, 600000);
+
+  it.skipIf(!chrome)('runs Karma in headless Chrome, its sources and tests read from the Karma config', async () => {
+    const root = await repository({
+      'package.json': JSON.stringify({ name: 'shop', private: true, devDependencies: { karma: '^6.4.4', 'karma-jasmine': '^5.1.0', 'jasmine-core': '^5.5.0', 'karma-chrome-launcher': '^3.2.0' } }),
+      'karma.conf.js': "module.exports = config => config.set({ frameworks: ['jasmine'], files: ['src/**/*.js', 'test/**/*.spec.js'], browsers: ['ChromeHeadless'], singleRun: true });\n",
+      'src/cart.js': CART,
+      'test/cart.spec.js': "describe('applyDiscount', () => {\n  it('takes 10 percent off', () => {\n    expect(applyDiscount(100, 10)).toBe(90);\n  });\n});\n",
+    }, { install: true });
+    await covered(root, 'karma', 'test/cart.spec.js::applyDiscount > takes 10 percent off');
+  }, 600000);
+
+  it('runs Cucumber, its scenarios the tests', async () => {
+    const root = await repository({
+      'package.json': JSON.stringify({ name: 'shop', private: true, devDependencies: { '@cucumber/cucumber': '^11.0.0' } }),
+      'src/cart.js': `${CART}module.exports = { applyDiscount };\n`,
+      'features/discount.feature': 'Feature: Discounts\n  Scenario: Ten percent off\n    Given a total of 100\n    When I take 10 percent off\n    Then the total is 90\n',
+      'features/step_definitions/steps.js': "const assert = require('node:assert/strict');\nconst { Given, When, Then } = require('@cucumber/cucumber');\nconst { applyDiscount } = require('../../src/cart');\n\nGiven('a total of {int}', function (total) { this.total = total; });\nWhen('I take {int} percent off', function (percent) { this.total = applyDiscount(this.total, percent); });\nThen('the total is {int}', function (expected) { assert.equal(this.total, expected); });\n",
+    }, { install: true });
+    await covered(root, 'cucumber', 'features/discount.feature::Discounts > Ten percent off');
+  }, 600000);
 
   it('says what is missing when the framework is not installed', async () => {
     const root = await repository({

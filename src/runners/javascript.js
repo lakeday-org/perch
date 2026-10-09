@@ -13,7 +13,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile, rm, symlink, writeFile } from 'node:fs/promises';
-import { dirname, join, relative } from 'node:path';
+import { dirname, isAbsolute, join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { mutantId } from '../mutants.js';
 import { startDriver } from './driver.js';
@@ -221,6 +221,56 @@ if (!globalThis.__perch_hooked) {
 }`,
     args: ({ files, pattern, bail }) => [...files, ...(pattern ? [`--filter=${pattern}`] : []), ...(bail ? ['--fail-fast'] : [])],
   },
+  // Cucumber's tests are the scenarios of its feature files, named in its own Before hook, which perch adds to the step
+  // definitions; a scenario is filtered by its name alone.
+  cucumber: {
+    bin: 'cucumber-js', module: 'cjs', results: 'hooks',
+    hooks: `const __perch_fs = require('node:fs');
+${STATE}
+module.exports = { enter: __perch_enter };
+if (!globalThis.__perch_hooked) {
+  globalThis.__perch_hooked = true;
+  const { Before, After, AfterAll } = require('@cucumber/cucumber');
+  Before(function ({ pickle, gherkinDocument }) { __perch_state.test = JSON.stringify([gherkinDocument.uri, gherkinDocument.feature.name + ' > ' + pickle.name]); });
+  After(function ({ result }) {
+    const status = result && result.status === 'PASSED' ? 'passed' : result && result.status === 'FAILED' ? 'failed' : 'skipped';
+    if (__perch_env.PERCH_RESULTS) __perch_fs.appendFileSync(__perch_env.PERCH_RESULTS, JSON.stringify([__perch_state.test, status, result && result.duration ? (result.duration.seconds || 0) + (result.duration.nanos || 0) / 1e9 : 0]) + '\\n');
+    __perch_flush();
+  });
+  AfterAll(__perch_flush);
+}`,
+    args: ({ files, pattern, bail }) => [...files, ...(pattern ? ['--name', pattern] : []), ...(bail ? ['--fail-fast'] : [])],
+  },
+  // Karma runs the tests in a browser, which can write no file: the hooks, loaded first, print what they record as marked console
+  // lines, which Karma passes back. The mutant and the name filter go in as client arguments, read as the page loads.
+  karma: {
+    bin: 'karma', module: 'browser', results: 'console',
+    hooks: `(function () {
+  var karma = globalThis.__karma__, args = (karma && karma.config && karma.config.args) || [];
+  var arg = function (name) { for (var at = 0; at < args.length; at++) if (String(args[at]).indexOf(name + '=') === 0) return String(args[at]).slice(name.length + 1); return null; };
+  var state = globalThis.__perch_state = { active: Number(arg('--perch-mutant') || -1), test: '', file: '', hits: args.indexOf('--perch-coverage') >= 0 ? new Map() : null };
+  // Base64, which Karma prints as it is, in the quotes it puts around a logged string.
+  var say = function (record) { console.log('@@perch' + btoa(unescape(encodeURIComponent(JSON.stringify(record))))); };
+  var flush = function () {
+    if (state.hits) { state.hits.forEach(function (seen, test) { if (test) say({ hits: test, ids: Array.from(seen) }); }); state.hits.clear(); }
+    state.test = JSON.stringify(['', '']);
+  };
+  state.test = JSON.stringify(['', '']);
+  if (globalThis.jasmine) {
+    var suites = [];
+    jasmine.getEnv().addReporter({
+      suiteStarted: function (result) { suites.push(result.description); },
+      suiteDone: function () { suites.pop(); },
+      specStarted: function (result) { state.test = JSON.stringify(['', suites.concat([result.description]).join(' > ')]); },
+      specDone: function (result) { say({ result: state.test, status: result.status === 'failed' ? 'failed' : result.status === 'passed' ? 'passed' : 'skipped', time: (result.duration || 0) / 1000 }); flush(); },
+    });
+  } else if (globalThis.mocha) {
+    beforeEach(function () { state.test = JSON.stringify(['', this.currentTest.titlePath().join(' > ')]); });
+    afterEach(function () { say({ result: state.test, status: this.currentTest.state === 'failed' ? 'failed' : this.currentTest.state === 'passed' ? 'passed' : 'skipped', time: (this.currentTest.duration || 0) / 1000 }); flush(); });
+  }
+})();`,
+    args: ({ config }) => ['start', config],
+  },
   'node:test': {
     bin: null, module: 'esm', results: 'reporter',
     hooks: `import { after, before, beforeEach, afterEach } from 'node:test';
@@ -268,6 +318,64 @@ const titlePattern = title => {
   return out + escape(title.slice(at));
 };
 
+/**
+ * Each Cucumber scenario as a test the graph knows: a feature file's scenarios and scenario outlines, named `Feature > Scenario`
+ * as the hooks name them, with the lines each spans. The parser reads no Gherkin, so these are added for the coverage run alone.
+ */
+async function scenarios(dir, graph) {
+  const { stdout } = await run('find', [dir, '-name', '*.feature', '-not', '-path', '*/node_modules/*'], { maxBuffer: 1 << 24 });
+  for (const absolute of stdout.split('\n').filter(Boolean)) {
+    const path = relative(dir, absolute), lines = (await readFile(absolute, 'utf8')).split('\n');
+    const feature = lines.map(line => /^\s*Feature:\s*(.+?)\s*$/.exec(line)?.[1]).find(Boolean) ?? '';
+    const starts = lines.map((line, at) => ({ at: at + 1, name: /^\s*(?:Scenario|Scenario Outline|Scenario Template|Example):\s*(.+?)\s*$/.exec(line)?.[1] })).filter(item => item.name);
+    const methods = starts.map((item, index) => {
+      const qualified = `${feature} > ${item.name}`;
+      return { id: `${path}::${qualified}`, node: null, name: item.name, qualified_name: qualified, line: item.at, end_line: (starts[index + 1]?.at ?? lines.length + 1) - 1,
+        test: { name: item.name, suite: [feature], framework: 'cucumber' } };
+    });
+    const file = { path, language: 'gherkin', test: true, methods, calls: [], imports: [], mocks: [] };
+    graph.files.set(path, { file, byQualified: new Map(), sameName: new Map() });
+    for (const method of methods) graph.nodes.set(method.id, { ...method, path, language: 'gherkin', test: true, case: method.test });
+  }
+}
+
+/** The project's own Karma config, by the names Karma looks for. */
+async function karmaConfig(dir) {
+  for (const name of ['karma.conf.js', 'karma.conf.cjs', '.config/karma.conf.js']) if (existsSync(join(dir, name))) return `./${name}`;
+  throw new Error('karma is a dependency but there is no karma.conf.js');
+}
+
+/**
+ * The config perch runs Karma with: the project's own, with perch's hooks loaded before its files, headless Chrome run once, and
+ * the browser's console passed back, the mutant, the coverage flag and the name filter given to the page as client arguments.
+ */
+const KARMA_CONFIG = base => `const path = require('path');
+const base = require(${JSON.stringify(base)});
+module.exports = function (config) {
+  base(config);
+  const env = process.env, args = ['--perch-mutant=' + (env.PERCH_MUTANT || '-1')];
+  if (env.PERCH_COVERAGE) args.push('--perch-coverage');
+  // karma-jasmine and karma-mocha read a filter in slashes as a regular expression, and any other as plain text.
+  if (env.PERCH_GREP) args.push('--grep=/' + env.PERCH_GREP + '/');
+  const client = config.client || {};
+  // Karma finds its plugins beside itself, which, linked in from the repository, is not where it looks: they are named here.
+  const modules = path.join(__dirname, 'node_modules');
+  const plugins = config.plugins && config.plugins.some(item => item !== 'karma-*') ? config.plugins
+    : require('fs').readdirSync(modules).filter(name => name.startsWith('karma-')).map(name => require(path.join(modules, name)));
+  // Chrome runs inside perch's sandbox, which already holds what it may write; its own cannot start inside that one, and its crash
+  // reports go to the temporary directory rather than the user's.
+  const crashes = path.join(require('os').tmpdir(), 'perch-chrome-crashes');
+  config.set({
+    plugins,
+    files: [path.join(__dirname, '.perch-hooks.js')].concat(config.files || []),
+    customLaunchers: Object.assign({}, config.customLaunchers, { PerchChrome: { base: 'ChromeHeadless', flags: ['--no-sandbox', '--disable-crash-reporter', '--disable-breakpad', '--crash-dumps-dir=' + crashes] } }),
+    browsers: ['PerchChrome'], singleRun: true, autoWatch: false, reporters: ['dots'],
+    client: Object.assign({}, client, { args: (client.args || []).concat(args), captureConsole: true }),
+    browserConsoleLogOptions: { level: 'log', format: '%m', terminal: true },
+  });
+};
+`;
+
 /** The node_modules directories of the repository, outside any other: a workspace has one per package beside the root's. */
 async function installed(root) {
   const { stdout } = await run('find', [root, '-maxdepth', '4', '-name', 'node_modules', '-type', 'd', '-prune', '-not', '-path', '*/.git/*'], { maxBuffer: 1 << 24 });
@@ -308,7 +416,7 @@ export function javascriptRunner(framework) {
   /** Each hook-named test, `[file, name]`, as perch's id: the file from the root, then the names, joined as perch joins them. */
   const idOf = (copy, raw) => {
     const [file, name] = JSON.parse(raw);
-    return resolve(relative(copy, file), name);
+    return resolve(file ? (isAbsolute(file) ? relative(copy, file) : file) : '', name);
   };
   /**
    * The perch test a run's name in a file is: the same name, Jest's spaced one, or the one template that fits it. Failing those,
@@ -317,6 +425,11 @@ export function javascriptRunner(framework) {
    * longest such ending, when one test has it.
    */
   const resolve = (path, name) => {
+    // A browser knows no file: the one test in any file the name is.
+    if (path === '') {
+      const found = [...new Set([...inFile.keys()].map(file => resolve(file, name)).filter(id => tests.has(id)))];
+      return found.length === 1 ? found[0] : `::${name}`;
+    }
     const direct = `${path}::${name}`;
     if (tests.has(direct)) return direct;
     if (tests.has(`${path}\0${name}`)) return tests.get(`${path}\0${name}`);
@@ -327,9 +440,21 @@ export function javascriptRunner(framework) {
     const best = ending.filter(item => item.length === longest);
     return best.length === 1 ? best[0].id : direct;
   };
-  /** A results file as each test's result, by perch's id. */
-  const readResults = async (copy, out, covering) => {
+  /** Records a Karma run printed, `@@perch` and the record in base64. */
+  const printed = output => [...output.matchAll(/@@perch([A-Za-z0-9+/=]+)/g)].map(match => JSON.parse(Buffer.from(match[1], 'base64').toString('utf8')));
+  /** A results file, or the printed records of a run in a browser, as each test's result, by perch's id. */
+  const readResults = async (copy, out, covering, output = '') => {
     const results = new Map();
+    if (spec.results === 'console') {
+      const records = printed(output).filter(record => record.result);
+      if (!records.length) return null;
+      for (const record of records) {
+        if (record.status === 'skipped') continue;
+        const id = idOf(copy, record.result);
+        results.set(id, { test: id, status: results.get(id)?.status === 'failed' ? 'failed' : record.status, time: record.time });
+      }
+      return results;
+    }
     if (spec.results === 'json') {
       const text = await readFile(out, 'utf8').catch(() => null);
       if (text === null) return null;
@@ -361,9 +486,9 @@ export function javascriptRunner(framework) {
   };
   const command = tool => (spec.bin ? join(tool.root, 'node_modules', '.bin', spec.bin) : process.execPath);
 
-  return {
+  const runner = {
     name: framework,
-    languages: SCHEMATA_LANGUAGES,
+    languages: framework === 'cucumber' ? new Set([...SCHEMATA_LANGUAGES, 'gherkin']) : SCHEMATA_LANGUAGES,
     copiesFor: () => 1,
 
     async available({ root: repository }) {
@@ -400,13 +525,21 @@ export function javascriptRunner(framework) {
         for (const { id, reason } of placed.unplaced) unplaced.set(id, reason);
         await writeFile(file, placed.text);
       }
-      hooksFile = join(copy.dir, `.perch-hooks.${spec.module === 'esm' ? 'mjs' : 'cjs'}`);
+      hooksFile = join(copy.dir, `.perch-hooks.${spec.module === 'esm' ? 'mjs' : spec.module === 'browser' ? 'js' : 'cjs'}`);
       await writeFile(hooksFile, spec.hooks);
+      if (framework === 'karma') await writeFile(join(copy.dir, '.perch-karma.conf.js'), KARMA_CONFIG(await karmaConfig(copy.dir)));
       tests = new Map();
       testFiles = [];
+      if (framework === 'cucumber') await scenarios(copy.dir, graph);
       for (const [path, { file }] of graph.files) {
-        if (!SCHEMATA_LANGUAGES.has(file.language) || !file.methods.some(method => method.test)) continue;
-        testFiles.push(path);
+        // Cucumber's hooks go into its step definitions, which declare no test; its tests are the feature files'.
+        if (framework === 'cucumber') {
+          if (file.language === 'gherkin') { testFiles.push(path); continue; }
+          if (!SCHEMATA_LANGUAGES.has(file.language) || !/@cucumber\/cucumber/.test(await readFile(join(copy.dir, path), 'utf8'))) continue;
+        } else if (!SCHEMATA_LANGUAGES.has(file.language) || !file.methods.some(method => method.test)) continue;
+        else testFiles.push(path);
+        // Karma loads the hooks itself, first, from the config perch wraps around the project's.
+        if (framework === 'karma') continue;
         const full = join(copy.dir, path);
         const text = await readFile(full, 'utf8');
         const specifier = `./${relative(dirname(full), hooksFile)}`.replace(/^\.\/\.\.\//, '../');
@@ -420,7 +553,7 @@ export function javascriptRunner(framework) {
       suffixes = new Map();
       inFile = new Map();
       for (const node of graph.nodes.values()) {
-        if (!node.case || !SCHEMATA_LANGUAGES.has(graph.files.get(node.path)?.file.language)) continue;
+        if (!node.case || !runner.languages.has(graph.files.get(node.path)?.file.language)) continue;
         tests.set(node.id, node);
         if (!inFile.has(node.path)) inFile.set(node.path, []);
         inFile.get(node.path).push(node.id);
@@ -449,10 +582,12 @@ export function javascriptRunner(framework) {
       const driver = await startDriver({ scratch, writable: [copy, scratch] });
       let ran;
       try {
-        ran = await driver.exec(command(tool), spec.args({ files: ['vitest', 'jest'].includes(framework) ? [] : testFiles, out, flags, reporter }),
-          { cwd: copy, env: { PERCH_COVERAGE: '1', PERCH_HITS: hits, PERCH_RESULTS: out, FORCE_COLOR: '0' } });
+        ran = await driver.exec(command(tool), spec.args({ files: ['vitest', 'jest'].includes(framework) ? [] : testFiles, out, flags, reporter, config: join(copy, '.perch-karma.conf.js') }),
+          { cwd: copy, env: { PERCH_COVERAGE: '1', PERCH_HITS: hits, PERCH_RESULTS: out, FORCE_COLOR: '0' }, whole: spec.results === 'console' });
       } finally { await driver.close(); }
-      const results = await readResults(copy, out, null);
+      const results = await readResults(copy, out, null, ran.output);
+      // A browser prints the switches each test reached rather than writing them.
+      if (spec.results === 'console') await writeFile(hits, printed(ran.output).filter(record => record.hits).map(record => `${JSON.stringify([record.hits, record.ids])}\n`).join(''));
       if (!results) throw new Error(`${framework} did not run the suite (exit ${ran.code}): ${ran.output.trim().split('\n').slice(-5).join(' | ')}`);
       const reached = new Map(), executed = new Map();
       for (const line of (await readFile(hits, 'utf8')).split('\n').filter(Boolean)) {
@@ -504,10 +639,10 @@ export function javascriptRunner(framework) {
       const runCold = async ({ id, files, pattern, bail, timeout, nodes }) => {
         const out = join(copy.scratch, `run-${count++}.${spec.results === 'json' ? 'json' : 'jsonl'}`);
         if (spec.results !== 'json') await writeFile(out, '');
-        const ran = await driver.exec(command({ root }), spec.args({ files, pattern, out, bail, flags, reporter }),
-          { cwd: copy.dir, env: { PERCH_MUTANT: String(id), PERCH_RESULTS: out, FORCE_COLOR: '0' }, timeout });
+        const ran = await driver.exec(command({ root }), spec.args({ files, pattern, out, bail, flags, reporter, config: join(copy.dir, '.perch-karma.conf.js') }),
+          { cwd: copy.dir, env: { PERCH_MUTANT: String(id), PERCH_RESULTS: out, PERCH_GREP: pattern ?? '', FORCE_COLOR: '0' }, timeout, whole: spec.results === 'console' });
         if (ran.timedOut) return { timedOut: true };
-        const results = await readResults(copy.dir, out, nodes);
+        const results = await readResults(copy.dir, out, nodes, ran.output);
         await rm(out, { force: true });
         return { code: ran.code, results, output: ran.output };
       };
@@ -520,14 +655,16 @@ export function javascriptRunner(framework) {
           // Vitest 3 on by ` > `. node:test is run by file.
           const names = nodes.map(test => test.slice(test.indexOf('::') + 2));
           // A name is matched by its ending, as resolve matches it: a test the parser named without all its suites runs under them.
-          const pattern = framework === 'node:test' ? null : `(?:^|> | )(?:${names.map(name => name.split(' > ').map(titlePattern).join('(?: > | )')).join('|')})$`;
+          const pattern = framework === 'node:test' ? null : framework === 'cucumber' ? `^(?:${names.map(name => titlePattern(name.split(' > ').at(-1))).join('|')})$`
+            : `(?:^|> | )(?:${names.map(name => name.split(' > ').map(titlePattern).join('(?: > | )')).join('|')})$`;
           const ran = await (warm ? runWarm : runCold)({ id, files, pattern, bail, timeout, nodes });
           if (ran.timedOut) return { status: 'timeout' };
           const { results } = ran;
           if (!results || !nodes.some(test => results.has(test))) {
             // The run ended in an error before any test said how it did: the mutant crashed loading the tests, which they notice
-            // as surely as a failed assertion. The same command ran the suite clean before anything was switched on.
-            if (ran.code !== 0) return { status: 'ran', results: new Map(nodes.map(test => [test, { test, status: 'failed' }])) };
+            // as surely as a failed assertion. The same command ran the suite clean before anything was switched on. A run that
+            // reported its tests as skipped did not crash; it ran nothing it was asked to.
+            if (ran.code !== 0 && !results) return { status: 'ran', results: new Map(nodes.map(test => [test, { test, status: 'failed' }])) };
             return { status: 'invalid', error: ran.output.trim().split('\n').slice(-3).join(' | ') };
           }
           return { status: 'ran', results: new Map([...results].filter(([test]) => nodes.includes(test))) };
@@ -536,5 +673,6 @@ export function javascriptRunner(framework) {
       };
     },
   };
+  return runner;
 }
 
