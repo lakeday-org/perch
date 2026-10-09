@@ -3,9 +3,11 @@
  * the syntax tree by a fixed table. No model proposes them; the model is asked, for each one, whether the tests reaching the
  * method would fail against it. They are the operators Stryker and PIT use: a comparison moved to its boundary or flipped, a
  * connective swapped, a condition forced true or false, an `if` body emptied, a call statement removed, a `!` or a minus
- * dropped, an arithmetic or update operator changed, a boolean flipped, a string emptied, a number moved by one, a returned
- * value replaced, and the whole body emptied, which asks the oldest question about a test: does it notice when the function does
- * nothing? Every mutant a method has is made; none is left out for being the eleventh.
+ * dropped, an arithmetic or assignment operator changed, a boolean flipped, a string emptied or an empty one filled, a number
+ * moved by one, a returned value replaced, a list or object emptied, a method swapped for its opposite or its call dropped from
+ * the chain (`startsWith` for `endsWith`, `.trim()` gone), an optional chain made unconditional, an arrow function returning
+ * nothing, a regular expression loosened or tightened, and the whole body emptied, which asks the oldest question about a test:
+ * does it notice when the function does nothing? Every mutant a method has is made; none is left out for being the eleventh.
  */
 import { createHash } from 'node:crypto';
 import pack from '@xberg-io/tree-sitter-language-pack';
@@ -17,9 +19,12 @@ const COMPARISONS = { '<': '<=', '<=': '<', '>': '>=', '>=': '>', '==': '!=', '!
 /** The same comparisons as Bash's `test` spells them: `[ "$n" -ge 100 ]`. */
 const TEST_COMPARISONS = { '-eq': '-ne', '-ne': '-eq', '-lt': '-le', '-le': '-lt', '-gt': '-ge', '-ge': '-gt' };
 const ARITHMETIC = { '+': '-', '-': '+', '*': '/', '/': '*', '%': '*' };
-const LOGIC = { '&&': '||', '||': '&&', and: 'or', or: 'and' };
-/** `n += 1` and `n++`: the update that goes the other way. */
-const UPDATES = { '+=': '-=', '-=': '+=', '*=': '/=', '/=': '*=', '++': '--', '--': '++' };
+const LOGIC = { '&&': '||', '||': '&&', and: 'or', or: 'and', '??': '&&' };
+/** Languages whose `&&` takes any value, so `a ?? b` can become `a && b` and still run. */
+const COALESCING = new Set(['javascript', 'php']);
+/** `n += 1` and `n++`: the update that goes the other way, and every other assignment operator Stryker turns. */
+const UPDATES = { '+=': '-=', '-=': '+=', '*=': '/=', '/=': '*=', '%=': '*=', '**=': '*=', '//=': '*=', '<<=': '>>=', '>>=': '<<=', '&=': '|=', '|=': '&=',
+  '&&=': '||=', '||=': '&&=', '??=': '&&=', '++': '--', '--': '++' };
 
 // The node that holds a binary operator, by language. Where the grammar gives the operator no field, it is the unnamed child.
 // Bash's `[ a ] && [ b ]` is a `list` of two commands with the connective between them; a list is read only in Bash, since Python
@@ -37,7 +42,9 @@ const UPDATED = new Set(['augmented_assignment_expression', 'augmented_assignmen
 // A statement that branches on a condition. Ruby's `unless` and `until` branch on the condition's opposite, and `x += 1 if y` is
 // an if with the branch written first; each still has one condition, and a constant in its place still decides the branch.
 const IFS = new Set(['if_statement', 'if_expression', 'IfPrefix', 'if', 'unless', 'elsif', 'if_modifier', 'unless_modifier', 'else_if_clause', 'elseif_statement']);
-const LOOPS = new Set(['while_statement', 'while_expression', 'WhilePrefix', 'while', 'until', 'while_modifier', 'until_modifier']);
+const LOOPS = new Set(['while_statement', 'while_expression', 'WhilePrefix', 'while', 'until', 'while_modifier', 'until_modifier', 'for_statement', 'do_statement']);
+// `a ? b : c`, as each grammar names it. Python's holds no fields: the condition is its second child.
+const TERNARIES = new Set(['ternary_expression', 'conditional_expression', 'conditional']);
 // Zig's IfPrefix and WhilePrefix give the condition no field: it is the first named child, between the keyword's parentheses.
 const PREFIXED = new Set(['IfPrefix', 'WhilePrefix']);
 const WRAPPED = new Set(['parenthesized_expression', 'condition_clause', 'parenthesized_statements']);
@@ -80,6 +87,147 @@ const RETURN_STYLE = {
   tail: new Set(['rust', 'scala']), bare: new Set(['go', 'swift', 'kotlin']),
 };
 
+/**
+ * The methods Stryker swaps for their opposite, or drops from a chain, and what each language calls them. A pair reads both
+ * ways. `-` drops the call: `a.trim()` is `a`, `sorted(items)` is `items`, so the chain runs without it. Only a method that
+ * gives back its receiver's kind is dropped, so the edit compiles wherever the language checks types.
+ */
+const PAIRS = {
+  javascript: 'endsWith startsWith, trimEnd trimStart, toUpperCase toLowerCase, toLocaleUpperCase toLocaleLowerCase, padEnd padStart, every some, min max',
+  python: 'startswith endswith, upper lower, lstrip rstrip, ljust rjust',
+  ruby: 'start_with? end_with?, upcase downcase, lstrip rstrip, any? all?, min max, first last',
+  java: 'startsWith endsWith, toUpperCase toLowerCase, min max, allMatch anyMatch, stripLeading stripTrailing',
+  kotlin: 'startsWith endsWith, uppercase lowercase, toUpperCase toLowerCase, trimStart trimEnd, any all, first last, firstOrNull lastOrNull, min max, minOrNull maxOrNull, padStart padEnd',
+  swift: 'hasPrefix hasSuffix, uppercased lowercased',
+  rust: 'starts_with ends_with, to_uppercase to_lowercase, to_ascii_uppercase to_ascii_lowercase, trim_start trim_end, min max, any all, first last',
+  csharp: 'StartsWith EndsWith, ToUpper ToLower, ToUpperInvariant ToLowerInvariant, TrimStart TrimEnd, Any All, Min Max, First Last, FirstOrDefault LastOrDefault, PadLeft PadRight, OrderBy OrderByDescending',
+  scala: 'startsWith endsWith, toUpperCase toLowerCase, forall exists, min max, head last, headOption lastOption',
+};
+const DROPPED = {
+  javascript: 'charAt filter reverse slice sort substr substring trim',
+  python: 'strip',
+  ruby: 'strip sort sort_by reverse uniq compact select reject chomp',
+  java: 'trim strip filter sorted distinct',
+  kotlin: 'trim filter sorted reversed distinct',
+  swift: 'filter sorted reversed',
+  rust: 'trim filter rev',
+  csharp: 'Trim Where Distinct Reverse',
+  scala: 'trim filter filterNot sorted reverse distinct',
+};
+/** Free functions, by the name they are called by; `-` drops the call and keeps its first argument. */
+const FUNCTION_PAIRS = {
+  python: 'min max, any all',
+  kotlin: 'minOf maxOf',
+  swift: 'min max',
+  go: 'strings.ToUpper strings.ToLower, strings.HasPrefix strings.HasSuffix, strings.TrimLeft strings.TrimRight, strings.TrimPrefix strings.TrimSuffix, min max',
+  rust: 'std::cmp::min std::cmp::max, cmp::min cmp::max',
+  php: 'strtoupper strtolower, str_starts_with str_ends_with, ltrim rtrim, min max, ucfirst lcfirst, array_key_first array_key_last',
+  lua: 'string.upper string.lower, math.min math.max',
+  cpp: 'std::min std::max, std::any_of std::all_of, toupper tolower',
+  c: 'toupper tolower',
+};
+const FUNCTIONS_DROPPED = { python: 'sorted reversed', go: 'strings.TrimSpace', php: 'trim array_filter array_reverse array_unique' };
+const DROP = Symbol('drop');
+/** One table per language: name → the name it becomes, or DROP. TypeScript and TSX read as JavaScript, C as C++ where it says so. */
+function swapTable(pairs, dropped) {
+  const tables = {};
+  for (const [language, text] of Object.entries(pairs)) {
+    const table = tables[language] ??= {};
+    for (const pair of text.split(',')) { const [a, b] = pair.trim().split(' '); table[a] = b; table[b] = a; }
+  }
+  for (const [language, text] of Object.entries(dropped)) { const table = tables[language] ??= {}; for (const name of text.split(' ')) table[name] = DROP; }
+  return tables;
+}
+const METHODS = swapTable(PAIRS, DROPPED), FUNCTIONS = swapTable(FUNCTION_PAIRS, FUNCTIONS_DROPPED);
+const SAME_TABLES = { typescript: 'javascript', tsx: 'javascript' };
+const tableFor = (tables, language) => tables[SAME_TABLES[language] ?? language] ?? {};
+/** The node that names a member of something: `a.b` as each grammar holds it. */
+const MEMBERS = new Set(['member_expression', 'attribute', 'selector_expression', 'field_expression', 'member_access_expression', 'dot_index_expression', 'navigation_expression']);
+const RECEIVER_FIELDS = ['object', 'operand', 'value', 'expression', 'argument', 'table', 'target'];
+const NAME_FIELDS = ['property', 'field', 'attribute', 'name', 'suffix'];
+const fieldOf = (node, names) => { for (const name of names) { const child = node.childForFieldName(name); if (child) return child; } return null; };
+
+/**
+ * The call a node makes on something, as its receiver and the node holding the method's name, or null. Kotlin and Swift write
+ * `a.b(c)` as a call_expression over a navigation_expression; Ruby and PHP hold the receiver on the call itself; Scala writes
+ * `a.trim` with no parentheses, a field_expression that is a call all the same.
+ */
+function memberCall(node, language) {
+  const type = node.type;
+  if (type === 'member_call_expression' || type === 'nullsafe_member_call_expression') return { receiver: node.childForFieldName('object'), name: node.childForFieldName('name') };
+  if (language === 'ruby' && type === 'call') { const receiver = node.childForFieldName('receiver'), name = node.childForFieldName('method'); return receiver && name ? { receiver, name } : null; }
+  if (type === 'method_invocation') { const receiver = node.childForFieldName('object'), name = node.childForFieldName('name'); return receiver && name ? { receiver, name } : null; }
+  if ((language === 'kotlin' || language === 'swift') && type === 'call_expression') {
+    const nav = node.namedChildren[0];
+    if (nav?.type !== 'navigation_expression') return null;
+    const suffix = nav.namedChildren.find(child => child.type === 'navigation_suffix'), receiver = nav.namedChildren[0];
+    const name = suffix?.namedChildren.find(child => child.type === 'simple_identifier');
+    return name && receiver && receiver !== suffix ? { receiver, name } : null;
+  }
+  if (language === 'scala' && type === 'field_expression' && !(node.parent?.type === 'call_expression' && node.parent.childForFieldName('function')?.id === node.id)) {
+    return { receiver: node.childForFieldName('value'), name: node.childForFieldName('field') };
+  }
+  if (!CALLS.has(type)) return null;
+  const callee = node.childForFieldName('function') ?? node.childForFieldName('name') ?? node.namedChildren[0];
+  if (!callee || !MEMBERS.has(callee.type)) return null;
+  const receiver = fieldOf(callee, RECEIVER_FIELDS) ?? callee.namedChildren[0], name = fieldOf(callee, NAME_FIELDS) ?? callee.namedChildren.at(-1);
+  return receiver && name && receiver !== name ? { receiver, name } : null;
+}
+
+/** The node naming what a call runs, free of any receiver: `sorted`, `strings.TrimSpace`, `std::min`, `vec`. */
+function calleeOf(node, language) {
+  if (language === 'kotlin' || language === 'swift') return node.type === 'call_expression' && node.namedChildren[0]?.type === 'simple_identifier' ? node.namedChildren[0] : null;
+  if (!CALLS.has(node.type)) return null;
+  return node.childForFieldName('function') ?? node.childForFieldName('name') ?? node.namedChildren[0] ?? null;
+}
+/** The first argument a call passes, or null. */
+function firstArgument(node) {
+  const list = node.namedChildren.find(child => ['arguments', 'argument_list', 'call_suffix'].includes(child.type));
+  const inner = list?.type === 'call_suffix' ? list.namedChildren.find(child => child.type === 'value_arguments') : list;
+  const first = inner?.namedChildren.find(child => !child.type.includes('comment'));
+  return first ? (first.type === 'argument' || first.type === 'value_argument' ? first.namedChildren.at(-1) ?? first : first) : null;
+}
+
+// A list, a dictionary, an object literal, by grammar, and what an empty one is. Typed languages where an empty literal has no
+// type of its own (Kotlin's listOf(), Swift's []) are left alone: the edit would not compile. PHP's array_creation_expression is
+// `[1, 2]`; Java's and C#'s are `new int[] {1, 2}`, whose initializer is the literal.
+// Python's list and set share their names with Bash's command list and other grammars' nodes, so they are Python's alone.
+const COLLECTIONS = { array: '[]', object: '{}', dictionary: '{}', hash: '{}', table_constructor: '{}',
+  array_initializer: '{}', initializer_list: '{}', literal_value: '{}', initializer_expression: '{}' };
+const COLLECTIONS_BY_LANGUAGE = { php: { array_creation_expression: '[]' }, python: { list: '[]', set: 'set()' } };
+/** Languages where an empty list can take an element of any kind, which Stryker fills to see whether a test reads it. */
+const FILLABLE = { javascript: '["perch was here"]', python: '["perch was here"]', ruby: '["perch was here"]', php: '["perch was here"]', lua: '{"perch was here"}' };
+const FILLABLE_TYPES = new Set(['array', 'list', 'array_creation_expression', 'table_constructor']);
+
+/** The token that makes a member access optional, and what makes it unconditional, by language. */
+const CHAINS = { javascript: { '?.': '.' }, ruby: { '&.': '.' }, php: { '?->': '->' }, kotlin: { '?.': '!!.' }, csharp: { '?': '' } };
+const CHAIN_HOLDERS = new Set(['member_expression', 'call_expression', 'subscript_expression', 'call', 'nullsafe_member_call_expression', 'nullsafe_member_access_expression', 'navigation_suffix', 'conditional_access_expression']);
+
+/**
+ * What a regular expression can become, each a mutant of its own: an anchor dropped, a quantifier loosened or tightened, a
+ * class swapped for its complement, a negated class made plain. The pattern's text is read; what it means is the model's to say.
+ */
+function regexMutants(pattern) {
+  const found = [];
+  const push = (at, from, to) => found.push(`${pattern.slice(0, at)}${to}${pattern.slice(at + from.length)}`);
+  if (pattern.startsWith('^')) push(0, '^', '');
+  if (pattern.endsWith('$') && !pattern.endsWith('\\$')) push(pattern.length - 1, '$', '');
+  for (let at = 0; at < pattern.length; at++) {
+    const char = pattern[at], previous = pattern[at - 1];
+    if (previous === '\\' && pattern[at - 2] !== '\\') {
+      const swap = { d: 'D', D: 'd', w: 'W', W: 'w', s: 'S', S: 's' }[char];
+      if (swap) push(at, char, swap);
+      else if (char === 'b') push(at - 1, '\\b', '');
+      continue;
+    }
+    if (char === '+' && previous !== '\\') push(at, '+', '*');
+    else if (char === '*' && previous !== '\\') push(at, '*', '+');
+    else if (char === '?' && previous !== '\\' && previous !== '(' && previous !== '+' && previous !== '*' && previous !== '?' && previous !== '}') push(at, '?', '');
+    else if (char === '[' && pattern[at + 1] === '^' && previous !== '\\') push(at + 1, '^', '');
+  }
+  return found;
+}
+
 /** Languages where a block's last expression is its value: a call there is a return, not a statement to remove. */
 const TAIL_VALUES = new Set(['rust', 'scala', 'kotlin', 'ruby']);
 /** The containers a statement sits directly in, and the call nodes a statement can be. */
@@ -111,6 +259,11 @@ function emptied(text) {
   const match = /^([a-zA-Z@$]*)(["'`]+)([\s\S]*)\2$/.exec(text);
   if (!match || !match[3]) return null;
   return `${match[1]}${match[2]}${match[2]}`;
+}
+/** An empty string literal given text, in its own quotes: a test that reads the string notices. */
+function filled(text) {
+  const match = /^([a-zA-Z@$]*)(["'`]+)\2$/.exec(text);
+  return match ? `${match[1]}${match[2]}perch was here${match[2]}` : null;
 }
 
 /** Whether a string literal is a value: not a docstring, not a name something is imported or keyed by, not interpolated. */
@@ -239,6 +392,10 @@ export function mutantsOf({ source, language, line, end_line }) {
   // one-statement body without braces is left alone, since what follows the `if` would become its body.
   const KEYWORD_BLOCKS = new Set(['python', 'ruby', 'lua', 'swift']);
   const emptyBlock = block => (block.text.startsWith('{') ? '{}' : normalized === 'python' ? 'pass' : KEYWORD_BLOCKS.has(normalized) ? '' : null);
+  // The tables this language reads, looked up once rather than at every node.
+  const family = SAME_TABLES[normalized] ?? normalized;
+  const methods = tableFor(METHODS, normalized), functions = tableFor(FUNCTIONS, normalized);
+  const collections = { ...COLLECTIONS, ...COLLECTIONS_BY_LANGUAGE[normalized] }, fill = FILLABLE[family], chains = CHAINS[family];
   const walk = node => {
     if (node.startPosition.row + 1 <= end_line && node.endPosition.row + 1 >= line) {
       if (BINARY.has(node.type) || UPDATED.has(node.type) || (normalized === 'bash' && node.type === 'list')) {
@@ -246,12 +403,15 @@ export function mutantsOf({ source, language, line, end_line }) {
         const text = operator?.text;
         if (text in COMPARISONS) add('boundary', operator, comparisonSwap(text, normalized));
         else if (text in TEST_COMPARISONS) add('boundary', operator, TEST_COMPARISONS[text]);
+        else if (text === '??') { if (COALESCING.has(family)) add('logic', operator, LOGIC[text]); }
         else if (text in LOGIC) add('logic', operator, LOGIC[text]);
         else if (text in ARITHMETIC) add('arithmetic', operator, ARITHMETIC[text]);
         else if (text in UPDATES) add('update', operator, UPDATES[text]);
       }
       if (IFS.has(node.type) || LOOPS.has(node.type)) {
-        const condition = node.childForFieldName('condition') ?? (PREFIXED.has(node.type) ? node.namedChildren[0] : null);
+        // Go's for holds its condition in a for_clause; a `for` with none, or `for x in y`, has nothing to force.
+        const condition = node.childForFieldName('condition') ?? node.namedChildren.find(child => child.type === 'for_clause')?.childForFieldName('condition')
+          ?? (PREFIXED.has(node.type) ? node.namedChildren[0] : null);
         // `if let` binds a pattern rather than testing a value; there is no condition to replace.
         if (condition && !/^let/.test(condition.type)) {
           const inner = WRAPPED.has(condition.type) ? condition.namedChildren[0] : condition;
@@ -265,6 +425,49 @@ export function mutantsOf({ source, language, line, end_line }) {
         const body = IFS.has(node.type) && normalized !== 'bash' && !node.type.endsWith('_modifier') ? consequenceOf(node) : null;
         const empty = body && body.namedChildren.some(child => !child.type.includes('comment')) ? emptyBlock(body) : null;
         if (empty !== null) add('block', body, empty);
+      }
+      // `a ? b : c` forced each way, like an if.
+      if (TERNARIES.has(node.type) && !IFS.has(node.type)) {
+        const condition = node.childForFieldName('condition') ?? (normalized === 'python' ? node.namedChildren[1] : null);
+        const inner = condition && WRAPPED.has(condition.type) ? condition.namedChildren[0] : condition;
+        if (inner && !BOOLEANS.has(inner.type)) { add('condition', inner, truth(true)); add('condition', inner, truth(false)); }
+      }
+      // A method swapped for its opposite, or its call dropped from the chain: `a.trim().toUpperCase()` is `a.trim().toLowerCase()`
+      // and `a.toUpperCase()`. A free function likewise: `sorted(items)` is `items`.
+      const member = memberCall(node, normalized);
+      if (member && member.name.text in methods) {
+        const swap = methods[member.name.text];
+        if (swap === DROP) add('method', node, member.receiver.text); else add('method', member.name, swap);
+      } else {
+        const callee = calleeOf(node, normalized);
+        if (callee && callee.text in functions) {
+          const swap = functions[callee.text], argument = firstArgument(node);
+          if (swap === DROP) { if (argument) add('method', node, argument.text); } else add('method', callee, swap);
+        }
+      }
+      // A list or an object emptied, and an empty list filled, where the language lets an empty one stand on its own.
+      if (node.type in collections && !isReturn(node.parent)) {
+        const items = node.namedChildren.filter(child => !child.type.includes('comment'));
+        // C#'s `new[] { 1, 2 }` and a collection expression take their type from what is in them; `new int[] { 1, 2 }` does not.
+        const untyped = node.type === 'initializer_expression' && node.parent?.type !== 'array_creation_expression';
+        if (items.length && !untyped) add('collection', node, collections[node.type]);
+        else if (!items.length && fill && FILLABLE_TYPES.has(node.type)) add('collection', node, fill);
+      }
+      if (normalized === 'rust' && node.type === 'macro_invocation' && node.childForFieldName('macro')?.text === 'vec' && node.namedChildren.find(child => child.type === 'token_tree')?.namedChildren.length) add('collection', node, 'vec![]');
+      // An optional chain made unconditional: `a?.b` is `a.b`, which a test with nothing there should notice.
+      if (chains && CHAIN_HOLDERS.has(node.type)) {
+        const token = node.children.find(child => !child.isNamed && child.text in chains) ?? node.namedChildren.find(child => child.type === 'optional_chain');
+        // JavaScript's `?.(` and `?.[` lose the token; `?.b` keeps a dot. Every other language's chain is one token swapped.
+        if (token) add('chaining', token, family === 'javascript' && node.type !== 'member_expression' ? '' : chains[token.text]);
+      }
+      // An arrow function returning nothing: Stryker's question of whether anything reads what it returns.
+      if (node.type === 'arrow_function') {
+        const body = node.childForFieldName('body');
+        if (body && body.type !== 'statement_block') add('lambda', body, 'undefined');
+      }
+      if (node.type === 'regex') {
+        const pattern = node.childForFieldName('pattern') ?? node.namedChildren.find(child => child.type === 'regex_pattern' || child.type === 'string_content');
+        if (pattern) for (const to of regexMutants(pattern.text)) add('regex', pattern, to);
       }
       if (NOT.has(node.type)) {
         const operator = node.childForFieldName('operator') ?? node.childForFieldName('operation') ?? node.children.find(child => !child.isNamed);
@@ -285,8 +488,8 @@ export function mutantsOf({ source, language, line, end_line }) {
         else if (value && !BOOLEANS.has(value.type) && NULLS[normalized] && node.type !== 'AssignExpr') add('return', value, NULLS[normalized]);
       }
       if (STRINGS.has(node.type) && !(isReturn(node.parent) || node.parent?.type === 'expression' && isReturn(node.parent.parent)) && isValueString(node, normalized)) {
-        const empty = emptied(node.text);
-        if (empty) add('string', node, empty);
+        const to = emptied(node.text) ?? filled(node.text);
+        if (to) add('string', node, to);
       }
       if (NUMBERS.has(node.type) && /^\d+$/.test(node.text) && !isReturn(node.parent)) add('number', node, node.text === '0' ? '1' : node.text === '1' ? '0' : String(BigInt(node.text) + 1n));
       // A statement that only calls something: the call removed, which a test of what it did should notice. Python needs a
@@ -308,15 +511,25 @@ export function mutantsOf({ source, language, line, end_line }) {
 }
 
 /** Every kind of mutant, in the order two at the same place are listed. */
-export const KINDS = ['body', 'boundary', 'logic', 'arithmetic', 'update', 'condition', 'block', 'removal', 'not', 'negative', 'boolean', 'return', 'string', 'number'];
+export const KINDS = ['body', 'boundary', 'logic', 'arithmetic', 'update', 'condition', 'block', 'removal', 'method', 'chaining', 'lambda', 'not', 'negative', 'boolean', 'return', 'collection', 'string', 'number', 'regex'];
 
 /** A mutant's id within its method: where it is and what it does, stable across runs. */
 export const mutantId = mutant => `${mutant.line}:${mutant.column}:${mutant.kind}:${createHash('sha1').update(`${mutant.from}>${mutant.to}`).digest('hex').slice(0, 8)}`;
 
 const shown = text => { const flat = text.trim().replace(/\s+/g, ' '); return flat.length > 48 ? `${flat.slice(0, 47)}…` : flat; };
+/**
+ * Whether a method mutant drops a call rather than swapping a name: what it changes is a call, or its receiver with the method
+ * after it (`a.strip` to `a`), where a swap is one name for another.
+ */
+export const droppedCall = mutant => mutant.kind === 'method' && (mutant.from.includes('(') || (mutant.from.startsWith(mutant.to) && /^[\s.:?!&>-]/.test(mutant.from.slice(mutant.to.length))));
+/** The method a dropped call ran: what follows the receiver in `a.trim()`, or the name in `sorted(items)`. */
+export const droppedName = mutant => (mutant.from.startsWith(mutant.to) ? /^[\s.:?!&>()-]*([\w$?!.:]+)/.exec(mutant.from.slice(mutant.to.length))?.[1] : /^[\w$.:]+/.exec(mutant.from)?.[0]) ?? mutant.from;
 /** How a mutant reads in a sentence: what changed, in the words of its kind. */
 export function describeMutant(mutant) {
   if (mutant.kind === 'removal') return `the call \`${shown(mutant.from)}\` removed`;
+  if (droppedCall(mutant)) return `the call to \`${droppedName(mutant)}\` removed`;
+  if (mutant.kind === 'chaining') return `the optional \`${mutant.from === '?' ? '?.' : mutant.from}\` made unconditional`;
+  if (mutant.kind === 'lambda') return 'the arrow function returning `undefined`';
   if (mutant.kind === 'block') return 'the branch\'s body emptied';
   if (mutant.kind === 'body') return /return|^\{ \S/.test(mutant.to) ? `the body replaced by \`${shown(mutant.to.replace(/^\{ | \}$/g, ''))}\`` : 'the body emptied';
   if (mutant.kind === 'condition') return `\`${mutant.to}\` as the condition`;

@@ -16,9 +16,11 @@ changes no files.
 
 A mutant is one edit to one method. Perch removes a call statement, empties an
 `if` body, forces a condition to `true` or `false`, or swaps an operator: `<`
-to `<=`, `&&` to `||`, `+` to `-`, `n++` to `n--`. It drops a `!`, flips a
-boolean, empties a string, moves a number by one, or replaces a returned value.
-These are the operators Stryker and PIT use. If a test fails with a mutant in place, the test
+to `<=`, `&&` to `||`, `+` to `-`, `n++` to `n--`. It swaps a method for its
+opposite, `startsWith` for `endsWith`, or drops `.filter(…)` from a chain. It
+drops a `!`, flips a boolean, empties a string or a list, moves a number by
+one, makes `a?.b` unconditional, or replaces a returned value. These are the
+operators Stryker and PIT use. If a test fails with a mutant in place, the test
 kills it. If every test passes, the mutant survives. A survived mutant is a
 real gap in your coverage: a test runs that code, and nothing checks what it
 does.
@@ -29,9 +31,9 @@ Point it at a repository:
 $ perch coverage
 Source files      Mutation score  Survived  No coverage
 src/checkout.ts     60% (3 of 5)         2            0
-src/inventory.ts    63% (5 of 8)         2            0
+src/inventory.ts    67% (6 of 9)         2            0
 src/cart.ts       71% (10 of 14)         4            0
-All source        67% (18 of 27)         8            0
+All source        68% (19 of 28)         8            0
 
 Test files                    Quality  Duplicates  Checks nothing  Live services
 test/cart.test.ts        43% (3 of 7)           4               0              1
@@ -46,7 +48,7 @@ Where to add tests
   placeOrder     src/checkout.ts:5    3 of 5         2      1
     Add a test in which the condition at line 6 is true, and assert on what follows. 1 more edit
     survives.
-  canFulfil      src/inventory.ts:4   5 of 8         2      4
+  canFulfil      src/inventory.ts:4   6 of 9         2      4
     Add a test that asserts on the value `0` at line 6. 1 more edit survives.
 
 test/cart.test.ts
@@ -62,7 +64,7 @@ test/inventory.test.ts
   98a1a024    23  mocked            -  canFulfil > returns …  Mocks every method it calls: canFul…
 shop at commit 0ade512: 4 methods, 12 tests, 14 problems, --all for every mutant
 Report: .perch/coverage/index.html
-28 requests  0 tokens in  $0.0000
+29 requests  2k tokens in / 93 out  $0.0005
 ```
 
 The mutation score is the share of mutants killed by at least one test. A test
@@ -123,18 +125,24 @@ Perch makes every mutant a method has; there is no cap. Each is one edit:
 
 | Kind | Edit |
 | --- | --- |
+| `body` | The whole body is emptied, or returns its type's zero: does any test notice when the method does nothing? |
 | `removal` | A statement that only calls something is removed: `save(order);` is gone. |
+| `method` | A method becomes its opposite, or its call drops out of the chain: `startsWith` to `endsWith`, `toUpperCase` to `toLowerCase`, `min` to `max`, `every` to `some`; `.trim()`, `.filter(…)`, `.sort()`, `.slice(…)` gone. Each language's own names: `strip`, `upcase`, `hasPrefix`, `strings.TrimSpace`, `std::min`. |
 | `block` | An `if` body is emptied. |
-| `condition` | A condition is replaced by `true`, and by `false`; a loop's only by `false`. |
+| `condition` | A condition is replaced by `true`, and by `false`, in an `if`, a `?:`; a loop's only by `false`. |
 | `boundary` | A comparison moves to its boundary or flips: `<` to `<=`, `==` to `!=`. |
-| `logic` | `&&` and `\|\|` swap, `and` and `or` in Python and Lua. |
+| `logic` | `&&` and `\|\|` swap, `and` and `or` in Python and Lua, `??` becomes `&&`. |
 | `arithmetic` | `+`, `-`, `*`, `/` and `%` swap. |
-| `update` | `+=` and `-=` swap, `n++` becomes `n--`. |
+| `update` | `+=` and `-=` swap, `*=` and `/=`, `<<=` and `>>=`, `&=` and `\|=`, `&&=` and `\|\|=`; `??=` becomes `&&=`; `n++` becomes `n--`. |
+| `chaining` | An optional chain is made unconditional: `a?.b` becomes `a.b`, `a&.b` becomes `a.b` in Ruby, `a?.b` becomes `a!!.b` in Kotlin. |
+| `lambda` | An arrow function's expression body returns `undefined`. |
 | `not` | A `!` or `not` is dropped. |
 | `negative` | A leading minus is dropped. |
 | `boolean` | `true` becomes `false` and back. |
-| `string` | A string literal is emptied. Names are left alone: what is imported, an object's key, a docstring. |
+| `collection` | A list, dictionary or object literal is emptied: `[1, 2]` to `[]`, `{ a: 1 }` to `{}`, `vec![1, 2]` to `vec![]`. An empty list is filled: `[]` to `["perch was here"]`. |
+| `string` | A string literal is emptied, and an empty one is filled: `""` to `"perch was here"`. Names are left alone: what is imported, an object's key, a docstring. |
 | `number` | An integer moves by one; `0` becomes `1` and `1` becomes `0`. |
+| `regex` | A regular expression loses an anchor, a `+` becomes `*` and back, a `?` goes, `\d` becomes `\D`, `[^a]` becomes `[a]`. |
 | `return` | A returned number is zeroed, a string emptied, a list or object emptied, and in JavaScript, Python, Ruby, PHP and Lua any other value becomes the language's null. |
 
 A method with none of these, a one-line delegate or a getter, gets no
@@ -223,7 +231,7 @@ test/cart.test.ts
   427fce7a    22  redundant         76%  applyDiscount > tak…  Kills the same mutants as applyDis…
 shop at commit 6fe98ce: 4 methods, 12 tests, 5 problems in changed code, 9 elsewhere, --all for every mutant
 Report: .perch/coverage/index.html
-28 requests  0 tokens in  $0.0000
+29 requests  0 tokens in  $0.0000
 ```
 
 With `--since`, perch exits 3 only when it finds a problem in changed code. It

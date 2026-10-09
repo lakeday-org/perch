@@ -2,6 +2,7 @@
  * What test to add for a survived mutant, in one sentence, from the kind of edit it is. The sentence is fixed wording around the
  * report's own facts: the line, and the text the edit changed. It says what a test has to tell apart, not how to write it.
  */
+import { droppedCall, droppedName } from './mutants.js';
 
 /** A piece of code in a sentence, cut to one line of it. */
 const edit = text => {
@@ -17,6 +18,13 @@ export function adviceFor(mutant) {
   switch (mutant.kind) {
     case 'body': return 'Add a test that fails when the method does nothing.';
     case 'removal': return `Add a test that fails when ${edit(mutant.from)} is not called.`;
+    case 'method': return droppedCall(mutant)
+      ? `Add a test that fails when \`${droppedName(mutant)}\` is not called on line ${line}.`
+      : `Add a test for which \`${mutant.from}\` and \`${mutant.to}\` give different results on line ${line}.`;
+    case 'collection': return `Add a test that asserts on the contents of ${edit(mutant.from)} at line ${line}.`;
+    case 'chaining': return `Add a test in which the value before \`${mutant.from === '?' ? '?.' : mutant.from}\` on line ${line} is missing.`;
+    case 'lambda': return `Add a test that asserts on what the arrow function at line ${line} returns.`;
+    case 'regex': return `Add a test with an input that ${edit(mutant.from)} and ${edit(mutant.to)} match differently.`;
     case 'block': return `Add a test that fails when the block at line ${line} is skipped.`;
     case 'condition': return `Add a test in which the condition at line ${line} is ${otherBranch(mutant.to)}, and assert on what follows.`;
     case 'boundary': return `Add a test at the boundary of ${edit(mutant.from)} on line ${line}, where ${edit(mutant.from)} and ${edit(mutant.to)} give different results.`;
