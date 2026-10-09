@@ -17,13 +17,17 @@
   ensure: >-
     If this method links a call to a method, it does so only through the
     calling language's own resolution: the same file, an import, the same Java
-    package, C and C++ external linkage, or the value a caller passes for a
-    parameter, read from that caller's own call site and bindings. Linking a
-    call because the name is the only one like it in the repository, or
-    because nothing else matched, breaks this rule. So does linking `obj.name` to whatever method in the
-    same file is called name, when obj is not that method's class or module.
-    A function passed as a value is linked by the same rules as a call, or not
-    at all. A method that links no call holds this rule.
+    package, C and C++ external linkage, the value a caller passes for a
+    parameter, read from that caller's own call site and bindings, or the
+    class hierarchy, where a call on a class or trait also runs the same member
+    of each class recorded as extending or implementing it, and a name declared
+    more than once runs each overload. Linking a call because the name is the
+    only one like it in the repository, or because nothing else matched, breaks
+    this rule. So does linking `obj.name` to whatever method in the same file
+    is called name, when obj is not that method's class, module, or a class
+    that implements it. A function passed as a value is linked by the same
+    rules as a call, or not at all. A method that links no call holds this
+    rule.
 
 - name: coverage-runs-no-tests
   where: "src/coverage*.js"

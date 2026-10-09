@@ -130,6 +130,9 @@ export const FUNCTION_TYPES = new Set([
   "function_definition",
   "function_declaration",
   "function_item",
+  // A Rust trait's method with no body, `fn next(&mut self) -> u8;`: a declaration a call resolves to, as Java's abstract
+  // method is, that runs its implementations.
+  "function_signature_item",
   "method_definition",
   "method_declaration",
   "method",

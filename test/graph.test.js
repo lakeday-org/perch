@@ -374,10 +374,12 @@ describe('what a call may run besides what it names', () => {
       'src/read.rs': "pub trait Read<'de> {\n    fn next(&mut self) -> Option<u8>;\n}\n\npub struct SliceRead<'a> {\n    slice: &'a [u8],\n}\n\nimpl<'a> Read<'a> for SliceRead<'a> {\n    fn next(&mut self) -> Option<u8> {\n        self.slice.first().copied()\n    }\n}\n\npub struct StrRead<'a> {\n    delegate: SliceRead<'a>,\n}\n\nimpl<'a> Read<'a> for StrRead<'a> {\n    fn next(&mut self) -> Option<u8> {\n        self.delegate.next()\n    }\n}\n",
       'src/de.rs': "use crate::read::Read;\n\npub struct Deserializer<R> {\n    read: R,\n}\n\nimpl<'de, R: Read<'de>> Deserializer<R> {\n    pub fn new(read: R) -> Self {\n        Deserializer { read }\n    }\n\n    pub fn peek(&mut self) -> Option<u8> {\n        self.read.next()\n    }\n}\n\npub fn parse<V>(visitor: V) where V: Visitor {\n    visitor.visit()\n}\n",
     });
-    // The field `read: R` is a Read, by R's bound; Read declares next without a body, so the call runs the implementations.
+    // The field `read: R` is a Read, by R's bound; the trait declares next without a body, a declaration the call resolves to
+    // that runs every implementation, as a Java abstract method does.
     expect(graph.files.get('src/de.rs').file.binds.find(item => item.name === 'this.read')).toMatchObject({ type: 'Read' });
     expect(graph.files.get('src/de.rs').file.binds.find(item => item.name === 'visitor')).toMatchObject({ type: 'Visitor' });
-    expect(graph.callees('src/de.rs::Deserializer.peek').sort()).toEqual(['src/read.rs::SliceRead.next', 'src/read.rs::StrRead.next']);
+    expect(graph.callees('src/de.rs::Deserializer.peek').sort()).toEqual(['src/read.rs::Read.next', 'src/read.rs::SliceRead.next', 'src/read.rs::StrRead.next']);
+    expect(graph.isDynamic('src/de.rs::Deserializer.peek', 'src/read.rs::Read.next')).toBe(false);
     expect(graph.isDynamic('src/de.rs::Deserializer.peek', 'src/read.rs::StrRead.next')).toBe(true);
     // A concrete field runs its own type's method, and nothing else.
     expect(graph.callees('src/read.rs::StrRead.next')).toEqual(['src/read.rs::SliceRead.next']);
