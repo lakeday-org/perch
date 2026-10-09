@@ -10,6 +10,9 @@ import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import * as pytest from './pytest.js';
 import { javascriptRunner } from './javascript.js';
+import * as cargo from './cargo.js';
+import * as go from './go.js';
+import * as dotnet from './dotnet.js';
 
 const run = promisify(execFile);
 
@@ -35,6 +38,11 @@ export async function runnersFor({ scope, root, graph }) {
     else if (depends('jest')) found.push(javascriptRunner('jest'));
     else if (frameworks.has('node:test')) found.push(javascriptRunner('node:test'));
   }
+  // A compiled language's tests are found by the parser; its build tool runs them.
+  const tested = new Set([...graph.nodes.values()].filter(node => node.case).map(node => graph.files.get(node.path)?.file.language));
+  if (tested.has('rust')) found.push(cargo);
+  if (tested.has('go')) found.push(go);
+  if (tested.has('csharp') || tested.has('c_sharp')) found.push(dotnet);
   return found.length ? combined(found) : null;
 }
 

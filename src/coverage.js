@@ -1011,7 +1011,7 @@ export async function coverageRepository({ root, revision, label = root, github 
   // The repository's own tests, run by perch: once for which tests run each line, then once per mutant. Nothing is estimated: a
   // repository whose tests perch cannot run is one it cannot measure, and it says what is missing.
   const runner = given ?? await runnersFor({ scope, root, graph });
-  if (!runner) throw new Error(`perch coverage runs your tests itself, and has no runner for ${(scope?.frameworks ?? []).filter(item => item.tests).map(item => item.name).join(', ') || 'what it found'} yet; it runs pytest`);
+  if (!runner) throw new Error(`perch coverage runs your tests itself, and has no runner for ${(scope?.frameworks ?? []).filter(item => item.tests).map(item => item.name).join(', ') || 'what it found'} yet; it runs pytest, Vitest, Jest, Mocha, Jasmine, node:test, cargo, go test and dotnet test`);
   const tool = await runner.available({ root });
   if (tool.reason) throw new Error(`${runner.name} cannot run here: ${tool.reason}`);
   if (!sandboxKind()) log(`${runner.name} runs unsandboxed here: install bubblewrap so a mutated test can write only inside its copy`);

@@ -17,7 +17,7 @@ import { dirname, join, relative } from 'node:path';
 import { promisify } from 'node:util';
 import { mutantId } from '../mutants.js';
 import { startDriver } from './driver.js';
-import { instrument, PRELUDE, SCHEMATA_LANGUAGES } from './schemata.js';
+import { instrument, PRELUDE, SCHEMATA_LANGUAGES, TS_HEAD } from './schemata.js';
 
 const run = promisify(execFile);
 
@@ -221,7 +221,7 @@ export function javascriptRunner(framework) {
       }
       for (const [path, mutants] of byFile) {
         const file = join(copy.dir, path);
-        const placed = instrument({ source: await readFile(file, 'utf8'), language: graph.files.get(path).file.language, mutants, prelude: PRELUDE });
+        const placed = instrument({ source: await readFile(file, 'utf8'), language: graph.files.get(path).file.language, mutants, prelude: PRELUDE, head: TS_HEAD });
         for (const { id, reason } of placed.unplaced) unplaced.set(id, reason);
         await writeFile(file, placed.text);
       }

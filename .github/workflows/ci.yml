@@ -39,6 +39,11 @@ jobs:
 
       - run: pip install pytest pytest-cov
 
+      # And go test, cargo and dotnet test, against small projects of their own; the runner image has Go and Rust.
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
       - name: Lint
         run: npm run lint
 

@@ -136,6 +136,12 @@ the whole run, so a mutated test can write only inside its copy:
 - **Vitest, Jest, Mocha, Jasmine and node:test:** perch writes every mutant
   into the code at once, each behind a switch, as Stryker does. Your framework
   transforms the code once, and each mutant is one run with its switch on.
+- **Rust and C#:** the same switches, built once by cargo or dotnet. A mutant
+  the compiler rejects, a value a constant needs at compile time, is taken out
+  and the code built again; it counts as invalid, as Stryker.NET counts it.
+- **Go:** Go has no expression that chooses between two values of any type, so
+  each mutant is written into its own copy of the module and its package built
+  again, which Go's build cache makes quick.
 
 Perch saves each mutant's outcome. A later run reuses it while the mutant's
 code, the tests that reach it, every file those tests run, and your dependency
@@ -144,7 +150,9 @@ manifests are unchanged.
 Perch runs pytest with the Python on your `PATH`, so activate the project's
 environment first. It needs `pytest-cov` installed there. For JavaScript and
 TypeScript it runs the framework installed in your `node_modules`, so install
-your dependencies first. node:test needs Node 22 or later. If perch can't run
+your dependencies first. node:test needs Node 22 or later. Rust needs cargo, Go
+needs go, and C# needs dotnet and a test project that references
+`Microsoft.NET.Test.Sdk`. If perch can't run
 your tests, it stops and says what's missing. In a repository that also has
 tests in a language perch has no runner for, perch leaves out the code only
 those tests run, and says so.
@@ -201,6 +209,9 @@ ignores release scripts, examples, documentation tooling and CI actions.
 - **pytest:** perch reads the `testpaths` and `python_files` options from
   `pytest.ini`, `pyproject.toml`, `tox.ini` or `setup.cfg`, and the `source`
   and `omit` options from your coverage.py configuration.
+- **Go, Rust and C#:** perch covers the module the tests are in: the Go module,
+  the code under a Rust crate's `src/`, and the projects a .NET test project
+  references, directly or through each other.
 
 Perch tells you which frameworks it decided on when you run it with
 `--verbose`:
@@ -218,8 +229,8 @@ can leave out more files and directories with the `ignore:` option in
 
 ## Supported languages and frameworks
 
-Perch runs pytest, Vitest, Jest, Mocha, Jasmine and node:test suites. The
-table below is every language perch finds tests in, the frameworks it
+Perch runs pytest, Vitest, Jest, Mocha, Jasmine, node:test, cargo test, go test
+and dotnet test suites, with xUnit, NUnit or MSTest. The table below is every language perch finds tests in, the frameworks it
 recognises, the mocks it reads as cutting a test's reach, and what it does not
 follow yet:
 

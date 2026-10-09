@@ -31,7 +31,8 @@ const MODULES = [
   { languages: ['elixir'], files: [/^mix\.exs$/], nearest: true },
   { languages: ['c', 'cpp'], files: [/^CMakeLists\.txt$/, /^meson\.build$/, /^Makefile$/], nearest: false },
   // A .NET test project is a project of its own, `Shop.Tests/Shop.Tests.csproj`, named for the project it tests.
-  { languages: ['c_sharp', 'fsharp'], files: [/\.sln$/, /\.[cf]sproj$/], nearest: false, tests: /(?:^|\/)[^/]+\.Tests?\// },
+  // It covers the projects it references, which is where the code it tests lives.
+  { languages: ['c_sharp', 'fsharp'], files: [/\.slnx?$/, /\.[cf]sproj$/], nearest: false, tests: /(?:^|\/)[^/]+\.Tests?\//, references: true },
   // Rake's TestTask and RSpec run test/ and spec/; PHPUnit's convention is tests/; busted's default is spec/, with no manifest
   // of its own, so a Lua project is bounded by its rockspec or `.busted`, and failing both, is the repository.
   { languages: ['ruby'], files: [/^Gemfile$/, /\.gemspec$/], nearest: false, tests: /^(?:test|spec|features)\// },
@@ -351,6 +352,19 @@ export async function frameworkScope({ root, tree, scan, graph, node = process.e
     // A source file is the module's when its own nearest build file is one the tests are in: a separate tool's pom.xml, or a
     // Gradle module with no tests, has a nearest build file of its own.
     const ownRoot = path => { const holding = manifests.filter(dir => under(dir, path)).sort(byDepth); return (module.nearest ? holding.at(-1) : holding[0]) ?? ''; };
+    // A .NET test project's ProjectReferences, and theirs, are the projects whose code its tests run.
+    if (module.references) {
+      const projects = paths.filter(path => /\.[cf]sproj$/.test(path));
+      for (const queue = [...roots]; queue.length;) {
+        const dir = queue.pop();
+        for (const project of projects.filter(path => dirOf(path) === dir)) {
+          for (const match of (await readListed(root, project)).matchAll(/<ProjectReference\s+Include="([^"]+)"/g)) {
+            const target = dirOf(posix.normalize(posix.join(dir, match[1].replace(/\\/g, '/'))));
+            if (!roots.has(target)) { roots.add(target); queue.push(target); }
+          }
+        }
+      }
+    }
     for (const language of module.languages) moduleRoots.set(language, { roots, ownRoot, built: module.built ?? null, dependency });
     frameworks.push({ name: `${module.languages[0]} tests`, config: null, tests: mine.map(file => file.path), roots: [...roots] });
   }

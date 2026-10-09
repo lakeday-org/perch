@@ -2,7 +2,7 @@ import { runInNewContext } from 'node:vm';
 import { transformSync } from 'esbuild';
 import { describe, expect, it } from 'vitest';
 import { mutantsOf } from '../src/mutants.js';
-import { instrument, PRELUDE } from '../src/runners/schemata.js';
+import { instrument, PRELUDE, TS_HEAD } from '../src/runners/schemata.js';
 
 /** A program with every kind of edit in it, and the calls whose results must tell each mutant apart from the code as written. */
 const PROGRAM = `"use strict";
@@ -52,7 +52,7 @@ describe('mutant schemata', () => {
     const mutants = [];
     for (const [line, end_line] of [[2, 6], [7, 13], [14, 17], [19, 19], [20, 20]]) mutants.push(...mutantsOf({ source: PROGRAM, language: 'javascript', line, end_line }));
     expect(mutants.length).toBeGreaterThan(60);
-    const { text, unplaced } = instrument({ source: PROGRAM, language: 'javascript', mutants: mutants.map((mutant, id) => ({ id, mutant })), prelude: PRELUDE });
+    const { text, unplaced } = instrument({ source: PROGRAM, language: 'javascript', mutants: mutants.map((mutant, id) => ({ id, mutant })), prelude: PRELUDE, head: TS_HEAD });
     // The constructor's body holds no super() call, so every mutant has a place.
     expect(unplaced).toEqual([]);
     expect(text.startsWith('// @ts-nocheck\n"use strict";\nvar __perch')).toBe(true);
@@ -69,7 +69,7 @@ describe('mutant schemata', () => {
   it('compiles as TypeScript and JSX, and records which switches a test reaches', () => {
     const source = 'export function greet(name: string, loud?: boolean): string {\n  const text: string = `hi ${name}`;\n  return loud ? text.toUpperCase() : text;\n}\nexport const View = (props: { n: number }) => <p title="x">{props.n > 1 ? "many" : "one"}</p>;\n';
     const mutants = [...mutantsOf({ source, language: 'tsx', line: 1, end_line: 4 }), ...mutantsOf({ source, language: 'tsx', line: 5, end_line: 5 })];
-    const { text, unplaced } = instrument({ source, language: 'tsx', mutants: mutants.map((mutant, id) => ({ id, mutant })), prelude: PRELUDE });
+    const { text, unplaced } = instrument({ source, language: 'tsx', mutants: mutants.map((mutant, id) => ({ id, mutant })), prelude: PRELUDE, head: TS_HEAD });
     expect(unplaced).toEqual([]);
     expect(() => transformSync(text, { loader: 'tsx', jsx: 'automatic' })).not.toThrow();
     expect(text).toContain('title={(__perch(');
@@ -90,7 +90,7 @@ describe('mutant schemata', () => {
   it('leaves out an edit with no place to run, and says why', () => {
     const source = 'class A extends B {\n  constructor() {\n    super(1);\n    this.x = 2;\n  }\n}\n';
     const mutants = mutantsOf({ source, language: 'javascript', line: 2, end_line: 5 });
-    const { unplaced } = instrument({ source, language: 'javascript', mutants: mutants.map((mutant, id) => ({ id, mutant })), prelude: PRELUDE });
+    const { unplaced } = instrument({ source, language: 'javascript', mutants: mutants.map((mutant, id) => ({ id, mutant })), prelude: PRELUDE, head: TS_HEAD });
     expect(unplaced.map(item => [mutants[item.id].kind, item.reason])).toEqual([['body', 'a constructor\'s body must call super() itself']]);
   });
 });
