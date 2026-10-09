@@ -32,6 +32,13 @@ jobs:
 
       - run: npm ci
 
+      # perch coverage runs a repository's tests itself; its tests run pytest for real against small fixtures.
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - run: pip install pytest pytest-cov
+
       - name: Lint
         run: npm run lint
 

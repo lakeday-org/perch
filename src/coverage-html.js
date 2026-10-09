@@ -132,7 +132,7 @@ function headline(report) {
   if (totals.mutants) {
     const score = ratio(totals.killed, totals.mutants);
     const onCovered = totals.covered_score === null ? '' : `, ${percent(totals.covered_score)} on covered code`;
-    const equivalent = [totals.undecided ? `${escape(totals.undecided)} undecided` : '', totals.equivalent ? `${escape(totals.equivalent)} equivalent left out` : ''].filter(Boolean).map(part => `; ${part}`).join('');
+    const equivalent = totals.equivalent ? `; ${escape(totals.equivalent)} equivalent left out` : '';
     tiles.push(tile('sources', 'Mutation score', share(score), `${escape(totals.killed)} of ${escape(totals.mutants)} mutants killed${onCovered}${equivalent}`,
       changed([moving('score', '', { points: true })]) + bar(score), 'Mutants some test is predicted to fail against, of every mutant but the equivalent ones, which change nothing a caller could observe; the ones in methods no test reaches are included. The score on covered code leaves those out.'));
     tiles.push(tile('problems', 'Survived', `${escape(totals.survived)}<span class="of"> of ${escape(totals.mutants)}</span>`, 'mutants no test kills',

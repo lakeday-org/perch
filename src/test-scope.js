@@ -329,6 +329,7 @@ export async function frameworkScope({ root, tree, scan, graph, node = process.e
     const kept = pyFound.filter(path => (!python.testpaths || python.testpaths.some(dir => under(dir.replace(/\/$/, ''), path))) && (named(path) || !python.testpaths));
     for (const path of kept) tests.add(path);
     python.tests = kept;
+    debug(`pytest (${python.config ?? 'no config'}) runs ${kept.length} test files`);
     frameworks.push(python);
   }
 

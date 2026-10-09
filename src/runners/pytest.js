@@ -9,9 +9,12 @@ import { existsSync } from 'node:fs';
 import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readJunit } from '../test-reports.js';
+import { readReports } from '../coverage.js';
 import { sandboxed } from './sandbox.js';
 
 export const name = 'pytest';
+/** The languages whose code and tests a pytest run covers. */
+export const languages = new Set(['python']);
 
 /**
  * A command's exit code and output, or `timedOut` when it ran past `timeout` milliseconds and was stopped. With `writable`, it
@@ -40,7 +43,7 @@ export async function available({ root }) {
     const found = await exec(python, ['-c', 'import pytest, pytest_cov'], { cwd: root });
     if (found.code === 0) return { python };
   }
-  return { python: null, reason: 'no Python on PATH has pytest and pytest-cov; activate the project\'s environment, or install pytest-cov in it' };
+  return { reason: 'no Python on PATH has pytest and pytest-cov; activate the project\'s environment, or install pytest-cov in it' };
 }
 
 /** The copy's code ahead of anything installed: its root, and its src/ for a src layout. */
@@ -74,23 +77,24 @@ async function results(xml, copy) {
 }
 
 /**
- * The whole suite once, with each test's lines recorded as its own coverage context. Returns the coverage data file, every
- * testcase's result and time, and how long the run took.
+ * The whole suite once, with each test's lines recorded as its own coverage context. Returns what it measured, read as perch reads
+ * a test run, every testcase's result and time by node id, and how long the run took.
  */
-export async function coverageRun({ copy, python, scratch, timeout = 0 }) {
+export async function coverageRun({ copy, scratch, paths, tool: { python }, timeout = 0 }) {
   const data = join(scratch, '.coverage'), xml = join(scratch, 'baseline.xml');
   const started = Date.now();
   const run = await exec(python, ['-m', 'pytest', '-p', 'no:cacheprovider', `--cov=${copy}`, '--cov-context=test', '--cov-report=', `--junitxml=${xml}`],
     { cwd: copy, env: { ...importPath(copy), COVERAGE_FILE: data }, timeout, writable: [copy, scratch] });
   if (!existsSync(xml) || !existsSync(data)) throw new Error(`pytest did not run the suite (exit ${run.code}): ${run.output.trim().split('\n').slice(-5).join(' | ')}`);
-  return { data, xml, results: await results(xml, copy), seconds: (Date.now() - started) / 1000 };
+  const reports = await readReports({ root: copy, files: [{ kind: 'contexts', path: data }, { kind: 'junit', path: xml }], paths });
+  return { reports, results: await results(xml, copy), seconds: (Date.now() - started) / 1000 };
 }
 
 /**
  * The given tests, by node id, against the copy as it stands: one process, every test's result. `invalid` when pytest could not
  * collect them, which a mutant that breaks an import makes happen; `timeout` when they ran past the limit.
  */
-export async function runTests({ copy, python, scratch, nodes, timeout, tag }) {
+export async function runTests({ copy, scratch, nodes, timeout, tag, tool: { python } }) {
   const xml = join(scratch, `run-${tag}.xml`);
   await rm(xml, { force: true });
   const run = await exec(python, ['-m', 'pytest', '-q', '-p', 'no:cacheprovider', '--no-cov', `--junitxml=${xml}`, ...nodes],

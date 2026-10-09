@@ -30,58 +30,60 @@ Point it at a repository:
 
 ```console
 $ perch coverage
-Source files      Mutation score  Survived  No coverage
-src/checkout.ts     60% (3 of 5)         2            0
-src/inventory.ts    67% (6 of 9)         2            0
-src/cart.ts       71% (10 of 14)         4            0
-All source        68% (19 of 28)         8            0
+Source files       Mutation score  Survived  No coverage
+shop/checkout.py      0% (0 of 9)         8            1
+shop/inventory.py    57% (4 of 7)         3            0
+shop/cart.py       58% (18 of 31)         6            7
+All source         47% (22 of 47)        17            8
 
-Test files                    Quality  Duplicates  Checks nothing  Live services
-test/cart.test.ts        43% (3 of 7)           4               0              1
-test/inventory.test.ts   75% (3 of 4)           0               1              0
-All tests               58% (7 of 12)           4               1              1
+Test files                     Quality  Duplicates  Checks nothing  Live services
+tests/test_cart.py        71% (5 of 7)           2               0              1
+tests/test_inventory.py   33% (1 of 3)           0               2              0
+All tests                64% (7 of 11)           2               2              1
 1 test file has nothing to fix.
 
 Where to add tests
-  Method         Where                Killed  Survived  Tests
-  applyDiscount  src/cart.ts:11      6 of 10         4      5
-    Add a test that asserts on the value `100` at line 12. 3 more edits survive.
-  placeOrder     src/checkout.ts:5    3 of 5         2      1
-    Add a test in which the condition at line 6 is true, and assert on what follows. 1 more edit
+  Method          Where                  Killed  Survived  Tests
+  place_order     shop/checkout.py:4     0 of 9         8      1
+    Add a test that asserts on the result of line 5, where `not inventory.can_fulfil(stock, item,
+    1)` can become `inventory.can_fulfil(stock, item, 1)` unnoticed. 7 more edits survive.
+  subtotal        shop/cart.py:13       7 of 11         4      4
+    Add a test that asserts on the value `0` at line 16. 3 more edits survive.
+  reserve         shop/inventory.py:5    0 of 3         3      2
+    Add a test that fails when the method does nothing. 2 more edits survive.
+  apply_discount  shop/cart.py:5       11 of 17         2      4
+    Add a test in which the condition at line 8 is true, and assert on what follows. 1 more edit
     survives.
-  canFulfil      src/inventory.ts:4   6 of 9         2      4
-    Add a test that asserts on the value `0` at line 6. 1 more edit survives.
 
-test/cart.test.ts
-  ID        Line  Problem    Confidence  Test or method        Note
-  d0eacd17    10  redundant         94%  applyDiscount > tak…  Kills the same mutants as applyDis…
-  7ff46fdf    14  redundant         94%  applyDiscount > tak…  Kills the same mutants as applyDis…
-  3055e1ad    18  redundant         94%  applyDiscount > tak…  Kills the same mutants as applyDis…
-  427fce7a    22  redundant         94%  applyDiscount > tak…  Kills the same mutants as applyDis…
-  472ae559    32  infra             88%  subtotal > matches …  Calls a live service with nothing …
+tests/test_cart.py
+  ID        Line  Problem    Confidence  Test or method       Note
+  a887c457    10  redundant        100%  test_save10_again    Kills the same mutants as test_save…
+  e5e97cb7    22  redundant        100%  test_subtotal_again  Kills the same mutants as test_subt…
+  52197ed7    31  infra             94%  test_rate            Calls a live service with nothing m…
 
-test/inventory.test.ts
-  ID        Line  Problem  Confidence  Test or method         Note
-  98a1a024    23  mocked            -  canFulfil > returns …  Mocks every method it calls: canFul…
-shop at commit 0ade512: 4 methods, 12 tests, 14 problems, --all for every mutant
+tests/test_inventory.py
+  ID        Line  Problem         Confidence  Test or method      Note
+  d3074257     7  mocked                   -  test_can_fulfil_m…  Mocks every method it calls: ca…
+  43c90ed6    16  checks_nothing        100%  test_reserve_runs   Kills none of the 3 mutants in …
+shop at commit c8ea0ed: 6 methods, 11 tests, 22 problems, --all for every mutant
 Report: .perch/coverage/index.html
-29 requests  2k tokens in / 93 out  $0.0005
+18 requests  0 tokens in  $0.0000
 ```
 
 The mutation score is the share of mutants killed by at least one test, leaving
 out equivalent mutants, which no test could kill. A test kills a mutant when it
-fails with the mutant in place. Where perch can't run the tests, it's when the
-model puts that chance at 70% or more. No coverage counts the mutants on lines
-no test runs. They count against the score. Source files are listed worst first, and
+fails with the mutant in place. No coverage counts the mutants on lines no test
+runs. They count against the score. Source files are listed worst first, and
 test files only when something in them needs fixing.
 
 Under the tables, Perch lists the methods to add a test to, most survived
 mutants first. Each has a line of numbers and, under it, the test to add, from
 its surest survived mutant: the edit a new test has to tell apart, and the line
 it is on. `--all` lists every method, and every survived mutant with the id
-that `perch close` takes. Test problems follow, by file. The confidence is how
-sure Perch is. A test that checks nothing kills no mutant in the code it
-reaches. A duplicate kills exactly the mutants an earlier test kills. A test
+that `perch close` takes. Test problems follow, by file. A survivor's confidence
+is how sure the model is that a caller could see the edit. A test problem the
+test run settled is 100%. A test that checks nothing kills no mutant in the code
+it reaches. A duplicate kills exactly the mutants an earlier test kills. A test
 that mocks what it tests calls only methods it has replaced with its own mocks,
 so it checks the mocks. That is a fact of the call graph, so it is listed with
 `-` for confidence. So is a problem on a test or method the model couldn't be
@@ -123,12 +125,13 @@ The tests that kill nothing they run, and the tests that kill exactly what
 another test kills, come from the same real results.
 
 Perch runs pytest today, with the Python on your `PATH`, so activate the
-project's environment first. It needs `pytest-cov` installed there. For any
-other framework, perch estimates which tests run each method from the call
-graph and predicts what they catch, and the report says it's an estimate.
+project's environment first. It needs `pytest-cov` installed there. If perch
+can't run your tests, it stops and says what's missing. In a repository that
+also has tests in another language, perch leaves out the code only those tests
+run, and says so.
 
-Perch only looks at the code your test frameworks run. It loads the same config
-files as Vitest, Jest, pytest and coverage.py, which lets it ignore scripts,
+Perch only looks at the code your test frameworks run. It reads the same config
+files as pytest and coverage.py, which lets it ignore scripts,
 examples and docs tooling that no test covers. On a branch, Perch only lists
 problems in changed code.
 
@@ -160,30 +163,18 @@ Perch makes every mutant a method has; there is no cap. Each is one edit:
 
 A method with none of these, a one-line delegate or a getter, gets no
 mutants and counts as covered with nothing to kill. A method no test reaches
-gets its mutants too, but perch asks nothing about them: they have no coverage,
-they count against the score, and none is listed as a problem, because whether
-the method needs a test is not something the call graph can say.
+gets its mutants too, but perch runs and asks nothing about them: they have no
+coverage, they count against the score, and the No coverage column counts them
+rather than listing each one.
 
 ## What it reads
 
 `perch coverage` reads the code your test frameworks run and measure. It
 ignores release scripts, examples, documentation tooling and CI actions.
 
-- **Vitest and Jest:** perch loads your configuration using the copy of the
-  framework you've installed, so it runs over the same tests the framework
-  would run. The coverage configuration's `include` and `exclude` options decide
-  which files are source code. If you don't have an `include` option, the
-  source is the code your tests import, plus the files beside your tests.
-  Install your dependencies before running perch, as you would for the tests.
-- **pytest:** perch reads the `testpaths` and `python_files` options from
-  `pytest.ini`, `pyproject.toml`, `tox.ini` or `setup.cfg`, and the `source`
-  and `omit` options from your coverage.py configuration.
-- **Go, Rust, Java, Kotlin, C++ and the rest:** perch only reports coverage
-  for the module that contains the test. A module may be a Go module, a Rust
-  crate, a Gradle module, or something else. In a Rust crate, perch includes
-  all of the code in `src/`. In a Maven or Gradle module, all of the code in
-  `src/main/`. In any other project, all of the code that is not in a directory
-  named `tools/`, `bench/`, `examples/`, `samples/`, `scripts/` or `docs/`.
+Perch reads pytest's `testpaths` and `python_files` options from `pytest.ini`,
+`pyproject.toml`, `tox.ini` or `setup.cfg`, and the `source` and `omit` options
+from your coverage.py configuration.
 
 Perch tells you which frameworks it decided on when you run it with
 `--verbose`:
@@ -191,7 +182,7 @@ Perch tells you which frameworks it decided on when you run it with
 ```
 $ perch coverage --verbose
 ...
-[perch] Vitest 2.1.9 (package.json) runs 3 test files
+[perch] pytest (pytest.ini) runs 3 test files
 ```
 
 If perch can't load a configuration, it names that configuration on the last
@@ -201,8 +192,9 @@ can leave out more files and directories with the `ignore:` option in
 
 ## Supported languages and frameworks
 
-Every language perch finds tests in, the frameworks it recognises, the mocks it
-reads as cutting a test's reach, and what it does not follow yet:
+Perch runs pytest suites today. The table below is every language perch finds
+tests in, the frameworks it recognises, the mocks it reads as cutting a test's
+reach, and what it does not follow yet:
 
 | Language | Test frameworks | Mocks | Not followed yet |
 | --- | --- | --- | --- |
@@ -235,16 +227,17 @@ changed on the branch:
 ```console
 $ perch coverage --since main
 Where to add tests
-  Method         Where            Killed  Survived  Tests
-  applyDiscount  src/cart.ts:11  6 of 10         4      5
-    Add a test that asserts on what line 12 returns. 3 more edits survive.
+  Method          Where             Killed  Survived  Tests
+  apply_discount  shop/cart.py:5  17 of 26         5      6
+    Add a test in which the condition at line 8 is true, and assert on what follows. 4 more edits
+    survive.
 
-test/cart.test.ts
-  ID        Line  Problem    Confidence  Test or method        Note
-  427fce7a    22  redundant         76%  applyDiscount > tak…  Kills the same mutants as applyDis…
-shop at commit 6fe98ce: 4 methods, 12 tests, 5 problems in changed code, 9 elsewhere, --all for every mutant
+tests/test_cart.py
+  ID        Line  Problem    Confidence  Test or method   Note
+  cebd9d70    18  redundant        100%  test_free_small  Kills the same mutants as test_free at …
+shop at commit ac68c9e: 6 methods, 13 tests, 6 problems in changed code, 20 elsewhere, --all for every mutant
 Report: .perch/coverage/index.html
-29 requests  0 tokens in  $0.0000
+21 requests  4k tokens in / 125 out  $0.0006
 ```
 
 With `--since`, perch exits 3 only when it finds a problem in changed code. It
