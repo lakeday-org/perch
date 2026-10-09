@@ -5,6 +5,7 @@
  */
 import { BELIEVED } from './questions.js';
 import { bold, COLOR, dim, keepEnd, keepStart, percent, relative, sureness, table, TOP, WIDTH } from './report.js';
+import { methodAdvice } from './coverage-advice.js';
 
 /** Every kind of problem a coverage report can list, and so everything `--filter kind=` accepts. */
 export const COVERAGE_KINDS = ['survived', 'redundant', 'checks_nothing', 'mocked', 'infra'];
@@ -83,8 +84,10 @@ const painted = (lines, color, total = false) => lines.map((line, index) => (ind
 
 
 function sourceTable(report, onList, { width, color }) {
+  const score = totals => (totals.mutants ? totals.killed / totals.mutants : 1);
+  // Worst first: the lowest score, then the most mutants no test reaches, then the path, so the files to work on head the table.
   const files = report.files.filter(file => file.kind === 'source' && file.totals.methods)
-    .sort((a, b) => a.path.localeCompare(b.path));
+    .sort((a, b) => score(a.totals) - score(b.totals) || b.totals.no_coverage - a.totals.no_coverage || a.path.localeCompare(b.path));
   if (!files.length) return '';
   // The mutation score is the mutants some test is predicted to kill, of every mutant, the ones no test reaches included, as
   // Stryker and PIT count it. Survived is counted from the problems listed under the table, at the same floor, so the two agree;
@@ -99,17 +102,61 @@ function sourceTable(report, onList, { width, color }) {
   return painted(fitted(header, rows, ['left', 'right', 'right', 'right'], { width }), color, true).join('\n');
 }
 
+/** The test files with something to fix, most first; the ones with nothing to fix are one line. */
 function testTable(report, { width, color }) {
-  const files = report.files.filter(file => file.kind === 'test' && file.totals.tests)
-    .sort((a, b) => a.path.localeCompare(b.path));
-  if (!files.length) return '';
+  const all = report.files.filter(file => file.kind === 'test' && file.totals.tests);
+  if (!all.length) return '';
+  const toFix = totals => totals.tests - totals.useful + totals.infra;
+  const files = all.filter(file => toFix(file.totals)).sort((a, b) => toFix(b.totals) - toFix(a.totals) || a.path.localeCompare(b.path));
+  const fine = all.length - files.length;
+  const nothing = fine ? `${fine === all.length ? 'All ' : ''}${plural(fine, 'test file has', 'test files have')} nothing to fix.` : '';
+  if (!files.length) return nothing;
   // Quality is the tests worth keeping, of all of them; the next three are why the rest are not, or what they touch.
   const header = ['Test files', 'Quality', 'Duplicates', 'Checks nothing', 'Live services'];
   const row = (name, totals) => [name, `${percent(totals.useful / totals.tests)} (${totals.useful} of ${totals.tests})`, totals.redundant, totals.weak, totals.infra];
   const rows = files.map(file => row(relative(file.path), file.totals));
   rows.push(row('All tests', report.totals));
-  return painted(fitted(header, rows, ['left', 'right', 'right', 'right', 'right'], { width }), color, true).join('\n');
+  return [painted(fitted(header, rows, ['left', 'right', 'right', 'right', 'right'], { width }), color, true).join('\n'), nothing].filter(Boolean).join('\n');
 }
+
+/** Text wrapped at a width, each line indented, for a sentence that has to be read whole. */
+function wrapped(text, width, indent) {
+  const lines = [];
+  let line = '';
+  for (const word of text.split(' ')) {
+    if (line && line.length + 1 + word.length > width) { lines.push(line); line = word; } else line = line ? `${line} ${word}` : word;
+  }
+  if (line) lines.push(line);
+  return lines.map(part => `${indent}${part}`);
+}
+
+/**
+ * The methods to add a test to, most survived mutants first: a line of numbers for each, the way a scan lists a method, and under
+ * it the test to add, from its surest survived mutant, written out whole. A tie goes to the method fewer tests reach, then to the
+ * file and line. The survived mutants themselves, with the ids `perch close` takes, are listed by file with --all.
+ */
+function methodBlock(report, findings, { width, color, all }) {
+  const survived = findings.filter(finding => finding.kind === 'survived');
+  if (!survived.length) return '';
+  const methods = new Map(report.methods.map(method => [method.id, method]));
+  const entries = [...Map.groupBy(survived, finding => finding.unit)].map(([id, list]) => ({ method: methods.get(id),
+    list: [...list].sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0) || (a.line ?? 0) - (b.line ?? 0)) }))
+    .filter(entry => entry.method)
+    .sort((a, b) => b.list.length - a.list.length || a.method.tests.length - b.method.tests.length || a.method.path.localeCompare(b.method.path) || a.method.line - b.method.line);
+  const shown = all ? entries : entries.slice(0, TOP);
+  const HEAD = ['Method', 'Where', 'Killed', 'Survived', 'Tests'];
+  const rows = shown.map(({ method, list }) => ({ cells: [method.name, `${relative(method.path)}:${method.line}`, `${method.killed} of ${method.mutants.length}`, String(list.length), String(method.tests.length)],
+    advice: methodAdvice(list.map(finding => method.mutants.find(mutant => mutant.id === finding.mutant)).filter(Boolean)) }));
+  const widths = HEAD.map((name, column) => Math.max(name.length, ...rows.map(row => row.cells[column].length)));
+  const pad = (cells, aligns) => cells.map((cell, column) => (aligns[column] === 'right' ? cell.padStart(widths[column]) : cell.padEnd(widths[column]))).join('  ').trimEnd();
+  const aligns = ['left', 'left', 'right', 'right', 'right'];
+  const lines = [bold('Where to add tests', color), dim(`  ${pad(HEAD, aligns)}`, color)];
+  for (const row of rows) lines.push(`  ${pad(row.cells, aligns)}`, ...wrapped(row.advice, Math.max(40, width - 4), '    '));
+  return lines.join('\n');
+}
+
+/** How many methods have a survived mutant among the findings. */
+const methodsWithSurvivors = findings => new Set(findings.filter(finding => finding.kind === 'survived').map(finding => finding.unit)).size;
 
 /**
  * The problems, one block per file and one line per problem, laid out the way `perch scan` lays out its own so the two read as one
@@ -147,15 +194,19 @@ function findingBlocks(findings, { width, color }) {
 }
 
 /**
- * What a coverage run prints on stdout: the source files, the test files, then the problems grouped by file. An unasked-for list is
- * cut to the top ten; `--all` or a filter is the asking, and gets every one. With --since it is what the branch changed and the
- * problems in it instead, and the whole repository is one line on stderr.
+ * What a coverage run prints on stdout: the source files worst first, the test files with something to fix, the methods to add a
+ * test to, then the test problems by file. An unasked-for list is cut to the top ten; `--all` or a filter is the asking, and gets
+ * every method and every survived mutant with its id. With --since it is what the branch changed and the problems in it instead,
+ * and the whole repository is one line on stderr.
  */
 export function formatCoverage(report, { min = BELIEVED, filters = [], all = false, width = WIDTH(), color = COLOR() } = {}) {
   const listed = listedFindings(report, { min, filters });
-  const shown = all || filters.length ? listed : ranked(listed).slice(0, TOP);
-  if (report.branch) return shown.length ? findingBlocks(shown, { width, color }) : `No problems in code changed since ${report.branch.ref}.`;
-  const parts = [sourceTable(report, listedFindings(report, { min }), { width, color }), testTable(report, { width, color }), findingBlocks(shown, { width, color })];
+  const every = all || filters.length > 0;
+  const others = listed.filter(finding => finding.kind !== 'survived');
+  const blocks = [methodBlock(report, listed, { width, color, all: every }),
+    findingBlocks(every ? [...others, ...listed.filter(finding => finding.kind === 'survived')] : ranked(others).slice(0, TOP), { width, color })];
+  if (report.branch) return listed.length ? blocks.filter(Boolean).join('\n\n') : `No problems in code changed since ${report.branch.ref}.`;
+  const parts = [sourceTable(report, listedFindings(report, { min }), { width, color }), testTable(report, { width, color }), ...blocks];
   const text = parts.filter(Boolean).join('\n\n');
   return text || 'No source files or tests found.';
 }
@@ -202,7 +253,10 @@ export function coverageCount(report, { min = BELIEVED, filters = [], all = fals
     const others = listedFindings({ ...report, branch: null }, { min, filters }).length - listed;
     parts.push(`${plural(listed, 'problem')} in changed code${others ? `, ${others} elsewhere` : ''}`);
   } else parts.push(plural(listed, 'problem'));
-  if (!all && !filters.length && listed > TOP) parts.push(`${TOP} shown, --all for the rest`);
+  // Without --all, the methods past the top ten and every survived mutant's id are off the screen.
+  const survived = listedFindings(report, { min, filters }), methods = methodsWithSurvivors(survived);
+  if (!all && !filters.length && methods > TOP) parts.push(`${TOP} of ${plural(methods, 'method')} shown, --all for the rest`);
+  else if (!all && !filters.length && (methods || survived.length - methods > TOP)) parts.push('--all for every mutant');
   const failed = report.failed.length;
   if (failed) parts.push(`${failed} could not be asked (--json)`);
   // A config that would not load means every test the parser found was read instead, which changes what is counted.

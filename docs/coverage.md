@@ -28,23 +28,26 @@ Point it at a repository:
 ```console
 $ perch coverage
 Source files      Mutation score  Survived  No coverage
-src/cart.ts       71% (10 of 14)         4            0
 src/checkout.ts     60% (3 of 5)         2            0
 src/inventory.ts    63% (5 of 8)         2            0
+src/cart.ts       71% (10 of 14)         4            0
 All source        67% (18 of 27)         8            0
 
 Test files                    Quality  Duplicates  Checks nothing  Live services
 test/cart.test.ts        43% (3 of 7)           4               0              1
-test/checkout.test.ts   100% (1 of 1)           0               0              0
 test/inventory.test.ts   75% (3 of 4)           0               1              0
 All tests               58% (7 of 12)           4               1              1
+1 test file has nothing to fix.
 
-src/cart.ts
-  ID        Line  Problem   Confidence  Test or method  Note
-  0399f832    12  survived         87%  applyDiscount   With `101` instead of `100`, none of the …
-  1be27338    12  survived         87%  applyDiscount   With `>` instead of `>=`, none of the 5 t…
-  20fb814a    12  survived         87%  applyDiscount   With `1` instead of `0`, none of the 5 te…
-  883b4b21    12  survived         84%  applyDiscount   With `false` as the condition, none of th…
+Where to add tests
+  Method         Where                Killed  Survived  Tests
+  applyDiscount  src/cart.ts:11      6 of 10         4      5
+    Add a test that asserts on the value `100` at line 12. 3 more edits survive.
+  placeOrder     src/checkout.ts:5    3 of 5         2      1
+    Add a test in which the condition at line 6 is true, and assert on what follows. 1 more edit
+    survives.
+  canFulfil      src/inventory.ts:4   5 of 8         2      4
+    Add a test that asserts on the value `0` at line 6. 1 more edit survives.
 
 test/cart.test.ts
   ID        Line  Problem    Confidence  Test or method        Note
@@ -57,7 +60,7 @@ test/cart.test.ts
 test/inventory.test.ts
   ID        Line  Problem  Confidence  Test or method         Note
   98a1a024    23  mocked            -  canFulfil > returns …  Mocks every method it calls: canFul…
-shop at commit 0ade512: 4 methods, 12 tests, 14 problems, 10 shown, --all for the rest
+shop at commit 0ade512: 4 methods, 12 tests, 14 problems, --all for every mutant
 Report: .perch/coverage/index.html
 28 requests  0 tokens in  $0.0000
 ```
@@ -65,21 +68,31 @@ Report: .perch/coverage/index.html
 The mutation score is the share of mutants killed by at least one test. A test
 kills a mutant when Perch puts its chance of failing against it at 70% or more.
 No coverage counts the mutants in methods no test reaches through the call
-graph. They count against the score. Perch lists each survived mutant with the
-edit it made and the number of tests that miss it. The confidence is how sure
-Perch is that no test kills the mutant and that the mutant changes what a caller
-sees. A test that checks nothing kills no mutant in the code it reaches. A
-duplicate kills exactly the mutants an earlier test kills. A test that mocks
-what it tests calls only methods it has replaced with its own mocks, so it
-checks the mocks. That is a fact of the call graph, so it is listed with `-`
-for confidence. So is a problem on a test or method the model couldn't be asked
-about. Use `--all` to see every row.
+graph. They count against the score. Source files are listed worst first, and
+test files only when something in them needs fixing.
 
-Perch also writes an HTML report. It shows each line of source with its problems
-under it. For a survived mutant, it shows the original and the mutated version
-of the line, and the tests that still pass. The report is one file, unless your
-repository has more than 8 MB of source. Then each file gets its own page in
-the `files/` directory next to `index.html`.
+Under the tables, Perch lists the methods to add a test to, most survived
+mutants first. Each has a line of numbers and, under it, the test to add, from
+its surest survived mutant: the edit a new test has to tell apart, and the line
+it is on. `--all` lists every method, and every survived mutant with the id
+that `perch close` takes. Test problems follow, by file. The confidence is how
+sure Perch is. A test that checks nothing kills no mutant in the code it
+reaches. A duplicate kills exactly the mutants an earlier test kills. A test
+that mocks what it tests calls only methods it has replaced with its own mocks,
+so it checks the mocks. That is a fact of the call graph, so it is listed with
+`-` for confidence. So is a problem on a test or method the model couldn't be
+asked about.
+
+Perch also writes an HTML report. It opens on the methods to add a test to,
+each with its score, how many tests reach it, and the test to add; the mutants
+fold out under the row. Source files are a tree of directories, worst first,
+with each score coloured against 60% and 80% as Stryker colours its own. A
+file's page shows its code with a mark in the gutter on each line where a
+mutant survived; press the mark to see each edit, the line both ways, and a
+Copy prompt button, or step through the survivors with the Next survived
+button. The report is one file, unless your repository has more than 8 MB of
+source. Then each file gets its own page in the `files/` directory next to
+`index.html`.
 
 ## How it differs from a coverage report
 
@@ -200,17 +213,15 @@ changed on the branch:
 
 ```console
 $ perch coverage --since main
-src/cart.ts
-  ID        Line  Problem   Confidence  Test or method  Note
-  20fb814a    12  survived         86%  applyDiscount   With `1` instead of `0`, none of the 5 te…
-  1be27338    12  survived         85%  applyDiscount   With `>` instead of `>=`, none of the 5 t…
-  0399f832    12  survived         84%  applyDiscount   With `101` instead of `100`, none of the …
-  883b4b21    12  survived         81%  applyDiscount   With `false` as the condition, none of th…
+Where to add tests
+  Method         Where            Killed  Survived  Tests
+  applyDiscount  src/cart.ts:11  6 of 10         4      5
+    Add a test that asserts on what line 12 returns. 3 more edits survive.
 
 test/cart.test.ts
   ID        Line  Problem    Confidence  Test or method        Note
   427fce7a    22  redundant         76%  applyDiscount > tak…  Kills the same mutants as applyDis…
-shop at commit 6fe98ce: 4 methods, 12 tests, 5 problems in changed code, 9 elsewhere
+shop at commit 6fe98ce: 4 methods, 12 tests, 5 problems in changed code, 9 elsewhere, --all for every mutant
 Report: .perch/coverage/index.html
 28 requests  0 tokens in  $0.0000
 ```

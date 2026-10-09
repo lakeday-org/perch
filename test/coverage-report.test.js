@@ -19,7 +19,15 @@ const report = {
     { path: 'tests/test_cart.py', kind: 'test', language: 'python', lines: [], methods: [], tests: ['t1', 't2', 't3', 't4', 't5'],
       totals: totalsOf({ tests: 5, useful: 3, redundant: 1, weak: 1, infra: 0 }) },
   ],
-  methods: [],
+  // The methods the survived mutants are on, with the mutant each finding names, as buildReport writes them.
+  methods: [
+    { id: 'm1', path: 'src/cart.py', name: 'apply_discount', line: 12, end_line: 20, tests: [{ id: 't1', depth: 1 }, { id: 't2', depth: 1 }], useful: ['t1'], covered: true, killed: 5, findings: ['d4e5f6a7'],
+      mutants: [{ id: '17:7:>>>=', kind: 'boundary', line: 17, column: 7, from: '>', to: '>=', original: '', mutated: '' }, { id: '50:9:&&>||', kind: 'logic', line: 50, column: 9, from: '&&', to: '||', original: '', mutated: '' }] },
+    { id: 'm4', path: 'src/tax.py', name: 'rate_for', line: 5, end_line: 12, tests: [{ id: 't1', depth: 2 }], useful: ['t1'], covered: true, killed: 1, findings: ['c0ffee11'],
+      mutants: [{ id: '9:7:<><=', kind: 'boundary', line: 9, column: 7, from: '<', to: '<=', original: '', mutated: '' }, { id: '10:4:x', kind: 'return', line: 10, column: 4, from: 'rate', to: 'None', original: '', mutated: '' }] },
+    { id: 'm5', path: 'src/tax.py', name: 'round_tax', line: 28, end_line: 32, tests: [{ id: 't1', depth: 3 }], useful: ['t1'], covered: true, killed: 0, findings: ['b7d31e22'],
+      mutants: [{ id: '30:11:*>/', kind: 'arithmetic', line: 30, column: 11, from: '*', to: '/', original: '', mutated: '' }] },
+  ],
   tests: [
     { id: 't1', path: 'tests/test_cart.py' },
     { id: 't2', path: 'tests/test_cart.py' },
@@ -66,8 +74,8 @@ describe('coverage report', () => {
     const text = formatCoverage(report, { min: 0.5, ...plain });
     const source = text.split('\n\n')[0].split('\n');
     expect(source[0]).toMatch(/^Source files\s+Mutation score\s+Survived\s+No coverage$/);
-    // Files in path order, whatever order the report had them in.
-    expect(source.slice(1).map(line => line.split(/\s{2,}/)[0])).toEqual(['src/cart.py', 'src/tax.py', 'All source']);
+    // Worst first: tax.py at 33% before cart.py at 58%, whatever order the report had them in.
+    expect(source.slice(1).map(line => line.split(/\s{2,}/)[0])).toEqual(['src/tax.py', 'src/cart.py', 'All source']);
     // Of cart.py's 12 mutants, 7 are killed, and one survivor is over the floor.
     expect(rowOf(text, 'src/cart.py').split(/\s{2,}/)).toEqual(['src/cart.py', '58% (7 of 12)', '1', '0']);
     // tax.py's two listed survivors: one over the floor, one whose method could not be asked.
@@ -81,11 +89,48 @@ describe('coverage report', () => {
     expect(rowOf(text, 'Test files').split(/\s{2,}/)).toEqual(['Test files', 'Quality', 'Duplicates', 'Checks nothing', 'Live services']);
     expect(rowOf(text, 'tests/test_cart.py ').split(/\s{2,}/)).toEqual(['tests/test_cart.py', '60% (3 of 5)', '1', '1', '0']);
     expect(rowOf(text, 'All tests').split(/\s{2,}/)).toEqual(['All tests', '60% (3 of 5)', '1', '1', '0']);
+    // A test file with nothing to fix is not a row; it is counted under the table, and alone it is the whole table.
+    const fine = { path: 'tests/test_tax.py', kind: 'test', language: 'python', lines: [], methods: [], tests: ['t6'], totals: totalsOf({ tests: 1, useful: 1 }) };
+    const withFine = formatCoverage({ ...report, files: [...report.files, fine] }, { min: 0.5, ...plain });
+    expect(withFine).not.toContain('tests/test_tax.py');
+    expect(withFine.split('\n\n')[1].split('\n').at(-1)).toBe('1 test file has nothing to fix.');
+    const allFine = formatCoverage({ ...report, files: [report.files[0], report.files[1], fine] }, { min: 0.5, ...plain });
+    expect(allFine.split('\n\n')[1]).toBe('All 1 test file has nothing to fix.');
   });
 
-  it('groups problems above the floor by file', () => {
+  it('ranks the methods to add a test to, and says what to add', () => {
     const text = formatCoverage(report, { min: 0.5, ...plain });
-    const blocks = text.split('\n\n').slice(2);
+    const block = text.split('\n\n')[2].split('\n');
+    expect(block[0]).toBe('Where to add tests');
+    expect(block[1]).toMatch(/^ {2}Method\s+Where\s+Killed\s+Survived\s+Tests$/);
+    // One survivor each, so the method fewer tests reach comes first, then by file and line: rate_for, round_tax, apply_discount.
+    // Each is a line of numbers and, under it, the test to add, whole.
+    expect(block.slice(2)).toEqual([
+      '  rate_for        src/tax.py:5    1 of 2         1      1',
+      '    Add a test at the boundary of `<` on line 9, where `<` and `<=` give different results.',
+      '  round_tax       src/tax.py:28   0 of 1         1      1',
+      '    Add a test that asserts on the arithmetic at line 30, where `*` can become `/`.',
+      '  apply_discount  src/cart.py:12  5 of 2         1      2',
+      '    Add a test at the boundary of `>` on line 17, where `>` and `>=` give different results.',
+    ]);
+    // A method with several survivors names the surest and counts the rest; a narrow terminal wraps the sentence rather than cut it.
+    const two = { ...report, findings: [...report.findings, { ...report.findings[3], id: 'f0f0f0f0', mutant: '50:9:&&>||', line: 50, probability: 0.6 }] };
+    const narrow = formatCoverage(two, { min: 0.5, width: 60, color: false }).split('\n\n')[2].split('\n');
+    expect(narrow.slice(2, 5)).toEqual([
+      '  apply_discount  src/cart.py:12  5 of 2         2      2',
+      '    Add a test at the boundary of `>` on line 17, where `>`',
+      '    and `>=` give different results. 1 more edit survives.',
+    ]);
+    expect(narrow[5]).toMatch(/^ {2}rate_for/);
+    expect(narrow.every(line => line.length <= 60)).toBe(true);
+  });
+
+  it('lists test problems by file, and every survived mutant with its id under --all', () => {
+    const text = formatCoverage(report, { min: 0.5, ...plain });
+    // Without --all, the survived mutants are the methods table; the test problems are listed by file after it.
+    expect(text.split('\n\n').slice(3).map(block => block.split('\n')[0])).toEqual(['tests/test_cart.py']);
+    expect(text).not.toContain('d4e5f6a7');
+    const blocks = formatCoverage(report, { min: 0.5, all: true, ...plain }).split('\n\n').slice(3);
     expect(blocks.map(block => block.split('\n')[0])).toEqual(['src/cart.py', 'src/tax.py', 'tests/test_cart.py']);
     expect(blocks[0].split('\n')[1]).toMatch(/^ {2}ID\s+Line\s+Problem\s+Confidence\s+Test or method\s+Note$/);
     expect(blocks[0]).toContain('d4e5f6a7');
@@ -98,7 +143,7 @@ describe('coverage report', () => {
       'Decides happy_path of apply_discount, like test_discount_10 at line 12.']);
     expect(listedFindings(report, { min: 0.5 }).map(finding => finding.id)).toEqual(['a91c2e0f', 'b7d31e22', 'c0ffee11', 'd4e5f6a7']);
     // --min 0 lists the one under the floor as well.
-    expect(formatCoverage(report, { min: 0, ...plain })).toContain('e1e2e3e4');
+    expect(formatCoverage(report, { min: 0, all: true, ...plain })).toContain('e1e2e3e4');
   });
 
   it('cuts long notes to the terminal width', () => {
@@ -125,9 +170,11 @@ describe('coverage report', () => {
 
   it('ends with one count line, the way a scan does', () => {
     // Three problems over the floor, and one on a method that could not be asked, which no floor can judge.
-    expect(coverageCount(report, { min: 0.5 })).toBe('/repo at commit 9f8e7d6: 6 methods, 5 tests, 4 problems, 1 could not be asked (--json)');
+    // Survived mutants are on the screen as methods; their ids, which perch close takes, want --all.
+    expect(coverageCount(report, { min: 0.5 })).toBe('/repo at commit 9f8e7d6: 6 methods, 5 tests, 4 problems, --all for every mutant, 1 could not be asked (--json)');
     const many = { ...report, failed: [], findings: Array.from({ length: 12 }, (_, at) => ({ ...report.findings[1], id: `f${at}`, unit: `m${at}` })) };
-    expect(coverageCount(many, { min: 0.5 })).toBe('/repo at commit 9f8e7d6: 6 methods, 5 tests, 12 problems, 10 shown, --all for the rest');
+    expect(coverageCount(many, { min: 0.5 })).toBe('/repo at commit 9f8e7d6: 6 methods, 5 tests, 12 problems, 10 of 12 methods shown, --all for the rest');
+    expect(coverageCount({ ...report, failed: [], findings: [report.findings[0]] }, { min: 0.5 })).toBe('/repo at commit 9f8e7d6: 6 methods, 5 tests, 1 problem');
     expect(coverageCount(many, { min: 0.5, all: true })).toBe('/repo at commit 9f8e7d6: 6 methods, 5 tests, 12 problems');
     const broken = { ...many, scope: { frameworks: [{ name: 'Jest', config: 'jest.config.js', error: 'no jest' }], left_out: 0 } };
     expect(coverageCount(broken, { min: 0.5, all: true })).toBe('/repo at commit 9f8e7d6: 6 methods, 5 tests, 12 problems, jest.config.js did not load (--verbose)');
@@ -158,8 +205,11 @@ describe('coverage report with --since', () => {
 
   it("prints the changed code's problems", () => {
     const text = formatCoverage(onBranch, { min: 0.5, ...plain });
-    const [problems, ...rest] = text.split('\n\n');
+    const [methods, ...rest] = text.split('\n\n');
     expect(rest).toEqual([]);
+    expect(methods.split('\n')[0]).toBe('Where to add tests');
+    expect(methods.split('\n').slice(2).filter((line, at) => at % 2 === 0).map(line => line.trim().split(/\s{2,}/)[0])).toEqual(['apply_discount']);
+    const problems = formatCoverage(onBranch, { min: 0.5, all: true, ...plain }).split('\n\n')[1];
     expect(problems.split('\n')[0]).toBe('src/cart.py');
     expect(problems).toContain('d4e5f6a7');
     // Under the floor, and elsewhere in the repository: neither is listed.
@@ -167,7 +217,7 @@ describe('coverage report with --since', () => {
     expect(text).not.toContain('a91c2e0f');
     expect(listedFindings(onBranch, { min: 0.5 }).map(finding => finding.id)).toEqual(['d4e5f6a7']);
     // The count line says how many problems are in changed code, and counts the rest apart.
-    expect(coverageCount(onBranch, { min: 0.5 })).toBe('/repo at commit 9f8e7d6: 6 methods, 5 tests, 1 problem in changed code, 3 elsewhere');
+    expect(coverageCount(onBranch, { min: 0.5 })).toBe('/repo at commit 9f8e7d6: 6 methods, 5 tests, 1 problem in changed code, 3 elsewhere, --all for every mutant');
   });
 
   it('says when nothing changed', () => {

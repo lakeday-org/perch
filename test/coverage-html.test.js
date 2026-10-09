@@ -138,14 +138,21 @@ describe('coverage HTML report', () => {
   const html = renderCoverageHtml(sampleReport());
 
   it('puts notes under their lines', () => {
-    // The mutant's note names the problem, the edit, and shows the line both ways; no percentage when perch is sure (82% is sure enough).
-    expect(under(html, 'src/cart.py', 6)).toContain('<b>Survived mutant</b> With `&gt;=` instead of `&gt;`, none of the 2 tests reaching it fails.</p>');
-    expect(under(html, 'src/cart.py', 6)).toContain('<pre class="diff"><del>- if percent &gt; 100:</del>\n<ins>+ if percent &gt;= 100:</ins></pre>');
-    expect(under(html, 'src/cart.py', 6)).toContain('Still passes: <a href="#file=tests%2Ftest_cart.py&amp;line=3" title="tests/test_cart.py:3">test_discount_10</a> and <a href="#file=tests%2Ftest_cart.py&amp;line=8" title="tests/test_cart.py:8">test_discount_20</a>.');
-    expect(under(html, 'src/cart.py', 6)).not.toContain('% sure');
-    // The tests that reach the method are listed once, in its bar above the code, not again in the gap's note.
-    expect(under(html, 'src/cart.py', 6)).not.toContain('Reached by');
+    // The line's note holds its survived mutants, folded until the mark in the gutter is pressed: each one's edit in words and the
+    // line both ways; no percentage when perch is sure (82% is sure enough).
+    const note = under(html, 'src/cart.py', 6);
+    expect(note).toContain('<button type="button" class="mk gapmk" data-toggle-note="6" title="1 survived mutant: press for the edits">▲</button>');
+    expect(note).toContain('<div class="note gap closed" data-line="6"><div class="note-head"><b>1 survived mutant</b> <span class="muted">on line 6</span></div>');
+    expect(note).toContain('<p class="verdict bad">With `&gt;=` instead of `&gt;`, none of the 2 tests reaching it fails.</p>');
+    expect(note).toContain('<pre class="diff"><del>- if percent &gt; 100:</del>\n<ins>+ if percent &gt;= 100:</ins></pre>');
+    expect(note).not.toContain('% sure');
+    // The tests that reach the method are listed once, in its bar above the code, not again under every mutant: a survived mutant
+    // is one none of them kills, so a list of which still pass would be the same list.
+    expect(note).not.toContain('Still passes');
+    expect(note).not.toContain('Reached by');
     expect(under(html, 'src/cart.py', 2)).toContain('test_discount_10');
+    // The bar above the method says what test to add, from its surest survived mutant.
+    expect(under(html, 'src/cart.py', 2)).toContain('<span class="do">Add a test at the boundary of `&gt;` on line 6, where `&gt;` and `&gt;=` give different results.</span>');
     expect(under(html, 'src/cart.py', 5)).not.toContain('Survived mutant');
     expect(under(html, 'src/cart.py', 7)).not.toContain('Survived mutant');
     // A method no test reaches is said so above its code, and is not a problem: the call graph alone lists nothing.
@@ -157,12 +164,19 @@ describe('coverage HTML report', () => {
     expect(under(html, 'tests/test_cart.py', 3)).not.toContain('class="note');
     expect(lineClasses(html, 'tests/test_cart.py', 3)).toEqual(['l']);
     expect(lineClasses(html, 'tests/test_cart.py', 8)).toEqual(['l', 'weak']);
-    // A test file opens on its problems, each linking to its line.
-    const file = html.slice(html.indexOf('<section class="file" data-path="tests/test_cart.py"'));
-    const problems = file.slice(file.indexOf('file-problems'), file.indexOf('class="legend"'));
-    expect(problems).toContain('Problems <span class="count">1</span>');
-    expect(problems).toContain('<a href="#file=tests%2Ftest_cart.py&amp;line=8">tests/test_cart.py:8</a>');
-    expect(file.indexOf('file-problems')).toBeLessThan(file.indexOf('class="code"'));
+    // A source file opens on the methods to add a test to, then its code; a test file opens on its code.
+    const cart = html.slice(html.indexOf('<section class="file" data-path="src/cart.py"'), html.indexOf('<section class="file" data-path="src/util.py"'));
+    const methods = cart.slice(cart.indexOf('file-methods'), cart.indexOf('class="legend"'));
+    expect(methods).toContain('Where to add tests <span class="count">1</span>');
+    expect(methods).toContain('<a class="name" href="#file=src%2Fcart.py&amp;line=3">apply_discount</a>');
+    expect(cart.indexOf('file-methods')).toBeLessThan(cart.indexOf('class="code"'));
+    expect(cart).not.toContain('file-problems');
+    const tests = html.slice(html.indexOf('<section class="file" data-path="tests/test_cart.py"'));
+    expect(tests.slice(0, tests.indexOf('class="code"'))).not.toContain('Where to add tests');
+    // The toolbar: the legend, a way through the lines with survivors, and a switch to open every note.
+    const legend = cart.slice(cart.indexOf('class="legend"'), cart.indexOf('class="code"'));
+    expect(legend).toContain('<button type="button" data-gap="1" title="Next line with a survived mutant">↓ Next survived</button><span class="muted">1 line</span>');
+    expect(legend).toContain('<input type="checkbox" class="notes-toggle"> open every note');
   });
 
   it('names each problem on a test', () => {
@@ -230,7 +244,7 @@ describe('coverage HTML report', () => {
     expect(score).toContain('3 of 6 mutants killed, 50% on covered code');
     expect(card(html, 'No coverage')).toContain('0<span class="of"> of 6</span>');
     expect(card(html, 'Survived')).toContain('1<span class="of"> of 6</span>');
-    const cartRow = viewOf(html, 'sources').match(/<tr data-path="src\/cart.py">.*?<\/tr>/s)[0];
+    const cartRow = viewOf(html, 'sources').match(/<tr data-path="src\/cart.py"[^>]*>.*?<\/tr>/s)[0];
     expect(cartRow).toContain('3/6');
     // The tests tile is how many tests could go.
     const tests = card(html, 'Redundant tests');
@@ -255,15 +269,17 @@ describe('coverage HTML report', () => {
     const summary = viewOf(html, 'summary');
     expect(summary).not.toContain('class="lede"');
     // Two lists and no per-file tables: those are the Source files and Tests tabs.
-    expect([...summary.matchAll(/<h3>([^<]+?) </g)].map(match => match[1])).toEqual(['Survived mutants', 'Test problems']);
-    // Survived mutants, one row per method. A method no test reaches is not in the list: the call graph alone is not a problem.
-    const survivedList = summary.slice(summary.indexOf('<h3>Survived mutants '), summary.indexOf('<h3>Test problems '));
-    expect(survivedList).toContain('<b>Survived mutant</b> <span class="subject">apply_discount</span>');
-    expect(survivedList).not.toContain('>total<');
-    // The mutant in words; the code is one click away, at the line.
-    expect(survivedList).toContain('<td class="why"><span class="clamp">With `&gt;=` instead of `&gt;`, none of the 2 tests reaching it fails.</span></td>');
-    expect(survivedList).not.toContain('if percent');
-    expect(survivedList).toContain('<a href="#file=src%2Fcart.py&amp;line=6">src/cart.py:6</a>');
+    expect([...summary.matchAll(/<h3>([^<]+?) </g)].map(match => match[1])).toEqual(['Where to add tests', 'Test problems']);
+    // Methods to add a test to, one row each with the test to add. A method no test reaches is not in the list: the call graph
+    // alone is not a problem.
+    const methodList = summary.slice(summary.indexOf('<h3>Where to add tests '), summary.indexOf('<h3>Test problems '));
+    expect(methodList).toContain('<a class="name" href="#file=src%2Fcart.py&amp;line=3">apply_discount</a><span class="path">src/cart.py:3</span>');
+    expect(methodList).toContain('<td class="num">1</td><td class="num">2</td><td class="do"><span class="advice">Add a test at the boundary of `&gt;` on line 6, where `&gt;` and `&gt;=` give different results.</span>');
+    expect(methodList).toContain('<button type="button" data-copy-ids>Copy prompt</button>');
+    expect(methodList).not.toContain('>total<');
+    // The mutants fold under the row, each in words with a link to its line; the code is there.
+    expect(methodList).toContain(`<tr class="detail" data-detail-for="src/cart.py::apply_discount" hidden><td colspan="5"><ul class="edits"><li data-finding="${edge.id}"><a class="at" href="#file=src%2Fcart.py&amp;line=6">line 6</a> With \`&gt;=\` instead of \`&gt;\`, none of the 2 tests reaching it fails.</li></ul></td></tr>`);
+    expect(methodList).not.toContain('if percent');
     const testProblems = summary.slice(summary.indexOf('<h3>Test problems '));
     expect(testProblems).toContain('<b>Duplicate test</b> <span class="subject">test_discount_20</span>');
     // The first review is short lists: each problem once, not every list again.
@@ -276,7 +292,7 @@ describe('coverage HTML report', () => {
     expect(discount).toContain('3 of 6 mutants killed');
     expect(lineClasses(html, 'src/cart.py', 4)).toEqual(['l', 'part']);
     expect(lineClasses(html, 'src/cart.py', 6)).toEqual(['l', 'part', 'gapline']);
-    expect(under(html, 'src/cart.py', 6)).toContain('<b>Survived mutant</b>');
+    expect(under(html, 'src/cart.py', 6)).toContain('<b>1 survived mutant</b>');
     // No test reaches total.
     expect(under(html, 'src/cart.py', 13)).toContain('<span class="unran">No test reaches it</span>');
     expect(lineClasses(html, 'src/cart.py', 15)).toEqual(['l', 'none']);
@@ -291,6 +307,10 @@ describe('coverage HTML report', () => {
     // No second list of what is new: the problem is where it belongs, marked and first.
     expect(summary).not.toContain('New since');
     expect(summary).toContain('<span class="new-badge">new</span><b>Duplicate test</b> <span class="subject">test_discount_20</span>');
+    // A method whose survived mutant is new is marked too.
+    const fresh = sampleReport();
+    fresh.diff.findings.new = [edge];
+    expect(viewOf(renderCoverageHtml(fresh), 'summary')).toContain('<span class="new-badge">new</span><a class="name" href="#file=src%2Fcart.py&amp;line=3">apply_discount</a>');
     expect(summary.split('test_discount_20</span>')).toHaveLength(2);
     // Changes opens on them too.
     const changes = viewOf(html, 'changes');
@@ -305,8 +325,8 @@ describe('coverage HTML report', () => {
     const summary = viewOf(page, 'summary');
     expect(summary).not.toContain('new-badge');
     // The lists hold only the changed code's problems.
-    const lists = summary.slice(summary.indexOf('<h3>Survived mutants '));
-    expect(lists).toContain('<b>Survived mutant</b> <span class="subject">apply_discount</span>');
+    const lists = summary.slice(summary.indexOf('<h3>Where to add tests '));
+    expect(lists).toContain('<a class="name" href="#file=src%2Fcart.py&amp;line=3">apply_discount</a>');
     expect(summary).not.toContain('test_discount_20');
     // All problems marks which rows are in changed code, and can show those alone.
     const problems = viewOf(page, 'problems');
@@ -332,13 +352,13 @@ describe('coverage HTML report', () => {
     const buttons = '<div class="problem-acts"><div class="acts"><button type="button" data-copy>Copy prompt</button></div><button type="button" class="x" data-dismiss title="Dismiss" aria-label="Dismiss">×</button></div>';
     expect(under(html, 'tests/test_cart.py', 8)).toContain(`<div class="problem" data-finding="${redundant.id}">`);
     expect(under(html, 'tests/test_cart.py', 8)).toContain(buttons);
-    expect(under(html, 'src/cart.py', 6)).toContain(`<div class="note gap" data-finding="${edge.id}">`);
+    expect(under(html, 'src/cart.py', 6)).toContain(`<div class="mutant" data-finding="${edge.id}">`);
     expect(under(html, 'src/cart.py', 6)).toContain(buttons);
     expect(html).not.toContain('class="dismiss"');
-    // Each list of problems has one button for all of it: the file's Problems box, Risk, and All problems.
+    // Each list of problems has one button for all of it: the file's methods, the summary's, and All problems.
     const file = html.slice(html.indexOf('<section class="file" data-path="src/cart.py"'));
-    expect(file.slice(file.indexOf('file-problems'), file.indexOf('class="legend"'))).toContain('<button type="button" class="copy-all" data-copy-all>Copy prompt</button>');
-    expect(viewOf(html, 'summary')).toContain('<h3>Survived mutants <span class="count">1</span> <button type="button" class="copy-all" data-copy-all>Copy prompt</button></h3>');
+    expect(file.slice(file.indexOf('file-methods'), file.indexOf('class="legend"'))).toContain('<button type="button" class="copy-all" data-copy-all>Copy prompt</button>');
+    expect(viewOf(html, 'summary')).toContain('<h3>Where to add tests <span class="count">1</span> <button type="button" class="copy-all" data-copy-all>Copy prompt</button></h3>');
     expect(viewOf(html, 'problems')).toContain('data-copy-all');
     // No app links: the prompt is copied, to paste into whichever agent you use.
     expect(html).not.toMatch(/claude-cli:|codex:\/\/|cursor:\/\//);
@@ -378,12 +398,43 @@ describe('coverage HTML report', () => {
   it('breaks each test file down by why tests are not worth keeping, and each source file by survived mutants', () => {
     const heads = view => [...viewOf(html, view).matchAll(/<th data-sort="[a-z]+"[^>]*>([^<]+)</g)].map(match => match[1]);
     expect(heads('tests')).toEqual(['File', 'Quality', 'Duplicates', 'Checks nothing', 'Live services']);
-    expect(heads('sources')).toEqual(['File', 'Mutation score', 'Survived', 'No coverage']);
+    expect(heads('sources')).toEqual(['Mutation score', 'Killed', 'Survived', 'No coverage']);
     // test_cart.py: one duplicate, test_discount_20.
     const row = viewOf(html, 'tests').match(/<tr data-path="tests\/test_cart.py">.*?<\/tr>/s)[0];
     expect(row).toContain('<td class="num" data-v="1">1</td><td class="num zero" data-v="0">0</td><td class="num zero" data-v="0">0</td>');
-    // cart.py has the one survived mutant, and no mutant without coverage.
-    expect(viewOf(html, 'sources').match(/<tr data-path="src\/cart.py">.*?<\/tr>/s)[0]).toContain('<td class="num" data-v="1">1</td><td class="num zero" data-v="0">0</td></tr>');
+    // cart.py: three mutants killed, one survived, none without coverage.
+    expect(viewOf(html, 'sources').match(/<tr data-path="src\/cart.py"[^>]*>.*?<\/tr>/s)[0]).toContain('<td class="num">3</td><td class="num">1</td><td class="num zero">0</td></tr>');
+  });
+
+  it('lays the source files out as a tree, worst first, and lists only the test files with something to fix', () => {
+    const sources = viewOf(html, 'sources');
+    // One directory, src, with its files' numbers summed: 3 of 6 killed, 1 survived; the worse file first.
+    expect(sources).toContain('<tr class="dir" data-path="src" data-parent=""><td class="path" style="--depth:0"><button type="button" class="fold" data-toggle-dir aria-label="Open or close the directory">›</button>src/ <span class="muted">2</span></td>');
+    expect(sources.match(/<tr class="dir" data-path="src"[^>]*>.*?<\/tr>/s)[0]).toContain('<td class="num">3</td><td class="num">1</td><td class="num zero">0</td>');
+    const order = [...sources.matchAll(/<tr(?: class="dir")? data-path="([^"]+)" data-parent="([^"]*)"/g)].map(match => [match[1], match[2]]);
+    expect(order).toEqual([['src', ''], ['src/cart.py', 'src'], ['src/util.py', 'src']]);
+    expect(sources).toContain('<td class="path" style="--depth:1"><a href="#file=src%2Fcart.py" title="src/cart.py">cart.py</a></td>');
+    expect(sources).toContain('<table class="grid tree files">');
+    expect(sources).not.toContain('data-closed');
+    // A chain of directories with nothing but the next in them is one row.
+    const deep = sampleReport();
+    deep.files[1].path = 'lib/shop/util/money.py';
+    deep.methods[2].path = deep.files[1].path;
+    expect(viewOf(renderCoverageHtml(deep), 'sources')).toContain('>lib/shop/util/ <span class="muted">1</span></td>');
+    // Past two hundred files, every directory under the top starts folded.
+    const many = sampleReport();
+    many.files = [...many.files, ...Array.from({ length: 200 }, (_, at) => ({ ...many.files[1], path: `src/more/file${at}.py`, methods: [] }))];
+    const big = viewOf(renderCoverageHtml(many), 'sources');
+    expect(big).toContain('<tr class="dir" data-path="src/more" data-parent="src" data-closed>');
+    expect(big).toContain('<tr class="dir" data-path="src" data-parent=""><td');
+    // Test files with nothing to fix are rows kept out until asked for, and counted under the table.
+    const fine = sampleReport();
+    fine.files.push({ path: 'tests/test_util.py', kind: 'test', language: 'python', lines: ['def test_round(): pass'], methods: [], tests: [], totals: { tests: 1, useful: 1, redundant: 0, weak: 0, infra: 0, methods: 0, covered: 0, useful_covered: 0, mutants: 0, killed: 0, no_coverage: 0, score: null, covered_score: null, survived: 0 } });
+    const tests = viewOf(renderCoverageHtml(fine), 'tests');
+    expect(tests).toContain('<tr data-path="tests/test_util.py" data-fine data-out>');
+    expect(tests).toContain('<tr data-path="tests/test_cart.py"><td');
+    expect(tests).toContain('<div class="panel-foot"><span>1 test file has nothing to fix.</span><button type="button" class="copy-all" data-show-fine>Show them</button></div>');
+    expect(viewOf(html, 'tests')).not.toContain('nothing to fix');
   });
 
   it('fetches nothing from anywhere', () => {
@@ -422,15 +473,15 @@ describe('coverage HTML report', () => {
     expect(renderCoverageSite(sampleReport()).index.join('')).toBe(renderCoverageHtml(sampleReport()));
   });
 
-  it('names the nearest fifty tests that reach a method and counts the rest', () => {
+  it('names the eight nearest tests that reach a method, the ones it asked, and counts the rest', () => {
     const report = sampleReport();
     const method = report.methods.find(item => item.id === 'src/cart.py::apply_discount');
     const reaching = Array.from({ length: 53 }, (_, at) => ({ ...report.tests[0], id: `tests/test_cart.py::t${at}`, name: `t${at}` }));
     report.tests.push(...reaching);
     method.tests = reaching.map((test, at) => ({ id: test.id, depth: at < 3 ? 3 : 1 }));
     const bar = renderCoverageHtml(report).match(/<ul class="reach">(.*?)<\/ul>/s)[1];
-    expect(bar.match(/<li>/g)).toHaveLength(50);
+    expect(bar.match(/<li>/g)).toHaveLength(8);
     expect(bar).not.toContain('>t0<');
-    expect(bar).toContain('<li class="muted">3 more tests</li>');
+    expect(bar).toContain('<li class="muted">45 more tests</li>');
   });
 });
