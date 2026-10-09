@@ -37,6 +37,8 @@ export function exec(command, args, { cwd, env = {}, timeout = 0, writable = nul
     // The whole process group: pytest's own children, a server a test started, go with it.
     const timer = timeout ? setTimeout(() => { timedOut = true; killGroup(); }, timeout) : null;
     child.on('error', error => { if (timer) clearTimeout(timer); resolve({ code: null, output: error.message, timedOut }); });
+    // Whatever it left running goes when it exits: a child still holding its output open would keep 'close' from ever coming.
+    child.on('exit', killGroup);
     child.on('close', code => { if (timer) clearTimeout(timer); killGroup(); resolve({ code, output, timedOut }); });
   });
 }

@@ -31,6 +31,7 @@ createInterface({ input: process.stdin }).on('line', line => {
   let done = false;
   const finish = code => { if (done) return; done = true; if (timer) clearTimeout(timer); kill(); open--; say({ id, code, output, timedOut }); settle(); };
   child.on('error', error => { output += error.message; finish(null); });
+  child.on('exit', kill);
   child.on('close', finish);
 }).on('close', () => { ended = true; settle(); });
 `;

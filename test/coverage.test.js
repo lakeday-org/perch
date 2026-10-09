@@ -8,7 +8,7 @@ import { createSourceAnalyzer } from '../src/analysis.js';
 import { buildGraph } from '../src/graph.js';
 import { AuthenticationError } from '../src/systemone.js';
 import { TOKEN_LIMITS } from '../src/tokens.js';
-import { computeCoverage, coverageRepository, diffReports, judgeTests } from '../src/coverage.js';
+import { computeCoverage, coverageRepository, diffReports, generateMutants, judgeTests } from '../src/coverage.js';
 import { available, executedBy, testOf } from '../src/runners/pytest.js';
 import { main } from '../src/cli.js';
 import { createServer } from 'node:http';
@@ -310,6 +310,28 @@ describe('the survivors of a run', () => {
     expect(equivalent.totals).toMatchObject({ equivalent: plain.mutants.length, mutants: 0, killed: 0, score: null });
   });
 
+  it('counts a failure only once the test fails again against the same mutant', async () => {
+    // Test 3 fails the first time it meets each mutant and passes after, as a test does when the machine is out of ports; test 17
+    // fails every time. Every mutant is killed by 17 alone, reached past the run that stopped at 3.
+    const repo = await calculator();
+    const runner = scriptedRunner({ methods: { add: { kill: 0.1, kills: { test_17: 0.9 } } }, executed: await reached(repo) });
+    const met = new Set();
+    const session = await runner.session();
+    const report = await run(repo, scripted({ methods: { add: { matters: 0.9, kill: 0.1 } } }), { runner: { ...runner,
+      session: async () => ({ ...session, async run(request) {
+        const outcome = await session.run(request);
+        const flaky = request.nodes.find(test => test.endsWith('::test_03'));
+        if (flaky && !met.has(request.mutant)) {
+          met.add(request.mutant);
+          return { status: 'ran', results: new Map([...[...outcome.results].filter(([test]) => request.nodes.indexOf(test) < request.nodes.indexOf(flaky)), [flaky, { test: flaky, status: 'failed' }]]) };
+        }
+        return outcome;
+      } }) } });
+    const add = report.methods.find(method => method.id === 'shop/calc.py::add');
+    expect(met.size).toBe(add.mutants.length);
+    for (const mutant of add.mutants) expect(mutant).toMatchObject({ killed: true, killed_by: ['tests/test_calc.py::test_17'] });
+  });
+
   it('counts a run past its time limit as killed and an edit the tests cannot load as invalid', async () => {
     const outcomes = ['timeout', 'invalid'];
     const repo = await calculator();
@@ -323,6 +345,24 @@ describe('the survivors of a run', () => {
     expect(timedOut.every(mutant => mutant.killed)).toBe(true);
     expect(report.totals).toMatchObject({ killed: timedOut.length, invalid: invalid.length, mutants: timedOut.length });
     expect(report.findings.filter(finding => finding.kind === 'survived')).toEqual([]);
+  });
+});
+
+describe('the mutants of a method', () => {
+  it('makes the edits inside a nested function once, in it and not in the function around it', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'perch-nested-'));
+    cleanups.push(root);
+    const source = 'export function outer(items) {\n  const limit = 10;\n  function inner(item) {\n    return item > limit;\n  }\n  return items.filter(inner).length + 1;\n}\n';
+    await writeFile(join(root, 'nested.js'), source);
+    await initRepo(root);
+    const scan = await analyzeTree({ root, revision: await revision(root), out: join(root, '.perch'), analyzer });
+    const graph = buildGraph(scan.files);
+    const methods = computeCoverage({ scan, graph }).methods;
+    const generated = await generateMutants({ methods, graph, sourceText: async () => source });
+    const lines = id => generated.get(methods.find(method => method.id === id).id).map(mutant => mutant.line);
+    expect(lines('nested.js::outer.inner')).toContain(4);
+    expect(lines('nested.js::outer')).not.toContain(4);
+    expect(lines('nested.js::outer')).toEqual(expect.arrayContaining([2, 6]));
   });
 });
 

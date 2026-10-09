@@ -53,7 +53,7 @@ globalThis.__perch_state = { active: -1, test: '', hits: null };
 const { spec, reporter, reporterOption, reporterOptions, grep, fgrep, watch, parallel, jobs, ...options } = loadOptions(JSON.parse(process.env.PERCH_FLAGS));
 const rootHooks = await handleRequires(options.require || []);
 class Silent { constructor(runner) { this.runner = runner; } }
-__perch_say({ ready: true });
+__perch_ready();
 let round = 0;
 const testsOf = suite => [...suite.tests, ...suite.suites.flatMap(testsOf)];
 for await (const line of __perch_commands) {
@@ -80,7 +80,7 @@ for await (const line of __perch_commands) {
   // The repository's own modules load again for the next mutant: state one left in them is not the next one's. Its
   // dependencies stay loaded.
   for (const key of Object.keys(require.cache)) if (key.startsWith(process.env.PERCH_ROOT + '/') && !key.includes('/node_modules/')) delete require.cache[key];
-  __perch_say({ id, results });
+  await __perch_done({ id, results });
 }
 `;
 
@@ -92,7 +92,7 @@ const JEST_WORKER = `${WORKER_IO}
 import { createRequire } from 'node:module';
 const require = createRequire(process.env.PERCH_ROOT + '/package.json');
 const { runCLI } = require('jest');
-__perch_say({ ready: true });
+__perch_ready();
 for await (const line of __perch_commands) {
   const { id, mutant, files, pattern } = JSON.parse(line);
   process.env.PERCH_MUTANT = String(mutant);
@@ -104,7 +104,7 @@ for await (const line of __perch_commands) {
       if (file.testExecError) results.push([file.testFilePath, '', 'crashed', String(file.testExecError.message)]);
     }
   } catch (error) { results.push(['', '', 'error', String(error && error.stack || error)]); }
-  __perch_say({ id, results });
+  await __perch_done({ id, results });
 }
 `;
 
@@ -125,7 +125,7 @@ const vitest = await api.createVitest('test', { watch: false, reporters: [{ onIn
 const specs = vitest.getRelevantTestSpecifications ? await vitest.getRelevantTestSpecifications() : vitest.globTestSpecifications ? await vitest.globTestSpecifications() : await vitest.globTestFiles();
 const fileOf = spec => spec.moduleId ?? spec[1];
 const titles = task => { const names = []; for (let at = task; at && at.filepath === undefined; at = at.suite) if (at.name) names.unshift(at.name); return names; };
-__perch_say({ ready: true });
+__perch_ready();
 for await (const line of __perch_commands) {
   const { id, mutant, files, pattern } = JSON.parse(line);
   writeFileSync(process.env.PERCH_ACTIVE, String(mutant));
@@ -143,7 +143,7 @@ for await (const line of __perch_commands) {
     };
     for (const task of tasks) walk(task);
   } catch (error) { results.push(['', '', 'error', String(error && error.stack || error)]); }
-  __perch_say({ id, results });
+  await __perch_done({ id, results });
 }
 `;
 

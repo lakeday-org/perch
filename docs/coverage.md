@@ -117,7 +117,10 @@ your working tree is never touched:
    as it should, plus five seconds, catches the mutant too: the mutant made
    something never finish. So does a run the mutant crashes before its tests
    report. A mutant the code can't even be built or loaded with is invalid,
-   and is left out.
+   and is left out. A failing test is run again by itself before it counts:
+   one that passes the second time failed because of the machine, not the
+   mutant. With many workers at once, tests that open real connections can run
+   out of local ports.
 3. It asks the decision model about the survivors only: would a caller ever see
    this change, or is it harmless, like a log message, or an edit that changes
    nothing? Harmless survivors are equivalent mutants, and are left out of the
@@ -137,7 +140,9 @@ the whole run, so a mutated test can write only inside its copy:
 - **Vitest, Jest, Mocha, Jasmine, Karma, Cucumber and node:test:** perch
   writes every mutant into the code at once, each behind a switch, as Stryker
   does. Vitest, Jest and Mocha stay loaded in a worker per core, and each
-  mutant is one run inside it with its switch on. Jasmine, Karma, Cucumber and
+  mutant is one run inside it with its switch on. A worker whose run leaves a
+  server, a socket or a timer open is replaced, so the next mutant doesn't
+  inherit it. Jasmine, Karma, Cucumber and
   node:test start for each mutant, with the code already transformed. Karma
   runs in headless Chrome; Cucumber's scenarios are its tests.
 - **Rust and C#:** the same switches, built once by cargo or dotnet. A mutant

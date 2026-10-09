@@ -512,11 +512,19 @@ async function planMutants({ coverage, generated, base }) {
 /** Every mutant of every method, by method id, made before anything runs: a runner that writes them all into the code needs them first. */
 export async function generateMutants({ methods, graph, sourceText }) {
   const generated = new Map();
-  for (const method of methods) {
+  // A function inside another is a method of its own, and its edits are made once, in it: the one around it would make them
+  // again, and each would be counted and run twice.
+  const made = new Set();
+  const sized = [...methods].sort((a, b) => (a.node.end_line - a.node.line) - (b.node.end_line - b.node.line));
+  for (const method of sized) {
     const { node } = method;
-    generated.set(method.id, mutantsOf({ source: await sourceText(node.path), language: graph.files.get(node.path)?.file.language, line: node.line, end_line: node.end_line }));
+    const mutants = mutantsOf({ source: await sourceText(node.path), language: graph.files.get(node.path)?.file.language, line: node.line, end_line: node.end_line });
+    generated.set(method.id, mutants.filter(mutant => {
+      const key = `${node.path}\0${mutantId(mutant)}`;
+      return !made.has(key) && made.add(key);
+    }));
   }
-  return generated;
+  return new Map(methods.map(method => [method.id, generated.get(method.id)]));
 }
 
 /**
@@ -560,28 +568,52 @@ export async function runMutants({ coverage, generated, sourceText, runner, tool
   const credited = new Set();
   for (const result of results.values()) for (const [test, failed] of result.kills) if (failed) credited.add(test);
 
+  /** The tests that failed and that passed in a run that ran. */
+  const verdicts = outcome => {
+    const failed = new Set(), passed = new Set();
+    for (const [, result] of outcome.results) (result.status === 'failed' || result.status === 'error' ? failed : passed).add(result.test);
+    return { failed, passed };
+  };
   /** One run of `tests` against the unit's mutant; its outcome is folded into what the unit has. */
   const runOnce = async (session, unit, tests, bail) => {
     const { node, mutant } = unit;
-    const nodes = tests.flatMap(id => nodesOf.get(id));
     const mutated = applyMutant(await fileOf(node.path), mutant);
     // Stryker's limit: half as long again as the tests took unmutated, and five seconds. A mutant that makes a loop never end
     // is caught by it.
-    const timeout = Math.round((tests.reduce((sum, id) => sum + secondsOf.get(id), 0) * 1.5 + 5) * 1000);
-    const outcome = mutated ? await session.run({ path: node.path, source: mutated, mutant, method: unit.method, nodes, timeout, bail, language: unit.language }) : { status: 'invalid' };
+    const run = (list, stop) => session.run({ path: node.path, source: mutated, mutant, method: unit.method, nodes: list.flatMap(id => nodesOf.get(id)),
+      timeout: Math.round((list.reduce((sum, id) => sum + secondsOf.get(id), 0) * 1.5 + 5) * 1000), bail: stop, language: unit.language });
+    const outcome = mutated ? await run(tests, bail) : { status: 'invalid' };
     const had = results.get(unit.id);
     if (outcome.status !== 'ran') {
       // A later run that timed out or would not load says nothing more about the tests; the first decides the mutant.
       if (!had) results.set(unit.id, { status: outcome.status, kills: [], covers: unit.tests });
       return outcome;
     }
-    const failed = new Set(), passed = new Set();
-    for (const [, result] of outcome.results) (result.status === 'failed' || result.status === 'error' ? failed : passed).add(result.test);
+    const { failed, passed } = verdicts(outcome);
+    // A test can fail for the machine rather than the mutant: every worker at once can run out of local ports, or a timer fire
+    // late. A failure counts once the test fails again, run by itself against the same mutant; one that passes then is set
+    // aside, and the tests a stopped run never reached run in its place.
+    if (failed.size) {
+      const again = await run([...failed], false);
+      const flaky = again.status === 'ran' ? [...failed].filter(id => verdicts(again).passed.has(id)) : [];
+      for (const id of flaky) failed.delete(id);
+      if (flaky.length) debug(`${unit.node.qualified_name} ${describeMutant(mutant)}: ${flaky.join(', ')} failed once and passed again, so it is not counted`);
+      if (bail && flaky.length && !failed.size) {
+        const rest = tests.filter(id => !passed.has(id) && !flaky.includes(id));
+        if (passed.size) foldIn(unit, tests, failed, passed);
+        return rest.length ? runOnce(session, unit, rest, bail) : outcome;
+      }
+    }
+    foldIn(unit, tests, failed, passed);
+    return outcome;
+  };
+  /** What a run said about each of `tests`, folded into what the unit has. */
+  const foldIn = (unit, tests, failed, passed) => {
+    const had = results.get(unit.id);
     const kills = new Map(had?.kills ?? []);
     for (const id of tests) if (failed.has(id) || passed.has(id)) kills.set(id, failed.has(id) ? 1 : 0);
     for (const id of failed) credited.add(id);
     results.set(unit.id, { status: had?.status ?? 'ran', kills: unit.tests.filter(id => kills.has(id)).map(id => [id, kills.get(id)]), covers: unit.tests });
-    return outcome;
   };
   const pool = async (items, work) => {
     let next = 0;
