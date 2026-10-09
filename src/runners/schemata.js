@@ -101,7 +101,7 @@ const DIALECTS = {
       'character_literal', 'null_literal', 'conditional_expression', 'parenthesized_expression', 'object_creation_expression', 'array_creation_expression',
       'implicit_array_creation_expression', 'initializer_expression', 'lambda_expression', 'identifier', 'cast_expression', 'await_expression',
       'conditional_access_expression', 'assignment_expression', 'interpolated_string_expression', 'collection_expression']),
-    statement: 'expression_statement', block: 'block',
+    statement: 'expression_statement', block: 'block', counters: new Set(['postfix_unary_expression', 'prefix_unary_expression']),
     on: id => `global::PerchSwitch.On(${id})`,
     choice: (entries, original) => `(${entries.map(entry => `global::PerchSwitch.On(${entry.id}) ? (${entry.text}) : `).join('')}(${original}))`,
     statementChoice: (entries, original) => `{ ${entries.map(entry => `if (global::PerchSwitch.On(${entry.id})) { ${entry.text} } else `).join('')}{ ${original} } }`,
@@ -121,27 +121,105 @@ const DIALECTS = {
     refuseBlock: () => null,
   },
 };
+DIALECTS.java = {
+  markers: true,
+  // Java takes an assignment, a call or `i++` as a statement but not a choice between two: one that is a whole statement is
+  // chosen as one.
+  statementsOnly: true,
+  expressions: new Set(['binary_expression', 'unary_expression', 'update_expression', 'method_invocation', 'field_access', 'array_access', 'decimal_integer_literal',
+    'hex_integer_literal', 'octal_integer_literal', 'binary_integer_literal', 'decimal_floating_point_literal', 'string_literal', 'text_block', 'character_literal',
+    'true', 'false', 'null_literal', 'ternary_expression', 'parenthesized_expression', 'object_creation_expression', 'array_creation_expression', 'lambda_expression',
+    'identifier', 'cast_expression', 'assignment_expression', 'instanceof_expression', 'method_reference', 'class_literal', 'this', 'switch_expression']),
+  statement: 'expression_statement', block: 'block', blocks: ['block', 'constructor_body'], counters: new Set(['update_expression']),
+  on: id => `perch.PerchSwitch.on(${id})`,
+  choice: (entries, original) => `(${entries.map(entry => `perch.PerchSwitch.on(${entry.id}) ? (${entry.text}) : `).join('')}(${original}))`,
+  statementChoice: (entries, original) => `{ ${entries.map(entry => `if (perch.PerchSwitch.on(${entry.id})) { ${entry.text} } else `).join('')}{ ${original} } }`,
+  blockChoice: (entries, original) => `{ ${entries.map(entry => `if (perch.PerchSwitch.on(${entry.id})) ${entry.text} else `).join('')}${original} }`,
+  // An annotation's value, a case label, an enum constant and a pattern all need a value at compile time.
+  refuse: at => (/pattern|annotation/.test(at.type) || ['element_value_pair', 'switch_label', 'enum_constant'].includes(at.type) ? `the edit is inside a ${at.type}` : null),
+  keep: (at, parent) => {
+    if (parent?.type === 'assignment_expression' && parent.childForFieldName('left')?.id === at.id) return true;
+    if (parent?.type === 'update_expression') return true;
+    // A method's or a field's name is part of calling or reading it.
+    if (['method_invocation', 'field_access', 'method_reference'].includes(parent?.type) && (parent.childForFieldName('name')?.id === at.id || parent.childForFieldName('field')?.id === at.id)) return true;
+    return false;
+  },
+  // A constructor's body starts with its call to this() or super(), which cannot move into a branch.
+  refuseBlock: node => (node.namedChildren.find(child => !child.type.includes('comment'))?.type === 'explicit_constructor_invocation' ? 'a constructor\'s body must call this() or super() first' : null),
+};
+DIALECTS.kotlin = {
+  markers: true,
+  // Kotlin's `if` is an expression of any type, and a statement is whatever stands in a list of statements.
+  statementParent: 'statements',
+  expressions: new Set(['additive_expression', 'multiplicative_expression', 'comparison_expression', 'equality_expression', 'conjunction_expression',
+    'disjunction_expression', 'prefix_expression', 'postfix_expression', 'call_expression', 'navigation_expression', 'indexing_expression', 'integer_literal',
+    'long_literal', 'hex_literal', 'bin_literal', 'real_literal', 'string_literal', 'boolean_literal', 'character_literal', 'null_literal', 'parenthesized_expression',
+    'if_expression', 'when_expression', 'simple_identifier', 'lambda_literal', 'elvis_expression', 'range_expression', 'as_expression', 'check_expression',
+    'infix_expression', 'collection_literal', 'this_expression', 'try_expression', 'assignment']),
+  statement: null, block: 'function_body', blocks: ['function_body', 'control_structure_body'],
+  on: id => `perch.PerchSwitch.on(${id})`,
+  choice: (entries, original) => `(${entries.map(entry => `if (perch.PerchSwitch.on(${entry.id})) (${entry.text}) else `).join('')}(${original}))`,
+  statementChoice: (entries, original) => `${entries.map(entry => `if (perch.PerchSwitch.on(${entry.id})) { ${entry.text} } else `).join('')}{ ${original} }`,
+  blockChoice: (entries, original) => `{ ${entries.map(entry => `if (perch.PerchSwitch.on(${entry.id})) ${entry.text} else `).join('')}${original} }`,
+  refuse: at => (/annotation/.test(at.type) ? `the edit is inside an ${at.type}` : null),
+  keep: (at, parent) => {
+    if (at.type === 'assignment') return false;
+    // A name read off something, `a.trim`, or called, `trim()`, is part of reading or calling it; a place assigned to stays one.
+    if (['navigation_suffix', 'directly_assignable_expression', 'value_argument', 'variable_declaration'].includes(parent?.type) && at.type === 'simple_identifier') return true;
+    if (parent?.type === 'call_expression' && parent.namedChildren[0]?.id === at.id) return true;
+    return parent?.type === 'directly_assignable_expression';
+  },
+  refuseBlock: () => null,
+};
+DIALECTS.scala = {
+  markers: true,
+  // Scala's `if` is an expression of any type, and a block's statements are expressions standing in it.
+  statementParent: 'block',
+  expressions: new Set(['infix_expression', 'prefix_expression', 'postfix_expression', 'call_expression', 'field_expression', 'generic_function', 'integer_literal',
+    'floating_point_literal', 'string', 'boolean_literal', 'null_literal', 'character_literal', 'parenthesized_expression', 'if_expression', 'match_expression',
+    'identifier', 'lambda_expression', 'tuple_expression', 'instance_expression', 'assignment_expression', 'throw_expression', 'unit', 'ascription_expression',
+    'return_expression']),
+  statement: null, block: 'block', blocks: ['block'],
+  on: id => `perch.PerchSwitch.on(${id})`,
+  choice: (entries, original) => `(${entries.map(entry => `if (perch.PerchSwitch.on(${entry.id})) (${entry.text}) else `).join('')}(${original}))`,
+  statementChoice: (entries, original) => `${entries.map(entry => `if (perch.PerchSwitch.on(${entry.id})) { ${entry.text} } else `).join('')}{ ${original} }`,
+  blockChoice: (entries, original) => `{ ${entries.map(entry => `if (perch.PerchSwitch.on(${entry.id})) ${entry.text} else `).join('')}${original} }`,
+  // A pattern a match compares against and an annotation's value need one at compile time.
+  refuse: at => (/pattern|annotation/.test(at.type) ? `the edit is inside a ${at.type}` : null),
+  keep: (at, parent) => {
+    if (parent?.type === 'assignment_expression' && parent.childForFieldName('left')?.id === at.id) return true;
+    // A member read off something, `a.trim`, is part of reading it; what is called stays the thing called.
+    if (parent?.type === 'field_expression' && parent.childForFieldName('field')?.id === at.id) return true;
+    if ((parent?.type === 'call_expression' || parent?.type === 'generic_function') && parent.childForFieldName('function')?.id === at.id) return true;
+    return false;
+  },
+  refuseBlock: () => null,
+};
 for (const language of ['typescript', 'tsx']) DIALECTS[language] = DIALECTS.javascript;
 
 export const SCHEMATA_LANGUAGES = new Set(['javascript', 'typescript', 'tsx']);
 
 const ofKind = kind => (kind === 'removal' ? 'statement' : kind === 'block' || kind === 'body' ? 'block' : 'expression');
-const ORDER = { block: 0, statement: 1, expression: 2 };
+const ORDER = { block: 0, statement: 1, counter: 2, expression: 3 };
 
 /** The node the edit is placed at, by its kind, or the reason it has none. */
 function anchorOf(node, style, dialect) {
   if (style === 'block') {
-    if (node.type !== dialect.block) return { reason: `a ${node.type} is no block` };
+    if (!(dialect.blocks ?? [dialect.block]).includes(node.type)) return { reason: `a ${node.type} is no block` };
     const reason = dialect.refuseBlock(node);
     return reason ? { reason } : { node };
   }
-  if (style === 'statement') return node.type === dialect.statement ? { node } : { reason: `a ${node.type} is no statement` };
+  if (style === 'statement') return node.type === dialect.statement || (dialect.statementParent && node.parent?.type === dialect.statementParent) ? { node } : { reason: `a ${node.type} is no statement` };
   for (let at = node; at; at = at.parent) {
     const refused = dialect.refuse(at);
     if (refused) return { reason: refused };
     if (/(_statement|_declaration|_item|^program|^source_file|^compilation_unit|^statement_block)$/.test(at.type) && at.type !== dialect.statement) return { reason: 'no expression holds the edit' };
+    // A for loop's `i++` sits where only a statement goes: `i += (choice ? -1 : 1)` is one, and counts the same way.
+    if (dialect.counters?.has(at.type) && at.parent?.type === 'for_statement' && /^(\+\+|--)$/.test(node.text)) return { node: at, style: 'counter' };
     if (!dialect.expressions.has(at.type) || dialect.keep(at, at.parent)) continue;
     if (dialect.statementsOnly && at.parent?.type === dialect.statement) return { node: at.parent, style: 'statement' };
+    // Kotlin's assignment is a statement, never a value: chosen as one.
+    if (dialect.statementParent && at.type === 'assignment') return at.parent?.type === dialect.statementParent ? { node: at, style: 'statement' } : { reason: 'an assignment outside a list of statements' };
     return { node: at };
   }
   return { reason: 'no expression holds the edit' };
@@ -170,7 +248,8 @@ export function instrument({ source, language, mutants, prelude = '', head: top 
     if (!found || bytes.subarray(start, end).toString('utf8') !== mutant.from) { unplaced.push({ id, reason: 'the edit is not where the source says' }); continue; }
     const style = ofKind(mutant.kind);
     // The outermost node of the span for a statement or block; the innermost for an expression, which is then climbed from.
-    const node = style === 'expression' ? found.at(-1) : found.find(item => item.type === (style === 'block' ? dialect.block : dialect.statement)) ?? found[0];
+    const node = style === 'expression' ? found.at(-1) : found.find(item => (style === 'block' ? (dialect.blocks ?? [dialect.block]).includes(item.type)
+      : item.type === dialect.statement || (dialect.statementParent && item.parent?.type === dialect.statementParent))) ?? found[0];
     const placed = anchorOf(node, style, dialect);
     if (!placed.node) { unplaced.push({ id, reason: placed.reason }); continue; }
     const as = placed.style ?? style;
@@ -199,6 +278,13 @@ export function instrument({ source, language, mutants, prelude = '', head: top 
     const fence = (open, body, close) => (dialect.markers ? `/*${open}*/${body}/*${close}*/` : body);
     const entries = anchor.entries.map(entry => ({ id: entry.id, text: fence(`<${entry.id}`, `${text(anchor.start, entry.start)}${entry.to}${text(entry.end, anchor.end)}`, `${entry.id}>`) }));
     const ids = anchor.entries.map(entry => entry.id).join(',');
+    if (anchor.style === 'counter') {
+      const operand = anchor.node.namedChildren[0];
+      const step = operator => (operator === '++' ? '1' : '-1');
+      const own = anchor.node.children.find(child => !child.isNamed && /^(\+\+|--)$/.test(child.text))?.text;
+      const steps = `(${anchor.entries.map(entry => `${dialect.on(entry.id)} ? (${step(entry.to)}) : `).join('')}(${step(own)}))`;
+      return fence(`[${anchor.entries.map(entry => entry.id).join(',')}`, `${inner(operand.startIndex, operand.endIndex, anchor.children)} += ${steps}`, `${anchor.entries.map(entry => entry.id).join(',')}]`);
+    }
     const choice = anchor.style === 'expression' ? dialect.choice(entries, original, anchor.node)
       : anchor.style === 'statement' ? dialect.statementChoice(entries, original) : dialect.blockChoice(entries, original);
     return fence(`[${ids}`, choice, `${ids}]`);

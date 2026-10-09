@@ -22,16 +22,19 @@ import { instrument, PRELUDE, SCHEMATA_LANGUAGES, TS_HEAD } from './schemata.js'
 
 const run = promisify(execFile);
 
-/** The state every hook and every instrumented file shares, made by whichever loads first. */
+/**
+ * The state every hook and every instrumented file shares, made by whichever loads first. What a suite's own hooks reach, a
+ * `before` that builds the app every test then uses, is put down to the file: the name `''` stands for every test in it.
+ */
 const STATE = `const __perch_env = (globalThis.process && globalThis.process.env) || {};
-const __perch_state = globalThis.__perch_state || (globalThis.__perch_state = { active: __perch_env.PERCH_MUTANT === undefined ? -1 : Number(__perch_env.PERCH_MUTANT), test: '', hits: __perch_env.PERCH_COVERAGE ? new Map() : null });
+const __perch_state = globalThis.__perch_state || (globalThis.__perch_state = { active: __perch_env.PERCH_MUTANT === undefined ? -1 : Number(__perch_env.PERCH_MUTANT), test: '', file: '', hits: __perch_env.PERCH_COVERAGE ? new Map() : null });
+const __perch_enter = file => { __perch_state.file = file || ''; __perch_state.test = file ? JSON.stringify([file, '']) : ''; };
 const __perch_flush = () => {
-  if (__perch_state.hits && __perch_env.PERCH_HITS && __perch_state.test) {
-    const seen = __perch_state.hits.get(__perch_state.test);
-    __perch_fs.appendFileSync(__perch_env.PERCH_HITS, JSON.stringify([__perch_state.test, [...(seen || [])]]) + '\\n');
-    __perch_state.hits.delete(__perch_state.test);
+  if (__perch_state.hits && __perch_env.PERCH_HITS) {
+    for (const [test, seen] of __perch_state.hits) if (test) __perch_fs.appendFileSync(__perch_env.PERCH_HITS, JSON.stringify([test, [...seen]]) + '\\n');
+    __perch_state.hits.clear();
   }
-  __perch_state.test = '';
+  __perch_enter(__perch_state.file);
 };`;
 
 /**
@@ -74,6 +77,9 @@ for await (const line of __perch_commands) {
     });
   } catch (error) { results.push(['', '', 'crashed', String(error && error.stack || error)]); }
   try { mocha.unloadFiles(); mocha.dispose(); } catch {}
+  // The repository's own modules load again for the next mutant: state one left in them is not the next one's. Its
+  // dependencies stay loaded.
+  for (const key of Object.keys(require.cache)) if (key.startsWith(process.env.PERCH_ROOT + '/') && !key.includes('/node_modules/')) delete require.cache[key];
   __perch_say({ id, results });
 }
 `;
@@ -147,22 +153,29 @@ const FRAMEWORKS = {
     bin: 'vitest', module: 'esm', results: 'json',
     // A warm worker names the mutant to run in a file of its own, read as the test file loads and before its tests: a worker
     // Vitest keeps between runs would not see a variable set after it started.
-    hooks: `import { beforeAll, beforeEach, afterEach, expect } from 'vitest';
+    hooks: `import { afterAll, beforeAll, beforeEach, afterEach, expect } from 'vitest';
 import * as __perch_fs from 'node:fs';
 ${STATE}
 const __perch_active = () => { if (__perch_env.PERCH_ACTIVE) { try { __perch_state.active = Number(__perch_fs.readFileSync(__perch_env.PERCH_ACTIVE, 'utf8')); } catch {} } };
 __perch_active();
-beforeAll(__perch_active);
+// What runs while the test file loads, an app built in a describe's body, is the file's.
+try { __perch_enter(expect.getState().testPath); } catch {}
+beforeAll(() => { __perch_active(); __perch_enter(expect.getState().testPath); });
 beforeEach(() => { const state = expect.getState(); __perch_state.test = JSON.stringify([state.testPath, state.currentTestName]); });
-afterEach(__perch_flush);`,
+afterEach(__perch_flush);
+afterAll(__perch_flush);`,
     args: ({ files, pattern, out, bail }) => ['run', ...files, ...(pattern ? ['-t', pattern] : []), '--reporter=json', `--outputFile=${out}`, ...(bail ? ['--bail=1'] : [])],
   },
   jest: {
     bin: 'jest', module: 'cjs', results: 'json',
     hooks: `const __perch_fs = require('node:fs');
 ${STATE}
+try { __perch_enter(expect.getState().testPath); } catch {}
+module.exports = { enter: __perch_enter };
+beforeAll(() => __perch_enter(expect.getState().testPath));
 beforeEach(() => { const state = expect.getState(); __perch_state.test = JSON.stringify([state.testPath, state.currentTestName]); });
-afterEach(__perch_flush);`,
+afterEach(__perch_flush);
+afterAll(__perch_flush);`,
     // Jest's --bail ends the process before its JSON report is written, so a Jest run always runs every test it was given.
     args: ({ files, pattern, out }) => [...files, ...(pattern ? ['-t', pattern] : []), '--json', `--outputFile=${out}`, '--runInBand', '--ci', '--silent'],
   },
@@ -170,8 +183,15 @@ afterEach(__perch_flush);`,
     bin: 'mocha', module: 'cjs', results: 'hooks',
     hooks: `const __perch_fs = require('node:fs');
 ${STATE}
+module.exports = { enter: __perch_enter };
 if (!globalThis.__perch_hooked) {
   globalThis.__perch_hooked = true;
+  // A suite's before and after hooks run with no test current: what they reach is the file's.
+  const Hook = require('mocha').Hook, run = Hook.prototype.run;
+  Hook.prototype.run = function (...args) {
+    if (/^"(before|after) all" hook/.test(this.title)) __perch_enter(this.file || (this.parent && this.parent.file));
+    return run.apply(this, args);
+  };
   beforeEach(function () { __perch_state.test = JSON.stringify([this.currentTest.file, this.currentTest.titlePath().join(' > ')]); });
   afterEach(function () {
     if (__perch_env.PERCH_RESULTS) __perch_fs.appendFileSync(__perch_env.PERCH_RESULTS, JSON.stringify([__perch_state.test, this.currentTest.state === 'failed' ? 'failed' : this.currentTest.state === 'passed' ? 'passed' : 'skipped', (this.currentTest.duration || 0) / 1000]) + '\\n');
@@ -185,11 +205,12 @@ if (!globalThis.__perch_hooked) {
     // Jasmine tells a reporter, not a hook, which spec is running; its suites are the ones started and not yet done.
     hooks: `const __perch_fs = require('node:fs');
 ${STATE}
+module.exports = { enter: __perch_enter };
 if (!globalThis.__perch_hooked) {
   globalThis.__perch_hooked = true;
   const suites = [];
   jasmine.getEnv().addReporter({
-    suiteStarted: result => suites.push(result.description),
+    suiteStarted: result => { suites.push(result.description); __perch_enter(result.filename); },
     suiteDone: () => suites.pop(),
     specStarted: result => { __perch_state.test = JSON.stringify([result.filename || '', [...suites, result.description].join(' > ')]); },
     specDone: result => {
@@ -202,11 +223,14 @@ if (!globalThis.__perch_hooked) {
   },
   'node:test': {
     bin: null, module: 'esm', results: 'reporter',
-    hooks: `import { beforeEach, afterEach } from 'node:test';
+    hooks: `import { after, before, beforeEach, afterEach } from 'node:test';
 import * as __perch_fs from 'node:fs';
 ${STATE}
+__perch_enter(process.argv[1]);
+before(() => __perch_enter(process.argv[1]));
 beforeEach(context => { __perch_state.test = JSON.stringify([context.filePath || process.argv[1], context.fullName]); });
-afterEach(__perch_flush);`,
+afterEach(__perch_flush);
+after(__perch_flush);`,
     args: ({ files, pattern, out, flags, reporter }) => [...flags, '--test', `--test-reporter=${reporter}`, `--test-reporter-destination=${out}`, ...(pattern ? [`--test-name-pattern=${pattern}`] : []), ...files],
   },
 };
@@ -279,7 +303,7 @@ async function scriptFlags(root, command) {
 /** A runner for one framework. */
 export function javascriptRunner(framework) {
   const spec = FRAMEWORKS[framework];
-  let ids = new Map(), keys = new Map(), unplaced = new Map(), tests = new Map(), templates = new Map(), suffixes = new Map(), testFiles = [], flags = [], hooksFile = null, reporter = null, root = null;
+  let ids = new Map(), keys = new Map(), unplaced = new Map(), tests = new Map(), templates = new Map(), suffixes = new Map(), inFile = new Map(), testFiles = [], flags = [], hooksFile = null, reporter = null, root = null;
 
   /** Each hook-named test, `[file, name]`, as perch's id: the file from the root, then the names, joined as perch joins them. */
   const idOf = (copy, raw) => {
@@ -387,15 +411,19 @@ export function javascriptRunner(framework) {
         const text = await readFile(full, 'utf8');
         const specifier = `./${relative(dirname(full), hooksFile)}`.replace(/^\.\/\.\.\//, '../');
         const esm = /^\s*(import|export)\s/m.test(text);
-        const line = esm ? `import ${JSON.stringify(specifier)};` : `require(${JSON.stringify(specifier)});`;
+        // A CommonJS test file names itself as it loads, so what loading it runs, an example app it requires, is its tests'.
+        const line = esm ? `import ${JSON.stringify(specifier)};` : spec.module === 'cjs' ? `require(${JSON.stringify(specifier)}).enter(__filename);` : `require(${JSON.stringify(specifier)});`;
         const bang = text.startsWith('#!') ? text.indexOf('\n') + 1 : 0;
         await writeFile(full, `${text.slice(0, bang)}${line}\n${text.slice(bang)}`);
       }
       templates = new Map();
       suffixes = new Map();
+      inFile = new Map();
       for (const node of graph.nodes.values()) {
         if (!node.case || !SCHEMATA_LANGUAGES.has(graph.files.get(node.path)?.file.language)) continue;
         tests.set(node.id, node);
+        if (!inFile.has(node.path)) inFile.set(node.path, []);
+        inFile.get(node.path).push(node.id);
         const titles = node.id.slice(node.path.length + 2).split(' > ');
         tests.set(`${node.path}\0${titles.join(' ')}`, node.id);
         if (node.case.parametrized) {
@@ -429,14 +457,18 @@ export function javascriptRunner(framework) {
       const reached = new Map(), executed = new Map();
       for (const line of (await readFile(hits, 'utf8')).split('\n').filter(Boolean)) {
         const [raw, seen] = JSON.parse(line);
-        const test = idOf(copy, raw);
-        if (!reached.has(test)) { reached.set(test, new Set()); executed.set(test, new Map()); }
-        for (const id of seen) {
-          const { key, mutant, path } = keys.get(id);
-          reached.get(test).add(key);
-          const lines = executed.get(test);
-          if (!lines.has(path)) lines.set(path, new Set());
-          for (const item of mutant.statements.length ? mutant.statements : [mutant.line]) lines.get(path).add(item);
+        const [file, name] = JSON.parse(raw);
+        // What a file's suite hooks reached is every test in that file's.
+        const owners = name === '' ? (inFile.get(relative(copy, file)) ?? []) : [idOf(copy, raw)];
+        for (const test of owners) {
+          if (!reached.has(test)) { reached.set(test, new Set()); executed.set(test, new Map()); }
+          for (const id of seen) {
+            const { key, mutant, path } = keys.get(id);
+            reached.get(test).add(key);
+            const lines = executed.get(test);
+            if (!lines.has(path)) lines.set(path, new Set());
+            for (const item of mutant.statements.length ? mutant.statements : [mutant.line]) lines.get(path).add(item);
+          }
         }
       }
       const hitMethods = new Set([...keys.values()].map(({ key }) => key.slice(0, key.lastIndexOf('#'))));

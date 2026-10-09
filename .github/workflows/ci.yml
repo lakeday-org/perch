@@ -39,10 +39,18 @@ jobs:
 
       - run: pip install pytest pytest-cov
 
-      # And go test, cargo and dotnet test, against small projects of their own; the runner image has Go and Rust.
+      # And go test, cargo, dotnet test, Gradle, Maven and sbt, against small projects of their own; the runner image has Go,
+      # Rust, Gradle and Maven.
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: sbt/setup-sbt@v1
 
       - name: Lint
         run: npm run lint

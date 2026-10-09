@@ -501,7 +501,8 @@ async function planMutants({ coverage, generated, base }) {
       // An edit with no place to run is run anyway, by the tests of its method, so it is reported invalid and not uncovered.
       const running = exact ? (base.unplaced?.has(key) ? tests : tests.filter(id => base.hits.get(id)?.has(key)))
         : mutant.statements.length ? tests.filter(id => mutant.statements.some(line => byTest.get(id).executed.get(node.path)?.has(line))) : tests;
-      if (!running.length) { uncovered.add(mutant); continue; }
+      // An edit the compiler rejects is invalid whether or not a test reaches it, as Stryker counts a compile error.
+      if (!running.length && !(exact && base.unplaced?.has(key))) { uncovered.add(mutant); continue; }
       units.push({ id: key, node, method, mutant, tests: running, language: method.language });
     }
   }
@@ -768,10 +769,10 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     const mutants = (answers.mutants.get(method.id) ?? []).map(({ mutant, matters, kills, covers = [], uncovered, timeout, invalid, skipped }) => {
       const id = mutantId(mutant);
       const base = { id, kind: mutant.kind, line: mutant.line, column: mutant.column, from: mutant.from, to: mutant.to, original: mutant.original, mutated: mutant.mutated };
-      if (!covered || uncovered) return { ...base, matters: null, survives: null, killed: false, no_coverage: true, killed_by: [], asked: [], finding: null };
-      // An edit the tests could not even be collected against broke the code: it is no mutant a test could catch or miss, and is
-      // left out of the score, as Stryker leaves out a compile error.
+      // An edit the code cannot be built or loaded with broke the code: it is no mutant a test could catch or miss, reached or
+      // not, and is left out of the score, as Stryker leaves out a compile error.
       if (invalid) return { ...base, matters: null, survives: null, killed: false, invalid: true, killed_by: [], asked: [], finding: null };
+      if (!covered || uncovered) return { ...base, matters: null, survives: null, killed: false, no_coverage: true, killed_by: [], asked: [], finding: null };
       // Outside what a branch run asked for, with no outcome saved from before: not run, and left out of the score.
       if (skipped) return { ...base, matters: null, survives: null, killed: false, skipped: true, killed_by: [], asked: [], finding: null };
       // A run that passed its time limit is caught: the edit made something never finish, which a test run notices. fails is
@@ -1022,7 +1023,7 @@ export async function coverageRepository({ root, revision, label = root, github 
   // The repository's own tests, run by perch: once for which tests run each line, then once per mutant. Nothing is estimated: a
   // repository whose tests perch cannot run is one it cannot measure, and it says what is missing.
   const runner = given ?? await runnersFor({ scope, root, graph });
-  if (!runner) throw new Error(`perch coverage runs your tests itself, and has no runner for ${(scope?.frameworks ?? []).filter(item => item.tests).map(item => item.name).join(', ') || 'what it found'} yet; it runs pytest, Vitest, Jest, Mocha, Jasmine, node:test, cargo, go test and dotnet test`);
+  if (!runner) throw new Error(`perch coverage runs your tests itself, and has no runner for ${(scope?.frameworks ?? []).filter(item => item.tests).map(item => item.name).join(', ') || 'what it found'} yet; it runs pytest, Vitest, Jest, Mocha, Jasmine, node:test, cargo, go test, dotnet test, and JUnit, TestNG, ScalaTest and MUnit on Gradle, Maven or sbt`);
   const tool = await runner.available({ root });
   if (tool.reason) throw new Error(`${runner.name} cannot run here: ${tool.reason}`);
   if (!sandboxKind()) log(`${runner.name} runs unsandboxed here: install bubblewrap so a mutated test can write only inside its copy`);

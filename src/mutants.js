@@ -429,7 +429,8 @@ export function mutantsOf({ source, language, line, end_line }) {
         else if (text in TEST_COMPARISONS) add('boundary', operator, TEST_COMPARISONS[text]);
         else if (text === '??') { if (COALESCING.has(family)) add('logic', operator, LOGIC[text]); }
         else if (text in LOGIC) add('logic', operator, LOGIC[text]);
-        else if (text in ARITHMETIC) add('arithmetic', operator, ARITHMETIC[text]);
+        // A `+` that joins strings has no `-` a compiler takes in a language that checks types; JavaScript runs it, to NaN.
+        else if (text in ARITHMETIC && !(text === '+' && TYPED_CONCAT.has(normalized) && joinsStrings(node))) add('arithmetic', operator, ARITHMETIC[text]);
         else if (text in UPDATES) add('update', operator, UPDATES[text]);
       }
       if (IFS.has(node.type) || LOOPS.has(node.type)) {
@@ -532,6 +533,16 @@ export function mutantsOf({ source, language, line, end_line }) {
   const whole = bodyMutant(root, normalized, line, end_line);
   if (whole) add('body', whole.body, whole.to);
   return found.sort((a, b) => a.line - b.line || a.column - b.column || KINDS.indexOf(a.kind) - KINDS.indexOf(b.kind));
+}
+
+/** Languages whose compiler rejects `-` between strings. */
+const TYPED_CONCAT = new Set(['java', 'kotlin', 'scala', 'csharp', 'c_sharp', 'go', 'rust', 'swift', 'dart']);
+/** Whether a `+` joins strings: a string literal on either side of it, or of the `+` it continues. */
+function joinsStrings(node) {
+  for (let at = node; at && BINARY.has(at.type) && operatorOf(at)?.text === '+'; at = at.childForFieldName('left') ?? at.namedChildren[0]) {
+    if (at.namedChildren.some(child => STRINGS.has(child.type) || child.type === 'string_literal' || child.type === 'text_block')) return true;
+  }
+  return false;
 }
 
 /** A type as each grammar writes one: an annotation, an alias, an interface, a literal or generic type, type arguments. */

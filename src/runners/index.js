@@ -13,6 +13,7 @@ import { javascriptRunner } from './javascript.js';
 import * as cargo from './cargo.js';
 import * as go from './go.js';
 import * as dotnet from './dotnet.js';
+import * as jvm from './jvm.js';
 
 const run = promisify(execFile);
 
@@ -43,6 +44,7 @@ export async function runnersFor({ scope, root, graph }) {
   if (tested.has('rust')) found.push(cargo);
   if (tested.has('go')) found.push(go);
   if (tested.has('csharp') || tested.has('c_sharp')) found.push(dotnet);
+  if (tested.has('java') || tested.has('kotlin') || tested.has('scala')) found.push(jvm);
   return found.length ? combined(found) : null;
 }
 

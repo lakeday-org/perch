@@ -133,15 +133,15 @@ export async function prepare({ copies: [copy], generated, graph }) {
       if (!binaries.length) throw new Error('cargo built no test binaries');
       return;
     }
-    const rejected = new Set();
+    const rejected = new Map();
     for (const error of errors) {
       for (const span of error.message.spans.filter(item => item.is_primary)) {
         const result = placed.get(relative(copy.dir, join(copy.dir, span.file_name)));
-        for (const id of result?.locate(span.line_start, span.column_start) ?? []) rejected.add(id);
+        for (const id of result?.locate(span.line_start, span.column_start) ?? []) if (!rejected.has(id)) rejected.set(id, error.message.message);
       }
     }
     if (!rejected.size || round > 20) throw new Error(`the crate does not build: ${errors[0].message.rendered?.trim().split('\n').slice(0, 6).join(' | ')}`);
-    for (const id of rejected) unplaced.set(id, `the compiler rejects it: ${errors.find(item => item.message.spans.length)?.message.message ?? 'error'}`);
+    for (const [id, message] of rejected) unplaced.set(id, `the compiler rejects it: ${message}`);
   }
 }
 

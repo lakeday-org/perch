@@ -142,6 +142,10 @@ the whole run, so a mutated test can write only inside its copy:
 - **Rust and C#:** the same switches, built once by cargo or dotnet. A mutant
   the compiler rejects, a value a constant needs at compile time, is taken out
   and the code built again; it counts as invalid, as Stryker.NET counts it.
+- **Java, Kotlin and Scala:** the same switches, built once by Gradle, Maven or
+  sbt, and run as PIT runs them: in a JVM per core kept warm, through JUnit 5,
+  JUnit 4, TestNG, ScalaTest or MUnit. The project's own classes load afresh
+  for each mutant, so state one run leaves behind is not the next one's.
 - **Go:** Go has no expression that chooses between two values of any type, so
   each mutant is written into its own copy of the module and its package built
   again, which Go's build cache makes quick.
@@ -155,7 +159,8 @@ environment first. It needs `pytest-cov` installed there. For JavaScript and
 TypeScript it runs the framework installed in your `node_modules`, so install
 your dependencies first. node:test needs Node 22 or later. Rust needs cargo, Go
 needs go, and C# needs dotnet and a test project that references
-`Microsoft.NET.Test.Sdk`. If perch can't run
+`Microsoft.NET.Test.Sdk`. Java, Kotlin and Scala need a JDK and the project's
+Gradle, Maven or sbt. If perch can't run
 your tests, it stops and says what's missing. In a repository that also has
 tests in a language perch has no runner for, perch leaves out the code only
 those tests run, and says so.
@@ -233,7 +238,8 @@ can leave out more files and directories with the `ignore:` option in
 ## Supported languages and frameworks
 
 Perch runs pytest, Vitest, Jest, Mocha, Jasmine, node:test, cargo test, go test
-and dotnet test suites, with xUnit, NUnit or MSTest. The table below is every language perch finds tests in, the frameworks it
+and dotnet test suites, with xUnit, NUnit or MSTest, and JUnit 5, JUnit 4,
+TestNG, ScalaTest and MUnit suites on Gradle, Maven or sbt. The table below is every language perch finds tests in, the frameworks it
 recognises, the mocks it reads as cutting a test's reach, and what it does not
 follow yet:
 

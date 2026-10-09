@@ -157,13 +157,13 @@ export async function prepare({ copies: [copy], generated, graph }) {
     const errors = buildErrors(output);
     if (!errors.length && failed) throw new Error(`dotnet could not build the tests: ${output.trim().split('\n').slice(-4).join(' | ')}`);
     if (!errors.length) break;
-    const rejected = new Set();
+    const rejected = new Map();
     for (const error of errors) {
       const path = relative(copy.dir, error.file.startsWith('/') ? error.file : join(copy.dir, error.file));
-      for (const id of placed.get(path)?.locate(error.line, error.column) ?? []) rejected.add(id);
+      for (const id of placed.get(path)?.locate(error.line, error.column) ?? []) if (!rejected.has(id)) rejected.set(id, error.message);
     }
     if (!rejected.size || round > 20) throw new Error(`the solution does not build: ${errors.slice(0, 3).map(error => `${error.file}(${error.line}): ${error.code} ${error.message}`).join(' | ')}`);
-    for (const id of rejected) unplaced.set(id, `the compiler rejects it: ${errors.find(error => placed.get(relative(copy.dir, error.file.startsWith('/') ? error.file : join(copy.dir, error.file))))?.message ?? 'error'}`);
+    for (const [id, message] of rejected) unplaced.set(id, `the compiler rejects it: ${message}`);
   }
   // The built test assemblies: each test project's own dll, by the name of its project.
   for (const project of tests) {

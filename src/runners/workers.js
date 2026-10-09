@@ -21,23 +21,28 @@ const __perch_commands = createInterface({ input: createReadStream(null, { fd: 3
  * worker the message and resolves to its answer, or to `{ timedOut: true }`, or `{ crashed: true, output }` when it died; either
  * way the worker is replaced by one with the same index.
  */
-export async function startWorkers({ script, count, scratch, writable, cwd, env = {} }) {
-  const file = join(scratch, `perch-worker-${Math.random().toString(36).slice(2)}.mjs`);
-  await writeFile(file, script);
+export async function startWorkers({ script, command = null, count, scratch, writable, cwd, env = {} }) {
+  // A Node script talks on descriptors 3 and 4; any other program, a JVM, on standard input and on standard output lines that
+  // start with `@@perch`, everything else it prints being the tests'.
+  const file = script ? join(scratch, `perch-worker-${Math.random().toString(36).slice(2)}.mjs`) : null;
+  if (script) await writeFile(file, script);
+  const program = command ?? { command: process.execPath, args: [file] };
+  const stdio = !script;
   const free = [], waiting = [];
   let closing = false;
 
   const launch = index => new Promise((resolve, reject) => {
-    const run = sandboxed(process.execPath, [file], writable);
+    const run = sandboxed(program.command, program.args, writable);
     const own = typeof env === 'function' ? env(index) : env;
-    const child = spawn(run.command, run.args, { cwd, detached: true, env: { ...process.env, PWD: cwd, ...own }, stdio: ['ignore', 'pipe', 'pipe', 'pipe', 'pipe'] });
-    const worker = { child, index, output: '', pending: null };
+    const child = spawn(run.command, run.args, { cwd, detached: true, env: { ...process.env, PWD: cwd, ...own }, stdio: stdio ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe', 'pipe', 'pipe'] });
+    const worker = { child, index, output: '', pending: null, input: stdio ? child.stdin : child.stdio[3] };
     const keep = chunk => { worker.output = (worker.output + chunk).slice(-20000); };
-    child.stdout.on('data', keep);
+    if (!stdio) child.stdout.on('data', keep);
     child.stderr.on('data', keep);
     let ready = false;
-    createInterface({ input: child.stdio[4] }).on('line', line => {
-      const message = JSON.parse(line);
+    createInterface({ input: stdio ? child.stdout : child.stdio[4] }).on('line', line => {
+      if (stdio && !line.startsWith('@@perch\t')) { keep(`${line}\n`); return; }
+      const message = JSON.parse(stdio ? line.slice('@@perch\t'.length) : line);
       if (message.ready) { ready = true; resolve(worker); return; }
       const pending = worker.pending;
       worker.pending = null;
@@ -61,7 +66,7 @@ export async function startWorkers({ script, count, scratch, writable, cwd, env 
       if (worker.dead) worker = await launch(worker.index);
       worker.output = '';
       const answer = new Promise(resolve => { worker.pending = { resolve }; });
-      worker.child.stdio[3].write(`${JSON.stringify(message)}\n`);
+      worker.input.write(`${JSON.stringify(message)}\n`);
       let timer;
       const limit = timeout ? new Promise(resolve => { timer = setTimeout(() => resolve({ timedOut: true }), timeout); }) : null;
       const reply = await (limit ? Promise.race([answer, limit]) : answer);
@@ -76,7 +81,7 @@ export async function startWorkers({ script, count, scratch, writable, cwd, env 
     },
     async close() {
       closing = true;
-      for (const worker of free) { worker.child.stdio[3].end(); kill(worker); }
+      for (const worker of free) { worker.input.end(); kill(worker); }
     },
   };
 }
