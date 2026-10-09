@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.2](https://github.com/lakeday-org/perch/compare/v0.4.1...v0.4.2) (2026-10-08)
+
+
+### Features
+
+* perch coverage finds low-value tests and real coverage gaps ([#317](https://github.com/lakeday-org/perch/issues/317)) ([767a4e4](https://github.com/lakeday-org/perch/commit/767a4e4d09d0f55bf1c45eab205d6db90cfba68d))
+* perch coverage finds tests in every language scan reads ([#331](https://github.com/lakeday-org/perch/issues/331)) ([0c27493](https://github.com/lakeday-org/perch/commit/0c27493c9caa8c932d4117fb1574312b65742479))
+* perch coverage makes every mutant of a method, fourteen kinds ([#337](https://github.com/lakeday-org/perch/issues/337)) ([7f88076](https://github.com/lakeday-org/perch/commit/7f88076db3a5060c232a6f3e1fe219b7d10c50d0))
+* perch coverage predicts which mutants your tests kill ([#320](https://github.com/lakeday-org/perch/issues/320)) ([73fc9bf](https://github.com/lakeday-org/perch/commit/73fc9bfff4ad941a617c142a46000cfe8a7b9f6a))
+* PERCH_BASE_URL can point at OpenAI's Decisions API ([#335](https://github.com/lakeday-org/perch/issues/335)) ([e122e6d](https://github.com/lakeday-org/perch/commit/e122e6ded8070303386251f049f80e33439efaa2))
+
+
+### Bug Fixes
+
+* perch scan ran out of open files reading callers ([#314](https://github.com/lakeday-org/perch/issues/314)) ([b966805](https://github.com/lakeday-org/perch/commit/b966805c2f5baefd6029278af74fcbbbb2bfd7f1)), closes [#305](https://github.com/lakeday-org/perch/issues/305) [#313](https://github.com/lakeday-org/perch/issues/313)
+
 ## [0.4.1](https://github.com/lakeday-org/perch/compare/v0.4.0...v0.4.1) (2026-10-02)
 
 
