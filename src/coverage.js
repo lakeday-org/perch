@@ -400,7 +400,7 @@ export function judgeTests(tests, mutants, min) {
  * its error and carries no answers; an authentication failure stops the run, since every other request would get the same
  * refusal.
  */
-export async function askCoverage({ coverage, graph, linesOf, systemOne, parallel = DEFAULT_PARALLEL,
+export async function askCoverage({ coverage, graph, linesOf, systemOne, parallel = DEFAULT_PARALLEL, min = 0.5,
   testProgress = () => {}, methodProgress = () => {}, log = () => {}, debug = () => {} }) {
   const { test: testAsked } = coverageQuestions();
   const killsTemplate = questionNamed('kills'), mattersAsked = [questionNamed('matters')];
@@ -480,11 +480,27 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, paralle
   // the test checks through is shown with it, since the check is inside the macro and no call graph reaches it.
   const sources = new Map();
   const sourceText = async path => { if (!sources.has(path)) sources.set(path, (await linesOf({ path })).join('\n')); return sources.get(path); };
-  const testTexts = new Map();
-  const testText = async id => {
-    if (!testTexts.has(id)) { const test = graph.nodes.get(id); testTexts.set(id, `${test.path}\n${test.qualified_name}\n${(await linesOf(test)).slice(test.line - 1, test.end_line).join('\n')}`.toLowerCase()); }
-    return testTexts.get(id);
+  // A test's file name, its name and its code, as the words in them: what it names. Not its directory, which every test of a
+  // module shares: `gson/src/test/...` named Gson in every gson test.
+  const testTokens = new Map();
+  const testWords = async id => {
+    if (!testTokens.has(id)) {
+      const test = graph.nodes.get(id);
+      const text = `${test.path.split('/').at(-1)}\n${test.qualified_name}\n${(await linesOf(test)).slice(test.line - 1, test.end_line).join('\n')}`.toLowerCase();
+      testTokens.set(id, new Set(text.split(/[^a-z0-9_]+/).filter(Boolean)));
+    }
+    return testTokens.get(id);
   };
+  // A word more than half the tests name says nothing about which of them check a method: `json` in a JSON library's tests.
+  const allTests = coverage.tests.map(test => test.id);
+  const tokenLists = new Map();
+  for (const id of allTests) tokenLists.set(id, [...await testWords(id)]);
+  const commonness = new Map();
+  const common = word => {
+    if (!commonness.has(word)) commonness.set(word, allTests.filter(id => tokenLists.get(id).some(token => token.includes(word))).length > allTests.length / 2);
+    return commonness.get(word);
+  };
+  const testText = async id => ({ tokens: await testWords(id), common });
   const mutantUnits = [];
   for (const method of coverage.methods) {
     const { node } = method;
@@ -536,6 +552,12 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, paralle
       kills.push(...batch);
       start += size;
       if (batch.some(([, p]) => p >= KILLED)) break;
+      // An edit no caller could observe is an equivalent mutant: no test can kill it, so asking more tests finds nothing, and it
+      // is left out of the score rather than counted against the tests.
+      if (round === 0 && matters < min) break;
+      // A test already likely enough to fail that the mutant can no longer be listed as survived: what is listed is settled, and
+      // more tests could only move it from undecided to killed. It is counted as undecided beside the score.
+      if ((1 - Math.max(...kills.map(([, p]) => p))) * matters < min) break;
     }
     return { matters, kills };
   }, mutantRows, methodProgress);
@@ -571,7 +593,11 @@ function methodWords(node) {
  */
 async function testsToAsk(method, testText) {
   const words = methodWords(method.node);
-  const ranked = await Promise.all(method.tests.map(async item => ({ ...item, named: (await testText(item.id)).split(/[^a-z0-9_]+/).some(token => words.some(word => token.includes(word))) })));
+  const ranked = await Promise.all(method.tests.map(async item => {
+    const { tokens, common } = await testText(item.id);
+    const telling = words.filter(word => !common(word));
+    return { ...item, named: [...tokens].some(token => telling.some(word => token.includes(word))) };
+  }));
   const candidates = ranked.filter(item => !item.dispatch || item.named);
   return (candidates.length ? candidates : ranked)
     .sort((a, b) => Number(b.named) - Number(a.named) || Number(Boolean(a.dispatch)) - Number(Boolean(b.dispatch)) || a.depth - b.depth || a.id.localeCompare(b.id))
@@ -645,7 +671,9 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
       if (!covered) return { ...base, matters: null, survives: null, killed: false, killed_by: [], asked: [], finding: null };
       const survives = 1 - Math.max(0, ...kills.map(([, p]) => p));
       // fails is the chance each test in asked fails against the mutant, in the same order.
-      const item = { ...base, matters, survives, killed: 1 - survives >= KILLED, killed_by: kills.filter(([, p]) => p >= KILLED).map(([testId]) => testId),
+      const killed = 1 - survives >= KILLED;
+      const equivalent = !killed && matters < min, undecided = !killed && !equivalent && survives * matters < min;
+      const item = { ...base, matters, survives, killed, ...(equivalent ? { equivalent: true } : {}), ...(undecided ? { undecided: true } : {}), killed_by: kills.filter(([, p]) => p >= KILLED).map(([testId]) => testId),
         asked: kills.map(([testId]) => testId), fails: kills.map(([, p]) => p), finding: null };
       const count = kills.length;
       item.finding = add({ kind: 'survived', subject: 'method', unit: method.id, key: `${method.id}#${id}`, path: node.path, line: mutant.line, name: node.qualified_name,
@@ -657,7 +685,7 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     const askedTests = new Set(mutants.flatMap(item => item.asked)).size;
     return { id: method.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, risk: node.metrics?.risk_score ?? null,
       branches: method.branches, tests: method.tests, asked_tests: askedTests, useful: usefulTests, covered,
-      mutants, killed: mutants.filter(item => item.killed).length, findings: mutants.map(item => item.finding).filter(Boolean) };
+      mutants, killed: mutants.filter(item => item.killed).length, equivalent: mutants.filter(item => item.equivalent).length, findings: mutants.map(item => item.finding).filter(Boolean) };
   });
   const testById = new Map(coverage.tests.map(test => [test.id, test]));
 
@@ -705,12 +733,16 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
   };
   const totalsOf = (methodList, testList) => {
     const testIds = new Set(testList.map(test => test.id)), methodIds = new Set(methodList.map(method => method.id));
-    // The score as Stryker and PIT count it: killed of every mutant, the ones no test reaches included. The covered score leaves
-    // those out and says how the tests do on what they reach.
-    const mutants = methodList.reduce((total, method) => total + method.mutants.length, 0), killed = methodList.reduce((total, method) => total + method.killed, 0);
+    // The score as mutation testing defines it: killed of every mutant but the equivalent ones, the ones no test reaches included.
+    // An equivalent mutant changes nothing a caller could observe, so no test can kill it; Stryker and PIT cannot tell one and
+    // count it against the tests. The covered score leaves out the mutants no test reaches and says how the tests do on the rest.
+    const equivalent = methodList.reduce((total, method) => total + method.equivalent, 0);
+    // Mutants some test is likely to kill but none surely: neither killed in the score nor listed as survived.
+    const undecided = methodList.reduce((total, method) => total + method.mutants.filter(item => item.undecided).length, 0);
+    const mutants = methodList.reduce((total, method) => total + method.mutants.length, 0) - equivalent, killed = methodList.reduce((total, method) => total + method.killed, 0);
     const no_coverage = methodList.filter(method => !method.covered).reduce((total, method) => total + method.mutants.length, 0);
     return { methods: methodList.length, covered: methodList.filter(method => method.covered).length, useful_covered: methodList.filter(method => method.useful.length).length,
-      mutants, killed, no_coverage, score: mutants ? killed / mutants : null, covered_score: mutants - no_coverage ? killed / (mutants - no_coverage) : null, survived: count(methodIds, 'survived'),
+      mutants, killed, equivalent, undecided, no_coverage, score: mutants ? killed / mutants : null, covered_score: mutants - no_coverage ? killed / (mutants - no_coverage) : null, survived: count(methodIds, 'survived'),
       tests: testList.length, useful: testList.filter(test => test.useful).length,
       redundant: testList.filter(test => test.redundant_with).length, weak: testList.filter(test => judged.checksNothing.has(test.id) || test.mocked).length, infra: count(testIds, 'infra') };
   };
@@ -740,7 +772,7 @@ export function branchOf(report, { ref, base, files: changed }) {
   return { ref, base, units, findings: report.findings.filter(finding => changedUnits.has(finding.unit)).map(finding => finding.id) };
 }
 
-const DIFF_TOTALS = ['methods', 'covered', 'mutants', 'killed', 'no_coverage', 'score', 'covered_score', 'survived', 'tests', 'useful', 'redundant', 'weak', 'infra'];
+const DIFF_TOTALS = ['methods', 'covered', 'mutants', 'killed', 'equivalent', 'undecided', 'no_coverage', 'score', 'covered_score', 'survived', 'tests', 'useful', 'redundant', 'weak', 'infra'];
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 /**
  * What changed between two saved reports, unit by unit. Methods, tests, files and findings are matched by id, so a method whose
@@ -753,7 +785,7 @@ export function diffReports(before, after) {
   const files = union(filesBefore.keys(), filesAfter.keys()).sort()
     .map(path => ({ path, before: filesBefore.get(path) ?? null, after: filesAfter.get(path) ?? null }))
     .filter(change => !same(change.before, change.after));
-  const state = method => (method ? { covered: method.covered, mutants: method.mutants.length, killed: method.killed } : null);
+  const state = method => (method ? { covered: method.covered, mutants: method.mutants.length - method.equivalent, killed: method.killed } : null);
   const methodsBefore = new Map(before.methods.map(method => [method.id, method])), methodsAfter = new Map(after.methods.map(method => [method.id, method]));
   const methods = union(methodsBefore.keys(), methodsAfter.keys()).sort().map(id => {
     const was = methodsBefore.get(id), is = methodsAfter.get(id), either = is ?? was;

@@ -258,6 +258,25 @@ describe('asking every test that runs a method', () => {
     const survived = quiet.findings.filter(finding => finding.kind === 'survived' && finding.unit === 'shop/calc.py::add');
     expect(survived.length).toBeGreaterThan(0);
     for (const finding of survived) expect(finding.note).toMatch(/none of the 20 tests that run it fails\.$/);
+    // An edit no caller could observe, by the first batch's answer, is equivalent: no more tests are asked, nothing is listed,
+    // and the score leaves it out rather than count it against the tests.
+    const same = scripted({ methods: { add: { matters: 0.2, kill: 0.1 } } });
+    const equivalent = await run(await calculator(), same);
+    const plain = equivalent.methods.find(method => method.id === 'shop/calc.py::add');
+    expect(plain.mutants.every(mutant => mutant.equivalent && !mutant.killed && mutant.asked.length === 16)).toBe(true);
+    expect(same.calls.filter(call => call.name === 'add')).toHaveLength(plain.mutants.length);
+    expect(plain.equivalent).toBe(plain.mutants.length);
+    expect(equivalent.findings.filter(finding => finding.unit === 'shop/calc.py::add')).toEqual([]);
+    expect(equivalent.totals).toMatchObject({ equivalent: plain.mutants.length, mutants: 0, killed: 0, score: null });
+    // Test 3 is 60% likely to fail: not enough to call the mutant killed, enough that it can no longer be listed as survived. The
+    // listing is settled after the first batch, so nothing more is asked, and the mutant is counted as undecided.
+    const likely = scripted({ methods: { add: { matters: 0.9, kill: 0.1, kills: { test_03: 0.6 } } } });
+    const unsure = await run(await calculator(), likely);
+    const middle = unsure.methods.find(method => method.id === 'shop/calc.py::add');
+    expect(middle.mutants.every(mutant => mutant.undecided && !mutant.killed && mutant.asked.length === 16)).toBe(true);
+    expect(likely.calls.filter(call => call.name === 'add')).toHaveLength(middle.mutants.length);
+    expect(unsure.findings.filter(finding => finding.unit === 'shop/calc.py::add')).toEqual([]);
+    expect(unsure.totals).toMatchObject({ undecided: middle.mutants.length, killed: 0 });
     // A test asked only in a later batch was asked about mutants the first sixteen missed: it is not judged on them.
     expect(quiet.findings.filter(finding => finding.kind === 'checks_nothing').map(finding => finding.unit).every(unit => unit < 'tests/test_calc.py::test_17')).toBe(true);
   });

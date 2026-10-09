@@ -145,7 +145,7 @@ function methodBlock(report, findings, { width, color, all }) {
     .sort((a, b) => b.list.length - a.list.length || testsOf(a.method) - testsOf(b.method) || a.method.path.localeCompare(b.method.path) || a.method.line - b.method.line);
   const shown = all ? entries : entries.slice(0, TOP);
   const HEAD = ['Method', 'Where', 'Killed', 'Survived', 'Tests'];
-  const rows = shown.map(({ method, list }) => ({ cells: [method.name, `${relative(method.path)}:${method.line}`, `${method.killed} of ${method.mutants.length}`, String(list.length), String(testsOf(method))],
+  const rows = shown.map(({ method, list }) => ({ cells: [method.name, `${relative(method.path)}:${method.line}`, `${method.killed} of ${method.mutants.length - (method.equivalent ?? 0)}`, String(list.length), String(testsOf(method))],
     advice: methodAdvice(list.map(finding => method.mutants.find(mutant => mutant.id === finding.mutant)).filter(Boolean)) }));
   const widths = HEAD.map((name, column) => Math.max(name.length, ...rows.map(row => row.cells[column].length)));
   const pad = (cells, aligns) => cells.map((cell, column) => (aligns[column] === 'right' ? cell.padStart(widths[column]) : cell.padEnd(widths[column]))).join('  ').trimEnd();

@@ -132,8 +132,9 @@ function headline(report) {
   if (totals.mutants) {
     const score = ratio(totals.killed, totals.mutants);
     const onCovered = totals.covered_score === null ? '' : `, ${percent(totals.covered_score)} on covered code`;
-    tiles.push(tile('sources', 'Mutation score', share(score), `${escape(totals.killed)} of ${escape(totals.mutants)} mutants killed${onCovered}`,
-      changed([moving('score', '', { points: true })]) + bar(score), 'Mutants some test is predicted to fail against, of every mutant, the ones in methods no test reaches included, as Stryker and PIT count it. The score on covered code leaves those out.'));
+    const equivalent = [totals.undecided ? `${escape(totals.undecided)} undecided` : '', totals.equivalent ? `${escape(totals.equivalent)} equivalent left out` : ''].filter(Boolean).map(part => `; ${part}`).join('');
+    tiles.push(tile('sources', 'Mutation score', share(score), `${escape(totals.killed)} of ${escape(totals.mutants)} mutants killed${onCovered}${equivalent}`,
+      changed([moving('score', '', { points: true })]) + bar(score), 'Mutants some test is predicted to fail against, of every mutant but the equivalent ones, which change nothing a caller could observe; the ones in methods no test reaches are included. The score on covered code leaves those out.'));
     tiles.push(tile('problems', 'Survived', `${escape(totals.survived)}<span class="of"> of ${escape(totals.mutants)}</span>`, 'mutants no test kills',
       changed([moving('survived', 'mutants', { better: 'down' })]), 'Mutants no test reaching the method is predicted to fail against, that would change what a caller sees. Each is listed with the edit and the tests that miss it.'));
     tiles.push(tile('sources', 'No coverage', `${escape(totals.no_coverage)}<span class="of"> of ${escape(totals.mutants)}</span>`, `in ${escape(totals.methods - totals.covered)} of ${escape(totals.methods)} methods no test reaches`,
@@ -260,6 +261,8 @@ function mutantBlock(method, finding, index, { at = false } = {}) {
 
 /** The tests asked about a method's mutants: the ones that may run it. A report without the count says how many reach it. */
 const testsOf = method => method.asked_tests ?? method.tests.length;
+/** A method's mutants the score counts: all but the equivalent ones, which no test can kill. */
+const scoredOf = method => method.mutants.length - (method.equivalent ?? 0);
 
 /** The heads of a table of methods to test, with or without the file column. */
 const methodHeads = () => `<th>Method</th>${th('Mutation score', true, true, 'Mutants the method\'s tests are predicted to kill, of all its mutants.')}${th('Survived', true, false, 'Mutants no test kills.')}`
@@ -274,10 +277,10 @@ function methodRows(entry, index, { fresh = new Set() } = {}) {
   const { method, survived, advice } = entry;
   const key = escape(method.id), ids = survived.map(finding => finding.id);
   const isNew = survived.some(finding => fresh.has(finding.id));
-  const score = ratio(method.killed, method.mutants.length);
+  const scored = scoredOf(method), score = ratio(method.killed, scored);
   return `<tr class="method" data-method="${key}" data-ids="${escape(ids.join(','))}"><td class="act"><button type="button" class="fold" data-open-row aria-label="Show the mutants" title="Show the mutants">›</button>`
     + `${isNew ? '<span class="new-badge">new</span>' : ''}<a class="name" href="${index.href(method.path, method.line)}">${escape(method.name)}</a><span class="path">${escape(method.path)}:${escape(method.line)}</span></td>`
-    + `<td class="bars">${cell(score, { count: `${escape(method.killed)}/${escape(method.mutants.length)}` })}</td><td class="num">${escape(survived.length)}</td><td class="num">${escape(testsOf(method))}</td>`
+    + `<td class="bars">${cell(score, { count: `${escape(method.killed)}/${escape(scored)}` })}</td><td class="num">${escape(survived.length)}</td><td class="num">${escape(testsOf(method))}</td>`
     + `<td class="do"><span class="advice">${escape(advice)}</span><div class="acts"><button type="button" data-copy-ids>Copy prompt</button></div></td></tr>`
     + `<tr class="detail" data-detail-for="${key}" hidden><td colspan="5"><ul class="edits">${survived.map(finding => `<li data-finding="${escape(finding.id)}"><a class="at" href="${index.href(method.path, finding.line)}">line ${escape(finding.line)}</a> ${escape(finding.note)}${unsure(finding.probability)}</li>`).join('')}</ul></td></tr>`;
 }
@@ -478,7 +481,7 @@ function failures(report) {
 
 /** What a source method's lines are tinted as: green when every mutant is killed, amber when one survived, red when no test covers it. */
 function methodState(method) {
-  return !method.covered ? 'none' : method.killed === method.mutants.length ? 'full' : 'part';
+  return !method.covered ? 'none' : method.killed === scoredOf(method) ? 'full' : 'part';
 }
 
 /** A method's survived mutants that are listed problems: one under the floor has nothing to act on. */
@@ -521,7 +524,7 @@ function reachedBy(method, index) {
  */
 function methodBar(method, index) {
   const ran = !method.covered && method.mutants.length ? `${escape(method.mutants.length)} ${method.mutants.length === 1 ? 'mutant' : 'mutants'}, no coverage`
-    : method.mutants.length ? `${escape(method.killed)} of ${escape(method.mutants.length)} mutants killed` : '';
+    : method.mutants.length ? `${escape(method.killed)} of ${escape(scoredOf(method))} mutants killed${method.equivalent ? `, ${escape(method.equivalent)} equivalent` : ''}` : '';
   const count = method.tests.length;
   const tests = count
     ? `<details><summary>${count} ${count === 1 ? 'test reaches' : 'tests reach'} it${method.useful.length !== count ? `, ${method.useful.length} worth keeping` : ''}</summary><ul class="reach">${reachedBy(method, index)}</ul></details>`
