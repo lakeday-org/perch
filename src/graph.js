@@ -1115,7 +1115,29 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
     if (returned) return returned;
     const elsewhere = binding ? null : bindingElsewhere(file, name, from);
     const kind = binding ? classOf(file, binding, from, depth) : elsewhere && classOf(elsewhere.file, elsewhere.held, elsewhere.from ?? from, depth);
-    return kind ? memberOf(file, kind, member) : null;
+    return kind ? memberOf(file, kind, member) ?? anyImplementation(kind, member) : null;
+  };
+  /**
+   * A member of an interface or trait that declares it with no body of its own, `Read.next` in Rust, is no method here: the
+   * call runs one of its implementations. The first is what the call resolves to; the rest wait beside it for the same call.
+   */
+  const alsoReached = [];
+  const implementationsOf = (kind, member, depth = 0, seen = new Set()) => {
+    const found = [];
+    for (const sub of subclassesOf.get(kind.name) ?? []) {
+      if (seen.has(sub.name)) continue;
+      seen.add(sub.name);
+      const suffix = `${sub.name}.${member}`;
+      for (const [qualified, id] of byPath.get(sub.path)?.byQualified ?? []) if (qualified === suffix || qualified.endsWith(`.${suffix}`)) found.push(id, ...overloadsOf(id));
+      if (depth < 3) found.push(...implementationsOf({ name: sub.name }, member, depth + 1, seen));
+    }
+    return found;
+  };
+  const anyImplementation = (kind, member) => {
+    const found = [...new Set(implementationsOf(kind, member))];
+    if (!found.length) return null;
+    alsoReached.push(...found.slice(1));
+    return found[0];
   };
 
   const callees = new Map(), callers = new Map(), sites = new Map(), dynamic = new Set(), external = new Map();
@@ -1130,7 +1152,21 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
   };
   /** What a resolved call may run besides what it names, each remembered with the call's arguments. */
   const beside = (file, call, to) => {
-    for (const extra of new Set([...overloadsOf(to, call), ...overridesOf(to)])) { linkDynamic(call.from, extra, call.line); remember(file, call, extra); }
+    for (const extra of new Set([...overloadsOf(to, call), ...overridesOf(to), ...alsoReached.splice(0)])) { linkDynamic(call.from, extra, call.line); remember(file, call, extra); }
+  };
+  /**
+   * A value of a repository class handed to a call the graph cannot see, from code that is not a test: `value.serialize(&mut
+   * ser)` where value is any T, `T::deserialize(&mut de)`, a visitor given to a walk in a library. Whatever took it may run any
+   * of its methods, so the caller reaches every one. A test handing an object to `expect` or `assert_eq!` reaches nothing by it:
+   * the assertion reads the object, and a test is answerable for what it calls.
+   */
+  const handed = (file, call) => {
+    if (nodes.get(call.from)?.test) return;
+    for (const held of [...(call.args ?? []), ...Object.values(call.named ?? {})]) {
+      const kind = held && classOf(file, held, call.from, 1);
+      const home = kind?.path && byPath.get(kind.path)?.file;
+      for (const id of kind ? classMethods(home ?? file, kind.name) : []) if (nodes.has(id)) linkDynamic(call.from, id, call.line);
+    }
   };
   // Scala's uniform access: `entry.isBalanced` written without parentheses runs the parameterless method of that name, so a
   // member read that resolves, by the rules a call does, to a method of what the receiver holds is a call to it. A class cannot
@@ -1143,6 +1179,7 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
       // `commands[name](io)`, or `const command = commands[name]; command(io)`: every function in the table, since the key is
       // the run's to choose.
       const tableName = call.name.endsWith('[]') ? call.name.slice(0, -2) : !call.name.includes('.') && !call.name.includes('::') ? call.name : null;
+      alsoReached.length = 0;
       const to = call.name.endsWith('[]') ? null : resolve(file, call.name, call.from, 0, call.via ?? null);
       if (!to && tableName) {
         const fields = tableFields(file, { local: tableName }, call.from);
@@ -1163,8 +1200,9 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
         // A member of a receiver the tree cannot name says nothing about what leaves the repository: `expect(x).not.toThrow()`.
         // Nor does a read that reaches no method: it is a field, or a member of something outside the repository.
         if (call.name.startsWith('$receiver.') || !file.calls.includes(call)) continue;
-        // A method of a parameter: decided once every caller is known, by what the callers pass.
-        if (onParameter(call)) deferred.push({ file, call });
+        // A method of a parameter: decided once every caller is known, by what the callers pass. Any other call that leaves
+        // the repository reaches the methods of what it was handed.
+        if (onParameter(call)) deferred.push({ file, call }); else handed(file, call);
         // What a method calls outside the repository: a library, the runtime, the operating system.
         if (!external.has(call.from)) external.set(call.from, new Map());
         external.get(call.from).set(`${call.name}:${call.line}`, { name: call.name, line: call.line });
@@ -1184,9 +1222,10 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
     for (const { file, call } of waiting) {
       const [head, member] = call.name.split(/::|\./);
       // `readSource(file)`: the function the caller passed. `analyzer.analyzeSource()`: a method of the class the caller passed.
+      alsoReached.length = 0;
       const found = member === undefined
         ? parameterValues(call.from, head).map(site => functionOf(site.file, site.held, site.from))
-        : parameterKinds(call.from, head).map(({ kind, file: at }) => memberOf(at, kind, member));
+        : parameterKinds(call.from, head).map(({ kind, file: at }) => memberOf(at, kind, member) ?? anyImplementation(kind, member));
       const targets = new Set(found.filter(to => to && to !== call.from));
       if (!targets.size) { again.push({ file, call }); continue; }
       external.get(call.from)?.delete(`${call.name}:${call.line}`);
@@ -1200,15 +1239,8 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
       }
     }
     if (again.length === waiting.length) {
-      // A method called on a parameter no caller types, given a value of a repository class: `value.serialize(&mut ser)` where
-      // value is any T. Whatever runs may call any method of what it was handed, so the caller reaches every one.
-      for (const { file, call } of again) {
-        for (const held of [...(call.args ?? []), ...Object.values(call.named ?? {})]) {
-          const kind = held && classOf(file, held, call.from, 1);
-          const home = kind?.path && byPath.get(kind.path)?.file;
-          for (const id of kind ? classMethods(home ?? file, kind.name) : []) if (nodes.has(id)) linkDynamic(call.from, id, call.line);
-        }
-      }
+      // A method called on a parameter no caller types stays a call the graph cannot see.
+      for (const { file, call } of again) handed(file, call);
       break;
     }
     waiting = again;

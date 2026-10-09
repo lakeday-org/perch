@@ -872,6 +872,68 @@ function valueReference(node: Node): Reference {
  * from the graph. In the tokens a call is a path, `f`, `cart::f` or `x.f`, followed directly by a parenthesized tree. A path
  * with anything else in it, a turbofish or a call result, is not a name the graph could resolve and is skipped.
  */
+/**
+ * The trait a Rust type parameter is bound by, from the type parameters and where clauses around a node: `R` under
+ * `impl<'de, R: Read<'de>> Deserializer<R>` or `fn f<T>(v: T) where T: Visitor` is Read, or Visitor. Null for a name that is
+ * no bounded parameter here.
+ */
+function rustBound(node: Node, name: string): string | null {
+  const nameOf = (bound: Node | null): string | null => {
+    let type = bound;
+    for (let hops = 0; type && hops < 4; hops++) {
+      if (type.type === 'generic_type') type = child(type, 'type') ?? type.namedChildren[0] ?? null;
+      else if (type.type === 'scoped_type_identifier') type = child(type, 'name');
+      else if (type.type === 'reference_type' || type.type === 'dynamic_type') type = child(type, 'type') ?? type.namedChildren.at(-1) ?? null;
+      else break;
+    }
+    return type?.type === 'type_identifier' ? text(type) : null;
+  };
+  const firstBound = (bounds: Node | null): string | null => {
+    for (const item of bounds?.namedChildren ?? []) { const found = nameOf(item); if (found) return found; }
+    return null;
+  };
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    for (const parameters of parent.namedChildren.filter(item => item.type === 'type_parameters')) {
+      for (const parameter of parameters.namedChildren) {
+        if (text(child(parameter, 'name') ?? parameter.namedChildren[0] ?? null) !== name) continue;
+        const bound = firstBound(child(parameter, 'bounds') ?? parameter.namedChildren.find(item => item.type === 'trait_bounds') ?? null);
+        if (bound) return bound;
+      }
+    }
+    for (const clause of parent.namedChildren.filter(item => item.type === 'where_clause')) {
+      for (const predicate of clause.namedChildren) {
+        if (text(child(predicate, 'left') ?? predicate.namedChildren[0] ?? null) !== name) continue;
+        const bound = firstBound(child(predicate, 'bounds') ?? predicate.namedChildren.find(item => item.type === 'trait_bounds') ?? null);
+        if (bound) return bound;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * The bound a struct's type parameter carries on the struct's impl blocks: `struct Deserializer<R> { read: R }` says nothing of
+ * R, and `impl<'de, R: Read<'de>> Deserializer<R>` says it is a Read. The first impl of the struct in the file that bounds it.
+ */
+function rustImplBound(struct: Node, name: string): string | null {
+  const structName = text(child(struct, 'name'));
+  let root: Node = struct;
+  while (root.parent) root = root.parent;
+  for (const item of walkNodes(root)) {
+    if (item.type !== 'impl_item' || implTypeName(item) !== structName) continue;
+    const parameters = item.namedChildren.find(child => child.type === 'type_parameters');
+    const probe = parameters?.namedChildren.find(child => text(child.childForFieldName('name') ?? child.namedChildren[0] ?? null) === name) ?? null;
+    const bound = probe ? rustBound(probe, name) : null;
+    if (bound) return bound;
+  }
+  return null;
+}
+
+/** The standard library's macros: a call of one names nothing in the repository. */
+const STD_MACROS = new Set(['assert', 'assert_eq', 'assert_ne', 'debug_assert', 'debug_assert_eq', 'debug_assert_ne', 'format', 'format_args', 'print', 'println', 'eprint', 'eprintln',
+  'write', 'writeln', 'vec', 'panic', 'todo', 'unimplemented', 'unreachable', 'matches', 'dbg', 'cfg', 'env', 'option_env', 'concat', 'stringify', 'include', 'include_str', 'include_bytes',
+  'line', 'column', 'file', 'module_path', 'compile_error', 'try', 'thread_local', 'macro_rules']);
+
 function rustMacroCalls(tree: Node): Reference[] {
   const tokens = Array.from({ length: tree.childCount }, (_, index) => tree.child(index)!);
   const calls: Reference[] = [];
@@ -880,6 +942,12 @@ function rustMacroCalls(tree: Node): Reference[] {
   const results = new Map<number, Held | null>();
   for (let after = 0; after + 1 < tokens.length; after += 1) {
     const next = tokens[after + 1];
+    // `json!(null)` inside another macro's arguments: a call of that macro, whose own arguments are read as a token tree of their own.
+    if (next.type === "!" && tokens[after].type === "identifier" && tokens[after + 2]?.type === "token_tree") {
+      const name = validReference(tokens[after].text);
+      if (name !== "<dynamic>" && !STD_MACROS.has(name) && tokens[after - 1]?.type !== "::") calls.push(makeReference("call", tokens[after], { name, reference: name }));
+      continue;
+    }
     if (next.type !== "token_tree" || next.child(0)?.type !== "(") continue;
     // `parse::<i32>(text)` calls parse: the name is the identifier before the turbofish.
     let at = after;
@@ -1473,6 +1541,15 @@ export function referenceVisitor(language: string): Visitor & { finish(index: Sy
     if (name) for (const base of bases) references.push(makeReference('extends', node, { name, reference: base }));
   }
   const bindings = language === 'go' ? goBindings(node) : [bindingOf(node, language) ?? parameterOf(node)].filter((item): item is { name: string; held: Held } => item !== null);
+  if (language === 'rust') {
+    // `reader: R` where `R: Read`: a value of a type parameter is, to the call graph, a value of the trait that bounds it. A
+    // struct's field is bound as `this.field`, with the same substitution, so `self.read.next()` is Read's next.
+    for (const binding of bindings) { const bound = binding.held.type && rustBound(node, binding.held.type); if (bound) binding.held = { ...binding.held, type: bound }; }
+    if (node.type === 'field_declaration' && node.parent?.parent?.type === 'struct_item') {
+      const name = text(child(node, 'name')), type = bareType(child(node, 'type'));
+      if (name && type) bindings.push({ name: `this.${name}`, held: { type: rustBound(node, type) ?? rustImplBound(node.parent.parent, type) ?? type } });
+    }
+  }
   for (const binding of bindings) references.push(makeReference('bind', node, { name: binding.name, reference: binding.name, held: binding.held }));
   // PHP's `__construct(private Calculator $tax)` declares the property too: `$this->tax` holds what the parameter does.
   if (node.type === 'property_promotion_parameter' && bindings[0]) {
@@ -1553,6 +1630,11 @@ export function referenceVisitor(language: string): Visitor & { finish(index: Sy
     references.push(makeReference("import", node, { name: module || "<unknown-module>", reference: module || "<unknown-module>", module: module || null }));
   } else if (CALL_TYPES.has(node.type)) {
     references.push(callReferenceRecord(node, language));
+  } else if (language === "rust" && node.type === "macro_invocation") {
+    // `json!(..)`: a call of the macro by its name, which may be one the repository defines. The standard library's macros,
+    // `assert_eq!` and `format!`, name nothing of the repository; what their arguments call is read from the tokens.
+    const name = validReference(text(child(node, "macro") ?? node.namedChildren[0] ?? null, 128));
+    if (name !== "<dynamic>" && !STD_MACROS.has(name)) references.push(makeReference("call", node, { name, reference: name }));
   } else if (language === "rust" && node.type === "token_tree") {
     references.push(...rustMacroCalls(node));
   } else if (node.type === "method_reference" || node.type === "callable_reference") {
