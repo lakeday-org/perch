@@ -8,7 +8,8 @@ import { createSourceAnalyzer } from '../src/analysis.js';
 import { buildGraph } from '../src/graph.js';
 import { AuthenticationError } from '../src/systemone.js';
 import { TOKEN_LIMITS } from '../src/tokens.js';
-import { computeCoverage, coverageRepository, diffReports, judgeTests } from '../src/coverage.js';
+import { askCoverage, buildReport, computeCoverage, coverageRepository, diffReports, judgeTests, readReports } from '../src/coverage.js';
+import { available } from '../src/runners/pytest.js';
 import { main } from '../src/cli.js';
 import { createServer } from 'node:http';
 import { commitAll, initRepo } from './helpers.js';
@@ -217,7 +218,8 @@ function scripted({ fail = new Set(), error = name => new Error(`scripted failur
   };
 }
 
-const run = (repo, systemOne, extra = {}) => coverageRepository({ root: repo.root, revision: repo.revision, out: repo.out, analyzer, systemOne, ...extra });
+// These tests read the call graph and a scripted model; whether this machine's Python could run the fixtures' tests is not theirs.
+const run = (repo, systemOne, extra = {}) => coverageRepository({ root: repo.root, revision: repo.revision, out: repo.out, analyzer, systemOne, run: false, ...extra });
 const byId = list => new Map(list.map(item => [item.id, item]));
 const kinds = report => report.findings.map(finding => `${finding.kind} ${finding.unit}`).sort();
 
@@ -302,10 +304,21 @@ describe('reach measured by the test run', () => {
     return { root, revision: await revision(root), out: join(root, '.perch'), report: join(root, 'reports', 'coverage.json') };
   }
 
+  /** The coverage run's pieces over one measurement: what perch does with the data file its own test run wrote. */
+  async function measured(repo, systemOne, path) {
+    const scan = await analyzeTree({ root: repo.root, revision: repo.revision, out: repo.out, analyzer });
+    const graph = buildGraph(scan.files);
+    const reports = await readReports({ root: repo.root, files: [{ kind: 'contexts', path }], paths: new Set(scan.files.map(file => file.path)) });
+    const coverage = computeCoverage({ scan, graph, reports });
+    const linesOf = async node => (await readFile(join(repo.root, node.path), 'utf8')).split('\n');
+    const answers = await askCoverage({ coverage, graph, linesOf, systemOne });
+    return buildReport({ coverage, answers, lines: new Map(), revision: repo.revision, root: repo.root });
+  }
+
   it('asks a mutant only of the tests that ran its line, and calls a line no test ran no coverage', async () => {
     const repo = await measuredRepo();
     const systemOne = scripted({ methods: { add: { matters: 0.9, kill: 0.9 } } });
-    const report = await run(repo, systemOne, { reportFlags: { contexts: [repo.report] }, cwd: repo.root });
+    const report = await measured(repo, systemOne, repo.report);
     const add = report.methods.find(method => method.id === 'shop/calc.py::add'), sub = report.methods.find(method => method.id === 'shop/calc.py::sub');
     expect(add.measured_by).toBe('test');
     const asked = line => add.mutants.filter(mutant => mutant.line === line && !mutant.no_coverage).map(mutant => mutant.asked);
@@ -321,7 +334,6 @@ describe('reach measured by the test run', () => {
     expect(sub.mutants.every(mutant => mutant.no_coverage && !mutant.asked.length)).toBe(true);
     expect(systemOne.calls.filter(call => call.name === 'sub')).toEqual([]);
     expect(report.totals.no_coverage).toBe(sub.mutants.length + add.mutants.filter(mutant => mutant.no_coverage).length);
-    expect(report.measured).toMatchObject({ tools: ['contexts'], files: { test: 1, run: 0, none: 0 }, unmatched_runs: 0, unmatched_paths: 0 });
 
     // coverage.py's own data file says the same in bitmaps and arcs, and is read the same way.
     const { DatabaseSync } = await import('node:sqlite');
@@ -337,11 +349,43 @@ describe('reach measured by the test run', () => {
     db.prepare('insert into line_bits values (1, 2, ?)').run(bits([2, 4]));
     for (const [from, to] of [[-1, 2], [2, 3], [3, -1]]) db.prepare('insert into arc values (1, 3, ?, ?)').run(from, to);
     db.close();
-    const again = await run(repo, scripted({ methods: { add: { matters: 0.9, kill: 0.9 } } }), { reportFlags: { contexts: [dbPath] }, cwd: repo.root });
+    const again = await measured(repo, scripted({ methods: { add: { matters: 0.9, kill: 0.9 } } }), dbPath);
     const asked2 = line => again.methods.find(method => method.id === 'shop/calc.py::add').mutants.filter(mutant => mutant.line === line && !mutant.no_coverage).map(mutant => mutant.asked);
     for (const line of [2, 3, 4]) expect(asked2(line)).toEqual(asked(line));
     expect(again.methods.find(method => method.id === 'shop/calc.py::sub').mutants.every(mutant => mutant.no_coverage)).toBe(true);
   });
+});
+
+const pytest = await available({ root: tmpdir() });
+describe.skipIf(!pytest.python)('running the tests', () => {
+  it('runs the suite with per-test coverage, runs each mutant against the tests that run it, and asks only about survivors', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'perch-pytest-'));
+    cleanups.push(root);
+    await mkdir(join(root, 'shop'));
+    await mkdir(join(root, 'tests'));
+    // add is checked exactly; scale only for running without error, so its arithmetic survives; untouched never runs.
+    await writeFile(join(root, 'shop', 'calc.py'), 'def add(a, b):\n    return a + b\n\n\ndef scale(a, factor):\n    return a * factor\n\n\ndef untouched(a):\n    return a - 1\n');
+    await writeFile(join(root, 'tests', 'test_calc.py'), 'from shop.calc import add, scale\n\n\ndef test_add():\n    assert add(2, 3) == 5\n\n\ndef test_scale_runs():\n    scale(2, 3)\n');
+    await writeFile(join(root, 'pytest.ini'), '[pytest]\ntestpaths = tests\n');
+    await initRepo(root);
+    const systemOne = scripted({ methods: { scale: { matters: 0.9 } } });
+    const report = await coverageRepository({ root, revision: await revision(root), out: join(root, '.perch'), analyzer, systemOne, parallel: 2 });
+    expect(report.measured).toMatchObject({ runner: 'pytest', files: { test: 1, run: 0, none: 0 } });
+    const method = name => report.methods.find(item => item.id === `shop/calc.py::${name}`);
+    // add's mutants are killed by running test_add against them; nothing was asked about them.
+    const arithmetic = method('add').mutants.find(mutant => mutant.kind === 'arithmetic');
+    expect(arithmetic).toMatchObject({ killed: true, killed_by: ['tests/test_calc.py::test_add'], fails: [1] });
+    expect(systemOne.calls.filter(call => call.name === 'add')).toEqual([]);
+    // scale's arithmetic survives the test that runs it, for real, and only then is the model asked whether it matters.
+    const survived = method('scale').mutants.find(mutant => mutant.kind === 'arithmetic');
+    expect(survived).toMatchObject({ killed: false, asked: ['tests/test_calc.py::test_scale_runs'], fails: [0], matters: 0.9 });
+    expect(report.findings.some(finding => finding.kind === 'survived' && finding.unit === 'shop/calc.py::scale')).toBe(true);
+    expect(systemOne.calls.filter(call => call.name === 'scale').every(call => Object.keys(call.questions).join() === 'matters')).toBe(true);
+    // untouched ran under no test: its mutants have no coverage, and nothing was run or asked about them.
+    expect(method('untouched').mutants.every(mutant => mutant.no_coverage)).toBe(true);
+    // test_scale_runs kills nothing it runs: it checks nothing, from what really happened.
+    expect(report.findings.some(finding => finding.kind === 'checks_nothing' && finding.unit === 'tests/test_calc.py::test_scale_runs')).toBe(true);
+  }, 120000);
 });
 
 describe('test reach', () => {

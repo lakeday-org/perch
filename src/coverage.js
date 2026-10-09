@@ -14,8 +14,8 @@
  * a useful test or as a covered method, since a report that quietly fills in what it could not find out reads as complete.
  */
 import { readFileSync } from 'node:fs';
-import { copyFile, glob, readdir, readFile, stat } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { copyFile, readdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { changedLines, listTree, readBlob, revision as commitOf } from './git.js';
 import { readCobertura, readCoverageDb, readCoverageJson, readJacoco, readJunit, readLcov, repoPath } from './test-reports.js';
 import { namesOf, patternsOf, rootsOf, runNames } from './runs/index.js';
@@ -30,9 +30,10 @@ import { compile, parseQuestions, readAnswer } from './ask.js';
 import { excerpt, leadingComment, shownLines, spanOf } from './questions.js';
 import { identity, openStore } from './store.js';
 import { estimateTokens, IncompleteCheckError, TOKEN_LIMITS, withTokenRetries } from './tokens.js';
-import { matches, readCoverageReports, readIgnored } from './units.js';
+import { matches, readIgnored } from './units.js';
 import { covers } from './scan.js';
 import { describeMutant, mutantId, mutantsOf } from './mutants.js';
+import { copiesOf, runnerFor } from './runners/index.js';
 
 /** Tests or methods in flight at once. */
 export const DEFAULT_PARALLEL = 8;
@@ -352,40 +353,7 @@ function measuredReach(coverage) {
 
 // ------------------------------------------------------------------------------------------------ What CI's test run wrote
 
-/** The kinds of report perch reads, as `--junit`, `--lcov`, `--cobertura`, `--jacoco` and `--contexts` name them and perch.yaml lists them. */
-export const REPORT_KINDS = ['junit', 'lcov', 'cobertura', 'jacoco', 'contexts'];
 const REPORT_NAMES = { junit: 'JUnit XML', lcov: 'LCOV', cobertura: 'Cobertura XML', jacoco: 'JaCoCo XML', contexts: 'coverage.py JSON' };
-
-/** A report path with a glob in it: `*`, `**`, `?`, a `[...]` class or a `{a,b}` list. */
-const isPattern = path => /[*?[\]{}]/.test(path);
-
-/**
- * The report files a run reads. A flag replaces perch.yaml's list for the kind it names and leaves the other kinds alone. A
- * flag's paths are relative to where perch was run, perch.yaml's to the repository. Both are read from the working tree, since
- * these files are what CI's test run just wrote and are never committed.
- *
- * A path with a glob in it, `reports/junit/*.xml`, is every file on disk it matches, in name order. A pattern that matches no
- * file is an error naming it, as a path that is not there is when it is read: a run whose reports are missing is not a run that
- * has none.
- */
-export async function reportFiles({ root, cwd = process.cwd(), flags = {}, configured = null }) {
-  const files = [];
-  for (const kind of REPORT_KINDS) {
-    const [base, list] = flags[kind] ? [cwd, flags[kind]] : [root, configured?.[kind] ?? []];
-    for (const path of list) {
-      if (!isPattern(path)) { files.push({ kind, path: resolve(base, path) }); continue; }
-      const found = [];
-      for await (const match of glob(path, { cwd: base })) {
-        const absolute = resolve(base, match);
-        if ((await stat(absolute)).isFile()) found.push(absolute);
-      }
-      if (!found.length) throw new Error(`${path}: no ${REPORT_NAMES[kind]} report matches this pattern in ${base}; CI's test run writes them, and none was there`);
-      for (const match of found.sort()) files.push({ kind, path: match });
-    }
-  }
-  return files;
-}
-
 
 /** Whether a file is an SQLite database, as coverage.py's `.coverage` is, by the header every one starts with. */
 async function isSqlite(path) {
@@ -817,7 +785,7 @@ export function judgeTests(tests, mutants, min) {
  * its error and carries no answers; an authentication failure stops the run, since every other request would get the same
  * refusal.
  */
-export async function askCoverage({ coverage, graph, linesOf, systemOne, parallel = DEFAULT_PARALLEL, min = 0.5,
+export async function askCoverage({ coverage, graph, linesOf, systemOne, parallel = DEFAULT_PARALLEL, min = 0.5, ran = null,
   testProgress = () => {}, methodProgress = () => {}, log = () => {}, debug = () => {} }) {
   const { test: testAsked } = coverageQuestions();
   const killsTemplate = questionNamed('kills'), mattersAsked = [questionNamed('matters')];
@@ -918,37 +886,12 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, paralle
     return commonness.get(word);
   };
   const testText = async id => ({ tokens: await testWords(id), common });
-  // A test the run skipped ran nothing, and kills nothing.
-  const skipped = new Set(coverage.tests.filter(test => test.run?.status === 'skipped').map(test => test.id));
-  const executedIn = (testId, path) => byTest.get(testId)?.executed?.get(path) ?? null;
-  const byTest = new Map(coverage.tests.map(test => [test.id, test]));
-  const mutantUnits = [], generatedOf = new Map(), uncovered = new Set();
-  for (const method of coverage.methods) {
-    const { node } = method;
-    const language = graph.files.get(node.path)?.file.language;
-    const generated = mutantsOf({ source: await sourceText(node.path), language, line: node.line, end_line: node.end_line });
-    generatedOf.set(method.id, generated);
-    if (!method.tests.length) { for (const mutant of generated) uncovered.add(mutant); continue; }
-    const order = (await testsToAsk(method, testText)).filter(id => !skipped.has(id));
-    const measured = coverage.measurement?.files.get(node.path) ?? null;
-    for (const mutant of generated) {
-      // The lines a coverage tool records the edit's statements under. A report that wrote what could have run, with a count of
-      // zero for what did not, says so of a line; coverage.py's data file holds only what ran, so in a method it measured, a
-      // statement line it does not hold did not run.
-      const lines = mutant.statements ?? [mutant.line];
-      const known = !measured ? [] : measured.executed_only ? (method.measured || method.tests.length ? lines : []) : lines.filter(line => measured.lines.has(line));
-      const ran = line => (measured?.lines.get(line) ?? 0) > 0;
-      // A mutant whose statements never ran has no coverage, as the run measured it: no test can kill it, and none is asked.
-      if (known.length && !known.some(ran)) { uncovered.add(mutant); continue; }
-      // Measured test by test: asked of exactly the tests that ran its statements. What ran under no test, at import, is no test's.
-      let tests = order;
-      if (measured?.per_test && known.length) {
-        tests = order.filter(id => known.some(line => executedIn(id, node.path)?.has(line)));
-        if (!tests.length) { uncovered.add(mutant); continue; }
-      }
-      mutantUnits.push({ id: `${method.id}#${mutantId(mutant)}`, node, method, mutant, order: tests });
-    }
+  if (ran) {
+    await triage({ coverage, graph, linesOf, ran, mutants, settle, answer, mattersAsked, neighbourSource, methodProgress });
+    if (failures && !asked && ran.size) throw new Error(`nothing could be asked: ${failures} failed; last error: ${failed.at(-1).error}`);
+    return { tests, mutants, failed, asked };
   }
+  const { units: mutantUnits, generatedOf, uncovered } = await planMutants({ coverage, graph, sourceText, order: method => testsToAsk(method, testText) });
   const mutantRows = new Map();
   await settle(mutantUnits, async unit => {
     const { node, mutant, order } = unit;
@@ -1018,8 +961,8 @@ export async function askCoverage({ coverage, graph, linesOf, systemOne, paralle
 }
 
 /**
- * What the test run's reports measured, for the report to say beside its numbers: the reports read, the tools that wrote them,
- * how many source files were measured test by test, as a whole, or not at all, and what in the reports matched nothing here.
+ * What perch's own test run measured, for the report to say beside its numbers: how many source files were measured test by
+ * test, as a whole, or not at all, and what in its output matched nothing here.
  */
 function measuredSummary(coverage) {
   const { measurement } = coverage;
@@ -1028,8 +971,7 @@ function measuredSummary(coverage) {
     const file = measurement.files.get(path);
     by[!file ? 'none' : file.per_test ? 'test' : 'run']++;
   }
-  return { reports: measurement.inputs.map(input => ({ kind: input.kind, path: input.path })), tools: measurement.tools,
-    files: by, unmatched_runs: measurement.unmatched_runs.length, unmatched_paths: measurement.unmatched_paths.length };
+  return { files: by, unmatched_runs: measurement.unmatched_runs.length, unmatched_paths: measurement.unmatched_paths.length };
 }
 
 /** Words too common in tests to say a test is about a method: a method named `get` is not checked by every test that gets. */
@@ -1061,6 +1003,150 @@ async function testsToAsk(method, testText) {
   return (candidates.length ? candidates : ranked)
     .sort((a, b) => Number(b.named) - Number(a.named) || Number(Boolean(a.dispatch)) - Number(Boolean(b.dispatch)) || a.depth - b.depth || a.id.localeCompare(b.id))
     .map(item => item.id);
+}
+
+/**
+ * Each covered method's mutants, and for each the tests that may kill it, in `order`'s order: exactly the tests that ran its
+ * statements when the run measured them test by test, else every test `order` gives. A mutant whose statements never ran has no
+ * coverage, and goes in `uncovered`. A test the run skipped, or that failed before anything was changed, kills nothing and is
+ * left out.
+ */
+async function planMutants({ coverage, graph, sourceText, order }) {
+  const unusable = new Set(coverage.tests.filter(test => test.run && test.run.status !== 'passed').map(test => test.id));
+  const byTest = new Map(coverage.tests.map(test => [test.id, test]));
+  const executedIn = (testId, path) => byTest.get(testId)?.executed?.get(path) ?? null;
+  const units = [], generatedOf = new Map(), uncovered = new Set();
+  for (const method of coverage.methods) {
+    const { node } = method;
+    const language = graph.files.get(node.path)?.file.language;
+    const generated = mutantsOf({ source: await sourceText(node.path), language, line: node.line, end_line: node.end_line });
+    generatedOf.set(method.id, generated);
+    if (!method.tests.length) { for (const mutant of generated) uncovered.add(mutant); continue; }
+    const ordered = (await order(method)).filter(id => !unusable.has(id));
+    const measured = coverage.measurement?.files.get(node.path) ?? null;
+    for (const mutant of generated) {
+      // The lines a coverage tool records the edit's statements under. A report that wrote what could have run, with a count of
+      // zero for what did not, says so of a line; coverage.py's data file holds only what ran, so in a method it measured, a
+      // statement line it does not hold did not run.
+      const lines = mutant.statements ?? [mutant.line];
+      const known = !measured ? [] : measured.executed_only ? (method.measured || method.tests.length ? lines : []) : lines.filter(line => measured.lines.has(line));
+      const ran = line => (measured?.lines.get(line) ?? 0) > 0;
+      // A mutant whose statements never ran has no coverage, as the run measured it: no test can kill it.
+      if (known.length && !known.some(ran)) { uncovered.add(mutant); continue; }
+      // Measured test by test: exactly the tests that ran its statements. What ran under no test, at import, is no test's.
+      let tests = ordered;
+      if (measured?.per_test && known.length) {
+        tests = ordered.filter(id => known.some(line => executedIn(id, node.path)?.has(line)));
+        if (!tests.length) { uncovered.add(mutant); continue; }
+      }
+      if (!tests.length) { uncovered.add(mutant); continue; }
+      units.push({ id: `${method.id}#${mutantId(mutant)}`, node, method, mutant, order: tests });
+    }
+  }
+  return { units, generatedOf, uncovered };
+}
+
+/**
+ * Every planned mutant run for real: written into a copy of the repository, the tests that may kill it run against it in one
+ * process, and the file put back. Each copy is one worker's, so mutants run side by side without seeing each other's edits. A
+ * mutant is killed when one of its tests fails or the run passes its time limit; invalid when the tests could not even be
+ * collected, which says the edit broke the code rather than that a test caught it.
+ *
+ * `ran` is each method's mutants in order: `{ mutant, uncovered }` for one no test ran, else `{ mutant, status, kills }` with every
+ * test that ran it and 1 for a failure, 0 for a pass.
+ */
+export async function runMutants({ coverage, graph, sourceText, runner, python, copies, base, progress = () => {}, debug = () => {} }) {
+  const nodesOf = new Map(), timeOf = new Map();
+  for (const [node, result] of base.results) {
+    if (result.status !== 'passed') continue;
+    if (!nodesOf.has(result.test)) nodesOf.set(result.test, []);
+    nodesOf.get(result.test).push(node);
+    timeOf.set(node, result.time);
+  }
+  const { units, generatedOf, uncovered } = await planMutants({ coverage, graph, sourceText, order: method => method.tests.map(item => item.id) });
+  const results = new Map();
+  let next = 0, done = 0;
+  progress(0, units.length);
+  await Promise.all(copies.map(async (copy, worker) => {
+    while (next < units.length) {
+      const unit = units[next++];
+      const { node, mutant } = unit;
+      const nodes = unit.order.flatMap(id => nodesOf.get(id) ?? []);
+      if (!nodes.length) { results.set(unit.id, { status: 'ran', kills: [] }); progress(++done, units.length); continue; }
+      const file = join(copy.dir, node.path);
+      const original = await readFile(file);
+      const mutated = applyMutant(original, mutant);
+      if (!mutated) { results.set(unit.id, { status: 'invalid', kills: [] }); progress(++done, units.length); continue; }
+      // Three times what the tests took unmutated, and time to start: a mutant that makes a loop never end is caught by its timeout.
+      const seconds = nodes.reduce((sum, item) => sum + (timeOf.get(item) ?? 0), 0);
+      const timeout = Math.round((seconds * 3 + 15) * 1000);
+      await writeFile(file, mutated);
+      let outcome;
+      try { outcome = await runner.runTests({ copy: copy.dir, python, scratch: copy.scratch, nodes, timeout, tag: worker }); } finally { await writeFile(file, original); }
+      if (outcome.status === 'ran') {
+        const failed = new Set(), passed = new Set();
+        for (const [, result] of outcome.results) (result.status === 'failed' || result.status === 'error' ? failed : passed).add(result.test);
+        const kills = unit.order.filter(id => failed.has(id) || passed.has(id)).map(id => [id, failed.has(id) ? 1 : 0, 0]);
+        results.set(unit.id, { status: 'ran', kills });
+      } else results.set(unit.id, { status: outcome.status, kills: [] });
+      debug(`${node.qualified_name} ${describeMutant(mutant)}: ${results.get(unit.id).status}${results.get(unit.id).kills.some(([, p]) => p) ? ' killed' : ''}`);
+      progress(++done, units.length);
+    }
+  }));
+  const ran = new Map();
+  for (const [methodId, generated] of generatedOf) {
+    ran.set(methodId, generated.map(mutant => (uncovered.has(mutant) ? { mutant, uncovered: true }
+      : { mutant, ...(results.get(`${methodId}#${mutantId(mutant)}`) ?? { status: 'invalid', kills: [] }) })));
+  }
+  return ran;
+}
+
+/** The file with the mutant's edit made at its byte offset, or null when the text there is not what the mutant replaces. */
+function applyMutant(original, mutant) {
+  let start = 0;
+  for (let line = 1; line < mutant.line; line++) { start = original.indexOf(10, start) + 1; if (start === 0) return null; }
+  const at = start + mutant.column, from = Buffer.from(mutant.from);
+  if (!original.subarray(at, at + from.length).equals(from)) return null;
+  return Buffer.concat([original.subarray(0, at), Buffer.from(mutant.to), original.subarray(at + from.length)]);
+}
+
+/**
+ * The survivors of a real run, each asked whether the edit is a defect a caller could observe: one request per survivor, with the
+ * method's callers in view, since whether an input can happen is theirs to say. A killed mutant is a fact, and nothing is asked
+ * about it; nor about one that timed out, was invalid, or that no test ran.
+ */
+async function triage({ coverage, graph, linesOf, ran, mutants, settle, answer, mattersAsked, neighbourSource, methodProgress }) {
+  const methods = new Map(coverage.methods.map(method => [method.id, method]));
+  const units = [];
+  for (const [methodId, list] of ran) {
+    for (const item of list) {
+      if (item.uncovered || item.status !== 'ran' || !item.kills.length || item.kills.some(([, p]) => p)) continue;
+      units.push({ id: `${methodId}#${mutantId(item.mutant)}`, node: methods.get(methodId).node, mutant: item.mutant });
+    }
+  }
+  const rows = new Map();
+  await settle(units, async unit => {
+    const { node, mutant } = unit;
+    const lines = await linesOf(node);
+    const callers = await Promise.all(graph.callers(node.id).filter(id => !graph.nodes.get(id)?.test).slice(0, 4).map(async id => ({ id, ...(await neighbourSource({ id })) })));
+    const build = budget => {
+      for (const limit of [80, 40, 20, 8, 3]) {
+        const nodes = callers.map(item => ({ id: item.id, path: item.node.path, source: excerpt(item.node, item.lines, limit), note: 'a caller' }));
+        const state = {
+          method: { path: node.path, name: node.qualified_name, source: sourceOf(node, lines), mutation: { kind: mutant.kind, edit: describeMutant(mutant), original: mutant.original.trim(), mutated: mutant.mutated.trim() } },
+          graph: { nodes, edges: edgesAmong(graph, [node.id, ...nodes.map(item => item.id)]) },
+        };
+        if (estimateTokens(state) <= budget) return state;
+      }
+      throw new IncompleteCheckError(`method ${node.qualified_name} does not fit the ${budget}-token budget`);
+    };
+    return (await answer({ subject: 'method', node, build, typed: () => compile(mattersAsked), questions: mattersAsked })).answers.matters;
+  }, rows, methodProgress);
+  for (const [methodId, list] of ran) {
+    mutants.set(methodId, list.map(item => (item.uncovered ? { mutant: item.mutant, matters: null, kills: [], uncovered: true }
+      : { mutant: item.mutant, matters: rows.get(`${methodId}#${mutantId(item.mutant)}`) ?? null, kills: item.kills,
+        ...(item.status === 'timeout' ? { timeout: true } : {}), ...(item.status === 'invalid' ? { invalid: true } : {}) })));
+  }
 }
 
 /**
@@ -1124,16 +1210,20 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     // and against real runs three in four of those kills were wrong, while every mutant no single test was likely to kill had
     // survived. One that survives, and matters, is listed. A mutant of a method no test reaches has no coverage: nothing was
     // asked, nothing is listed, and it counts against the score.
-    const mutants = (answers.mutants.get(method.id) ?? []).map(({ mutant, matters, kills, uncovered }) => {
+    const mutants = (answers.mutants.get(method.id) ?? []).map(({ mutant, matters, kills, uncovered, timeout, invalid }) => {
       const id = mutantId(mutant);
       const base = { id, kind: mutant.kind, line: mutant.line, column: mutant.column, from: mutant.from, to: mutant.to, original: mutant.original, mutated: mutant.mutated };
       if (!covered || uncovered) return { ...base, matters: null, survives: null, killed: false, no_coverage: true, killed_by: [], asked: [], finding: null };
-      const survives = 1 - Math.max(0, ...kills.map(([, p]) => p));
-      // fails is the chance each test in asked fails against the mutant, in the same order.
+      // An edit the tests could not even be collected against broke the code: it is no mutant a test could catch or miss, and is
+      // left out of the score, as Stryker leaves out a compile error.
+      if (invalid) return { ...base, matters: null, survives: null, killed: false, invalid: true, killed_by: [], asked: [], finding: null };
+      // A run that passed its time limit is caught: the edit made something never finish, which a test run notices.
+      const survives = timeout ? 0 : 1 - Math.max(0, ...kills.map(([, p]) => p));
+      // fails is the chance each test in asked fails against the mutant, in the same order: 1 or 0 when the tests were run.
       const killed = 1 - survives >= KILLED;
-      const equivalent = !killed && matters < min, undecided = !killed && !equivalent && survives * matters < min;
+      const equivalent = !killed && matters !== null && matters < min, undecided = !killed && !equivalent && survives * (matters ?? 1) < min;
       const item = { ...base, matters, survives, killed, ...(equivalent ? { equivalent: true } : {}), ...(undecided ? { undecided: true } : {}), killed_by: kills.filter(([, p]) => p >= KILLED).map(([testId]) => testId),
-        asked: kills.map(([testId]) => testId), fails: kills.map(([, p]) => p), finding: null };
+        asked: kills.map(([testId]) => testId), fails: kills.map(([, p]) => p), ...(timeout ? { timeout: true } : {}), finding: null };
       const count = kills.length;
       item.finding = add({ kind: 'survived', subject: 'method', unit: method.id, key: `${method.id}#${id}`, path: node.path, line: mutant.line, name: node.qualified_name,
         probability: survives * matters, mutant: id,
@@ -1196,12 +1286,13 @@ export function buildReport({ coverage, answers, lines, revision, root, label = 
     // An equivalent mutant changes nothing a caller could observe, so no test can kill it; Stryker and PIT cannot tell one and
     // count it against the tests. The covered score leaves out the mutants no test reaches and says how the tests do on the rest.
     const equivalent = methodList.reduce((total, method) => total + method.equivalent, 0);
+    const invalid = methodList.reduce((total, method) => total + method.mutants.filter(item => item.invalid).length, 0);
     // Mutants some test is likely to kill but none surely: neither killed in the score nor listed as survived.
     const undecided = methodList.reduce((total, method) => total + method.mutants.filter(item => item.undecided).length, 0);
-    const mutants = methodList.reduce((total, method) => total + method.mutants.length, 0) - equivalent, killed = methodList.reduce((total, method) => total + method.killed, 0);
+    const mutants = methodList.reduce((total, method) => total + method.mutants.length, 0) - equivalent - invalid, killed = methodList.reduce((total, method) => total + method.killed, 0);
     const no_coverage = methodList.reduce((total, method) => total + method.mutants.filter(item => item.no_coverage).length, 0);
     return { methods: methodList.length, covered: methodList.filter(method => method.covered).length, useful_covered: methodList.filter(method => method.useful.length).length,
-      mutants, killed, equivalent, undecided, no_coverage, score: mutants ? killed / mutants : null, covered_score: mutants - no_coverage ? killed / (mutants - no_coverage) : null, survived: count(methodIds, 'survived'),
+      mutants, killed, equivalent, undecided, invalid, no_coverage, score: mutants ? killed / mutants : null, covered_score: mutants - no_coverage ? killed / (mutants - no_coverage) : null, survived: count(methodIds, 'survived'),
       tests: testList.length, useful: testList.filter(test => test.useful).length,
       redundant: testList.filter(test => test.redundant_with).length, weak: testList.filter(test => judged.checksNothing.has(test.id) || test.mocked).length, infra: count(testIds, 'infra') };
   };
@@ -1358,15 +1449,11 @@ const lineReader = (root, graph) => {
  * method inside. `named` paths are read even when perch.yaml's ignore covers them, as a scan does.
  */
 export async function coverageRepository({ root, revision, label = root, github = null, out, systemOne, analyzer, paths = [], named = [], parallel = DEFAULT_PARALLEL,
-  min = 0.5, diff = null, since = null, reportFlags = {}, cwd = process.cwd(), scanProgress = () => {}, testProgress = () => {}, methodProgress = () => {}, log = () => {}, debug = () => {} }) {
+  min = 0.5, diff = null, since = null, run = true, scanProgress = () => {}, testProgress = () => {}, methodProgress = () => {}, log = () => {}, debug = () => {} }) {
   // A baseline asked for by name is found before anything is asked, so naming a commit with no report costs no requests.
   const requested = diff === null || diff === undefined ? null : await findBaseline({ out, root, revision, diff });
   // So is what the branch changed since --since: a ref git cannot find fails here, not after the questions.
   const changed = since ? await changedLines(root, since, revision) : null;
-  // So is every report file: one that is missing or unreadable fails the run before anything is parsed or asked.
-  const reportList = await reportFiles({ root, cwd, flags: reportFlags, configured: await readCoverageReports(root, revision) });
-  for (const file of reportList) debug(`reading ${REPORT_NAMES[file.kind]} ${file.path}`);
-  const reports = reportList.length ? await readReports({ root, files: reportList, paths: new Set((await listTree(root, revision)).map(item => item.path)) }) : null;
   const scan = await analyzeTree({ root, revision, out, analyzer, label, github, progress: scanProgress, log, debug });
   const graph = buildGraph(scan.files, { crates: scan.crates, modules: scan.modules });
   const coversNamed = glob => named.some(path => matches(glob, path) || matches(glob, `${path.replace(/\/$/, '')}/file`));
@@ -1377,14 +1464,35 @@ export async function coverageRepository({ root, revision, label = root, github 
   for (const framework of scope?.frameworks ?? []) if (framework.error) log(`could not load ${framework.config}: ${framework.error}`);
   const chosen = path => covered(path) && !ignored.some(glob => matches(glob, path));
   const inScope = path => chosen(path) && (!scope || scope.source(path));
-  const coverage = computeCoverage({ scan, graph, inScope, named: chosen, runs: path => !scope || scope.test(path), reports });
+  const runs = path => !scope || scope.test(path);
   const linesOf = lineReader(root, graph);
-  const answers = await askCoverage({ coverage, graph, linesOf, systemOne, min, parallel, testProgress, methodProgress, log, debug });
+  // The repository's own tests, run by perch: once for which tests run each line, then once per mutant. A framework perch has no
+  // runner for, or one that cannot run here, leaves the call graph to estimate what runs and the model to predict what fails.
+  const runner = run ? runnerFor(scope) : null;
+  const usable = runner ? await runner.available({ root }) : null;
+  if (runner && !usable.python) log(`${runner.name} cannot run here, so what the tests run and catch is estimated: ${usable.reason}`);
+  let coverage, ran = null, measured = null;
+  if (runner && usable.python) {
+    const { copies, remove } = await copiesOf({ root, revision, count: parallel });
+    try {
+      debug(`running ${runner.name} once with per-test coverage`);
+      const base = await runner.coverageRun({ copy: copies[0].dir, python: usable.python, scratch: copies[0].scratch });
+      const tree = new Set((await listTree(root, revision)).map(item => item.path));
+      const reports = await readReports({ root: copies[0].dir, files: [{ kind: 'contexts', path: base.data }, { kind: 'junit', path: base.xml }], paths: tree });
+      coverage = computeCoverage({ scan, graph, inScope, named: chosen, runs, reports });
+      const sourceText = async path => (await linesOf({ path })).join('\n');
+      ran = await runMutants({ coverage, graph, sourceText, runner, python: usable.python, copies, base, progress: methodProgress, debug });
+      const statuses = [...ran.values()].flat();
+      measured = { runner: runner.name, suite_seconds: Math.round(base.seconds), mutants_run: statuses.filter(item => !item.uncovered).length,
+        timeouts: statuses.filter(item => item.status === 'timeout').length, invalid: statuses.filter(item => item.status === 'invalid').length };
+    } finally { await remove(); }
+  } else coverage = computeCoverage({ scan, graph, inScope, named: chosen, runs });
+  const answers = await askCoverage({ coverage, graph, linesOf, systemOne, min, parallel, ran, testProgress, methodProgress, log, debug });
   const lines = new Map();
   for (const file of coverage.files) lines.set(file.path, await linesOf({ path: file.path }));
   const report = buildReport({ coverage, answers, lines, revision, root, label, github, model: systemOne.id, min, closed: await openStore(out).closures() });
   if (scope) report.scope = { frameworks: scope.frameworks, tests: scope.tests, sources: scope.sources, left_out: scope.left_out, left_out_sample: scope.left_out_sample };
-  if (coverage.measurement) report.measured = measuredSummary(coverage);
+  report.measured = coverage.measurement ? { ...measuredSummary(coverage), ...measured } : null;
   if (changed) report.branch = branchOf(report, { ref: since, ...changed });
   // --since already says what the branch changed. The last saved run is some other commit, so it is
   // compared with only when --diff names it.
