@@ -1,7 +1,7 @@
 import type { LanguageId } from "./languages";
 
 /** Part of a saved parse's id. Bump it when a change alters parse output, so saved parses are redone. */
-export const PARSE_VERSION = "language-pack-1.20-v26" as const;
+export const PARSE_VERSION = "language-pack-1.20-v34" as const;
 
 export interface SourcePoint {
   /** One-based source line. */
@@ -122,6 +122,10 @@ export interface Declaration {
   test: TestCase | null;
   /** A C or C++ function other translation units cannot call: `static`, or in an unnamed namespace. */
   internal: boolean;
+  /** The parameters it declares, in order. */
+  params: Parameter[];
+  /** The decorators on it, by the name each is called by: `click.command` for `@click.command()`. */
+  decorators?: string[];
   /** Test code that is no test: a helper in a test class or file, a fixture. */
   support?: boolean;
   /** A Kotlin extension function: `fun String.size()`, declared for a receiver type rather than in a class. */
@@ -139,6 +143,17 @@ export interface Held {
   call?: string | null;
   on?: Held | null;
   local?: string | null;
+  /** An object literal's named values, `{ analyzer, reader: make() }`: what a destructured parameter takes from it. */
+  fields?: Record<string, Held>;
+  /** A function written in place, `file => read(file)`: the declaration id of the function the value is. */
+  fn?: string;
+}
+
+/** A parameter a function declares: its name, its position, and the property it takes when it is destructured from an object. */
+export interface Parameter {
+  name: string;
+  index: number;
+  field?: string;
 }
 
 export interface Reference {
@@ -155,6 +170,9 @@ export interface Reference {
   reexport?: boolean;
   /** For a `bind`, a `returns`, or a call on a receiver with no name: what the value is, when the source says. */
   held?: Held;
+  /** For a call: what each positional argument holds, and what each named one does, when the source says. */
+  args?: Array<Held | null>;
+  named?: Record<string, Held>;
   /** Owning function id, or `file` for a top-level reference. */
   source: string;
   line: number;

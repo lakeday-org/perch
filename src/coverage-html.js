@@ -5,6 +5,7 @@
  */
 import { createHash } from 'node:crypto';
 import { WORDMARK, WORDMARK_LIGHT } from './brand.js';
+import { methodAdvice } from './coverage-advice.js';
 
 /** Source text and names come from the repository being read, so every one of them is escaped before it becomes markup. */
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -27,10 +28,10 @@ const when = stamp => String(stamp ?? '').replace('T', ' ').replace(/:\d\d(\.\d+
 const counted = (count, one, many = `${one}s`) => `${escape(count)} ${count === 1 ? one : many}`;
 
 /**
- * The colour a percentage is drawn in. The bands are the ones Istanbul draws, so a page that looks like a coverage report reads
- * like one too. They colour a number the report gave; they do not grade anything the number does not already say.
+ * The colour a percentage is drawn in: red under 60, amber to 80, green from there, the thresholds Stryker ships with, so a score
+ * here reads the same as one in its report. They colour a number the report gave; they do not grade anything it does not say.
  */
-const band = value => (value === null || value === undefined ? 'none' : value < 0.5 ? 'low' : value < 0.8 ? 'mid' : 'high');
+const band = value => (value === null || value === undefined ? 'none' : value < 0.6 ? 'low' : value < 0.8 ? 'mid' : 'high');
 
 /**
  * A link to a line of a file: a section of this page, or with `page`, the page of its own that file was written to. The path
@@ -65,7 +66,7 @@ function delta(before, after, { unit = '', points = false, better = 'up', show =
 const cell = (share, { inner = null, count = '' } = {}) => `<span class="cell">${bar(share, inner)}`
   + `<span class="${band(share)}-text pc">${percent(share)}</span><span class="muted ct">${count}</span></span>`;
 
-/** A bar for a share, with a darker inner share when there is one (methods reached by a kept test inside methods reached). */
+/** A bar for a share, with a darker inner share when there is one (the covered score inside the mutation score). */
 function bar(value, inner = null, tone = band(value)) {
   const width = share => Math.max(0, Math.min(100, Math.round((share ?? 0) * 100)));
   return `<span class="bar"><span class="fill ${tone}" style="width:${width(value)}%"></span>${inner === null ? '' : `<span class="fill inner ${tone}" style="width:${width(inner)}%"></span>`}</span>`;
@@ -109,8 +110,8 @@ function header(report, home = '') {
 }
 
 /**
- * Four numbers, each linking to the view that breaks it down: how many methods have a test, the mutation score and how many
- * mutants survived, and how many tests are worth keeping.
+ * Four numbers, each linking to the view that breaks it down: the mutation score, how many mutants survived, how many have no
+ * coverage, and how many tests are worth keeping.
  */
 function headline(report) {
   const totals = report.totals, moved = report.diff?.totals ?? {};
@@ -126,16 +127,18 @@ function headline(report) {
   const tile = (view, title, big, sub, extra = '', hint = '') => `<a class="card" href="#view=${view}"><div class="card-title"${hint ? ` title="${escape(hint)}"` : ''}>${title}</div><div class="big">${big}</div><div class="sub">${sub}</div>${extra}</a>`;
   const share = value => `<span class="${band(value)}-text">${percent(value)}</span>`;
   const tiles = [];
-  const reached = ratio(totals.reached, totals.methods);
-  tiles.push(tile('sources', 'Methods tested', share(reached), `${escape(totals.reached)} of ${escape(totals.methods)} have a test`,
-    changed([moving('reached', 'methods')]) + bar(reached), `Methods a test calls, directly or within ${report.depth} calls, of all methods.`));
-  // The mutation score, mutants killed of all mutants: the number a test suite is judged by, and the survivors are what to act on.
+  // The mutation score, mutants killed of every mutant, the ones no test reaches included: the number a test suite is judged by.
+  // The survivors are what to act on; the ones with no coverage say where no test goes.
   if (totals.mutants) {
     const score = ratio(totals.killed, totals.mutants);
-    tiles.push(tile('sources', 'Mutation score', share(score), `${escape(totals.killed)} of ${escape(totals.mutants)} mutants killed`,
-      changed([moving('score', '', { points: true })]) + bar(score), 'Mutants some test is predicted to fail against, of every mutant in the methods tests reach. A mutant is one line changed: a comparison moved to its boundary, a condition negated, an operator swapped.'));
+    const onCovered = totals.covered_score === null ? '' : `, ${percent(totals.covered_score)} on covered code`;
+    const equivalent = totals.equivalent ? `; ${escape(totals.equivalent)} equivalent left out` : '';
+    tiles.push(tile('sources', 'Mutation score', share(score), `${escape(totals.killed)} of ${escape(totals.mutants)} mutants killed${onCovered}${equivalent}`,
+      changed([moving('score', '', { points: true })]) + bar(score), 'Mutants some test failed against, of every mutant but the equivalent ones, which change nothing a caller could observe; the ones on lines no test runs are included. The score on covered code leaves those out.'));
     tiles.push(tile('problems', 'Survived', `${escape(totals.survived)}<span class="of"> of ${escape(totals.mutants)}</span>`, 'mutants no test kills',
-      changed([moving('survived', 'mutants', { better: 'down' })]), 'Mutants no test reaching the method is predicted to fail against, that would change what a caller sees. Each is listed with the edit and the tests that miss it.'));
+      changed([moving('survived', 'mutants', { better: 'down' })]), 'Mutants every test that runs them passed against, that would change what a caller sees. Each is listed with the edit and the tests that miss it.'));
+    tiles.push(tile('sources', 'No coverage', `${escape(totals.no_coverage)}<span class="of"> of ${escape(totals.mutants)}</span>`, `in ${escape(totals.methods - totals.covered)} of ${escape(totals.methods)} methods no test reaches`,
+      changed([moving('no_coverage', 'mutants', { better: 'down' })]), 'Mutants on lines no test runs. Nothing was run or asked about them; they count against the score.'));
   }
   const drop = totals.drop ?? { count: 0 };
   // The tests that repeat another or check nothing: the number a person acts on. More is worse, so the bar is toned by the
@@ -153,8 +156,8 @@ function headline(report) {
 /** Before → after for one number of a file or method, or a dash for the side the unit was not in. */
 const fromTo = (before, after, show = value => escape(value)) =>
   `<span class="was">${before === null || before === undefined ? '—' : show(before)}</span> → <b>${after === null || after === undefined ? '—' : show(after)}</b>`;
-/** Whether a method in the diff is reached, as a word. */
-const reachedWord = reached => (reached ? 'yes' : 'no');
+/** Whether a method in the diff is covered, as a word. */
+const coveredWord = covered => (covered ? 'yes' : 'no');
 
 /** Changes since the compared report, per file, per method, per test and per finding, as the diff lists them. */
 function changes(report, index) {
@@ -164,12 +167,12 @@ function changes(report, index) {
     const before = entry.before ?? {}, after = entry.after ?? {};
     const name = entry.after ? `<a href="${index.href(entry.path)}">${escape(entry.path)}</a>` : escape(entry.path);
     return `<tr><td class="path">${name}</td><td>${fromTo(entry.before && before.methods, entry.after && after.methods)}</td>`
-      + `<td>${fromTo(entry.before && before.reached, entry.after && after.reached)}</td>`
+      + `<td>${fromTo(entry.before && before.no_coverage, entry.after && after.no_coverage)}</td>`
       + `<td>${fromTo(entry.before && before.score, entry.after && after.score, percent)}</td>`
       + `<td>${fromTo(entry.before && before.tests, entry.after && after.tests)}</td><td>${fromTo(entry.before && before.useful, entry.after && after.useful)}</td></tr>`;
   }).join('');
   const methodRows = diff.methods.map(entry => `<tr><td>${index.methods.has(entry.id) ? unitLink(entry.id, index) : escape(entry.name)}</td>`
-    + `<td class="path">${escape(entry.path)}</td><td>${fromTo(entry.before?.reached, entry.after?.reached, reachedWord)}</td>`
+    + `<td class="path">${escape(entry.path)}</td><td>${fromTo(entry.before?.covered, entry.after?.covered, coveredWord)}</td>`
     + `<td>${fromTo(entry.before && `${entry.before.killed}/${entry.before.mutants}`, entry.after && `${entry.after.killed}/${entry.after.mutants}`)}</td></tr>`).join('');
   const added = diff.tests.added.map(id => `<li>${unitLink(id, index)}</li>`).join('');
   const removed = diff.tests.removed.map(id => `<li><code>${escape(id)}</code></li>`).join('');
@@ -179,8 +182,8 @@ function changes(report, index) {
     // every problem it had go away as well.
     + (diff.findings.fixed.length ? `${counted(diff.findings.fixed.length, 'problem')} from that run ${diff.findings.fixed.length === 1 ? 'is' : 'are'} gone.` : ''), '<section id="changes" class="panel">'
     + block('New problems', diff.findings.new.length, diff.findings.new.length ? actionTable(diff.findings.new, index) : '<p class="muted">None.</p>')
-    + block('Files', diff.files.length, diff.files.length ? `<div class="scroll"><table class="grid"><thead><tr><th>File</th><th>Methods</th><th>Reached</th><th>Mutation score</th><th>Tests</th><th>Kept</th></tr></thead><tbody>${fileRows}</tbody></table></div>` : '<p class="muted">None.</p>')
-    + block('Methods that moved', diff.methods.length, diff.methods.length ? `<div class="scroll"><table class="grid"><thead><tr><th>Method</th><th>File</th><th>Reached</th><th>Killed</th></tr></thead><tbody>${methodRows}</tbody></table></div>` : '<p class="muted">None.</p>')
+    + block('Files', diff.files.length, diff.files.length ? `<div class="scroll"><table class="grid"><thead><tr><th>File</th><th>Methods</th><th>No coverage</th><th>Mutation score</th><th>Tests</th><th>Kept</th></tr></thead><tbody>${fileRows}</tbody></table></div>` : '<p class="muted">None.</p>')
+    + block('Methods that moved', diff.methods.length, diff.methods.length ? `<div class="scroll"><table class="grid"><thead><tr><th>Method</th><th>File</th><th>Covered</th><th>Killed</th></tr></thead><tbody>${methodRows}</tbody></table></div>` : '<p class="muted">None.</p>')
     + block('Tests added', diff.tests.added.length, added ? `<ul class="ids">${added}</ul>` : '<p class="muted">None.</p>')
     + block('Tests removed', diff.tests.removed.length, removed ? `<ul class="ids">${removed}</ul>` : '<p class="muted">None.</p>')
     + '</section>');
@@ -223,44 +226,97 @@ const copyAll = ' <button type="button" class="copy-all" data-copy-all>Copy prom
 const actionTable = (findings, index) => `<div class="scroll"><table class="grid"><thead><tr><th>Problem</th><th>Where</th><th>Details</th><th class="x-cell"></th></tr></thead>`
   + `<tbody>${findings.map(finding => `<tr data-finding="${escape(finding.id)}">${actionCells(finding, index)}<td class="x-cell">${dismissMark}</td></tr>`).join('')}</tbody></table></div>`;
 
+/** The survived mutants listed for a method, surest first: what a test added to it has to tell apart. */
+const survivedOf = (method, index, scoped = null) => method.findings.map(id => index.findings.get(id))
+  .filter(finding => finding?.kind === 'survived' && (!scoped || scoped.has(finding.id)))
+  .sort((a, b) => (b.probability ?? 0) - (a.probability ?? 0) || a.line - b.line);
+
+/** The mutant record behind a survived finding. */
+const mutantOf = (method, finding) => method.mutants.find(item => item.id === finding.mutant);
+
 /**
- * A first review, in two short lists: the methods with a survived mutant, riskiest first, and the tests that could go or that
- * reach outside the process. Each is ranked by what it costs to leave, and shows a few rows
- * with a link to every one of them under All problems. The rankings are counted from the report; nothing is added to it. With
- * --since the same lists hold only the problems in code the branch changed.
+ * The methods to add a test to, most survivors first, each with the sentence saying what the test has to tell apart. A tie goes
+ * to the method fewer tests reach, where a test added is one of few, then to the file and line, so two runs rank alike.
+ */
+function methodsToTest(report, index, scoped = null) {
+  const ranked = [];
+  for (const method of report.methods) {
+    const survived = survivedOf(method, index, scoped);
+    if (!survived.length) continue;
+    ranked.push({ method, survived, advice: methodAdvice(survived.map(finding => mutantOf(method, finding)).filter(Boolean)) });
+  }
+  return ranked.sort((a, b) => b.survived.length - a.survived.length || testsOf(a.method) - testsOf(b.method)
+    || a.method.path.localeCompare(b.method.path) || a.method.line - b.method.line);
+}
+
+/** The line as written and as the mutant changes it. */
+const diffOf = mutant => (mutant ? `<pre class="diff"><del>- ${escape(mutant.original.trim())}</del>\n<ins>+ ${escape(mutant.mutated.trim())}</ins></pre>` : '');
+
+/** One survived mutant: the edit in words, how sure perch is, the line both ways, and its buttons. With `at`, the line is a link. */
+function mutantBlock(method, finding, index, { at = false } = {}) {
+  const where = at ? `<a class="at" href="${index.href(method.path, finding.line)}">line ${escape(finding.line)}</a> ` : '';
+  return `<div class="mutant" data-finding="${escape(finding.id)}"><div class="problem"><p class="verdict bad">${where}${escape(finding.note)}${unsure(finding.probability)}</p>`
+    + `<div class="problem-acts">${acts()}${dismissMark}</div></div>${diffOf(mutantOf(method, finding))}</div>`;
+}
+
+/** The tests run against a method's mutants: the ones that ran its lines and passed before anything was changed. */
+const testsOf = method => method.asked_tests;
+/** A method's mutants the score counts: all but the equivalent ones, which no test can kill, and the invalid ones, which broke the code. */
+const scoredOf = method => method.mutants.length - method.equivalent - method.invalid;
+
+/** The heads of a table of methods to test, with or without the file column. */
+const methodHeads = () => `<th>Method</th>${th('Mutation score', true, true, 'Mutants the method\'s tests failed against, of all its mutants but the equivalent ones.')}${th('Survived', true, false, 'Mutants no test kills.')}`
+  + `${th('Tests', true, false, 'Tests that run the method: each was run against its mutants.')}<th>What to add</th>`;
+
+/**
+ * One method to add a test to: its name and place, its score, how many mutants survived, how many tests reach it, and the test
+ * to add, with one button for a prompt covering every survived mutant. Under it, folded, each edit in words with a link to its
+ * line, where the code both ways and the buttons are.
+ */
+function methodRows(entry, index, { fresh = new Set() } = {}) {
+  const { method, survived, advice } = entry;
+  const key = escape(method.id), ids = survived.map(finding => finding.id);
+  const isNew = survived.some(finding => fresh.has(finding.id));
+  const scored = scoredOf(method), score = ratio(method.killed, scored);
+  return `<tr class="method" data-method="${key}" data-ids="${escape(ids.join(','))}"><td class="act"><button type="button" class="fold" data-open-row aria-label="Show the mutants" title="Show the mutants">›</button>`
+    + `${isNew ? '<span class="new-badge">new</span>' : ''}<a class="name" href="${index.href(method.path, method.line)}">${escape(method.name)}</a><span class="path">${escape(method.path)}:${escape(method.line)}</span></td>`
+    + `<td class="bars">${cell(score, { count: `${escape(method.killed)}/${escape(scored)}` })}</td><td class="num">${escape(survived.length)}</td><td class="num">${escape(testsOf(method))}</td>`
+    + `<td class="do"><span class="advice">${escape(advice)}</span><div class="acts"><button type="button" data-copy-ids>Copy prompt</button></div></td></tr>`
+    + `<tr class="detail" data-detail-for="${key}" hidden><td colspan="5"><ul class="edits">${survived.map(finding => `<li data-finding="${escape(finding.id)}"><a class="at" href="${index.href(method.path, finding.line)}">line ${escape(finding.line)}</a> ${escape(finding.note)}${unsure(finding.probability)}</li>`).join('')}</ul></td></tr>`;
+}
+
+/**
+ * A first review, in two lists: the methods to add a test to, most survived mutants first, and the tests that could go or that
+ * reach outside the process. Each row says what to do; the mutants behind a method are one click down. With --since the same
+ * lists hold only the problems in code the branch changed.
  */
 function actionsView(report, index) {
   const TOP = 8;
-  const risk = id => index.methods.get(id)?.risk ?? 0;
   const onBranch = report.branch ? new Set(report.branch.findings) : null;
   const scoped = onBranch ? report.findings.filter(finding => onBranch.has(finding.id)) : report.findings;
   const changedOnly = onBranch ? '&amp;changed=1' : '';
   const all = (kinds, count) => `<a class="more" href="#view=problems&amp;kind=${kinds.join(',')}${changedOnly}">See all ${escape(count)} under All problems →</a>`;
-  const table = (heads, rows) => `<div class="scroll"><table class="grid"><thead><tr>${heads}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
-  const section = (title, lede, body, more) => (body
-    ? `<section class="panel group"><div class="panel-head"><h3>${title}</h3>${lede ? `<p class="lede">${lede}</p>` : ''}</div>${body}${more ? `<div class="panel-foot">${more}</div>` : ''}</section>` : '');
+  const table = (heads, rows, classes = '') => `<div class="scroll"><table class="grid${classes}"><thead><tr>${heads}</tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+  const section = (title, body, more) => (body
+    ? `<section class="panel group"><div class="panel-head"><h3>${title}</h3></div>${body}${more ? `<div class="panel-foot">${more}</div>` : ''}</section>` : '');
   const of = kinds => scoped.filter(finding => kinds.includes(finding.kind));
   // What the changes since the compared run brought in is marked new and put first in its list: it is what the person reading
   // this is working on now. With --since, the lists are the branch's already, and nothing is marked.
   const fresh = new Set(report.branch ? [] : (report.diff?.findings?.new ?? []).map(finding => finding.id));
   const newFirst = (a, b) => Number(fresh.has(b.id)) - Number(fresh.has(a.id));
 
-  // Survived mutants, one row per method, riskiest first.
-  const missing = of(['survived']);
-  const perMethod = new Map();
-  for (const finding of missing) if (!perMethod.has(finding.unit)) perMethod.set(finding.unit, finding);
-  const riskiest = [...perMethod.values()].sort((a, b) => newFirst(a, b) || risk(b.unit) - risk(a.unit) || a.path.localeCompare(b.path));
-  const methodRows = riskiest.slice(0, TOP).map(finding => `<tr data-finding="${escape(finding.id)}">${actionCells(finding, index, fresh.has(finding.id))}`
-    + `<td class="num">${escape(Math.round(risk(finding.unit)))}</td><td class="x-cell">${dismissMark}</td></tr>`);
-  const methodsSection = section(`Survived mutants <span class="count">${escape(missing.length)}</span>${copyAll}`, '',
-    methodRows.length ? table('<th>Problem</th><th>Where</th><th>Details</th><th class="num" title="How complex and hard to maintain the method is, 0 to 100.">Risk</th><th class="x-cell"></th>', methodRows) : '',
-    missing.length > TOP ? all(['survived'], missing.length) : '');
+  // Methods to add a test to, every one with a survived mutant, paged by the table.
+  const methods = methodsToTest(report, index, onBranch);
+  const hasNew = entry => entry.survived.some(finding => fresh.has(finding.id));
+  const methodRowsHtml = [...methods].sort((a, b) => Number(hasNew(b)) - Number(hasNew(a))).map(entry => methodRows(entry, index, { fresh }));
+  const methodsSection = section(`Where to add tests <span class="count">${escape(methods.length)}</span>${copyAll}`,
+    methodRowsHtml.length ? table(methodHeads(), methodRowsHtml, ' methods') : '', '');
 
   // Test problems: duplicates, tests that check nothing, and tests that call a live service, the surest first.
   const testKinds = ['redundant', ...WEAK, 'infra'];
   const testProblems = of(testKinds).sort((a, b) => newFirst(a, b) || (b.probability ?? 2) - (a.probability ?? 2) || a.path.localeCompare(b.path));
   const testRows = testProblems.slice(0, TOP).map(finding => `<tr data-finding="${escape(finding.id)}">${actionCells(finding, index, fresh.has(finding.id))}<td class="x-cell">${dismissMark}</td></tr>`);
-  const testsSection = section(`Test problems <span class="count">${escape(testProblems.length)}</span>${copyAll}`, '',
+  const testsSection = section(`Test problems <span class="count">${escape(testProblems.length)}</span>${copyAll}`,
     testRows.length ? table('<th>Problem</th><th>Where</th><th>Details</th><th class="x-cell"></th>', testRows) : '',
     testProblems.length > TOP ? all(testKinds, testProblems.length) : '');
 
@@ -283,33 +339,68 @@ const th = (name, numeric = true, bars = false, title = '') => `<th data-sort="$
 const scoreCell = totals => (totals.mutants ? cell(totals.killed / totals.mutants, { count: `${escape(totals.killed)}/${escape(totals.mutants)}` }) : cell(null));
 const scoreValue = totals => (totals.mutants ? totals.killed / totals.mutants : null);
 
-/** The source files, lcov-report's shape: a row per file, worst first, bars for methods tested and the mutation score. */
+/**
+ * The source files as a tree, the way Stryker and a file browser lay them out: a row per directory with its files' numbers
+ * summed, worst first at every level, each directory folding. A chain of directories holding nothing but the next is one row.
+ */
 function sourceTable(report, index) {
   const files = report.files.filter(file => file.kind === 'source');
-  const worst = (a, b) => (scoreValue(a.totals) ?? 1) - (scoreValue(b.totals) ?? 1)
-    || (ratio(a.totals.reached, a.totals.methods) ?? 1) - (ratio(b.totals.reached, b.totals.methods) ?? 1) || a.path.localeCompare(b.path);
-  const rows = [...files].sort(worst).map(file => {
-    // What changed in a file since the last run is the Changes view's to say; this table says where things stand.
-    const totals = file.totals, survived = index.kinds(file.path).survived ?? 0;
-    const reached = ratio(totals.reached, totals.methods);
-    return `<tr data-path="${escape(file.path)}"><td class="path" data-v="${escape(file.path)}"><a href="${index.href(file.path)}">${escape(file.path)}</a></td>`
-      + `<td class="bars" data-v="${reached ?? -1}">${cell(reached, { inner: ratio(totals.useful_reached, totals.methods), count: `${escape(totals.reached)}/${escape(totals.methods)}` })}</td>`
-      + `<td class="bars" data-v="${scoreValue(totals) ?? -1}">${scoreCell(totals)}</td>`
-      + `<td class="num${survived ? '' : ' zero'}" data-v="${survived}">${survived}</td></tr>`;
-  }).join('');
-  const totals = report.totals, reached = ratio(totals.reached, totals.methods);
-  const foot = `<tr><td>All source files</td>`
-    + `<td class="bars">${cell(reached, { inner: ratio(totals.useful_reached, totals.methods), count: `${escape(totals.reached)}/${escape(totals.methods)}` })}</td>`
-    + `<td class="bars">${scoreCell(totals)}</td><td class="num">${escape(totals.survived)}</td></tr>`;
-  const heads = th('File', false) + th('Methods tested', true, true, `Methods a test calls within ${report.depth} calls. The darker part is methods a test worth keeping reaches.`)
-    + th('Mutation score', true, true, 'Mutants some test is predicted to fail against, of every mutant in the file\'s reached methods.')
-    + th('Survived', true, false, 'Mutants no test kills, listed under All problems.');
+  const survivedIn = path => index.kinds(path).survived ?? 0;
+  const root = { name: '', path: '', dirs: new Map(), files: [] };
+  for (const file of files) {
+    const parts = file.path.split('/');
+    let node = root;
+    for (const part of parts.slice(0, -1)) {
+      if (!node.dirs.has(part)) node.dirs.set(part, { name: part, path: node.path ? `${node.path}/${part}` : part, dirs: new Map(), files: [] });
+      node = node.dirs.get(part);
+    }
+    node.files.push(file);
+  }
+  const sum = node => {
+    const totals = { mutants: 0, killed: 0, no_coverage: 0, survived: 0, files: 0 };
+    const add = other => { for (const key of Object.keys(totals)) totals[key] += other[key] ?? 0; };
+    for (const file of node.files) add({ mutants: file.totals.mutants, killed: file.totals.killed, no_coverage: file.totals.no_coverage, survived: survivedIn(file.path), files: 1 });
+    for (const dir of node.dirs.values()) add(sum(dir));
+    node.totals = totals;
+    return totals;
+  };
+  sum(root);
+  const joined = node => {
+    while (!node.files.length && node.dirs.size === 1) { const [only] = node.dirs.values(); node = { ...only, name: `${node.name}/${only.name}` }; }
+    return node;
+  };
+  const score = totals => scoreValue(totals);
+  const worst = (a, b) => (score(a.totals) ?? 1) - (score(b.totals) ?? 1) || (b.totals.survived - a.totals.survived) || (b.totals.no_coverage - a.totals.no_coverage) || a.path.localeCompare(b.path);
+  // A large tree opens on its top level alone; a small one is open all the way down.
+  const closed = files.length > 200;
+  const counts = totals => `<td class="bars">${scoreCell(totals)}</td><td class="num${totals.killed ? '' : ' zero'}">${escape(totals.killed)}</td>`
+    + `<td class="num${totals.survived ? '' : ' zero'}">${escape(totals.survived)}</td><td class="num${totals.no_coverage ? '' : ' zero'}">${escape(totals.no_coverage)}</td>`;
+  const rows = [];
+  const walk = (node, depth, parent) => {
+    const entries = [...[...node.dirs.values()].map(joined), ...node.files.map(file => ({ file, path: file.path, totals: { ...file.totals, survived: survivedIn(file.path) } }))].sort(worst);
+    for (const entry of entries) {
+      if (entry.file) {
+        rows.push(`<tr data-path="${escape(entry.path)}" data-parent="${escape(parent)}"><td class="path" style="--depth:${depth}"><a href="${index.href(entry.path)}" title="${escape(entry.path)}">${escape(entry.path.split('/').at(-1))}</a></td>${counts(entry.totals)}</tr>`);
+      } else {
+        rows.push(`<tr class="dir" data-path="${escape(entry.path)}" data-parent="${escape(parent)}"${closed && depth > 0 ? ' data-closed' : ''}><td class="path" style="--depth:${depth}"><button type="button" class="fold" data-toggle-dir aria-label="Open or close the directory">›</button>${escape(entry.name)}/ <span class="muted">${escape(entry.totals.files)}</span></td>${counts(entry.totals)}</tr>`);
+        walk(entry, depth + 1, entry.path);
+      }
+    }
+  };
+  walk(root, 0, '');
+  const totals = { ...report.totals, survived: report.totals.survived };
+  const foot = `<tr><td>All source files <span class="muted">${escape(files.length)}</span></td>${counts(totals)}</tr>`;
+  const heads = '<th>File</th>'
+    + th('Mutation score', true, true, 'Mutants some test failed against, of every mutant but the equivalent ones, the ones no test runs included.')
+    + th('Killed', true, false, 'Mutants some test failed against, or that made the tests run past their time limit.')
+    + th('Survived', true, false, 'Mutants no test kills, listed under All problems.')
+    + th('No coverage', true, false, 'Mutants on lines no test runs. Nothing was run or asked about them; they count against the score.');
   return view('sources', 'Source files', '',
     `<div class="filter"><input type="search" class="filter-files" placeholder="Filter files" aria-label="Filter files"></div>`
-    + `<section class="panel" id="sources"><div class="scroll"><table class="grid sortable files"><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody><tfoot>${foot}</tfoot></table></div></section>`);
+    + `<section class="panel" id="sources"><div class="scroll"><table class="grid tree files"><thead><tr>${heads}</tr></thead><tbody>${rows.join('')}</tbody><tfoot>${foot}</tfoot></table></div></section>`);
 }
 
-/** The test files: how many tests each has, how many are worth keeping, and why the rest are not. */
+/** The test files with something to fix, most first. The rest are counted under the table and shown on request. */
 function testTable(report, index) {
   const files = report.files.filter(file => file.kind === 'test');
   const notKept = file => file.totals.tests - file.totals.useful;
@@ -317,16 +408,19 @@ function testTable(report, index) {
     const totals = file.totals;
     const kept = ratio(totals.useful, totals.tests);
     const count = value => `<td class="num${value ? '' : ' zero'}" data-v="${value ?? 0}">${escape(value ?? 0)}</td>`;
-    return `<tr data-path="${escape(file.path)}"><td class="path" data-v="${escape(file.path)}"><a href="${index.href(file.path)}">${escape(file.path)}</a></td>`
+    const fine = !notKept(file) && !totals.infra;
+    return `<tr data-path="${escape(file.path)}"${fine ? ' data-fine data-out' : ''}><td class="path" data-v="${escape(file.path)}"><a href="${index.href(file.path)}">${escape(file.path)}</a></td>`
       + `<td class="bars" data-v="${kept ?? -1}">${cell(kept, { count: `${escape(totals.useful)}/${escape(totals.tests)}` })}</td>`
       + count(totals.redundant) + count(totals.weak) + count(totals.infra) + '</tr>';
-  }).join('');
+  });
+  const fine = files.filter(file => !notKept(file) && !file.totals.infra).length;
   const heads = th('File', false) + th('Quality', true, true, 'Tests worth keeping, of all the file\'s tests: ones that check something and repeat no other test.')
     + th('Duplicates', true, false, 'Tests that check the same thing with the same code as an earlier test.')
     + th('Checks nothing', true, false, 'Tests that would pass whatever the code they call does.')
     + th('Live services', true, false, 'Tests that call a real network service or database with nothing mocked.');
+  const foot = fine ? `<div class="panel-foot"><span>${counted(fine, 'test file has', 'test files have')} nothing to fix.</span><button type="button" class="copy-all" data-show-fine>Show them</button></div>` : '';
   return view('tests', 'Tests', '',
-    `<section class="panel" id="tests"><div class="scroll"><table class="grid sortable files"><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody></table></div></section>`);
+    `<section class="panel" id="tests"><div class="scroll"><table class="grid sortable files"><thead><tr>${heads}</tr></thead><tbody>${rows.join('')}</tbody></table></div>${foot}</section>`);
 }
 
 /** Every problem, filterable by kind, each linking to the line it is about. */
@@ -358,7 +452,6 @@ function details(report) {
     ['Revision', `<code>${escape(report.revision)}</code> <span class="muted">${escape(when(report.created_at))}</span>`],
     ...(report.diff ? [['Compared with', `<code>${escape(report.diff.from.revision)}</code> <span class="muted">${escape(when(report.diff.from.created_at))}</span>`]] : []),
     ['Model', escape(report.model)],
-    ['Call depth', `${escape(report.depth)} <span class="muted">calls followed from each test</span>`],
     ['Floor', `${escape(Math.round(report.min * 100))}% <span class="muted">problems less sure than this are not listed</span>`],
   ];
   return view('details', 'Run details', '',
@@ -386,17 +479,17 @@ function failures(report) {
     + `<div class="scroll"><table class="grid"><thead><tr><th>Unit</th><th>Name</th><th>File</th><th>Error</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
 }
 
-/** What a source method's lines are tinted as: green when every mutant is killed, amber when one survived, red when no test reaches it. */
+/** What a source method's lines are tinted as: green when every mutant is killed, amber when one survived, red when no test covers it. */
 function methodState(method) {
-  return !method.tests.length ? 'none' : method.killed === method.mutants.length ? 'full' : 'part';
+  return !method.covered ? 'none' : method.killed === scoredOf(method) ? 'full' : 'part';
 }
 
 /** A method's survived mutants that are listed problems: one under the floor has nothing to act on. */
 const listedMutants = (method, index) => method.findings.map(id => index.findings.get(id)).filter(finding => finding?.kind === 'survived');
 
-/** Tint, branch markers and the survived mutants for each line of a file, innermost method last so a nested function wins its lines. */
+/** Tint, branch markers and how many survived mutants each line of a file has, innermost method last so a nested function wins its lines. */
 function lineMarks(file, index) {
-  const marks = file.lines.map(() => ({ state: '', branch: false, gap: false, starts: [] }));
+  const marks = file.lines.map(() => ({ state: '', branch: false, gaps: 0, starts: [] }));
   const at = line => marks[line - 1];
   const units = file.kind === 'test' ? file.tests.map(id => index.tests.get(id)) : file.methods.map(id => index.methods.get(id));
   const spans = units.filter(Boolean).sort((a, b) => (b.end_line - b.line) - (a.end_line - a.line));
@@ -409,13 +502,13 @@ function lineMarks(file, index) {
     at(unit.line)?.starts.push(unit);
     if (file.kind === 'test') continue;
     for (const line of unit.branches) if (at(line)) at(line).branch = true;
-    for (const finding of listedMutants(unit, index)) if (at(finding.line)) at(finding.line).gap = true;
+    for (const finding of listedMutants(unit, index)) if (at(finding.line)) at(finding.line).gaps += 1;
   }
   return marks;
 }
 
-/** The tests nearest a method, the ones calling it directly first. Past `REACH_SHOWN`, a count stands for the rest. */
-const REACH_SHOWN = 50;
+/** The tests that run a method, the ones calling it directly first, eight of them. A count stands for the rest. */
+const REACH_SHOWN = 8;
 function reachedBy(method, index) {
   const useful = new Set(method.useful);
   const nearest = [...method.tests].sort((a, b) => a.depth - b.depth);
@@ -425,14 +518,20 @@ function reachedBy(method, index) {
     + (rest > 0 ? `<li class="muted">${escape(rest)} more ${rest === 1 ? 'test' : 'tests'}</li>` : '');
 }
 
-/** The line above a method: its name, how many of its mutants its tests kill, and how many tests reach it, with the tests one click away. */
+/**
+ * The line above a method: its name, how many of its mutants its tests kill, the test to add when some survived, and how many
+ * tests reach it, with the tests one click away.
+ */
 function methodBar(method, index) {
-  const ran = method.mutants.length ? `${escape(method.killed)} of ${escape(method.mutants.length)} mutants killed` : '';
+  const ran = !method.covered && method.mutants.length ? `${escape(method.mutants.length)} ${method.mutants.length === 1 ? 'mutant' : 'mutants'}, no coverage`
+    : method.mutants.length ? `${escape(method.killed)} of ${escape(scoredOf(method))} mutants killed${method.equivalent ? `, ${escape(method.equivalent)} equivalent` : ''}` : '';
   const count = method.tests.length;
   const tests = count
     ? `<details><summary>${count} ${count === 1 ? 'test reaches' : 'tests reach'} it${method.useful.length !== count ? `, ${method.useful.length} worth keeping` : ''}</summary><ul class="reach">${reachedBy(method, index)}</ul></details>`
     : '<span class="unran">No test reaches it</span>';
-  return `<div class="mbar ${methodState(method)}" id="${escape(`m:${method.id}`)}"><b>${escape(method.name)}</b>${ran ? `<span>${ran}</span>` : ''}${tests}</div>`;
+  const survived = survivedOf(method, index);
+  const advice = survived.length ? `<span class="do">${escape(methodAdvice(survived.map(finding => mutantOf(method, finding)).filter(Boolean)))}</span>` : '';
+  return `<div class="mbar ${methodState(method)}" id="${escape(`m:${method.id}`)}"><b>${escape(method.name)}</b>${ran ? `<span>${ran}</span>` : ''}${tests}${advice}</div>`;
 }
 
 /** "a", "a and b", "a, b and c". */
@@ -440,14 +539,10 @@ const listed = items => (items.length < 2 ? items.join('') : `${items.slice(0, -
 /** How sure perch is, said only when it is not very: a verdict at 95% needs no number, one at 63% does. */
 const unsure = probability => (typeof probability === 'number' && probability < 0.8 ? ` <span class="unsure">${escape(percent(probability))} sure</span>` : '');
 
-/** The note under a survived mutant: the line as written and as changed, and which tests miss it, with its buttons. */
-function mutantNote(method, finding, index) {
-  const mutant = method.mutants.find(item => item.id === finding.mutant);
-  const diff = mutant ? `<pre class="diff"><del>- ${escape(mutant.original.trim())}</del>\n<ins>+ ${escape(mutant.mutated.trim())}</ins></pre>` : '';
-  const missed = mutant ? mutant.asked.filter(id => !mutant.killed_by.includes(id)).map(id => unitLink(id, index)) : [];
-  return `<div class="note gap" data-finding="${escape(finding.id)}"><div class="problem"><p class="verdict bad"><b>${escape(problemName('survived'))}</b> `
-    + `${escape(finding.note)}${unsure(finding.probability)}</p><div class="problem-acts">${acts()}${dismissMark}</div></div>${diff}`
-    + (missed.length ? `<ul class="facts"><li>Still passes: ${listed(missed)}.</li></ul>` : '') + '</div>';
+/** The note under a line with survived mutants: each one's edit, how sure perch is, the line both ways, and its buttons. Folded until the gutter mark is pressed. */
+function gapNote(method, findings, index, line) {
+  const head = `<div class="note-head"><b>${counted(findings.length, 'survived mutant')}</b> <span class="muted">on line ${escape(line)}</span></div>`;
+  return `<div class="note gap closed" data-line="${escape(line)}">${head}${findings.map(finding => mutantBlock(method, finding, index)).join('')}</div>`;
 }
 
 /** One problem in a note under the code: its name and the fact, with Copy prompt and the close mark on the right. */
@@ -488,7 +583,9 @@ function notesOf(file, index, report) {
     }
   } else {
     for (const method of file.methods.map(id => index.methods.get(id)).filter(Boolean)) {
-      for (const finding of listedMutants(method, index)) { placed.add(finding.id); add(finding.line, mutantNote(method, finding, index)); }
+      const byLine = new Map();
+      for (const finding of survivedOf(method, index)) { placed.add(finding.id); if (!byLine.has(finding.line)) byLine.set(finding.line, []); byLine.get(finding.line).push(finding); }
+      for (const [line, findings] of byLine) add(line, gapNote(method, findings, index, line));
     }
   }
   for (const finding of report.findings) {
@@ -508,40 +605,48 @@ function fileStats(file) {
       'Tests worth keeping, of all the file\'s tests: ones that check something and repeat no other test.')
       + stat('live services', escape(totals.infra), 'Tests that call a real network service or database with nothing mocked.');
   }
-  const reached = ratio(totals.reached, totals.methods);
   const score = scoreValue(totals);
-  return stat('methods tested', `<span class="${band(reached)}-text">${percent(reached)}</span> <small>${escape(totals.reached)}/${escape(totals.methods)}</small>`,
-    'Methods a test calls, of all the file\'s methods.')
-    + (score === null ? '' : stat('mutation score', `<span class="${band(score)}-text">${percent(score)}</span> <small>${escape(totals.killed)}/${escape(totals.mutants)}</small>`, 'Mutants some test is predicted to fail against, of every mutant in the file\'s reached methods.'))
+  return stat('no coverage', escape(totals.no_coverage), 'Mutants in methods no test reaches, which count against the score.')
+    + (score === null ? '' : stat('mutation score', `<span class="${band(score)}-text">${percent(score)}</span> <small>${escape(totals.killed)}/${escape(totals.mutants)}</small>`, 'Mutants some test failed against, of every mutant in the file but the equivalent ones.'))
     + stat('survived', escape(totals.survived), 'Mutants no test kills, listed below.');
 }
 
-/** A file's problems at the top of its page, each linking to its line, so they are read without scrolling the source. */
-function fileProblems(file, report, index) {
-  const own = [...index.findingsIn(file.path)].sort((a, b) => a.line - b.line || a.kind.localeCompare(b.kind));
-  return own.length ? `<div class="panel group file-problems"><div class="panel-head"><h3>Problems <span class="count">${escape(own.length)}</span>${copyAll}</h3></div>${actionTable(own, index)}</div>` : '';
+/** The methods of a file to add a test to, the few with most survivors, in the shape the summary lists them. */
+function fileMethods(file, report, index) {
+  const own = new Set(file.methods);
+  const entries = methodsToTest(report, index).filter(entry => own.has(entry.method.id));
+  if (!entries.length) return '';
+  const SHOWN = 5;
+  const rest = entries.length - SHOWN;
+  return `<div class="panel group file-methods"><div class="panel-head"><h3>Where to add tests <span class="count">${escape(entries.length)}</span>${copyAll}</h3></div>`
+    + `<div class="scroll"><table class="grid methods"><thead><tr>${methodHeads()}</tr></thead><tbody>${entries.slice(0, SHOWN).map(entry => methodRows(entry, index)).join('')}</tbody></table></div>`
+    + (rest > 0 ? `<div class="panel-foot"><a class="more" href="${index.home}#view=summary">${escape(rest)} more ${rest === 1 ? 'method' : 'methods'} in this file under Summary →</a></div>` : '') + '</div>';
 }
 
-/** One file's page: its numbers, a legend, and every line of it with tint, markers and the notes that belong under each. */
+/** One file's page: its numbers, the methods to test, a toolbar with the legend and a way through the survivors, then every line with tint, marks and notes. */
 function fileView(file, index, report) {
   const marks = lineMarks(file, index), notes = notesOf(file, index, report);
   const methods = file.methods.map(id => index.methods.get(id)).filter(Boolean);
+  const gaps = marks.filter(mark => mark.gaps).length;
   const legend = file.kind === 'test'
     ? '<span><i class="sw weak"></i>a test with a problem</span>'
-    : (methods.length ? '<span><i class="sw full"></i>every mutant killed</span><span><i class="sw part"></i>a mutant survived</span><span><i class="sw none"></i>not reached</span>' : '')
-      + '<span><i class="mk">◆</i>branch</span><span><i class="mk gapmk">▲</i>survived mutant</span>';
+    : (methods.length ? '<span><i class="sw full"></i>every mutant killed</span><span><i class="sw part"></i>a mutant survived</span><span><i class="sw none"></i>no coverage</span>' : '')
+      + '<span><i class="mk">◆</i>branch</span><span><i class="mk gapmk">▲</i>survived mutants, press for the edits</span>';
+  const tools = file.kind === 'source' && gaps
+    ? `<span class="pager-gaps"><button type="button" data-gap="-1" title="Previous line with a survived mutant">↑</button><button type="button" data-gap="1" title="Next line with a survived mutant">↓ Next survived</button><span class="muted">${escape(gaps)} ${gaps === 1 ? 'line' : 'lines'}</span></span>`
+      + '<label class="toggle"><input type="checkbox" class="notes-toggle"> open every note</label>'
+    : '';
   const rows = file.lines.map((text, at) => {
     const line = at + 1, mark = marks[at];
     const bars = file.kind === 'source' ? mark.starts.map(method => methodBar(method, index)).join('') : '';
-    const gutter = mark.gap ? '<i class="mk gapmk">▲</i>' : mark.branch ? '<i class="mk">◆</i>' : '';
-    const classes = ['l', mark.state, mark.gap ? 'gapline' : ''].filter(Boolean).join(' ');
+    const gutter = mark.gaps ? `<button type="button" class="mk gapmk" data-toggle-note="${line}" title="${counted(mark.gaps, 'survived mutant')}: press for the edits">▲${mark.gaps > 1 ? escape(mark.gaps) : ''}</button>` : mark.branch ? '<i class="mk">◆</i>' : '';
+    const classes = ['l', mark.state, mark.gaps ? 'gapline' : ''].filter(Boolean).join(' ');
     const under = (notes.get(line) ?? []).join('');
     return `${bars}<div class="${classes}" data-n="${line}"><span class="n">${line}</span><span class="g">${gutter}</span><code>${escape(text) || ' '}</code></div>${under}`;
   }).join('');
   return `<section class="file" data-path="${escape(file.path)}" hidden><div class="file-head"><a class="back" href="${index.home}#view=${file.kind === 'test' ? 'tests' : 'sources'}">← ${file.kind === 'test' ? 'Tests' : 'Source files'}</a>`
-    + `<h2><code>${escape(file.path)}</code></h2><span class="tag">${escape(file.kind)}</span><span class="muted">${escape(file.language)}</span>`
-    + `<label class="toggle"><input type="checkbox" class="notes-toggle" checked> notes</label></div>`
-    + `<div class="stats">${fileStats(file)}</div>${fileProblems(file, report, index)}<div class="legend">${legend}</div>`
+    + `<h2><code>${escape(file.path)}</code></h2><span class="tag">${escape(file.kind)}</span><span class="muted">${escape(file.language)}</span></div>`
+    + `<div class="stats">${fileStats(file)}</div>${file.kind === 'source' ? fileMethods(file, report, index) : ''}<div class="legend">${legend}${tools}</div>`
     + `<div class="code"><div class="rows">${rows}</div></div></section>`;
 }
 
@@ -844,7 +949,6 @@ ul.reach{margin:6px 0 2px;padding-left:18px;font-size:13px}
 .verdict{color:var(--body)}.verdict b{margin-right:6px}.verdict.bad b{color:var(--low-ink)}.note.test .verdict.bad b{color:var(--mid)}
 .unsure{margin-left:6px;color:var(--faint);font-size:12.5px}
 .facts{margin:6px 0 0;padding-left:18px;color:var(--muted);font-size:13px}
-body.nonotes .note{display:none}
 [data-dismissed]{display:none!important}
 
 /* The toast that says what a button did. */
@@ -852,8 +956,37 @@ body.nonotes .note{display:none}
 .toast code{color:var(--accent);word-break:break-all}.toast button{margin-left:8px}
 .toast .prompt-text{display:block;width:min(680px,calc(100vw - 64px));margin-top:8px;padding:8px 10px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:8px;font:12px/1.5 var(--mono)}
 
+/* Methods to add a test to: name and place, numbers, the test to add, and the mutants folded under the row. */
+table.methods td.act{white-space:normal;min-width:220px}table.methods .act{display:grid;grid-template-columns:28px 1fr;align-items:start}
+table.methods .act .fold{grid-row:1/3}.act .name{font-family:var(--mono);font-size:13px;color:var(--ink);font-weight:600;overflow-wrap:anywhere}
+.act .path{display:block;grid-column:2;font-size:12px;color:var(--muted)}table.methods .act .new-badge{grid-column:2}
+.fold{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin-right:6px;border:0;border-radius:6px;background:transparent;color:var(--faint);font-size:17px;line-height:1;cursor:pointer;transition:transform .15s;vertical-align:-3px}
+.fold:hover{background:var(--raised);color:var(--ink)}
+tr[data-open] .fold,tr.dir:not([data-closed]) .fold{transform:rotate(90deg)}
+table.methods td.do{white-space:normal;min-width:260px;max-width:440px}.advice{color:var(--body)}
+tr.detail td{padding:0 18px 12px 46px;background:var(--raised);white-space:normal}
+ul.edits{margin:0;padding:10px 0 0 18px;color:var(--body);font-size:13.5px}ul.edits li{margin:2px 0}ul.edits .at{font-family:var(--mono);font-size:12.5px;margin-right:4px}
+.mutant{padding:8px 12px;border:1px solid var(--line);border-left:2px solid var(--low);border-radius:8px;background:var(--panel)}
+.mutant .at{font-family:var(--mono);font-size:12.5px;margin-right:6px}
+.note .mutant{margin-top:8px}
+
+/* The source tree: directories fold, their numbers are their files' summed, each level sits in from its parent. */
+table.tree td.path{padding-left:calc(18px + var(--depth,0)*20px)}
+tr.dir td{color:var(--ink);font-weight:600}tr.dir td.path{color:var(--ink);cursor:pointer}tr.dir .muted{font-weight:500;font-size:12px}
+
+/* The file page's toolbar: the legend, a way through the lines with survivors, and whether every note is open. */
+.legend .pager-gaps{display:inline-flex;align-items:center;gap:6px;margin-left:auto}
+.legend .pager-gaps button,.legend .toggle{padding:3px 10px;border:1px solid var(--line);border-radius:7px;background:transparent;color:var(--muted);font:500 12px/1.4 var(--sans);cursor:pointer}
+.legend .pager-gaps button:hover{color:var(--ink);border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+.legend .toggle{margin-left:0}
+.file-methods{width:calc(100% - 48px);max-width:1132px;margin:0 auto 16px}
+button.gapmk{padding:0 4px;min-width:18px;border:0;border-radius:5px;background:color-mix(in srgb,var(--low) 16%,transparent);color:var(--low);font:600 10px/1.6 var(--mono);cursor:pointer}
+button.gapmk:hover{background:color-mix(in srgb,var(--low) 30%,transparent)}
+.l.gapline.noted{background:color-mix(in srgb,var(--low) 10%,transparent)}
+.note.closed{display:none}body.allnotes .note.closed{display:block}
+
 @media (max-width:640px){.wrap{padding:0 16px}.top{position:static}.where{margin-left:0}.file-head,.stats,.legend{padding-left:16px;padding-right:16px}
-.code,.file-problems{width:calc(100% - 32px)}.note,.mbar{margin-left:16px;margin-right:16px}}
+.code,.file-methods{width:calc(100% - 32px)}.note,.mbar{margin-left:16px;margin-right:16px}}
 `;
 
 /**
@@ -881,7 +1014,7 @@ const SCRIPT = String.raw`
     if (target) {
       onSummary = false;
       var row = line ? target.querySelector('[data-n="' + line + '"]') : null;
-      if (row) { row.classList.add('flash'); row.scrollIntoView({ block: 'center' }); } else window.scrollTo(0, 0);
+      if (row) { row.classList.add('flash'); openNote(target, line, true); row.scrollIntoView({ block: 'center' }); } else window.scrollTo(0, 0);
       return;
     }
     // One view at a time: the one the hash names, or the first. A link into All problems may name the kinds to show.
@@ -909,13 +1042,18 @@ const SCRIPT = String.raw`
   // page of them. A table no longer than a page has no pager, and still filters through render.
   var SIZES = [25, 50, 100, 0];
   function render(state) {
-    var rows = Array.prototype.slice.call(state.table.tBodies[0].rows);
+    var every = Array.prototype.slice.call(state.table.tBodies[0].rows);
+    var rows = every.filter(function (row) { return !row.hasAttribute('data-detail-for'); });
     var kept = rows.filter(function (row) { return !row.hasAttribute('data-out'); });
     var size = state.size || Math.max(kept.length, 1), pages = Math.max(1, Math.ceil(kept.length / size));
     state.page = Math.min(Math.max(1, state.page), pages);
     var from = (state.page - 1) * size, to = Math.min(from + size, kept.length);
     rows.forEach(function (row) { row.hidden = true; });
     kept.slice(from, to).forEach(function (row) { row.hidden = false; });
+    every.forEach(function (row) {
+      var owner = row.hasAttribute('data-detail-for') && state.table.querySelector('tr.method[data-method="' + row.getAttribute('data-detail-for').replace(/"/g, '\\"') + '"]');
+      if (owner) row.hidden = owner.hidden || !owner.hasAttribute('data-open');
+    });
     if (rows.length <= SIZES[0]) { state.bar.hidden = true; return; }
     state.bar.hidden = false;
     var options = SIZES.map(function (value) { return '<option value="' + value + '"' + (value === state.size ? ' selected' : '') + '>' + (value ? value + ' per page' : 'All') + '</option>'; }).join('');
@@ -943,7 +1081,79 @@ const SCRIPT = String.raw`
     render(state);
   }
   function refresh(table) { if (table.pager) { table.pager.page = 1; render(table.pager); } }
-  document.querySelectorAll('#summary table.grid').forEach(paged);
+  document.querySelectorAll('#summary table.grid:not(.tree)').forEach(paged);
+
+  // A method's mutants fold under its row.
+  document.addEventListener('click', function (event) {
+    var opener = event.target.closest('[data-open-row]');
+    if (!opener) return;
+    var row = opener.closest('tr');
+    if (row.hasAttribute('data-open')) row.removeAttribute('data-open'); else row.setAttribute('data-open', '');
+    var table = row.closest('table');
+    Array.prototype.slice.call(table.tBodies[0].rows).forEach(function (other) {
+      if (other.getAttribute('data-detail-for') === row.getAttribute('data-method')) other.hidden = !row.hasAttribute('data-open');
+    });
+  });
+
+  // The source tree: a directory folds its rows, and a filter shows the files that match with the directories above them.
+  var treeFilter = '';
+  function applyTree(table) {
+    var rows = Array.prototype.slice.call(table.tBodies[0].rows), byPath = {};
+    rows.forEach(function (row) { byPath[row.getAttribute('data-path')] = row; });
+    var matches = function (row) {
+      if (!treeFilter) return true;
+      if (row.classList.contains('dir')) return rows.some(function (other) { return !other.classList.contains('dir') && other.getAttribute('data-path').indexOf(row.getAttribute('data-path') + '/') === 0 && other.getAttribute('data-path').toLowerCase().indexOf(treeFilter) >= 0; });
+      return row.getAttribute('data-path').toLowerCase().indexOf(treeFilter) >= 0;
+    };
+    rows.forEach(function (row) {
+      var folded = false, parent = row.getAttribute('data-parent');
+      while (!treeFilter && parent) { var up = byPath[parent]; if (!up) break; if (up.hasAttribute('data-closed')) folded = true; parent = up.getAttribute('data-parent'); }
+      row.hidden = folded || !matches(row);
+    });
+  }
+  document.querySelectorAll('table.tree').forEach(applyTree);
+  document.addEventListener('click', function (event) {
+    var toggle = event.target.closest('[data-toggle-dir]') || (event.target.closest('tr.dir td.path') && !event.target.closest('a') ? event.target.closest('tr.dir td.path') : null);
+    if (!toggle) return;
+    var row = toggle.closest('tr');
+    if (row.hasAttribute('data-closed')) row.removeAttribute('data-closed'); else row.setAttribute('data-closed', '');
+    applyTree(row.closest('table'));
+  });
+
+  // The test files with nothing to fix, on request.
+  document.addEventListener('click', function (event) {
+    var show = event.target.closest('[data-show-fine]');
+    if (!show) return;
+    var table = show.closest('.panel').querySelector('table');
+    Array.prototype.slice.call(table.tBodies[0].rows).forEach(function (row) { if (row.hasAttribute('data-fine')) row.removeAttribute('data-out'); });
+    refresh(table);
+    show.parentNode.hidden = true;
+  });
+
+  // Notes under the code open from the mark in the gutter, one at a time, or all at once from the toolbar.
+  function openNote(section, line, open) {
+    var note = null, row = section.querySelector('[data-n="' + line + '"]');
+    Array.prototype.slice.call(section.querySelectorAll('.note[data-line]')).forEach(function (candidate) { if (candidate.getAttribute('data-line') === String(line)) note = candidate; });
+    if (!note) return;
+    var closed = open === undefined ? !note.classList.contains('closed') : !open;
+    note.classList.toggle('closed', closed);
+    if (row) row.classList.toggle('noted', !closed);
+  }
+  document.addEventListener('click', function (event) {
+    var mark = event.target.closest('[data-toggle-note]');
+    if (mark) { openNote(mark.closest('section.file'), mark.getAttribute('data-toggle-note')); return; }
+    var step = event.target.closest('[data-gap]');
+    if (!step) return;
+    var section = step.closest('section.file');
+    var lines = Array.prototype.slice.call(section.querySelectorAll('.l.gapline')).map(function (row) { return Number(row.getAttribute('data-n')); });
+    if (!lines.length) return;
+    var middle = window.scrollY + window.innerHeight / 2, current = null;
+    Array.prototype.slice.call(section.querySelectorAll('.l.gapline')).forEach(function (row) { if (row.getBoundingClientRect().top + window.scrollY <= middle) current = Number(row.getAttribute('data-n')); });
+    var at = current === null ? -1 : lines.indexOf(current);
+    var next = lines[Math.min(lines.length - 1, Math.max(0, at + Number(step.getAttribute('data-gap'))))];
+    if (current !== null && at + Number(step.getAttribute('data-gap')) < 0) next = lines[0];
+    location.hash = 'file=' + encodeURIComponent(section.getAttribute('data-path')) + '&line=' + next;
+  });
 
   document.querySelectorAll('table.sortable').forEach(function (table) {
     var heads = Array.prototype.slice.call(table.querySelectorAll('thead th'));
@@ -966,7 +1176,9 @@ const SCRIPT = String.raw`
 
   document.querySelectorAll('.filter-files').forEach(function (filter) { filter.addEventListener('input', function () {
     var text = filter.value.toLowerCase();
+    treeFilter = text;
     document.querySelectorAll('table.files').forEach(function (table) {
+      if (table.classList.contains('tree')) { applyTree(table); return; }
       Array.prototype.slice.call(table.tBodies[0].rows).forEach(function (row) {
         if (text && row.getAttribute('data-path').toLowerCase().indexOf(text) < 0) row.setAttribute('data-out', ''); else row.removeAttribute('data-out');
       });
@@ -1015,9 +1227,11 @@ const SCRIPT = String.raw`
   }
   function shownIn(scope) {
     var ids = [];
+    var take = function (id) { if (fixData.steps[id] && ids.indexOf(id) < 0) ids.push(id); };
+    scope.querySelectorAll('tr.method[data-ids]').forEach(function (row) { if (row.getClientRects().length) row.getAttribute('data-ids').split(',').forEach(take); });
     scope.querySelectorAll('[data-finding]').forEach(function (element) {
-      var id = element.getAttribute('data-finding');
-      if (element.getClientRects().length && fixData.steps[id] && ids.indexOf(id) < 0) ids.push(id);
+      if (element.getClientRects().length && !element.closest('tr.detail')) take(element.getAttribute('data-finding'));
+      else if (element.closest('tr.detail') && element.closest('tr.detail').previousElementSibling && element.closest('tr.detail').previousElementSibling.getClientRects().length) take(element.getAttribute('data-finding'));
     });
     return ids;
   }
@@ -1048,6 +1262,12 @@ const SCRIPT = String.raw`
   document.addEventListener('click', function (event) {
     var owner = event.target.closest('[data-finding]');
     if (event.target.closest('[data-copy]') && owner) { copyPrompt(promptFor([owner.getAttribute('data-finding')])); return; }
+    var byIds = event.target.closest('[data-copy-ids]');
+    if (byIds) {
+      var ids = byIds.closest('tr').getAttribute('data-ids').split(',').filter(function (id) { return fixData.steps[id] && dismissedIds().indexOf(id) < 0; });
+      if (ids.length) copyPrompt(promptFor(ids), ids.length); else say('Every mutant here is dismissed.');
+      return;
+    }
     var all = event.target.closest('[data-copy-all]');
     if (all) {
       var ids = shownIn(all.closest('.panel') || document);
@@ -1107,7 +1327,7 @@ const SCRIPT = String.raw`
 
   document.querySelectorAll('.notes-toggle').forEach(function (box) {
     box.addEventListener('change', function () {
-      document.body.classList.toggle('nonotes', !box.checked);
+      document.body.classList.toggle('allnotes', box.checked);
       document.querySelectorAll('.notes-toggle').forEach(function (other) { other.checked = box.checked; });
     });
   });

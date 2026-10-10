@@ -123,6 +123,32 @@ if (process.argv.includes('--showConfig')) {
     expect(out).not.toContain('lib/src/main/java/demo/Cart.java');
   });
 
+  it("reads Karma's files from its basePath, and an absolute one as it is", async () => {
+    const { scope, tests, sources } = await scoped({
+      'package.json': JSON.stringify({ name: 'shop', private: true, devDependencies: { karma: '*' } }),
+      'config/karma.conf.js': "const path = require('path');\nmodule.exports = config => config.set({ basePath: '..', frameworks: ['jasmine'], files: ['src/**/*.js', path.join(__dirname, '../spec/**/*.spec.js')] });\n",
+      'src/cart.js': 'function total(a, b) {\n  return a + b;\n}\n',
+      'spec/cart.spec.js': "describe('total', () => {\n  it('adds', () => {\n    expect(total(1, 2)).toBe(3);\n  });\n});\n",
+    });
+    expect(scope.frameworks).toEqual([expect.objectContaining({ name: 'Karma', config: 'config/karma.conf.js', error: null, tests: 1 })]);
+    expect(tests).toEqual(['spec/cart.spec.js']);
+    expect(sources).toEqual(['src/cart.js']);
+  }, 60000);
+
+  it("takes Cucumber's feature files as tests beside another framework's, and the code its step definitions import", async () => {
+    const { scope, sources } = await scoped({
+      'package.json': JSON.stringify({ name: 'shop', private: true, devDependencies: { mocha: '*', '@cucumber/cucumber': '*' } }),
+      'src/cart.js': 'function total(a, b) {\n  return a + b;\n}\nmodule.exports = { total };\n',
+      'src/shipping.js': 'function shipping(total) {\n  return total > 50 ? 0 : 5;\n}\nmodule.exports = { shipping };\n',
+      'test/cart.test.js': "const { total } = require('../src/cart');\ndescribe('total', () => {\n  it('adds', () => {\n    if (total(1, 2) !== 3) throw new Error('wrong');\n  });\n});\n",
+      'features/shipping.feature': 'Feature: Shipping\n  Scenario: Small orders pay\n    Given a total of 20\n    Then shipping is 5\n',
+      'features/steps/shipping.js': "const { Given, Then } = require('@cucumber/cucumber');\nconst { shipping } = require('../../src/shipping');\nGiven('a total of {int}', function (total) { this.total = total; });\nThen('shipping is {int}', function (expected) { if (shipping(this.total) !== expected) throw new Error('wrong'); });\n",
+    });
+    expect(scope.frameworks.map(framework => framework.name)).toContain('Cucumber');
+    expect(scope.test('features/shipping.feature')).toBe(true);
+    expect(sources).toEqual(['src/cart.js', 'src/shipping.js']);
+  }, 60000);
+
   it('loads no config under a path perch.yaml ignores', async () => {
     const root = await mkdtemp(join(tmpdir(), 'perch-scope-'));
     cleanups.push(root);

@@ -4,20 +4,10 @@
 # A test's graph holds the code it reaches, nearest first, and the helpers of its own it calls through; the test also carries its
 # `mocks` and the network and database calls perch found along its reach (`reachable_io`), with the methods that make them in
 # its graph.
-# A method is asked about one mutant at a time: `mutation` is one edit to it, `edit` saying what changed, `original` the code as
-# written and `mutated` as changed, and its graph holds the tests that reach it, each noted `test 1`, `test 2` and so on. `kills` is asked once per test
-# shown, as `kills_1`, `kills_2` and so on, naming the test; `matters` once per mutant.
+# A method is asked about one mutant its tests let survive, after perch ran them: `mutation` is the edit, `edit` saying what
+# changed, `original` the code as written and `mutated` as changed, and its graph holds the method's callers. `matters` is asked
+# once per survivor.
 # infra is asked only of a test with a network or database call in reach.
-
-- name: kills
-  each: method
-  where: "**/*"
-  ask: >
-    `method` is shown as written, and `mutation` is one edit to it: `edit` says what changed, `original` is the code as written
-    and `mutated` is the code as changed. Follow the inputs the named test passes through the code it reaches in `graph`. Run
-    against the changed method, would that test fail?
-  "true": "It fails: with the change, an assertion or expectation it makes no longer holds, or the call raises"
-  "false": "It still passes: with the inputs it passes, the changed code gives the same result and leaves the same state, or nothing it checks depends on it"
 
 - name: matters
   each: method

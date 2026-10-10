@@ -219,3 +219,185 @@ describe('method graph', () => {
     expect(graph.callees('tests/test_order.py::test_total')).toEqual([]);
   });
 });
+
+describe('a method called on a parameter', () => {
+  /** Analyze an in-memory repository the way a scan does, and build its graph. */
+  async function repository(files) {
+    const { analyzeFiles } = await import('../src/analysis.js');
+    const { createAnalyzer } = await import('../src/treesitter/index.ts');
+    const scan = await analyzeFiles(Object.keys(files).map(path => ({ type: 'blob', path, sha: path })), { analyzer: createAnalyzer(), readSource: file => files[file.path] });
+    return buildGraph(scan.files);
+  }
+
+  it('is the method of what each caller passes, through a destructured option', async () => {
+    const graph = await repository({
+      'src/parse.js': 'export class Parser {\n  parse(files) {\n    return files.length;\n  }\n}\n\nexport function createParser() {\n  return new Parser();\n}\n',
+      'src/run.js': 'export function run(files, { parser, debug = () => {} }) {\n  debug(files);\n  return parser.parse(files);\n}\n',
+      'test/run.test.js': "import { createParser } from '../src/parse.js';\nimport { run } from '../src/run.js';\n\nconst parser = createParser();\n\ntest('runs', () => {\n  expect(run([], { parser })).toBe(0);\n});\n",
+    });
+    // run's `parser` is what its caller passed: the parser createParser returns, a Parser, whose parse it calls.
+    expect(graph.callees('src/run.js::run')).toEqual(['src/parse.js::Parser.parse']);
+    expect(graph.callers('src/parse.js::Parser.parse')).toEqual(['src/run.js::run']);
+    expect(graph.nodes.get('src/run.js::run').params).toEqual([{ name: 'files', index: 0 }, { name: 'parser', index: 1, field: 'parser' }, { name: 'debug', index: 1, field: 'debug' }]);
+  });
+
+  it('follows a positional parameter and a keyword one', async () => {
+    const graph = await repository({
+      'shop/parse.py': 'class Parser:\n    def parse(self, files):\n        return len(files)\n\n\nclass Reader:\n    def parse(self, files):\n        return 0\n',
+      'shop/run.py': 'def run(files, parser, reader=None):\n    reader.parse(files)\n    return parser.parse(files)\n',
+      'tests/test_run.py': 'from shop.parse import Parser, Reader\nfrom shop.run import run\n\n\ndef test_run():\n    assert run([], Parser(), reader=Reader()) == 0\n',
+    });
+    expect(graph.callees('shop/run.py::run').sort()).toEqual(['shop/parse.py::Parser.parse', 'shop/parse.py::Reader.parse']);
+  });
+
+  it('reaches every class the callers pass, and nothing for a parameter nobody passes a value for', async () => {
+    const graph = await repository({
+      'src/kinds.js': 'export class A {\n  go() {\n    return 1;\n  }\n}\nexport class B {\n  go() {\n    return 2;\n  }\n}\n',
+      'src/run.js': 'export function run(thing) {\n  return thing.go();\n}\nexport function idle(thing) {\n  return thing.go();\n}\n',
+      'test/run.test.js': "import { A, B } from '../src/kinds.js';\nimport { run } from '../src/run.js';\n\ntest('a', () => { run(new A()); });\ntest('b', () => { run(new B()); });\n",
+    });
+    expect(graph.callees('src/run.js::run').sort()).toEqual(['src/kinds.js::A.go', 'src/kinds.js::B.go']);
+    expect(graph.callees('src/run.js::idle')).toEqual([]);
+  });
+});
+
+describe('functions handed over and objects handed back', () => {
+  async function repository(files) {
+    const { analyzeFiles } = await import('../src/analysis.js');
+    const { createAnalyzer } = await import('../src/treesitter/index.ts');
+    const scan = await analyzeFiles(Object.keys(files).map(path => ({ type: 'blob', path, sha: path })), { analyzer: createAnalyzer(), readSource: file => files[file.path] });
+    return buildGraph(scan.files);
+  }
+
+  it('calls the function a caller passed for a parameter', async () => {
+    const graph = await repository({
+      'src/read.js': 'export async function readAll(files, { readSource }) {\n  return Promise.all(files.map(file => readSource(file)));\n}\n',
+      'src/tree.js': "import { readAll } from './read.js';\n\nexport function load(root, files) {\n  return readAll(files, { readSource: file => fromDisk(root, file) });\n}\n\nfunction fromDisk(root, file) {\n  return root + file;\n}\n",
+    });
+    // readAll's readSource is the function load wrote in place, so readAll reaches it, and through it fromDisk.
+    expect(graph.callees('src/read.js::readAll')).toEqual(['src/tree.js::load.readSource']);
+    expect(graph.callees('src/tree.js::load.readSource')).toEqual(['src/tree.js::fromDisk']);
+  });
+
+  it('finds a member of the object a factory returns', async () => {
+    const graph = await repository({
+      'src/counter.js': 'export function liveCounter(io) {\n  const draw = () => io.write(count);\n  let count = 0;\n  return { draw, update(n) { count = n; draw(); }, stop: () => io.clear() };\n}\n',
+      'src/scan.js': "import { liveCounter } from './counter.js';\n\nexport function scan(io) {\n  const files = liveCounter(io);\n  files.update(3);\n  files.stop();\n}\n",
+    });
+    expect(graph.callees('src/scan.js::scan').sort()).toEqual(['src/counter.js::liveCounter', 'src/counter.js::liveCounter.stop', 'src/counter.js::liveCounter.update']);
+    expect(graph.callees('src/counter.js::liveCounter.update')).toEqual(['src/counter.js::liveCounter.draw']);
+  });
+
+  it('reads a getter as the call it is', async () => {
+    const graph = await repository({
+      'src/node.js': 'export class Node {\n  constructor(native) { this.native = native; }\n  get type() { return this.native.kind(); }\n}\n',
+      'src/walk.js': "import { Node } from './node.js';\n\nexport function kindOf(native) {\n  const node = new Node(native);\n  return node.type;\n}\n",
+    });
+    expect(graph.callees('src/walk.js::kindOf').sort()).toEqual(['src/node.js::Node.constructor', 'src/node.js::Node.type']);
+  });
+});
+
+describe('a table of functions called through a key', () => {
+  it('reaches every function in the table, and one by name when the key is written', async () => {
+    const { analyzeFiles } = await import('../src/analysis.js');
+    const { createAnalyzer } = await import('../src/treesitter/index.ts');
+    const files = {
+      'src/cli.js': "const commands = {\n  scan(io) { return 3; },\n  coverage(io) { return 4; },\n  help: () => 0,\n};\n\nexport function main(name, io) {\n  return commands[name](io);\n}\n\nexport function usage(io) {\n  return commands['help'](io);\n}\n",
+    };
+    const scan = await analyzeFiles(Object.keys(files).map(path => ({ type: 'blob', path, sha: path })), { analyzer: createAnalyzer(), readSource: file => files[file.path] });
+    const graph = buildGraph(scan.files);
+    expect(graph.callees('src/cli.js::main').sort()).toEqual(['src/cli.js::commands.coverage', 'src/cli.js::commands.help', 'src/cli.js::commands.scan']);
+    expect(graph.isDynamic('src/cli.js::main', 'src/cli.js::commands.scan')).toBe(true);
+    expect(graph.callees('src/cli.js::usage')).toEqual(['src/cli.js::commands.help']);
+  });
+});
+
+describe('a function written inside another', () => {
+  it('is reached by its parent, whoever calls it', async () => {
+    const { analyzeFiles } = await import('../src/analysis.js');
+    const { createAnalyzer } = await import('../src/treesitter/index.ts');
+    const files = {
+      'src/visit.js': 'export function walk(root, visitors) {\n  for (const visitor of visitors.filter(v => v.enter)) visitor.enter(root);\n}\n',
+      'src/read.js': "import { walk } from './visit.js';\n\nexport function readAll(root) {\n  const seen = [];\n  walk(root, [{ enter: node => seen.push(mark(node)) }]);\n  return seen;\n}\n\nfunction mark(node) {\n  return node.id;\n}\n",
+    };
+    const scan = await analyzeFiles(Object.keys(files).map(path => ({ type: 'blob', path, sha: path })), { analyzer: createAnalyzer(), readSource: file => files[file.path] });
+    const graph = buildGraph(scan.files);
+    // walk calls enter through a visitor it was handed; the graph cannot name that, but readAll wrote enter and so reaches it.
+    expect(graph.callees('src/read.js::readAll').sort()).toEqual(['src/read.js::readAll.enter', 'src/visit.js::walk']);
+    expect(graph.isDynamic('src/read.js::readAll', 'src/read.js::readAll.enter')).toBe(true);
+    expect(graph.callees('src/read.js::readAll.enter')).toEqual(['src/read.js::mark']);
+  });
+});
+
+describe('what a call may run besides what it names', () => {
+  async function repository(files, options = {}) {
+    const { analyzeFiles } = await import('../src/analysis.js');
+    const { createAnalyzer } = await import('../src/treesitter/index.ts');
+    const scan = await analyzeFiles(Object.keys(files).map(path => ({ type: 'blob', path, sha: path })), { analyzer: createAnalyzer(), readSource: file => files[file.path] });
+    return buildGraph(scan.files, options);
+  }
+
+  it('reaches every override of a method called on its base, anonymous classes included, and every overload of a name', async () => {
+    const graph = await repository({
+      'src/Adapter.java': 'public abstract class Adapter<T> {\n  public abstract void write(Writer out, T value);\n}\n',
+      'src/Adapters.java': 'public class Adapters {\n  public static final Adapter<Boolean> BOOLEAN = new Adapter<Boolean>() {\n    public void write(Writer out, Boolean value) {\n      out.value(value);\n    }\n  };\n\n  static Adapter<Long> longAdapter() {\n    return new Adapter<Long>() {\n      public void write(Writer out, Long value) {\n        out.value(value);\n      }\n    };\n  }\n}\n',
+      'src/Gson.java': 'public class Gson {\n  public void toJson(Object value) {\n    toJson(value, null);\n  }\n\n  public void toJson(Object value, Writer out) {\n    Adapter<Object> adapter = getAdapter(value);\n    adapter.write(out, value);\n  }\n\n  Adapter<Object> getAdapter(Object value) {\n    return null;\n  }\n}\n',
+      'test/GsonTest.java': 'class GsonTest {\n  @Test\n  void writesBoolean() {\n    new Gson().toJson(true);\n  }\n}\n',
+    });
+    // The anonymous class a field holds is named by the field; one a method returns by the method. Each extends Adapter.
+    expect(graph.files.get('src/Adapters.java').file.bases).toEqual({ 'Adapters.BOOLEAN': ['Adapter'], 'Adapters.longAdapter': ['Adapter'] });
+    expect([...graph.nodes.keys()].filter(id => id.endsWith('.write'))).toEqual(['src/Adapter.java::Adapter.write', 'src/Adapters.java::Adapters.BOOLEAN.write', 'src/Adapters.java::Adapters.longAdapter.write']);
+    // `adapter.write(..)` on an Adapter runs whichever adapter was built: the abstract method, and every write written for one.
+    expect(graph.callees('src/Gson.java::Gson.toJson#2').sort()).toEqual(['src/Adapter.java::Adapter.write', 'src/Adapters.java::Adapters.BOOLEAN.write', 'src/Adapters.java::Adapters.longAdapter.write', 'src/Gson.java::Gson.getAdapter']);
+    expect(graph.isDynamic('src/Gson.java::Gson.toJson#2', 'src/Adapters.java::Adapters.BOOLEAN.write')).toBe(true);
+    expect(graph.isDynamic('src/Gson.java::Gson.toJson#2', 'src/Adapter.java::Adapter.write')).toBe(false);
+    // A call by a name a class declares twice reaches both overloads whose parameters take what was passed.
+    expect(graph.callees('test/GsonTest.java::GsonTest.writesBoolean').sort()).toEqual(['src/Gson.java::Gson.toJson', 'src/Gson.java::Gson.toJson#2']);
+    expect(graph.isDynamic('test/GsonTest.java::GsonTest.writesBoolean', 'src/Gson.java::Gson.toJson#2')).toBe(true);
+  });
+
+  it('names a Rust impl by its type, records the trait it implements, and reaches the methods of a value handed to a call on an untyped parameter', async () => {
+    const graph = await repository({
+      'src/ser.rs': "pub struct Serializer<W> {\n    writer: W,\n}\n\nimpl<W> Serializer<W> {\n    pub fn new(writer: W) -> Self {\n        Serializer { writer }\n    }\n}\n\nimpl<'a, W> ser::Serializer for &'a mut Serializer<W> {\n    fn serialize_u64(self, value: u64) -> Result<()> {\n        self.writer.write(value)\n    }\n}\n\npub fn to_writer<W, T: Serialize>(writer: W, value: &T) {\n    let mut ser = Serializer::new(writer);\n    value.serialize(&mut ser);\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn writes() {\n        to_writer(Vec::new(), &1u64);\n    }\n}\n",
+    });
+    // The trait's methods belong to Serializer, not to `&'a mut Serializer<W>`.
+    expect([...graph.nodes.keys()].filter(id => id.includes('serialize_u64'))).toEqual(['src/ser.rs::Serializer.serialize_u64']);
+    expect(graph.files.get('src/ser.rs').file.bases).toEqual({ Serializer: ['Serializer'] });
+    // `value.serialize(&mut ser)`: value is any T, so whatever serialize runs may call any method of the Serializer it was handed.
+    expect(graph.callees('src/ser.rs::to_writer').sort()).toEqual(['src/ser.rs::Serializer.new', 'src/ser.rs::Serializer.serialize_u64']);
+    expect(graph.isDynamic('src/ser.rs::to_writer', 'src/ser.rs::Serializer.serialize_u64')).toBe(true);
+    expect(graph.callers('src/ser.rs::to_writer')).toEqual(['src/ser.rs::writes']);
+  });
+
+  it('reads a call on a bounded type parameter as a call on the trait, and runs every implementation', async () => {
+    const graph = await repository({
+      'src/read.rs': "pub trait Read<'de> {\n    fn next(&mut self) -> Option<u8>;\n}\n\npub struct SliceRead<'a> {\n    slice: &'a [u8],\n}\n\nimpl<'a> Read<'a> for SliceRead<'a> {\n    fn next(&mut self) -> Option<u8> {\n        self.slice.first().copied()\n    }\n}\n\npub struct StrRead<'a> {\n    delegate: SliceRead<'a>,\n}\n\nimpl<'a> Read<'a> for StrRead<'a> {\n    fn next(&mut self) -> Option<u8> {\n        self.delegate.next()\n    }\n}\n",
+      'src/de.rs': "use crate::read::Read;\n\npub struct Deserializer<R> {\n    read: R,\n}\n\nimpl<'de, R: Read<'de>> Deserializer<R> {\n    pub fn new(read: R) -> Self {\n        Deserializer { read }\n    }\n\n    pub fn peek(&mut self) -> Option<u8> {\n        self.read.next()\n    }\n}\n\npub fn parse<V>(visitor: V) where V: Visitor {\n    visitor.visit()\n}\n\npub fn from_trait<R, T>(read: R) -> T where R: Read<'static>, T: Deserialize {\n    let mut de = Deserializer::new(read);\n    tri!(T::deserialize(&mut de))\n}\n",
+    });
+    // The field `read: R` is a Read, by R's bound; the trait declares next without a body, a declaration the call resolves to
+    // that runs every implementation, as a Java abstract method does.
+    expect(graph.files.get('src/de.rs').file.binds.find(item => item.name === 'this.read')).toMatchObject({ type: 'Read' });
+    expect(graph.files.get('src/de.rs').file.binds.find(item => item.name === 'visitor')).toMatchObject({ type: 'Visitor' });
+    expect(graph.callees('src/de.rs::Deserializer.peek').sort()).toEqual(['src/read.rs::Read.next', 'src/read.rs::SliceRead.next', 'src/read.rs::StrRead.next']);
+    expect(graph.isDynamic('src/de.rs::Deserializer.peek', 'src/read.rs::Read.next')).toBe(false);
+    expect(graph.isDynamic('src/de.rs::Deserializer.peek', 'src/read.rs::StrRead.next')).toBe(true);
+    // A concrete field runs its own type's method, and nothing else.
+    expect(graph.callees('src/read.rs::StrRead.next')).toEqual(['src/read.rs::SliceRead.next']);
+    // `tri!(T::deserialize(&mut de))`: the call inside the macro hands the deserializer on, so from_trait reaches its methods.
+    expect(graph.callees('src/de.rs::from_trait').sort()).toEqual(['src/de.rs::Deserializer.new', 'src/de.rs::Deserializer.peek']);
+    expect(graph.isDynamic('src/de.rs::from_trait', 'src/de.rs::Deserializer.peek')).toBe(true);
+  });
+
+  it('gives a decorated definition the class its decorator makes', async () => {
+    const graph = await repository({
+      'cli/core.py': 'class Command:\n    def __init__(self, name, callback):\n        self.name = name\n        self.callback = callback\n\n    def main(self, args):\n        return self.callback()\n',
+      'cli/decorators.py': 'from .core import Command\n\n\ndef command(name=None, cls=None):\n    if cls is None:\n        cls = Command\n\n    def decorator(f):\n        return cls(name, f)\n\n    return decorator\n',
+      'cli/testing.py': 'class Runner:\n    def invoke(self, cli, args):\n        return cli.main(args)\n',
+      'tests/test_cli.py': 'from cli.decorators import command\nfrom cli.testing import Runner\n\n\ndef test_hello():\n    @command()\n    def hello():\n        return 1\n\n    assert Runner().invoke(hello, []) == 1\n',
+    });
+    // `@command()` over `def hello()` leaves hello holding the Command the decorator built, so the runner's `cli.main` is Command's.
+    expect(graph.nodes.get('tests/test_cli.py::test_hello.hello').decorators).toEqual(['command']);
+    expect(graph.callees('cli/testing.py::Runner.invoke')).toEqual(['cli/core.py::Command.main']);
+  });
+});
+

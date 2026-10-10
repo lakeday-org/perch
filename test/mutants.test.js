@@ -14,14 +14,23 @@ describe('mutants', () => {
       'condition 2 a >= 100 && !b>true', 'condition 2 a >= 100 && !b>false', 'boundary 2 >=>>', 'number 2 100>101', 'logic 2 &&>||', 'not 2 !b>b', 'return 2 0>1',
       // A loop is only ever forced false: forced true it would never end.
       'condition 3 a < b>false', 'boundary 3 <><=', 'update 3 ++>--',
-      // A returned expression that is no literal is returned as null in a language where that runs.
-      'return 4 a - b * 2 ? true : false>null', 'arithmetic 4 ->+', 'arithmetic 4 *>/', 'number 4 2>3', 'boolean 4 true>false', 'boolean 4 false>true',
+      // A returned expression that is no literal is returned as null in a language where that runs; a ternary's condition is
+      // forced each way like an if's.
+      'condition 4 a - b * 2>true', 'condition 4 a - b * 2>false', 'return 4 a - b * 2 ? true : false>null', 'arithmetic 4 ->+', 'arithmetic 4 *>/', 'number 4 2>3', 'boolean 4 true>false', 'boolean 4 false>true',
     ]);
-    // No cap: a method with seventeen mutants is asked about seventeen, the whole body emptied among them.
-    expect(mutants).toHaveLength(17);
+    // No cap: a method with nineteen mutants is asked about nineteen, the whole body emptied among them.
+    expect(mutants).toHaveLength(19);
     expect(bodies(mutants)).toEqual(['1 {}']);
     expect(mutants[3]).toMatchObject({ line: 2, column: 8, original: '  if (a >= 100 && !b) return 0;', mutated: '  if (a > 100 && !b) return 0;' });
     for (const mutant of mutants) expect(KINDS).toContain(mutant.kind);
+  });
+
+  it('leaves types alone, which change nothing a test runs', () => {
+    const ts = 'function f(a: 0 | 1, b: Array<"x">): 2 | 3 {\n  const c: Record<"k", 4> = { k: 4 };\n  return a + 5;\n}\n';
+    expect(edits(mutantsOf({ source: ts, language: 'typescript', line: 1, end_line: 4 }))).toEqual([
+      'collection 2 { k: 4 }>{}', 'number 2 4>5', 'arithmetic 3 +>-', 'number 3 5>6']);
+    const py = 'def f(a: Literal[1] = 2) -> "str":\n    return a\n';
+    expect(edits(mutantsOf({ source: py, language: 'python', line: 1, end_line: 2 }))).toEqual(['number 1 2>3', 'return 2 a>None']);
   });
 
   it('removes calls, empties bodies, empties strings and replaces returned values', () => {
@@ -48,7 +57,7 @@ describe('mutants', () => {
   it('leaves names, loads and docstrings alone', () => {
     // super() stays, require's argument is a name, an object's key is a name but its value is a value, "use strict" is a statement.
     const source = 'class A extends B {\n  constructor() {\n    super();\n    const fs = require("node:fs");\n    this.map = { key: "value" };\n    "use strict";\n  }\n}\n';
-    expect(edits(mutantsOf({ source, language: 'javascript', line: 2, end_line: 7 }))).toEqual(['string 5 "value">""']);
+    expect(edits(mutantsOf({ source, language: 'javascript', line: 2, end_line: 7 }))).toEqual(['collection 5 { key: "value" }>{}', 'string 5 "value">""']);
     const python = 'def f(items):\n    """Saves."""\n    import os\n    if items:\n        save(items)\n        log("saved")\n    return [1, -2]\n';
     const mutants = mutantsOf({ source: python, language: 'python', line: 1, end_line: 7 });
     expect(edits(mutants)).toEqual([
@@ -153,6 +162,84 @@ describe('mutants', () => {
     // A type with no zero every test would compile against gets no body mutant, and nor does a body that is empty already.
     expect(body('class C {\n  Map<String, Integer> f(int a) {\n    return g(a);\n  }\n}\n', 'java', 2, 4)).toEqual([]);
     expect(body('function f() {}\n', 'javascript', 1, 1)).toEqual([]);
+  });
+
+  it('swaps a method for its opposite or drops its call, in each language\'s own names', () => {
+    const js = 'function f(a, b, items) {\n  const t = a.trim().toUpperCase();\n  const m = Math.min(a, b);\n  return items.filter(i => i.ok);\n}\n';
+    expect(edits(mutantsOf({ source: js, language: 'javascript', line: 1, end_line: 5 })).filter(edit => edit.startsWith('method'))).toEqual([
+      'method 2 a.trim()>a', 'method 2 toUpperCase>toLowerCase', 'method 3 min>max', 'method 4 items.filter(i => i.ok)>items',
+    ]);
+    const dropped = mutantsOf({ source: js, language: 'javascript', line: 1, end_line: 5 }).find(mutant => mutant.kind === 'method');
+    expect(describeMutant(dropped)).toBe('the call to `trim` removed');
+    expect(describeMutant({ kind: 'method', from: 'startsWith', to: 'endsWith' })).toBe('`endsWith` instead of `startsWith`');
+    // A free function too: sorted(items) is items, and the name of the module it comes from stays with it.
+    const python = 'def f(a, items):\n    t = a.strip().upper()\n    return sorted(items), min(1, 2)\n';
+    expect(edits(mutantsOf({ source: python, language: 'python', line: 1, end_line: 3 })).filter(edit => edit.startsWith('method'))).toEqual([
+      'method 2 a.strip()>a', 'method 2 upper>lower', 'method 3 sorted(items)>items', 'method 3 min>max']);
+    const go = 'package p\nfunc f(a string) string {\n  return strings.ToUpper(strings.TrimSpace(a))\n}\n';
+    expect(edits(mutantsOf({ source: go, language: 'go', line: 2, end_line: 4 })).filter(edit => edit.startsWith('method'))).toEqual([
+      'method 3 strings.ToUpper>strings.ToLower', 'method 3 strings.TrimSpace(a)>a']);
+    // Ruby and Scala call without parentheses; Kotlin and Swift chain through a navigation suffix; C# and Java name the member.
+    const ruby = 'def f(a, items)\n  t = a.strip.upcase\n  items.select { |i| i }.sort\nend\n';
+    expect(edits(mutantsOf({ source: ruby, language: 'ruby', line: 1, end_line: 4 })).filter(edit => edit.startsWith('method'))).toEqual([
+      'method 2 a.strip>a', 'method 2 upcase>downcase', 'method 3 items.select { |i| i }.sort>items.select { |i| i }', 'method 3 items.select { |i| i }>items']);
+    const scala = 'object S { def f(a: String, items: List[Int]): List[Int] = {\n  val t = a.trim.toUpperCase\n  items.filter(_ > 0).sorted\n} }\n';
+    expect(edits(mutantsOf({ source: scala, language: 'scala', line: 1, end_line: 4 })).filter(edit => edit.startsWith('method'))).toEqual([
+      'method 2 a.trim>a', 'method 2 toUpperCase>toLowerCase', 'method 3 items.filter(_ > 0).sorted>items.filter(_ > 0)', 'method 3 items.filter(_ > 0)>items']);
+    const kotlin = 'fun f(a: String, items: List<Int>): List<Int> {\n  val t = a.trim().uppercase()\n  return items.filter { it > 0 }.sorted()\n}\n';
+    expect(edits(mutantsOf({ source: kotlin, language: 'kotlin', line: 1, end_line: 4 })).filter(edit => edit.startsWith('method'))).toEqual([
+      'method 2 a.trim()>a', 'method 2 uppercase>lowercase', 'method 3 items.filter { it > 0 }.sorted()>items.filter { it > 0 }', 'method 3 items.filter { it > 0 }>items']);
+    const csharp = 'class S { int F(string a, int[] items) {\n  var t = a.Trim().ToUpper();\n  return items.Where(i => i > 0).Count();\n} }\n';
+    expect(edits(mutantsOf({ source: csharp, language: 'c_sharp', line: 1, end_line: 4 })).filter(edit => edit.startsWith('method'))).toEqual([
+      'method 2 a.Trim()>a', 'method 2 ToUpper>ToLower', 'method 3 items.Where(i => i > 0)>items']);
+    const java = 'class S { int f(String a, java.util.List<Integer> items) {\n  String t = a.trim().toUpperCase();\n  return items.stream().filter(i -> i > 0).toList().size();\n} }\n';
+    expect(edits(mutantsOf({ source: java, language: 'java', line: 1, end_line: 4 })).filter(edit => edit.startsWith('method'))).toEqual([
+      'method 2 a.trim()>a', 'method 2 toUpperCase>toLowerCase', 'method 3 items.stream().filter(i -> i > 0)>items.stream()']);
+    const rust = 'fn f(a: &str, items: Vec<i32>) -> usize {\n  let t = a.trim().to_uppercase();\n  items.iter().filter(|i| **i > 0).count()\n}\n';
+    expect(edits(mutantsOf({ source: rust, language: 'rust', line: 1, end_line: 4 })).filter(edit => edit.startsWith('method'))).toEqual([
+      'method 2 a.trim()>a', 'method 2 to_uppercase>to_lowercase', 'method 3 items.iter().filter(|i| **i > 0)>items.iter()']);
+    const php = '<?php\nfunction f($a, $items) {\n  $t = strtoupper(trim($a));\n  return array_filter($items);\n}\n';
+    expect(edits(mutantsOf({ source: php, language: 'php', line: 2, end_line: 5 })).filter(edit => edit.startsWith('method'))).toEqual([
+      'method 3 strtoupper>strtolower', 'method 3 trim($a)>$a', 'method 4 array_filter($items)>$items']);
+  });
+
+  it('finds nothing to swap in a method Object has a property for', () => {
+    // toString, valueOf and constructor are properties of every plain object; the tables are looked up as tables, not objects.
+    const source = 'function f(a) {\n  return a.toString() + a.valueOf() + a.constructor() + hasOwnProperty(a);\n}\n';
+    expect(edits(mutantsOf({ source, language: 'javascript', line: 1, end_line: 3 })).filter(edit => edit.startsWith('method'))).toEqual([]);
+  });
+
+  it('empties collections, fills empty ones, makes chains unconditional, blanks arrow functions and edits patterns', () => {
+    const js = 'function f(a, items) {\n  const x = a?.b?.(1)?.[0];\n  const arr = [1, 2], empty = [], obj = { k: 1 }, s = "", r = /^a+\\d?$/g;\n  const g = x => x + 1;\n  for (let i = 0; i < 3; i++) {}\n  a ??= 1; a %= 2;\n  return a ?? items;\n}\n';
+    const mutants = mutantsOf({ source: js, language: 'javascript', line: 1, end_line: 8 });
+    expect(edits(mutants).filter(edit => !/^(number|boundary|arithmetic|update 5|return)/.test(edit))).toEqual([
+      // One `?.` each on the member, the call and the subscript; the member's becomes `.`, the others go.
+      'chaining 2 ?.>.', 'chaining 2 ?.>', 'chaining 2 ?.>',
+      'collection 3 [1, 2]>[]', 'collection 3 []>["perch was here"]', 'collection 3 { k: 1 }>{}', 'string 3 "">"perch was here"',
+      'regex 3 ^a+\\d?$>a+\\d?$', 'regex 3 ^a+\\d?$>^a+\\d?', 'regex 3 ^a+\\d?$>^a*\\d?$', 'regex 3 ^a+\\d?$>^a+\\D?$', 'regex 3 ^a+\\d?$>^a+\\d$',
+      'lambda 4 x + 1>undefined',
+      'condition 5 i < 3>false',
+      'update 6 ??=>&&=', 'update 6 %=>*=',
+      'logic 7 ??>&&',
+    ]);
+    expect(describeMutant(mutants.find(mutant => mutant.kind === 'chaining'))).toBe('the optional `?.` made unconditional');
+    expect(describeMutant(mutants.find(mutant => mutant.kind === 'lambda'))).toBe('the arrow function returning `undefined`');
+    expect(mutants.find(mutant => mutant.kind === 'regex')).toMatchObject({ column: 63, original: '  const arr = [1, 2], empty = [], obj = { k: 1 }, s = "", r = /^a+\\d?$/g;', mutated: '  const arr = [1, 2], empty = [], obj = { k: 1 }, s = "", r = /a+\\d?$/g;' });
+    // `??` becomes `&&` only where `&&` takes any value; a typed language's `??` is left alone.
+    expect(edits(mutantsOf({ source: 'class S { int F(int? a) { return a ?? 2; } }\n', language: 'c_sharp', line: 1, end_line: 1 })).filter(edit => edit.startsWith('logic'))).toEqual([]);
+    // Ruby's `&.`, PHP's `?->`, Kotlin's `?.` made unconditional in each language's spelling; C#'s `?.` likewise.
+    expect(edits(mutantsOf({ source: 'def f(a)\n  a&.b\nend\n', language: 'ruby', line: 1, end_line: 3 })).filter(edit => edit.startsWith('chaining'))).toEqual(['chaining 2 &.>.']);
+    expect(edits(mutantsOf({ source: '<?php\nfunction f($a) { return $a?->b(); }\n', language: 'php', line: 2, end_line: 2 })).filter(edit => edit.startsWith('chaining'))).toEqual(['chaining 2 ?->>->']);
+    expect(edits(mutantsOf({ source: 'fun f(a: String?): String? = a?.trim()\n', language: 'kotlin', line: 1, end_line: 1 })).filter(edit => edit.startsWith('chaining'))).toEqual(['chaining 1 ?.>!!.']);
+    expect(edits(mutantsOf({ source: 'class S { int F(string a) { return a?.Length ?? 0; } }\n', language: 'c_sharp', line: 1, end_line: 1 })).filter(edit => edit.startsWith('chaining'))).toEqual(['chaining 1 ?>']);
+    // A typed literal keeps its type: Go's and Java's bodies empty, Rust's vec! empties; Kotlin's listOf and Swift's [] are left alone.
+    expect(edits(mutantsOf({ source: 'package p\nfunc f() []int { x := []int{1, 2}; return x }\n', language: 'go', line: 2, end_line: 2 })).filter(edit => edit.startsWith('collection'))).toEqual(['collection 2 {1, 2}>{}']);
+    expect(edits(mutantsOf({ source: 'class S { int[] f() { int[] x = new int[]{1, 2}; return x; } }\n', language: 'java', line: 1, end_line: 1 })).filter(edit => edit.startsWith('collection'))).toEqual(['collection 1 {1, 2}>{}']);
+    expect(edits(mutantsOf({ source: 'fn f() -> Vec<i32> { let v = vec![1, 2]; v }\n', language: 'rust', line: 1, end_line: 1 })).filter(edit => edit.startsWith('collection'))).toEqual(['collection 1 vec![1, 2]>vec![]']);
+    expect(edits(mutantsOf({ source: 'fun f(): List<Int> { val x = listOf(1, 2); return x }\n', language: 'kotlin', line: 1, end_line: 1 })).filter(edit => edit.startsWith('collection'))).toEqual([]);
+    expect(edits(mutantsOf({ source: 'func f() -> [Int] { let x = [1, 2]; return x }\n', language: 'swift', line: 1, end_line: 1 })).filter(edit => edit.startsWith('collection'))).toEqual([]);
+    expect(edits(mutantsOf({ source: 'def f():\n    x = [1, 2]; d = {"k": 1}; s = {1}; e = []\n    return x\n', language: 'python', line: 1, end_line: 3 })).filter(edit => edit.startsWith('collection'))).toEqual([
+      'collection 2 [1, 2]>[]', 'collection 2 {"k": 1}>{}', 'collection 2 {1}>set()', 'collection 2 []>["perch was here"]']);
   });
 
   it('keeps to the method it is given, and names each mutant by where and what', () => {
