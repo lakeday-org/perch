@@ -6,7 +6,7 @@
  * neither, the run is not held, and the caller says so.
  */
 import { spawnSync } from 'node:child_process';
-import { realpathSync } from 'node:fs';
+import { mkdirSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
 const MACOS = '(version 1)(allow default)(deny file-write*)(allow file-write* (literal "/dev/null") (literal "/dev/tty") (subpath "/dev/fd")';
@@ -26,6 +26,9 @@ export function sandboxKind() {
  * directory. Paths are resolved, since the sandbox compares the real path a write goes to.
  */
 export function sandboxed(command, args, writable) {
+  // A directory the run may write to that does not exist yet, a cache the tool makes on first use, is made now: the sandbox
+  // names each by its real path.
+  for (const dir of writable) mkdirSync(dir, { recursive: true });
   const dirs = [...new Set([...writable, tmpdir()].map(dir => realpathSync(dir)))];
   const kind = sandboxKind();
   if (kind === 'macos') {

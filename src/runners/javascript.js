@@ -381,7 +381,8 @@ module.exports = function (config) {
 
 /** The node_modules directories of the repository, outside any other: a workspace has one per package beside the root's. */
 async function installed(root) {
-  const { stdout } = await run('find', [root, '-maxdepth', '4', '-name', 'node_modules', '-type', 'd', '-prune', '-not', '-path', '*/.git/*'], { maxBuffer: 1 << 24 });
+  // A node_modules may be a link, as a monorepo tool or a shared install leaves one.
+  const { stdout } = await run('find', [root, '-maxdepth', '4', '-name', 'node_modules', '(', '-type', 'd', '-o', '-type', 'l', ')', '-prune', '-not', '-path', '*/.git/*'], { maxBuffer: 1 << 24 });
   return stdout.split('\n').filter(Boolean).map(path => relative(root, path)).filter(path => !path.split('/').slice(0, -1).includes('node_modules'));
 }
 
