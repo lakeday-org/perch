@@ -10,10 +10,10 @@ import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
 import * as pytest from './pytest.js';
 import { javascriptRunner } from './javascript.js';
-import * as cargo from './cargo.js';
-import * as go from './go.js';
-import * as dotnet from './dotnet.js';
-import * as jvm from './jvm.js';
+import { cargoRunner } from './cargo.js';
+import { goRunner } from './go.js';
+import { dotnetRunner } from './dotnet.js';
+import { jvmRunner } from './jvm.js';
 
 const run = promisify(execFile);
 
@@ -26,12 +26,12 @@ export async function runnersFor({ scope, root, graph }) {
   // A framework counts the test files it runs.
   const names = new Set((scope?.frameworks ?? []).filter(framework => (Array.isArray(framework.tests) ? framework.tests.length : framework.tests ?? 0) > 0).map(framework => framework.name));
   const found = [];
+  const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8').catch(error => { if (error.code === 'ENOENT') return '{}'; throw error; }));
   if (names.has('pytest')) found.push(pytest);
   if (names.has('Karma')) found.push(javascriptRunner('karma'));
   else if (names.has('Vitest')) found.push(javascriptRunner('vitest'));
   else if (names.has('Jest')) found.push(javascriptRunner('jest'));
   else if (names.has('JavaScript tests')) {
-    const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8').catch(() => '{}'));
     const depends = name => Boolean(manifest.devDependencies?.[name] ?? manifest.dependencies?.[name]);
     const frameworks = new Set([...graph.nodes.values()].filter(node => node.case).map(node => node.case.framework));
     // Karma runs Jasmine or Mocha in a browser, and a project with it depends on those as well.
@@ -43,24 +43,25 @@ export async function runnersFor({ scope, root, graph }) {
     else if (frameworks.has('node:test')) found.push(javascriptRunner('node:test'));
   }
   // Cucumber's tests are feature files the parser does not read: the dependency says it runs them.
-  const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8').catch(() => '{}'));
   if (manifest.devDependencies?.['@cucumber/cucumber'] ?? manifest.dependencies?.['@cucumber/cucumber']) found.push(javascriptRunner('cucumber'));
   // A compiled language's tests are found by the parser; its build tool runs them.
   const tested = new Set([...graph.nodes.values()].filter(node => node.case).map(node => graph.files.get(node.path)?.file.language));
-  if (tested.has('rust')) found.push(cargo);
-  if (tested.has('go')) found.push(go);
-  if (tested.has('csharp') || tested.has('c_sharp')) found.push(dotnet);
-  if (tested.has('java') || tested.has('kotlin') || tested.has('scala')) found.push(jvm);
+  if (tested.has('rust')) found.push(cargoRunner());
+  if (tested.has('go')) found.push(goRunner());
+  if (tested.has('csharp') || tested.has('c_sharp')) found.push(dotnetRunner());
+  if (tested.has('java') || tested.has('kotlin') || tested.has('scala')) found.push(jvmRunner());
   return found.length ? combined(found) : null;
 }
 
 /**
  * Several runners as one: each prepares the copy for its own languages and runs its own tests once, the runs' results are put
- * together, and each mutant goes to the runner of its language.
+ * together, and each mutant's tests go to the runner whose run they came from.
  */
 export function combined(runners) {
   if (runners.length === 1) return runners[0];
-  const owner = language => runners.find(runner => runner.languages.has(language));
+  // Which runner ran each test case: two runners can share a language, Cucumber's scenarios and Mocha's tests both running
+  // JavaScript.
+  const ranBy = new Map();
   return {
     name: runners.map(runner => runner.name).join(' and '),
     languages: new Set(runners.flatMap(runner => [...runner.languages])),
@@ -85,7 +86,7 @@ export function combined(runners) {
       for (const [at, runner] of runners.entries()) {
         const base = await runner.coverageRun({ ...rest, tool: tool.tools[at] });
         for (const [test, files] of base.executed) merged.executed.set(test, files);
-        for (const [node, result] of base.results) merged.results.set(node, result);
+        for (const [node, result] of base.results) { merged.results.set(node, result); ranBy.set(node, runner); }
         if (base.hits) { merged.hits ??= new Map(); for (const [test, keys] of base.hits) merged.hits.set(test, keys); }
         for (const id of base.hitMethods ?? []) merged.hitMethods.add(id);
         for (const key of base.unplaced ?? []) merged.unplaced.add(key);
@@ -97,7 +98,19 @@ export function combined(runners) {
       const sessions = new Map();
       for (const [at, runner] of runners.entries()) sessions.set(runner, await runner.session({ ...rest, tool: tool.tools[at] }));
       return {
-        run: args => sessions.get(owner(args.language)).run(args),
+        // Each runner's share of the tests, in turn: a run that did not run decides the mutant, and a stopped one stops the rest.
+        async run(args) {
+          const results = new Map();
+          for (const runner of runners) {
+            const nodes = args.nodes.filter(node => ranBy.get(node) === runner);
+            if (!nodes.length) continue;
+            const outcome = await sessions.get(runner).run({ ...args, nodes });
+            if (outcome.status !== 'ran') return outcome;
+            for (const [node, result] of outcome.results) results.set(node, result);
+            if (args.bail && [...outcome.results.values()].some(result => result.status === 'failed' || result.status === 'error')) break;
+          }
+          return { status: 'ran', results };
+        },
         close: async () => { for (const session of sessions.values()) await session.close(); },
       };
     },

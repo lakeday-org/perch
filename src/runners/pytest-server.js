@@ -176,9 +176,11 @@ def serve(session):
     queue, running, pending, closed = deque(), {}, b'', False
 
     def finish(pid, child, timed_out):
+        # The child and anything it started go with it. A group already gone is what was wanted; macOS refuses to signal one left
+        # holding only exited processes.
         try:
             os.killpg(pid, signal.SIGKILL)
-        except OSError:
+        except (ProcessLookupError, PermissionError):
             pass
         try:
             os.waitpid(pid, 0)

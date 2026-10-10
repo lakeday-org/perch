@@ -126,6 +126,19 @@ describe('running JavaScript tests', () => {
     await covered(root, 'cucumber', 'features/discount.feature::Discounts > Ten percent off');
   }, 600000);
 
+  it('runs Cucumber beside Mocha, each mutant against the framework whose tests reach it', async () => {
+    const root = await repository({
+      'package.json': JSON.stringify({ name: 'shop', private: true, scripts: { test: 'mocha test/' }, devDependencies: { mocha: '^11.0.0', '@cucumber/cucumber': '^11.0.0' } }),
+      'src/cart.js': `${CART}function shipping(total) {\n  return total > 50 ? 0 : 5;\n}\nmodule.exports = { applyDiscount, shipping };\n`,
+      'test/cart.test.js': "const { applyDiscount } = require('../src/cart');\ndescribe('applyDiscount', () => {\n  it('takes 10 percent off', () => {\n    if (applyDiscount(100, 10) !== 90) throw new Error('wrong');\n  });\n});\n",
+      'features/shipping.feature': 'Feature: Shipping\n  Scenario: Small orders pay\n    Given a total of 20\n    Then shipping is 5\n',
+      'features/step_definitions/steps.js': "const assert = require('node:assert/strict');\nconst { Given, Then } = require('@cucumber/cucumber');\nconst { shipping } = require('../../src/cart');\n\nGiven('a total of {int}', function (total) { this.total = total; });\nThen('shipping is {int}', function (expected) { assert.equal(shipping(this.total), expected); });\n",
+    }, { install: true });
+    const report = await covered(root, 'mocha and cucumber', 'test/cart.test.js::applyDiscount > takes 10 percent off');
+    const shipping = report.methods.find(item => item.name === 'shipping');
+    expect(shipping.mutants.find(mutant => mutant.kind === 'number' && mutant.to === '6')).toMatchObject({ killed: true, killed_by: ['features/shipping.feature::Shipping > Small orders pay'] });
+  }, 600000);
+
   it('says what is missing when the framework is not installed', async () => {
     const root = await repository({
       'package.json': JSON.stringify({ name: 'shop', private: true, devDependencies: { mocha: '*' } }),

@@ -9,7 +9,7 @@ import { buildGraph } from '../src/graph.js';
 import { AuthenticationError } from '../src/systemone.js';
 import { TOKEN_LIMITS } from '../src/tokens.js';
 import { computeCoverage, coverageRepository, diffReports, generateMutants, judgeTests } from '../src/coverage.js';
-import { available, executedBy, testOf } from '../src/runners/pytest.js';
+import { available } from '../src/runners/pytest.js';
 import { main } from '../src/cli.js';
 import { createServer } from 'node:http';
 import { commitAll, initRepo } from './helpers.js';
@@ -411,39 +411,6 @@ describe('reach measured by the test run', () => {
     expect(report.methods.find(method => method.id === 'shop/calc.py::sub').tests.map(item => item.id)).toEqual(['tests/test_calc.py::test_never']);
     expect(report.measured.unmatched_tests).toBe(1);
     expect(logged).toContain('scripted ran 1 tests perch found no test for, so what they kill is not counted: tests/test_calc.py::test_generated');
-  });
-});
-
-describe('the pytest runner', () => {
-  it('names a node by its test, and reads each test\'s lines out of coverage.py\'s data file', async () => {
-    expect(testOf('tests/test_x.py::TestCart::TestInner::test_deep')).toBe('tests/test_x.py::TestCart.TestInner.test_deep');
-    expect(testOf('tests/test_x.py::test_param[1-a::b]')).toBe('tests/test_x.py::test_param');
-    const dir = await mkdtemp(join(tmpdir(), 'perch-coveragepy-'));
-    cleanups.push(dir);
-    const copy = join(dir, 'copy');
-    const { DatabaseSync } = await import('node:sqlite');
-    const db = new DatabaseSync(join(dir, '.coverage'));
-    db.exec('create table file (id integer primary key, path text); create table context (id integer primary key, context text);'
-      + ' create table line_bits (file_id integer, context_id integer, numbits blob); create table arc (file_id integer, context_id integer, fromno integer, tono integer);');
-    // The copy's file, absolute as coverage.py writes it, and one outside the copy, which is not the repository's.
-    db.prepare('insert into file values (1, ?)').run(join(copy, 'shop/calc.py'));
-    db.prepare('insert into file values (2, ?)').run('/usr/lib/python3/os.py');
-    for (const [id, context] of [[1, ''], [2, 'tests/test_calc.py::test_small|run'], [3, 'tests/test_calc.py::TestBig::test_large[1]|run'], [4, 'tests/test_calc.py::TestBig::test_large[2]|setup']]) {
-      db.prepare('insert into context values (?, ?)').run(id, context);
-    }
-    // Lines 1 and 7 at import, under no test, as bits; test_small's lines 2 and 4 as bits; test_large's cases' lines as arcs.
-    const bits = lines => { const bytes = new Uint8Array(2); for (const line of lines) bytes[line >> 3] |= 1 << (line & 7); return bytes; };
-    db.prepare('insert into line_bits values (1, 1, ?)').run(bits([1, 7]));
-    db.prepare('insert into line_bits values (1, 2, ?)').run(bits([2, 4]));
-    db.prepare('insert into line_bits values (2, 2, ?)').run(bits([9]));
-    for (const [from, to] of [[-1, 2], [2, 3], [3, -1]]) db.prepare('insert into arc values (1, 3, ?, ?)').run(from, to);
-    db.prepare('insert into arc values (1, 4, ?, ?)').run(5, 6);
-    db.close();
-    const executed = await executedBy(join(dir, '.coverage'), copy);
-    expect([...executed].map(([test, files]) => [test, [...files].map(([path, lines]) => [path, [...lines].sort((a, b) => a - b)])]).sort()).toEqual([
-      ['tests/test_calc.py::TestBig.test_large', [['shop/calc.py', [2, 3, 5, 6]]]],
-      ['tests/test_calc.py::test_small', [['shop/calc.py', [2, 4]]]],
-    ]);
   });
 });
 

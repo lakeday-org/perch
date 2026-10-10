@@ -76,11 +76,13 @@ for await (const line of __perch_commands) {
       });
     });
   } catch (error) { results.push(['', '', 'crashed', String(error && error.stack || error)]); }
-  try { mocha.unloadFiles(); mocha.dispose(); } catch {}
+  // A Mocha that will not let go of what it loaded is not one the next mutant runs in.
+  let dirty = false;
+  try { mocha.unloadFiles(); mocha.dispose(); } catch { dirty = true; }
   // The repository's own modules load again for the next mutant: state one left in them is not the next one's. Its
   // dependencies stay loaded.
   for (const key of Object.keys(require.cache)) if (key.startsWith(process.env.PERCH_ROOT + '/') && !key.includes('/node_modules/')) delete require.cache[key];
-  await __perch_done({ id, results });
+  await __perch_done({ id, results }, dirty);
 }
 `;
 
@@ -156,7 +158,8 @@ const FRAMEWORKS = {
     hooks: `import { afterAll, beforeAll, beforeEach, afterEach, expect } from 'vitest';
 import * as __perch_fs from 'node:fs';
 ${STATE}
-const __perch_active = () => { if (__perch_env.PERCH_ACTIVE) { try { __perch_state.active = Number(__perch_fs.readFileSync(__perch_env.PERCH_ACTIVE, 'utf8')); } catch {} } };
+// Until the worker writes the first mutant's number there is no file, and no mutant is on.
+const __perch_active = () => { if (__perch_env.PERCH_ACTIVE) { try { __perch_state.active = Number(__perch_fs.readFileSync(__perch_env.PERCH_ACTIVE, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw error; } } };
 __perch_active();
 // What runs while the test file loads, an app built in a describe's body, is the file's.
 try { __perch_enter(expect.getState().testPath); } catch {}
@@ -367,7 +370,7 @@ module.exports = function (config) {
   const crashes = path.join(require('os').tmpdir(), 'perch-chrome-crashes');
   config.set({
     plugins,
-    files: [path.join(__dirname, '.perch-hooks.js')].concat(config.files || []),
+    files: [path.join(__dirname, '.perch-hooks-karma.js')].concat(config.files || []),
     customLaunchers: Object.assign({}, config.customLaunchers, { PerchChrome: { base: 'ChromeHeadless', flags: ['--no-sandbox', '--disable-crash-reporter', '--disable-breakpad', '--crash-dumps-dir=' + crashes] } }),
     browsers: ['PerchChrome'], singleRun: true, autoWatch: false, reporters: ['dots'],
     client: Object.assign({}, client, { args: (client.args || []).concat(args), captureConsole: true }),
@@ -392,7 +395,7 @@ const OWN = /^(--test(-|$)|--watch|--reporter|-R$|--reporter-option|-O$|--grep|-
  * the flag, `mocha --require test/support/env --check-leaks test/` keeps both and not the directory.
  */
 async function scriptFlags(root, command) {
-  const script = JSON.parse(await readFile(join(root, 'package.json'), 'utf8').catch(() => '{}')).scripts?.test ?? '';
+  const script = JSON.parse(await readFile(join(root, 'package.json'), 'utf8').catch(error => { if (error.code === 'ENOENT') return '{}'; throw error; })).scripts?.test ?? '';
   const words = script.match(/'[^']*'|"[^"]*"|\S+/g) ?? [];
   const start = words.findIndex(word => word === command || word.endsWith(`/${command}`));
   if (start < 0) return [];
@@ -406,6 +409,33 @@ async function scriptFlags(root, command) {
     if (valued && words[at + 1]) flags.push(words[++at].replace(/^['"]|['"]$/g, ''));
   }
   return flags;
+}
+
+/** Each copy's instrumentation, by its directory: written once, whichever framework's runner prepares the copy first. */
+const instrumented = new Map();
+
+/** Every mutant written into its file in the copy behind a switch, and each one's number, key and reason it could not be placed. */
+async function instrumentCopy(copy, generated, graph) {
+  const ids = new Map(), keys = new Map(), unplaced = new Map(), byFile = new Map();
+  let next = 0;
+  for (const [methodId, mutants] of generated) {
+    const node = graph.nodes.get(methodId);
+    if (!SCHEMATA_LANGUAGES.has(graph.files.get(node.path)?.file.language)) continue;
+    if (!byFile.has(node.path)) byFile.set(node.path, []);
+    for (const mutant of mutants) {
+      const key = `${methodId}#${mutantId(mutant)}`, id = next++;
+      ids.set(key, id);
+      keys.set(id, { key, mutant, path: node.path });
+      byFile.get(node.path).push({ id, mutant });
+    }
+  }
+  for (const [path, mutants] of byFile) {
+    const file = join(copy.dir, path);
+    const placed = instrument({ source: await readFile(file, 'utf8'), language: graph.files.get(path).file.language, mutants, prelude: PRELUDE, head: TS_HEAD });
+    for (const { id, reason } of placed.unplaced) unplaced.set(id, reason);
+    await writeFile(file, placed.text);
+  }
+  return { ids, keys, unplaced };
 }
 
 /** A runner for one framework. */
@@ -456,7 +486,7 @@ export function javascriptRunner(framework) {
       return results;
     }
     if (spec.results === 'json') {
-      const text = await readFile(out, 'utf8').catch(() => null);
+      const text = await readFile(out, 'utf8').catch(error => { if (error.code === 'ENOENT') return null; throw error; });
       if (text === null) return null;
       for (const file of JSON.parse(text).testResults ?? []) {
         const path = relative(copy, file.name);
@@ -474,7 +504,7 @@ export function javascriptRunner(framework) {
       }
       return results;
     }
-    const text = await readFile(out, 'utf8').catch(() => null);
+    const text = await readFile(out, 'utf8').catch(error => { if (error.code === 'ENOENT') return null; throw error; });
     if (text === null) return null;
     for (const line of text.split('\n').filter(Boolean)) {
       const [raw, status, time] = JSON.parse(line);
@@ -506,26 +536,12 @@ export function javascriptRunner(framework) {
     async prepare({ copies: [copy], generated, graph, tool }) {
       root = tool.root;
       for (const path of await installed(root)) await symlink(join(root, path), join(copy.dir, path)).catch(error => { if (error.code !== 'EEXIST') throw error; });
-      const byFile = new Map();
-      let next = 0;
-      for (const [methodId, mutants] of generated) {
-        const node = graph.nodes.get(methodId);
-        if (!SCHEMATA_LANGUAGES.has(graph.files.get(node.path)?.file.language)) continue;
-        if (!byFile.has(node.path)) byFile.set(node.path, []);
-        for (const mutant of mutants) {
-          const key = `${methodId}#${mutantId(mutant)}`, id = next++;
-          ids.set(key, id);
-          keys.set(id, { key, mutant, path: node.path });
-          byFile.get(node.path).push({ id, mutant });
-        }
-      }
-      for (const [path, mutants] of byFile) {
-        const file = join(copy.dir, path);
-        const placed = instrument({ source: await readFile(file, 'utf8'), language: graph.files.get(path).file.language, mutants, prelude: PRELUDE, head: TS_HEAD });
-        for (const { id, reason } of placed.unplaced) unplaced.set(id, reason);
-        await writeFile(file, placed.text);
-      }
-      hooksFile = join(copy.dir, `.perch-hooks.${spec.module === 'esm' ? 'mjs' : spec.module === 'browser' ? 'js' : 'cjs'}`);
+      // Two frameworks in one repository, Cucumber beside Mocha, share one copy: the switches are written into it once, and the
+      // second framework's runner takes the first's numbering.
+      if (!instrumented.has(copy.dir)) instrumented.set(copy.dir, instrumentCopy(copy, generated, graph));
+      ({ ids, keys, unplaced } = await instrumented.get(copy.dir));
+      // Named for the framework: another framework's runner may be preparing the same copy.
+      hooksFile = join(copy.dir, `.perch-hooks-${framework.replace(':', '-')}.${spec.module === 'esm' ? 'mjs' : spec.module === 'browser' ? 'js' : 'cjs'}`);
       await writeFile(hooksFile, spec.hooks);
       if (framework === 'karma') await writeFile(join(copy.dir, '.perch-karma.conf.js'), KARMA_CONFIG(await karmaConfig(copy.dir)));
       tests = new Map();
@@ -575,7 +591,7 @@ export function javascriptRunner(framework) {
 
     /** The suite once, every switch recording which test reached it: what each test ran, by mutant and by line, and each result. */
     async coverageRun({ copy, scratch, tool }) {
-      const hits = join(scratch, 'hits.jsonl'), out = join(scratch, spec.results === 'json' ? 'coverage.json' : 'coverage.jsonl');
+      const hits = join(scratch, `hits-${framework.replace(':', '-')}.jsonl`), out = join(scratch, `coverage-${framework.replace(':', '-')}.${spec.results === 'json' ? 'json' : 'jsonl'}`);
       await rm(hits, { force: true });
       await writeFile(hits, '');
       const started = Date.now();
@@ -637,7 +653,7 @@ export function javascriptRunner(framework) {
         return { code: crashed ? 1 : 0, results: results.size ? results : null, output: crashed ?? '' };
       };
       const runCold = async ({ id, files, pattern, bail, timeout, nodes }) => {
-        const out = join(copy.scratch, `run-${count++}.${spec.results === 'json' ? 'json' : 'jsonl'}`);
+        const out = join(copy.scratch, `run-${framework.replace(':', '-')}-${count++}.${spec.results === 'json' ? 'json' : 'jsonl'}`);
         if (spec.results !== 'json') await writeFile(out, '');
         const ran = await driver.exec(command({ root }), spec.args({ files, pattern, out, bail, flags, reporter, config: join(copy.dir, '.perch-karma.conf.js') }),
           { cwd: copy.dir, env: { PERCH_MUTANT: String(id), PERCH_RESULTS: out, PERCH_GREP: pattern ?? '', FORCE_COLOR: '0' }, timeout, whole: spec.results === 'console' });
@@ -669,7 +685,7 @@ export function javascriptRunner(framework) {
           }
           return { status: 'ran', results: new Map([...results].filter(([test]) => nodes.includes(test))) };
         },
-        close: async () => { await workers?.close(); await driver?.close(); },
+        close: async () => { await workers?.close(); await driver?.close(); instrumented.delete(copy.dir); },
       };
     },
   };

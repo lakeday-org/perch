@@ -11,7 +11,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { isAbsolute, join } from 'node:path';
 import { readCoverageDb, readJunit } from '../test-reports.js';
-import { sandboxed } from './sandbox.js';
+import { killGroup, sandboxed } from './sandbox.js';
 import { SERVER } from './pytest-server.js';
 
 export const name = 'pytest';
@@ -29,17 +29,17 @@ export function exec(command, args, { cwd, env = {}, timeout = 0, writable = nul
   const run = writable ? sandboxed(command, args, writable) : { command, args };
   return new Promise(resolve => {
     const child = spawn(run.command, run.args, { cwd, env: { ...process.env, PWD: cwd, ...env }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
-    const killGroup = () => { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone already */ } };
+    const killAll = () => killGroup(child.pid);
     let output = '', timedOut = false;
     const keep = chunk => { output = (output + chunk).slice(-20000); };
     child.stdout.on('data', keep);
     child.stderr.on('data', keep);
     // The whole process group: pytest's own children, a server a test started, go with it.
-    const timer = timeout ? setTimeout(() => { timedOut = true; killGroup(); }, timeout) : null;
+    const timer = timeout ? setTimeout(() => { timedOut = true; killAll(); }, timeout) : null;
     child.on('error', error => { if (timer) clearTimeout(timer); resolve({ code: null, output: error.message, timedOut }); });
     // Whatever it left running goes when it exits: a child still holding its output open would keep 'close' from ever coming.
-    child.on('exit', killGroup);
-    child.on('close', code => { if (timer) clearTimeout(timer); killGroup(); resolve({ code, output, timedOut }); });
+    child.on('exit', killAll);
+    child.on('close', code => { if (timer) clearTimeout(timer); killAll(); resolve({ code, output, timedOut }); });
   });
 }
 
@@ -170,10 +170,10 @@ export async function session({ copies: [copy], tool: { python }, parallel }) {
     },
     async close() {
       child.stdio[3].end();
-      const timer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ } }, 10000);
+      const timer = setTimeout(() => killGroup(child.pid), 10000);
       await exited;
       clearTimeout(timer);
-      try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ }
+      killGroup(child.pid);
     },
   };
 }

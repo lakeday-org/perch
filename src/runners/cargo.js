@@ -17,10 +17,10 @@ import { instrument } from './schemata.js';
 
 const run = promisify(execFile);
 
-export const name = 'cargo';
-export const languages = new Set(['rust']);
+const name = 'cargo';
+const languages = new Set(['rust']);
 /** One copy: mutants are switched on at run time and never written again. */
-export const copiesFor = () => 1;
+const copiesFor = () => 1;
 
 /** The switch each crate gets as a module of its root, called as `crate::__perch::on(17)`. */
 const SWITCH = `
@@ -67,9 +67,13 @@ const modulePath = (file, rootFile) => {
   return parts;
 };
 
-let ids = new Map(), keys = new Map(), unplaced = new Map(), binaries = [], names = new Map(), testOfNode = new Map();
+/** A cargo runner: what preparing one copy found is its own, so two runs in one process keep theirs apart. */
+export function cargoRunner() {
+  const state = {};
+  return { name, languages, copiesFor, available, prepare: args => prepare(state, args), coverageRun: args => coverageRun(state, args), session: args => session(state, args) };
+}
 
-export async function available({ root }) {
+async function available({ root }) {
   if (!existsSync(join(root, 'Cargo.toml'))) return { reason: 'there is no Cargo.toml at the repository\'s root' };
   try { await run('cargo', ['--version']); } catch { return { reason: 'cargo is not on PATH' }; }
   return { root };
@@ -79,8 +83,9 @@ export async function available({ root }) {
  * The copy made ready: each crate root given the switch, every mutant written into its file, and the tests built, again without
  * whatever the compiler rejects, until they build.
  */
-export async function prepare({ copies: [copy], generated, graph }) {
-  ids = new Map(); keys = new Map(); unplaced = new Map(); binaries = []; names = new Map(); testOfNode = new Map();
+async function prepare(state, { copies: [copy], generated, graph }) {
+  const ids = new Map(), keys = new Map(), unplaced = new Map(), names = new Map(), testOfNode = new Map();
+  Object.assign(state, { ids, keys, unplaced, names, testOfNode, binaries: [] });
   const target = join(copy.scratch, 'target');
   const { stdout } = await run('cargo', ['metadata', '--no-deps', '--format-version', '1'], { cwd: copy.dir, maxBuffer: 1 << 26 });
   const metadata = JSON.parse(stdout);
@@ -128,7 +133,7 @@ export async function prepare({ copies: [copy], generated, graph }) {
     const messages = output.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line));
     const errors = messages.filter(item => item.reason === 'compiler-message' && item.message.level === 'error');
     if (!errors.length) {
-      binaries = messages.filter(item => item.reason === 'compiler-artifact' && item.profile?.test && item.executable)
+      const binaries = state.binaries = messages.filter(item => item.reason === 'compiler-artifact' && item.profile?.test && item.executable)
         .map(item => ({ path: item.executable, cwd: dirname(metadata.packages.find(entry => entry.id === item.package_id)?.manifest_path ?? join(copy.dir, 'Cargo.toml')) }));
       if (!binaries.length) throw new Error('cargo built no test binaries');
       return;
@@ -146,7 +151,7 @@ export async function prepare({ copies: [copy], generated, graph }) {
 }
 
 /** Each built test binary once, every switch recording which test's thread reached it. */
-export async function coverageRun({ copy, scratch }) {
+async function coverageRun({ names, keys, unplaced, binaries, testOfNode }, { copy, scratch }) {
   const hits = join(scratch, 'hits.tsv');
   await writeFile(hits, '');
   const started = Date.now();
@@ -186,7 +191,7 @@ export async function coverageRun({ copy, scratch }) {
 }
 
 /** Each mutant run by starting the test binaries that hold its tests, with its number set and only those tests named. */
-export async function session({ copies: [copy] }) {
+async function session({ ids, unplaced, binaries, testOfNode }, { copies: [copy] }) {
   const driver = await startDriver({ scratch: copy.scratch, writable: [copy.dir, copy.scratch] });
   return {
     async run({ mutant, method, nodes, timeout }) {

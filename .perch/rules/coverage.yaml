@@ -29,25 +29,29 @@
     rules as a call, or not at all. A method that links no call holds this
     rule.
 
-- name: coverage-runs-no-tests
-  where: "src/coverage*.js"
+- name: coverage-kills-come-from-runs
+  where: src/coverage.js
   each: method
   ensure: >-
-    This method does not run the repository's tests, start a test runner or a
-    child process. perch predicts what the tests would catch; it never runs
-    them and reads nothing a test run wrote.
+    If this method decides whether a mutant was killed, or whether a test
+    failed against it, that verdict comes from the results a runner's session
+    returned for that mutant, or from an outcome saved by an earlier such run.
+    Asking a model whether a test would fail, or counting a mutant killed
+    because the call graph says a test reaches it, breaks this rule. A method
+    that decides neither holds this rule.
 
 - name: coverage-probabilities-are-answers
   where: src/coverage.js
   each: method
   ensure: >-
-    If this method puts a probability on a finding, a label or a percentage,
-    that probability is read from a System One answer or computed from
-    answers, and a finding whose unit could not be asked carries none. A
-    probability written into the code as a constant breaks this rule. A floor
-    on an answer, such as min, which decides which answers are listed, or
-    KILLED, which decides which count as a kill, is not a probability. A method
-    that sets no probability holds this rule.
+    If this method puts a probability on a finding, that probability is read
+    from a System One answer, or is 1 for a finding a test run measured: a test
+    that killed none of the mutants it ran, or one that killed exactly what
+    another test killed. Any other probability written into the code as a
+    constant breaks this rule, and so does a probability on a finding whose
+    unit could not be asked. A floor such as min, which decides which answers
+    are listed, is not a probability. A method that sets no probability holds
+    this rule.
 
 - name: coverage-failures-stay-visible
   where: src/coverage.js
@@ -65,10 +69,10 @@
   except: "test/**"
   each: method
   ensure: >-
-    When this method marks tests redundant, the tests were asked about the same
-    mutants and System One predicted they kill exactly the same ones, at least
-    one. Grouping by name, by file, or by reach alone breaks this rule. A
-    method that marks no test redundant holds this rule.
+    When this method marks tests redundant, the tests were run against the same
+    mutants and each killed exactly the same ones, at least one. Grouping by
+    name, by file, or by reach alone breaks this rule. A method that marks no
+    test redundant holds this rule.
 
 - name: coverage-diff-is-per-unit
   where: mentions baseline
@@ -99,5 +103,5 @@
     perch's coverage code computed from it, or on the error it raised,
     against expectations written independently of that code. Asserting on a report the test built itself,
     or deriving the expected value by calling the code under test, breaks this
-    rule. A scripted System One standing in for the model is not a stub of the
-    code under test.
+    rule. A scripted System One standing in for the model, or a scripted runner
+    standing in for a test framework, is not a stub of the code under test.

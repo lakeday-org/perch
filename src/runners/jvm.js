@@ -312,11 +312,15 @@ const GRADLE_INIT = `allprojects {
 }
 `;
 
-export const name = 'jvm';
-export const languages = new Set(['java', 'kotlin', 'scala']);
-export const copiesFor = () => 1;
+const name = 'jvm';
+const languages = new Set(['java', 'kotlin', 'scala']);
+const copiesFor = () => 1;
 
-let ids = new Map(), keys = new Map(), unplaced = new Map(), classpath = '', workerDir = '', selectors = new Map(), tests = new Map(), build = null;
+/** A JVM runner: what preparing one copy found is its own, so two runs in one process keep theirs apart. */
+export function jvmRunner() {
+  const state = {};
+  return { name, languages, copiesFor, available, prepare: args => prepare(state, args), coverageRun: args => coverageRun(state, args), session: args => session(state, args) };
+}
 
 /** The build tool: Gradle where there is a Gradle build, Maven where there is a pom. */
 function buildOf(root) {
@@ -328,7 +332,7 @@ function buildOf(root) {
   return null;
 }
 
-export async function available({ root }) {
+async function available({ root }) {
   const found = buildOf(root);
   if (!found) return { reason: 'there is no Gradle build, pom.xml or build.sbt at the repository\'s root' };
   for (const command of ['java', 'javac']) {
@@ -383,13 +387,13 @@ function selectorOf(node, file) {
   // Kotlin names a test in backticks, `adds up the cart`, which the JVM knows without them.
   const parts = node.qualified_name.replace(/`/g, '').split('.');
   const method = parts.pop();
-  return `${file.package ? `${file.package}.` : ''}${parts.join('$')}#${method}`;
+  return `${prefix}${parts.join('$')}#${method}`;
 }
 
 /** The project made ready: the switch in each module with mutants, every mutant written in, and the tests built until they build. */
-export async function prepare({ copies: [copy], generated, graph, tool }) {
-  ids = new Map(); keys = new Map(); unplaced = new Map(); selectors = new Map(); tests = new Map();
-  build = tool.build;
+async function prepare(state, { copies: [copy], generated, graph, tool }) {
+  const ids = new Map(), keys = new Map(), unplaced = new Map(), selectors = new Map(), tests = new Map(), build = tool.build;
+  Object.assign(state, { ids, keys, unplaced, selectors, tests });
   for (const node of graph.nodes.values()) {
     const file = graph.files.get(node.path)?.file;
     if (!node.case || !languages.has(file?.language)) continue;
@@ -458,8 +462,8 @@ export async function prepare({ copies: [copy], generated, graph, tool }) {
   }
   const unique = [...new Set(entries.filter(Boolean))];
   const own = unique.filter(entry => entry.startsWith(copy.dir));
-  classpath = [...own, ...unique.filter(entry => !entry.startsWith(copy.dir))];
-  ownEntries = own;
+  const classpath = state.classpath = [...own, ...unique.filter(entry => !entry.startsWith(copy.dir))];
+  state.ownEntries = own;
   // JUnit 5 is run through its launcher, which a Maven build gets from Surefire rather than the test classpath: it is fetched,
   // at the version of the platform the tests use, when the project does not have it.
   const jar = name => classpath.find(entry => entry.split('/').at(-1).startsWith(name));
@@ -472,7 +476,7 @@ export async function prepare({ copies: [copy], generated, graph, tool }) {
     await writeFile(target, Buffer.from(await response.arrayBuffer()));
     classpath.push(target);
   }
-  workerDir = join(copy.scratch, 'perch-worker');
+  const workerDir = state.workerDir = join(copy.scratch, 'perch-worker');
   await mkdir(workerDir, { recursive: true });
   const sources2 = { 'PerchWorker.java': WORKER };
   if (jar('junit-platform-launcher-') || classpath.some(entry => /junit-platform-launcher-/.test(entry))) sources2['Junit5Engine.java'] = JUNIT5;
@@ -484,15 +488,15 @@ export async function prepare({ copies: [copy], generated, graph, tool }) {
 }
 
 /** The worker's JVM: perch's worker and the dependencies on its classpath; the project's own classes, in PERCH_OWN, it loads itself. */
-const workerCommand = () => ({ command: 'java', args: ['-XX:+UseSerialGC', '-XX:TieredStopAtLevel=1', '-cp', [workerDir, ...classpath.filter(entry => !ownEntries.includes(entry))].join(delimiter), 'PerchWorker'] });
-let ownEntries = [];
+const workerCommand = ({ workerDir, classpath, ownEntries }) => ({ command: 'java', args: ['-XX:+UseSerialGC', '-XX:TieredStopAtLevel=1', '-cp', [workerDir, ...classpath.filter(entry => !ownEntries.includes(entry))].join(delimiter), 'PerchWorker'] });
 
 /** Every test once, alone, named in the switch as it runs: what each reached, and each result. */
-export async function coverageRun({ copy, scratch }) {
+async function coverageRun(state, { copy, scratch }) {
+  const { keys, unplaced, selectors, tests, ownEntries } = state;
   const hits = join(scratch, 'hits.tsv');
   await writeFile(hits, '');
   const started = Date.now();
-  const workers = await startWorkers({ command: workerCommand(), count: 1, scratch, writable: [copy, scratch], cwd: copy, env: { PERCH_OWN: ownEntries.join(delimiter) } });
+  const workers = await startWorkers({ command: workerCommand(state), count: 1, scratch, writable: [copy, scratch], cwd: copy, env: { PERCH_OWN: ownEntries.join(delimiter) } });
   let reply;
   // COVER, id, the hits file, and an unused field where a mutant's run says whether to stop at the first failure: the tests
   // start at the fifth field in both.
@@ -517,8 +521,9 @@ export async function coverageRun({ copy, scratch }) {
 }
 
 /** Each mutant run in a warm JVM: its number set, and only its tests run, each alone. */
-export async function session({ copies: [copy], parallel = 1 }) {
-  const workers = await startWorkers({ command: workerCommand(), count: parallel, scratch: copy.scratch, writable: [copy.dir, copy.scratch], cwd: copy.dir,
+async function session(state, { copies: [copy], parallel = 1 }) {
+  const { ids, unplaced, tests, ownEntries } = state;
+  const workers = await startWorkers({ command: workerCommand(state), count: parallel, scratch: copy.scratch, writable: [copy.dir, copy.scratch], cwd: copy.dir,
     env: { PERCH_OWN: ownEntries.join(delimiter) } });
   let count = 0;
   return {

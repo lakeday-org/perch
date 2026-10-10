@@ -8,12 +8,12 @@ import { spawn } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { sandboxed } from './sandbox.js';
+import { killGroup, sandboxed } from './sandbox.js';
 
 /**
  * The plumbing every worker script starts with: commands in on 3, answers out on 4, separators escaped as the driver's are. A
- * worker says it is ready with `__perch_ready()` and answers a run with `__perch_done(message)`, which also says whether the run
- * left anything going: a server, a socket or a timer the tests started and never closed, as a mutant that hangs a request
+ * worker says it is ready with `__perch_ready()` and answers a run with `__perch_done(message, dirty)`, which also says whether
+ * the run left anything going, or the worker could not clean up after it: a server, a socket or a timer the tests started and never closed, as a mutant that hangs a request
  * leaves one. What it does later would land in the next mutant's run, so the pool replaces that worker.
  */
 export const WORKER_IO = `import { createReadStream, writeSync } from 'node:fs';
@@ -24,10 +24,10 @@ const __perch_commands = createInterface({ input: createReadStream(null, { fd: 3
 const __perch_open = () => { const counts = {}; for (const kind of process.getActiveResourcesInfo()) if (kind !== 'FSReqCallback') counts[kind] = (counts[kind] || 0) + 1; return counts; };
 let __perch_before = {};
 const __perch_ready = () => { __perch_before = __perch_open(); __perch_say({ ready: true }); };
-const __perch_done = async message => {
+const __perch_done = async (message, dirty = false) => {
   await new Promise(done => setTimeout(done, 10));
   const now = __perch_open();
-  __perch_say({ ...message, left: Object.keys(now).some(kind => now[kind] > (__perch_before[kind] || 0)) });
+  __perch_say({ ...message, left: dirty || Object.keys(now).some(kind => now[kind] > (__perch_before[kind] || 0)) });
 };`;
 
 /**
@@ -42,7 +42,7 @@ export async function startWorkers({ script, command = null, count, scratch, wri
   if (script) await writeFile(file, script);
   const program = command ?? { command: process.execPath, args: [file] };
   const stdio = !script;
-  const free = [], waiting = [];
+  const free = [], waiting = [], live = new Set();
   let closing = false;
 
   const launch = index => new Promise((resolve, reject) => {
@@ -50,6 +50,7 @@ export async function startWorkers({ script, command = null, count, scratch, wri
     const own = typeof env === 'function' ? env(index) : env;
     const child = spawn(run.command, run.args, { cwd, detached: true, env: { ...process.env, PWD: cwd, ...own }, stdio: stdio ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe', 'pipe', 'pipe'] });
     const worker = { child, index, output: '', pending: null, input: stdio ? child.stdin : child.stdio[3] };
+    live.add(worker);
     const keep = chunk => { worker.output = (worker.output + chunk).slice(-20000); };
     if (!stdio) child.stdout.on('data', keep);
     child.stderr.on('data', keep);
@@ -64,12 +65,13 @@ export async function startWorkers({ script, command = null, count, scratch, wri
     });
     child.on('close', code => {
       worker.dead = true;
+      live.delete(worker);
       if (!ready) reject(new Error(`a test worker would not start (exit ${code}): ${worker.output.trim().split('\n').slice(-6).join(' | ')}`));
       worker.pending?.resolve({ crashed: true, output: worker.output });
       worker.pending = null;
     });
   });
-  const kill = worker => { try { process.kill(-worker.child.pid, 'SIGKILL'); } catch { /* gone */ } };
+  const kill = worker => killGroup(worker.child.pid);
   let broken = null;
   const take = () => (broken ? Promise.reject(broken) : free.length ? Promise.resolve(free.pop()) : new Promise((resolve, reject) => waiting.push({ resolve, reject })));
   const give = worker => { if (waiting.length) waiting.shift().resolve(worker); else free.push(worker); };
@@ -97,9 +99,10 @@ export async function startWorkers({ script, command = null, count, scratch, wri
       else give(worker);
       return reply;
     },
+    // Every worker still alive, busy or idle, and any replacement that starts after this.
     async close() {
       closing = true;
-      for (const worker of free) { worker.input.end(); kill(worker); }
+      for (const worker of live) { worker.input.end(); kill(worker); }
     },
   };
 }

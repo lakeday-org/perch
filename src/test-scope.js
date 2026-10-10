@@ -234,9 +234,15 @@ async function loadKarma({ root, config, node, paths }) {
 const captured = {};
 const fake = new Proxy({ set: values => Object.assign(captured, values) }, { get: (target, key) => (key in target ? target[key] : String(key)) });
 (typeof config === 'function' ? config : config.default)(fake);
-console.log('\\n@@perch' + JSON.stringify((captured.files || []).map(item => (typeof item === 'string' ? item : item.pattern)).filter(Boolean)));`;
+console.log('\\n@@perch' + JSON.stringify({ base: typeof captured.basePath === 'string' ? captured.basePath : '', files: (captured.files || []).map(item => (typeof item === 'string' ? item : item.pattern)).filter(Boolean) }));`;
   const output = await run(node, ['-e', script], { cwd: join(root, dirOf(config)) });
-  const patterns = JSON.parse(output.split('@@perch').at(-1)).map(pattern => posix.join(dirOf(config), pattern));
+  if (!output.includes('@@perch')) throw new Error(`${config} set no files: ${output.trim().split('\n').slice(-3).join(' | ')}`);
+  // Karma reads each pattern from basePath, itself from the config's directory, and takes an absolute one as it is.
+  const { base, files } = JSON.parse(output.split('@@perch').at(-1));
+  // An absolute path from the config is `__dirname`'s, with any symbolic link in the root resolved.
+  const home = await realpath(root);
+  const from = posix.join(dirOf(config), base.startsWith('/') ? posix.relative(home, base) : base);
+  const patterns = files.map(pattern => (pattern.startsWith('/') ? posix.relative(home, pattern) : posix.join(from, pattern)));
   const matched = paths.filter(path => patterns.some(pattern => glob(pattern, path)));
   return { name: 'Karma', version: null, config, tests: matched, include: patterns, exclude: [] };
 }
@@ -336,10 +342,21 @@ export async function frameworkScope({ root, tree, scan, graph, node = process.e
   frameworks.push(...js);
   const loaded = js.filter(framework => framework.tests);
   const holding = new Set(found.map(file => file.path));
-  const jsTests = loaded.length ? loaded.flatMap(framework => (framework.name === 'Karma' ? framework.tests.filter(path => holding.has(path)) : framework.tests))
+  // Karma names every file the browser loads, the code under test with the tests: its tests are the ones holding test cases.
+  for (const framework of loaded) if (framework.name === 'Karma') framework.tests = framework.tests.filter(path => holding.has(path));
+  const jsTests = loaded.length ? loaded.flatMap(framework => framework.tests)
     : found.filter(file => JS.has(file.language)).map(file => file.path);
   if (!js.length && jsTests.length) frameworks.push({ name: 'JavaScript tests', config: null, tests: jsTests });
   for (const path of jsTests) if (byPath.has(path)) tests.add(path);
+
+  // Cucumber, when the package depends on it: its tests are the feature files, and its step definitions, the files that import
+  // it, are the test code that reaches the source.
+  const manifest = JSON.parse((await readListed(root, 'package.json')) || '{}');
+  const cucumber = Boolean(manifest.devDependencies?.['@cucumber/cucumber'] ?? manifest.dependencies?.['@cucumber/cucumber']);
+  const features = cucumber ? paths.filter(path => path.endsWith('.feature') && !path.split('/').includes('node_modules')) : [];
+  const steps = new Set(cucumber ? scan.files.filter(file => JS.has(file.language) && (file.imports ?? []).some(item => item.module === '@cucumber/cucumber')).map(file => file.path) : []);
+  if (features.length) frameworks.push({ name: 'Cucumber', config: null, tests: features });
+  for (const path of features) tests.add(path);
 
   // Python: the tests under testpaths named as python_files, or every test the parser found.
   const pyFound = found.filter(file => file.language === 'python').map(file => file.path);
@@ -392,7 +409,7 @@ export async function frameworkScope({ root, tree, scan, graph, node = process.e
 
   // Followed languages: what the tests import or call, and the files beside those, minus what the coverage settings leave out.
   const reached = new Set();
-  const queue = [...tests].filter(path => FOLLOWED.has(byPath.get(path)?.language));
+  const queue = [...tests, ...steps].filter(path => FOLLOWED.has(byPath.get(path)?.language));
   for (const path of queue) reached.add(path);
   while (queue.length) {
     const file = byPath.get(queue.pop());
@@ -417,10 +434,10 @@ export async function frameworkScope({ root, tree, scan, graph, node = process.e
   const jsIgnored = path => loaded.some(framework => framework.ignore?.(path));
   for (const file of scan.files) {
     // A test file is never source, whatever top-level code a table or a mock in it is; a source file may also hold tests (Rust).
-    if (file.test || (holdsTests(file) && !file.methods.some(method => !method.test && method.node !== null))) continue;
+    if (file.test || steps.has(file.path) || (holdsTests(file) && !file.methods.some(method => !method.test && method.node !== null))) continue;
     const { path, language } = file;
     if (JS.has(language)) {
-      if (!jsTests.length) continue;
+      if (!jsTests.length && !features.length) continue;
       const kept = jsInclude.length ? jsInclude.some(pattern => glob(pattern, path)) : followedDirs.has(dirOf(path));
       if (kept && !jsExclude.some(pattern => glob(pattern, path)) && !jsIgnored(path)) sources.add(path);
     } else if (language === 'python') {

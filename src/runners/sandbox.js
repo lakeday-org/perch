@@ -38,3 +38,11 @@ export function sandboxed(command, args, writable) {
   }
   return { command, args };
 }
+
+/**
+ * Kills a process group and everything in it. One already gone is what was wanted, and macOS refuses to signal one left holding
+ * only exited processes; any other error is not.
+ */
+export function killGroup(pid) {
+  try { process.kill(-pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH' && error.code !== 'EPERM') throw error; }
+}

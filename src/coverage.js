@@ -13,7 +13,7 @@
  */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, readdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { changedLines, listTree, readBlob, revision as commitOf } from './git.js';
 import { analyzeTree } from './analyze.js';
@@ -700,15 +700,13 @@ function outcomeKeys({ runner, tree, coverage }) {
 }
 
 /** The outcomes saved by the last run, by fingerprint. */
-async function readOutcomes(path) {
-  const text = await readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
-  return new Map(text.split('\n').filter(Boolean).map(line => JSON.parse(line)));
+async function readOutcomes(out) {
+  return new Map(await openStore(out).readLines(coveragePaths(out).outcomes));
 }
 
 /** This run's outcomes, replacing the last run's, so the file holds what the code at this commit gives and nothing older. */
-async function saveOutcomes(path, outcomes) {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, [...outcomes].map(([key, { status, kills }]) => `${JSON.stringify([key, { status, kills }])}\n`).join(''));
+async function saveOutcomes(out, outcomes) {
+  await openStore(out).writeLines(coveragePaths(out).outcomes, [...outcomes].map(([key, { status, kills }]) => [key, { status, kills }]));
 }
 
 /** The file with the mutant's edit made at its byte offset, or null when the text there is not what the mutant replaces. */
@@ -1083,11 +1081,10 @@ export async function coverageRepository({ root, revision, label = root, github 
     const touched = (unit, node = unit) => (changed.files.get(node.path) ?? []).some(line => line >= node.line && line <= node.end_line);
     const testNode = new Map(coverage.tests.map(test => [test.id, test.node]));
     const only = changed ? unit => touched(unit.node) || unit.tests.some(id => touched(testNode.get(id))) : () => true;
-    const outcomesPath = coveragePaths(out).outcomes;
-    const { ran: result, outcomes } = await runMutants({ coverage, generated, sourceText, runner, tool, copies, base, parallel, known: await readOutcomes(outcomesPath),
+    const { ran: result, outcomes } = await runMutants({ coverage, generated, sourceText, runner, tool, copies, base, parallel, known: await readOutcomes(out),
       keyOf: outcomeKeys({ runner, tree, coverage }), only, progress: methodProgress, debug });
     ran = result;
-    await saveOutcomes(outcomesPath, outcomes);
+    await saveOutcomes(out, outcomes);
     const statuses = [...ran.values()].flat();
     measured = { runner: runner.name, sandbox: sandboxKind(), suite_seconds: Math.round(base.seconds),
       mutants_run: statuses.filter(item => !item.uncovered && !item.reused && item.status !== 'skipped').length,

@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { sandboxed } from './sandbox.js';
+import { killGroup, sandboxed } from './sandbox.js';
 
 const DRIVER = `import { spawn } from 'node:child_process';
 import { writeSync } from 'node:fs';
@@ -21,15 +21,27 @@ createInterface({ input: process.stdin }).on('line', line => {
   const { id, command, args, cwd, env, timeout, whole } = JSON.parse(line);
   open++;
   const child = spawn(command, args, { cwd, env: { ...process.env, PWD: cwd, ...env }, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
-  let output = '', timedOut = false;
-  // A run whose results are in what it prints keeps all of it; any other, the end, where an error says what went wrong.
-  const keep = chunk => { output = whole ? output + chunk : (output + chunk).slice(-20000); };
+  let output = '', timedOut = false, overflowed = false;
+  // A run whose results are in what it prints keeps all of it, up to 256 MB, past which a run printing without end is stopped;
+  // any other keeps the end, where an error says what went wrong.
+  const keep = chunk => {
+    output = whole && !overflowed ? output + chunk : (output + chunk).slice(-20000);
+    if (whole && output.length > 256 * 1024 * 1024 && !overflowed) { overflowed = true; output = output.slice(-20000); kill(); }
+  };
   child.stdout.on('data', keep);
   child.stderr.on('data', keep);
-  const kill = () => { try { process.kill(-child.pid, 'SIGKILL'); } catch {} };
+  const kill = () => { try { process.kill(-child.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH' && error.code !== 'EPERM') throw error; } };
   const timer = timeout ? setTimeout(() => { timedOut = true; kill(); }, timeout) : null;
   let done = false;
-  const finish = code => { if (done) return; done = true; if (timer) clearTimeout(timer); kill(); open--; say({ id, code, output, timedOut }); settle(); };
+  const finish = code => {
+    if (done) return;
+    done = true;
+    if (timer) clearTimeout(timer);
+    kill();
+    open--;
+    say({ id, code, output: overflowed ? output + '\\nperch stopped the run: it printed more than 256 MB' : output, timedOut });
+    settle();
+  };
   child.on('error', error => { output += error.message; finish(null); });
   child.on('exit', kill);
   child.on('close', finish);
@@ -64,7 +76,7 @@ export async function startDriver({ scratch, writable }) {
     },
     async close() {
       child.stdin.end();
-      const timer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ } }, 10000);
+      const timer = setTimeout(() => killGroup(child.pid), 10000);
       await exited;
       clearTimeout(timer);
     },

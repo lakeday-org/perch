@@ -166,14 +166,8 @@ TypeScript it runs the framework installed in your `node_modules`, so install
 your dependencies first. node:test needs Node 22 or later. Rust needs cargo, Go
 needs go, and C# needs dotnet and a test project that references
 `Microsoft.NET.Test.Sdk`. Java, Kotlin and Scala need a JDK and the project's
-Gradle, Maven or sbt. If perch can't run
-your tests, it stops and says what's missing. In a repository that also has
-tests in a language perch has no runner for, perch leaves out the code only
-those tests run, and says so.
-
-Perch only looks at the code your test frameworks run. It reads the same config
-files as Vitest, Jest, pytest and coverage.py, which lets it ignore scripts,
-examples and docs tooling that no test covers.
+Gradle, Maven or sbt. If perch can't run your tests, it stops and says what's
+missing.
 
 ## What gets mutated
 
@@ -222,13 +216,15 @@ ignores release scripts, examples, documentation tooling and CI actions.
   passes, such as `--require test/support/env` or
   `--experimental-test-module-mocks`.
 - **Karma:** perch loads `karma.conf.js` and covers the files it loads.
-- **Cucumber:** perch reads your feature files, and each scenario is a test.
+- **Cucumber:** each scenario in your feature files is a test, and the source
+  is the code your step definitions import.
 - **pytest:** perch reads the `testpaths` and `python_files` options from
   `pytest.ini`, `pyproject.toml`, `tox.ini` or `setup.cfg`, and the `source`
   and `omit` options from your coverage.py configuration.
-- **Go, Rust and C#:** perch covers the module the tests are in: the Go module,
-  the code under a Rust crate's `src/`, and the projects a .NET test project
-  references, directly or through each other.
+- **Go, Rust, C#, Java, Kotlin and Scala:** perch covers the module the tests
+  are in: the Go module, the code under a Rust crate's `src/`, the projects a
+  .NET test project references, and a Gradle, Maven or sbt module's
+  `src/main`.
 
 Perch tells you which frameworks it decided on when you run it with
 `--verbose`:
@@ -246,35 +242,20 @@ can leave out more files and directories with the `ignore:` option in
 
 ## Supported languages and frameworks
 
-Perch runs pytest, Vitest, Jest, Mocha, Jasmine, Karma, Cucumber, node:test,
-cargo test, go test and dotnet test suites, with xUnit, NUnit or MSTest, and
-JUnit 5, JUnit 4, TestNG, ScalaTest and MUnit suites on Gradle, Maven or sbt.
-The table below is every language perch finds tests in, the frameworks it
-recognises, the mocks it reads as cutting a test's reach, and what it does not
-follow yet:
-
-| Language | Test frameworks | Mocks | Not followed yet |
+| Language | Runs | Test frameworks | Mocks it reads |
 | --- | --- | --- | --- |
-| Python | pytest, unittest | `unittest.mock.patch`, `monkeypatch` | |
-| JavaScript, TypeScript, TSX | Vitest, Jest, Mocha, node:test | `vi.mock`, `jest.mock`, spies | |
-| Go | testing (subtests, table tests), testify suites | | calls through struct fields and `range` variables |
-| Rust | libtest, nextest | mockall `MockX::new()` | |
-| Java, Kotlin | JUnit 5, JUnit 4, TestNG | Mockito, MockK | |
-| Scala | ScalaTest (FunSuite, FlatSpec, FunSpec, WordSpec, FeatureSpec), munit, specs2 `in`/`>>` | | `new X()` as a call; a case class's `apply`; `s2"""` specs |
-| C# | xUnit, NUnit, MSTest | | property reads; records and structs with a primary constructor |
-| Swift | XCTest, Swift Testing | | computed property reads; a `@Suite` `init` as setup |
-| C | Check, cmocka, Criterion, Unity | | Criterion `Theory` and struct-typed parameters; Unity runners generated elsewhere |
-| C++ | GoogleTest, Catch2 v3, doctest | gmock classes | |
-| Ruby | Minitest, RSpec, test-unit | `allow`/`expect(...).to receive`, doubles, Minitest `stub` | a bare `helper` with no arguments or parentheses; `.rspec --require` |
-| PHP | PHPUnit (`test*`, `#[Test]`, `@test`, data providers), Pest | `createMock`, Mockery, Pest `mock` | `parent::m()`; `use` of a namespace prefix |
-| Lua | busted, luaunit | `stub`, `spy.on` | `return { f = f }` exports; luaunit without a visible `require("luaunit")` |
-| Zig | `test` blocks, decltests | | `for (items) \|x\|` payload captures |
-| Solidity | Foundry test contracts (`test*`, `testFuzz_*`, `invariant*`) | | `setUp` inherited from a base test contract |
+| Python | pytest | pytest, unittest | `unittest.mock.patch`, `monkeypatch` |
+| JavaScript, TypeScript | Vitest, Jest, Mocha, Jasmine, Karma, Cucumber, node:test | the same | `vi.mock`, `jest.mock`, spies |
+| Rust | cargo test | libtest | mockall `MockX::new()` |
+| Go | go test | testing, with subtests and table tests; testify suites | |
+| C# | dotnet test | xUnit, NUnit, MSTest | |
+| Java, Kotlin | Gradle, Maven | JUnit 5, JUnit 4, TestNG | Mockito, MockK |
+| Scala | sbt | ScalaTest, MUnit | |
 
-Groovy and Bash parse, but their grammars give perch nothing to hang a test on:
-the Groovy grammar has no function node at all, and a bats `@test` block has no
-node that spans its body. A test in a framework perch doesn't recognize isn't
-found.
+Perch reads those mocks to find a test that mocks every method it calls. Perch
+also finds tests in Swift, C, C++, Ruby, PHP, Lua, Zig and Solidity, but
+can't run them yet. In a repository with tests in one of those, perch leaves
+out the code only those tests run, and says so.
 
 ## Checking a branch
 
