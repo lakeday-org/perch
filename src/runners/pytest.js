@@ -155,7 +155,8 @@ export async function session({ copies: [copy], tool: { python }, parallel }) {
     waiting.delete(message.id);
     call?.resolve(message);
   });
-  await started;
+  // A server that fails while it collects takes anything it started with it.
+  try { await started; } catch (error) { killGroup(child.pid); throw error; }
   let next = 0;
   return {
     async run({ path: file, source, method, mutant, nodes, timeout, bail = false }) {
