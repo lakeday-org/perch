@@ -44,10 +44,30 @@ async function available(state, { root }) {
   return { root };
 }
 
+/**
+ * The JSON objects `go list -json` prints one after another: each ends where its braces close outside a string, so a `} {` in a
+ * package's doc line does not split it.
+ */
+function jsonValues(text) {
+  const values = [];
+  let depth = 0, start = -1, quoted = false, escaped = false;
+  for (let at = 0; at < text.length; at++) {
+    const char = text[at];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === '\\') escaped = true;
+      else if (char === '"') quoted = false;
+    } else if (char === '"') quoted = true;
+    else if (char === '{') { if (depth++ === 0) start = at; }
+    else if (char === '}' && --depth === 0) values.push(JSON.parse(text.slice(start, at + 1)));
+  }
+  return values;
+}
+
 /** The packages with tests, and each perch test by the name `go test` gives it in its package. */
 async function prepare(state, { copies: [copy], graph }) {
   const { stdout } = await run('go', ['list', '-json', './...'], { cwd: copy.dir, maxBuffer: 1 << 26 });
-  const listed = JSON.parse(`[${stdout.trim().replace(/\}\s*\{/g, '},{')}]`);
+  const listed = jsonValues(stdout);
   state.modulePath = (await readFile(join(copy.dir, 'go.mod'), 'utf8')).match(/^module\s+(\S+)/m)?.[1] ?? '';
   const packages = state.packages = listed.filter(item => (item.TestGoFiles?.length || item.XTestGoFiles?.length)).map(item => ({ importPath: item.ImportPath, dir: relative(copy.dir, item.Dir) }));
   const testIds = state.testIds = new Map();
