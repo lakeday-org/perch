@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.3](https://github.com/lakeday-org/perch/compare/v0.4.2...v0.4.3) (2026-10-11)
+
+
+### Features
+
+* perch ci shows what CI found on your branch ([#252](https://github.com/lakeday-org/perch/issues/252)) ([6f40a1f](https://github.com/lakeday-org/perch/commit/6f40a1f06b9990f83abfdc1e867c020cf64a3c31))
+
+
+### Bug Fixes
+
+* perch scan stopped on a function inside a constructor that uses this ([#359](https://github.com/lakeday-org/perch/issues/359)) ([dacd98f](https://github.com/lakeday-org/perch/commit/dacd98f6fc25c99f4f41d65bfdd8f45a28ae56ec))
+* print rule breaks in perch scan ([#343](https://github.com/lakeday-org/perch/issues/343)) ([cbc6211](https://github.com/lakeday-org/perch/commit/cbc621164c81fa4b25e4baaa28fbcf41d2735675)), closes [#342](https://github.com/lakeday-org/perch/issues/342)
+
 ## [0.4.2](https://github.com/lakeday-org/perch/compare/v0.4.1...v0.4.2) (2026-10-08)
 
 

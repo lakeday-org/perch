@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { installSkill, TARGET_NAMES, TARGETS } from '../src/setup.js';
+import { installSkill, registerMcp, TARGET_NAMES, TARGETS } from '../src/setup.js';
 
 const cleanups = [];
 afterEach(async () => { for (const dir of cleanups.splice(0)) await rm(dir, { recursive: true, force: true }); });
@@ -39,6 +39,18 @@ describe('perch setup', () => {
     expect(cursor).toContain('alwaysApply: true');
   });
 
+  it('gives Cursor the whole description when it runs over several lines', async () => {
+    // Stopping at the end of the first line left Cursor with half a sentence, or with nothing but the `>-` of a folded one.
+    const body = '\n# perch\n';
+    expect(TARGETS.cursor.rewrite(`---\nname: perch\ndescription: Semantic linting with perch.\n  Use it on a diff: bugs, leaks.\nlicense: MIT\n---\n${body}`))
+      .toBe(`---\ndescription: Semantic linting with perch. Use it on a diff: bugs, leaks.\nalwaysApply: true\n---\n${body}`);
+    expect(TARGETS.cursor.rewrite(`---\nname: perch\ndescription: >-\n  Semantic linting with perch.\n  Use it on a diff.\n---\n${body}`))
+      .toBe(`---\ndescription: Semantic linting with perch. Use it on a diff.\nalwaysApply: true\n---\n${body}`);
+    // A key with a hyphen in it, such as Claude Code's allowed-tools, still ends the description rather than joining it.
+    expect(TARGETS.cursor.rewrite(`---\nname: perch\ndescription: Semantic linting with perch.\nallowed-tools: Bash(perch:*)\n---\n${body}`))
+      .toBe(`---\ndescription: Semantic linting with perch.\nalwaysApply: true\n---\n${body}`);
+  });
+
   it('keeps a skill you have edited until you say otherwise', async () => {
     const root = await repo();
     await installSkill({ root, target: 'claude-code' });
@@ -56,6 +68,13 @@ describe('perch setup', () => {
     const forced = await installSkill({ root, target: 'claude-code', force: true });
     expect(forced).toMatchObject({ wrote: true, replaced: true });
     expect(await readFile(path, 'utf8')).not.toContain('Ask me before scanning.');
+  });
+
+  it('keeps this repository\'s own installed skill the same as the one perch ships', async () => {
+    // Agents working on perch load .claude/skills/perch/SKILL.md, not skill.md. The copy sat at an old version through a
+    // dozen changes to the skill, so the agents writing perch were the ones not told about perch coverage or perch ci.
+    const read = path => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
+    expect(await read(TARGETS['claude-code'].path), 'run perch setup claude-code --force').toBe(await read('skill.md'));
   });
 
   it('refuses an assistant it does not know, and names the ones it does', async () => {
@@ -76,5 +95,24 @@ describe('perch setup', () => {
     // And a finding is a belief about a method rather than a defect pinned to a line.
     expect(skill).toMatch(/adjacent/i);
     expect(skill).toMatch(/does not locate a\s+defect/);
+  });
+
+  it('adds Perch Cloud\'s MCP server beside a project\'s other servers, and leaves an existing entry or a broken file alone', async () => {
+    const root = await repo();
+    await writeFile(join(root, '.mcp.json'), JSON.stringify({ mcpServers: { other: { command: 'other' } } }));
+    expect(await registerMcp({ root, target: 'claude-code' })).toEqual({ registered: true, path: '.mcp.json' });
+    // The assistant signs in to it through Perch Cloud, so the file holds an address and nothing secret.
+    expect(JSON.parse(await readFile(join(root, '.mcp.json'), 'utf8')).mcpServers)
+      .toEqual({ other: { command: 'other' }, 'perch-cloud': { type: 'http', url: 'https://dash.perchscan.com/mcp' } });
+    expect(await registerMcp({ root, target: 'claude-code' })).toEqual({ registered: false, already: true, path: '.mcp.json' });
+    expect(await registerMcp({ root, target: 'cursor' })).toEqual({ registered: true, path: '.cursor/mcp.json' });
+    expect(JSON.parse(await readFile(join(root, '.cursor/mcp.json'), 'utf8')))
+      .toEqual({ mcpServers: { 'perch-cloud': { url: 'https://dash.perchscan.com/mcp' } } });
+    expect(await registerMcp({ root, target: 'codex' })).toEqual({ registered: false, command: 'codex mcp add perch-cloud --url https://dash.perchscan.com/mcp' });
+    expect(await registerMcp({ root, target: 'pi' })).toEqual({ registered: false, command: null });
+    const broken = await repo();
+    await writeFile(join(broken, '.mcp.json'), '{ not json');
+    expect((await registerMcp({ root: broken, target: 'claude-code' })).registered).toBe(false);
+    expect(await readFile(join(broken, '.mcp.json'), 'utf8')).toBe('{ not json');
   });
 });

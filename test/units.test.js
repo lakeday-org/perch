@@ -160,6 +160,16 @@ it('does not read a check target outside the repository, including through a sym
   expect((await resolveTarget({ target: 'src/a.js', root: repo.root, out: repo.out })).path).toBe('src/a.js');
 });
 
+it('takes the method a scan reports as a check target, a file rule\'s and a repeated name\'s included', async () => {
+  const repo = await repoWith('');
+  await writeFile(join(repo.root, 'src/twice.js'), 'function build() { return 1; }\nfunction build() { return 2; }\n');
+  // A rule about files reports the file as path::path. Read as a method of that name, it was a method nobody could find.
+  expect(await resolveTarget({ target: 'src/a.js::src/a.js', root: repo.root, out: repo.out })).toMatchObject({ path: 'src/a.js', name: 'src/a.js', line: 1 });
+  // The second build is build#2. By name alone, check asked about the first one.
+  expect(await resolveTarget({ target: 'src/twice.js::build#2', root: repo.root, out: repo.out })).toMatchObject({ id: 'src/twice.js::build#2', line: 2 });
+  expect(await resolveTarget({ target: 'src/twice.js::build', root: repo.root, out: repo.out })).toMatchObject({ id: 'src/twice.js::build', line: 1 });
+});
+
 describe('the units a rule is asked about', () => {
   it('applies the scanner exclusions to file units', () => {
     const skipped = ['vendor', 'node_modules', 'dist', 'target', '.git', '.perch', '.lakeday', 'build', 'coverage'];

@@ -14,13 +14,15 @@ perch <command> [options]
 
 | Verb | What it does | Needs |
 | --- | --- | --- |
-| [`scan`](#perch-scan) | Reads the repository at `HEAD` and writes down what it found. | `PERCH_BASE_URL` and `PERCH_API_KEY` |
-| [`issues`](#perch-issues) | The open issues, worst first. With an id, everything known about that one method. | nothing |
-| [`check`](#perch-check) | Asks about one file or method as it reads on disk. Records nothing. | `PERCH_BASE_URL` and `PERCH_API_KEY` |
-| [`rules`](#perch-rules) | `list`, `add`, `edit`, `remove`: changes `perch.yaml` without opening it. | nothing |
-| [`close`](#perch-close) | Sets issues aside so they stop being listed. | nothing |
+| [`scan`](#perch-scan) | Scans the repository at `HEAD` and saves the issues. | `PERCH_BASE_URL` and `PERCH_API_KEY` |
+| [`issues`](#perch-issues) | Lists open issues, worst first, or shows one in full. | nothing |
+| [`check`](#perch-check) | Checks one file or method on disk, without recording anything. | `PERCH_BASE_URL` and `PERCH_API_KEY` |
+| [`ci`](#perch-ci) | Lists this branch's CI runs, or shows one run's issues. | `perch login`, or a CI token in `PERCH_API_KEY` |
+| [`cloud`](#perch-cloud) | Shows or changes this repository's Perch Cloud scan settings. | `perch login` |
+| [`rules`](#perch-rules) | Lists, adds, edits and removes rules in `perch.yaml`. | nothing |
+| [`close`](#perch-close) | Closes issues. | nothing |
 | [`reopen`](#perch-reopen) | Undoes `close`. | nothing |
-| [`doctor`](#perch-doctor) | What the last run did, and what it could not read. | nothing |
+| [`doctor`](#perch-doctor) | Checks perch can run, and reports on the last run. | nothing |
 
 `perch findings` is the same command as `perch issues`.
 
@@ -174,6 +176,7 @@ from your repository:
 ```console
 $ perch setup claude-code
 Wrote .claude/skills/perch/SKILL.md for Claude Code.
+Added Perch Cloud's MCP server to .mcp.json. Claude Code signs in to it through Perch Cloud, in your browser.
 ```
 
 | Assistant | File |
@@ -190,8 +193,92 @@ To replace a modified or older file, use `--force`.
 | --- | --- |
 | `--force` | Replace an existing file, including any local edits. |
 
-Commit the generated file to share these instructions with your team.
+It also adds Perch Cloud's MCP server, `perch-cloud` at
+`https://dash.perchscan.com/mcp`, to `.mcp.json` for Claude Code and
+`.cursor/mcp.json` for Cursor, and prints
+`codex mcp add perch-cloud --url https://dash.perchscan.com/mcp` for Codex. An
+existing `perch-cloud` entry is left as it is.
+
+Commit the generated files to share these instructions with your team.
 See [Using Perch with coding assistants](skill.md).
+
+## perch ci
+
+```sh
+perch ci [run-id] [options]
+```
+
+Lists this branch's CI runs, newest first, including running ones:
+
+```console
+$ perch ci
+ID                                    Commit   Pull request  Result               When
+043812ac-ea68-4c3b-88f0-737328f62826  5d7b033  #320          clean                23h ago
+edf9f510-875c-44c8-8ff1-773e286be26e  a246d74  #320          clean                24h ago
+6323adfc-9440-4640-badf-58c8e61cd5ba  d738e69  #320          4 problems, failing  45h ago
+```
+
+With a run ID, it shows that run's issues in the `perch scan` layout:
+
+```console
+$ perch ci 6323adfc-9440-4640-badf-58c8e61cd5ba
+docs/coverage.md
+  ID        Line  Severity  Type  Confidence  Problem                   Method
+  8fd1e766     1  -         lint         72%  docs-sentences-are-short  docs/coverage.md
+
+src/coverage.js
+  ID        Line  Severity  Type    Confidence  Problem             Method
+  8d9306ba   428  P1        defect         71%  wrong_return_value  askCoverage.<anonymous>.build
+  7a5c2d1b   463  P1        defect         68%  wrong_return_value  askCoverage.<anonymous>.build#2
+
+test/test-detection.test.js
+  ID        Line  Severity  Type  Confidence  Problem                     Method
+  69903bef     1  -         lint         61%  tests-assert-real-behavior  test/test-detection.test.…
+
+✖ 4 problems in 3 files, failing
+#320 at d738e69, finished 45h ago: https://dash.perchscan.com/#/scan/6323adfc-9440-4640-badf-58c8e61cd5ba
+```
+
+With `--json`, each issue's `method` works as a `perch check` target.
+
+On a pull request, each issue also shows the status of Perch's review comment on
+it: `open`, `resolved`, or `resolved by Perch` after a later scan stopped
+reporting it. Replies are listed underneath.
+
+It uses your `perch login` and the repository named by the `origin` remote. A CI
+token in `PERCH_API_KEY` works too, but sees only its own repository's finished
+runs.
+
+| Flag | |
+| --- | --- |
+| `--wait` | Wait for the current commit's run, or the named run, to finish, then print its issues. Gives up if no run starts within 10 minutes. |
+| `--json` | Print JSON instead of a summary. |
+
+With a run ID, it exits with the run's result: `3` for failing issues, `1` if the
+run didn't finish.
+
+## perch cloud
+
+```sh
+perch cloud [set] [options]
+```
+
+Shows your account, your workspace, and this repository's pull request scan
+settings: whether pull requests are scanned, the issue types, the scope (changed
+code or the whole repository), and whether issues fail the Perch Scan check. The
+repository is the one named by the `origin` remote.
+
+`perch cloud set` changes the settings. Anything you leave out stays the same. It
+needs a workspace admin and a `perch login`; a CI token can't read or change
+settings.
+
+| Flag | |
+| --- | --- |
+| `--pull_requests yes\|no` | Whether Perch Cloud scans this repository's pull requests. |
+| `--scan_types a,b` | Issue types to scan for: `defect`, `security`, `lint`, `refactor`, `docs`. |
+| `--scope changes\|all` | Scan the changed code or the whole repository. |
+| `--gate yes\|no` | Whether issues fail the Perch Scan check on a pull request. |
+| `--json` | Print JSON instead of a summary. |
 
 ## perch doctor
 
@@ -260,9 +347,9 @@ model that reports nothing, set `PERCH_MAX_QUESTIONS`.
 | Code | Meaning |
 | --- | --- |
 | `0` | Command completed successfully. |
-| `1` | Command failed, or a scan could not read some methods or rules after retrying. See the error message for details. |
+| `1` | Command failed, a scan could not read some methods or rules after retrying, or a CI run shown by `perch ci` didn't finish. See the error message for details. |
 | `2` | Invalid arguments, or `perch setup` requires `--force` to replace an existing file. |
-| `3` | `scan` or `check` found issues. |
+| `3` | `scan`, `check`, or a CI run shown by `perch ci` found issues. |
 
 By default, scans check for defects, security vulnerabilities, and custom rule
 violations. Use `scan_types` in `perch.yaml` to choose which issue types to check.
