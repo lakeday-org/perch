@@ -113,6 +113,29 @@ describe('a method called on what a variable holds', () => {
     expect(graph.callees('tests/test_shapes.py::test_two')).toEqual([]);
   });
 
+  it('reads a function inside a constructor or toString that uses this, in a class with a base', async () => {
+    // The method around the function is looked up as a class, and a record's plain object has a constructor and a toString of its own.
+    const graph = await graphOf({
+      'src/store.js': 'export class Store {\n  constructor() {\n    this.sql = null;\n  }\n}\n',
+      'src/tenant.js': [
+        "import { Store } from './store.js';",
+        'export class Tenant extends Store {',
+        '  constructor() {',
+        '    super();',
+        '    const columns = table => this.sql.exec(table);',
+        "    columns('usage');",
+        '  }',
+        '  toString() {',
+        "    const shown = () => this.sql.exec('name');",
+        '    return shown();',
+        '  }',
+        '}',
+      ].join('\n'),
+    });
+    expect(graph.callees('src/tenant.js::Tenant.constructor')).toEqual(['src/tenant.js::Tenant.constructor.columns']);
+    expect(graph.callees('src/tenant.js::Tenant.toString')).toEqual(['src/tenant.js::Tenant.toString.shown']);
+  });
+
   it('follows a method called on a call, on a line of its own, and on a variant', async () => {
     const graph = await graphOf({
       'src/lib.rs': 'pub mod thing;\n',

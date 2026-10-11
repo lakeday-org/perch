@@ -172,6 +172,11 @@ const USING_NAMESPACE = '<namespace>', USING_NAME = '<using>';
 const RECEIVERS = new Set(['this', 'self', 'cls', 'Self']);
 /** The namespaces the Zig compiler qualifies tests with: `cart.test.adds`, `money.decltest.format`. */
 const ZIG_TEST_NAMESPACES = new Set(['test', 'decltest']);
+/**
+ * A class's bases in a file's record, by the name the class goes by there. The record is a plain object, so a class looked up
+ * as `constructor` or `toString`, as the method around a nested function is, must not find Object's own.
+ */
+const basesOf = (file, name) => (file?.bases && Object.hasOwn(file.bases, name) ? file.bases[name] : null);
 
 /**
  * `modules` are the repository's Go modules, each as its go.mod's module path and the directory the go.mod is in, which is how
@@ -781,7 +786,7 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
     const caller = (nodes.get(from)?.qualified_name ?? '').split('.');
     if (name.startsWith('this.') && caller.length > 1 && depth < 4) {
       const at = classFile(file, { name: caller.at(-2), path: file.path });
-      for (const base of at?.bases?.[caller.at(-2)] ?? []) {
+      for (const base of basesOf(at, caller.at(-2)) ?? []) {
         const baseFile = classFile(at, { name: base.split(/::|\./).at(-1) });
         const held = baseFile && (baseFile.binds ?? []).find(item => item.name === name && (nodes.get(item.from)?.qualified_name ?? '').split('.').at(-2) === base.split(/::|\./).at(-1));
         if (held) return { held, file: baseFile };
@@ -832,20 +837,20 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
   };
   /** Where a class is defined: the file that defines a method of it, by the same lookup a member uses, or its bases' record. */
   const classFile = (file, kind) => {
-    if (kind.path && byPath.get(kind.path)?.file.bases?.[kind.name]) return byPath.get(kind.path).file;
-    if (file.bases?.[kind.name]) return file;
+    if (kind.path && basesOf(byPath.get(kind.path)?.file, kind.name)) return byPath.get(kind.path).file;
+    if (basesOf(file, kind.name)) return file;
     const imported = (file.imports ?? []).find(item => item.alias === kind.name && !item.reexport);
     const target = imported && resolveIn(file.path, imported.module, file.language, paths);
-    if (target && byPath.get(target)?.file.bases?.[imported.name === 'default' ? byPath.get(target).file.default_export : imported.name]) return byPath.get(target).file;
+    if (target && basesOf(byPath.get(target)?.file, imported.name === 'default' ? byPath.get(target).file.default_export : imported.name)) return byPath.get(target).file;
     // Java, Kotlin, Scala, C# and PHP find the class by its package or an import, Swift by its module, wherever its file is.
     const visible = PACKAGED.has(file.language) ? classFiles(file, kind.name) : file.language === 'swift' ? swiftClassFiles(file, kind.name) : null;
-    const declaring = (visible ?? []).map(path => byPath.get(path)?.file).filter(item => item?.bases?.[declaredName(file, kind.name)]);
+    const declaring = (visible ?? []).map(path => byPath.get(path)?.file).filter(item => basesOf(item, declaredName(file, kind.name)));
     return declaring.length === 1 ? declaring[0] : null;
   };
   /** A member a class inherits: looked up in each base it names, by that base's own lookup, a few generations up. */
   const inherited = (file, kind, member, depth) => {
     const at = classFile(file, kind);
-    for (const base of at?.bases?.[kind.name] ?? []) {
+    for (const base of basesOf(at, kind.name) ?? []) {
       // A base is written in the class's own file, `class TestType(click.ParamType)`, and named from there.
       const found = memberOf(at, { name: base.split(/::|\./).at(-1), full: base.replaceAll('::', '.'), path: at.path }, member, depth + 1);
       if (found) return found;
