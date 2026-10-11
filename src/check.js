@@ -40,6 +40,9 @@ const looksLikeId = target => /^[0-9a-f]{4,8}$/.test(target);
 /**
  * What to ask about: a file, or a method inside one. `src/cli.js::main` names a method, `src/cli.js` the whole file, and an issue
  * id names whatever the issue was about. A method is found by name in the file as it reads now, so it can have moved.
+ *
+ * The method a scan reports is a target too, as written: `src/cli.js::src/cli.js` is the file a rule about files read, and
+ * `src/a.js::build#2` the second method named build, which its name alone would not find.
  */
 export async function resolveTarget({ target, root, out, analyzer = createSourceAnalyzer() }) {
   let path = target, name = null;
@@ -47,7 +50,8 @@ export async function resolveTarget({ target, root, out, analyzer = createSource
     const finding = await openStore(out).findFinding(target);
     path = finding.path;
     name = finding.name === finding.path ? null : finding.name;
-  } else if (target.includes('::')) [path, name] = target.split('::');
+  } else if (target.includes('::')) [path, name] = [target.slice(0, target.indexOf('::')), target.slice(target.indexOf('::') + 2)];
+  if (name === path) name = null;
   const repository = await realpath(root);
   const targetPath = resolve(repository, path);
   const inside = relative(repository, targetPath);
@@ -70,7 +74,7 @@ export async function resolveTarget({ target, root, out, analyzer = createSource
   // A test is named by its suites and title, `cart > rejects a negative price`, and a method by its class, so either the whole
   // name or its last part finds it.
   const nodes = [...graph.nodes.values()];
-  const found = nodes.find(node => node.qualified_name === name)
+  const found = nodes.find(node => node.id === `${path}::${name}`) ?? nodes.find(node => node.qualified_name === name)
     ?? nodes.find(node => node.qualified_name.endsWith(`.${name}`) || node.qualified_name.endsWith(` > ${name}`));
   if (!found) throw new Error(`no method called ${name} in ${path}${nodes.length ? `; it has ${nodes.slice(0, 6).map(item => item.qualified_name).join(', ')}` : ''}`);
   return { id: found.id, path, name: found.qualified_name, line: found.line, end_line: found.end_line, own: found.lines, metrics: found.metrics, part: true,
