@@ -95,7 +95,8 @@ function readTrx(text) {
 const methodOf = testName => testName.replace(/\(.*\)$/s, '');
 /** The perch test a VSTest name is: its class and method, which perch names it by. */
 const testIdOf = (names, testName) => {
-  const parts = methodOf(testName).split('.');
+  // VSTest writes a nested class after a `+`: `Shop.CartTests+Totals.Adds`.
+  const parts = methodOf(testName).replace(/\+/g, '.').split('.');
   return names.get(parts.slice(-2).join('.')) ?? `dotnet::${methodOf(testName)}`;
 };
 
@@ -121,9 +122,14 @@ async function prepare(state, { copies: [copy], generated, graph }) {
   const ids = new Map(), keys = new Map(), unplaced = new Map(), assemblies = [], names = new Map(), testOfNode = new Map();
   Object.assign(state, { ids, keys, unplaced, assemblies, names, testOfNode });
   const env = { ...process.env, DOTNET_CLI_TELEMETRY_OPTOUT: '1', DOTNET_NOLOGO: '1' };
-  for (const node of graph.nodes.values()) if (node.case && languages.has(graph.files.get(node.path)?.file.language)) names.set(node.qualified_name, node.id);
+  // By class and method, as testIdOf looks them up: a test in a nested class is still its class's.
+  for (const node of graph.nodes.values()) if (node.case && languages.has(graph.files.get(node.path)?.file.language)) names.set(node.qualified_name.split('.').slice(-2).join('.'), node.id);
   const all = await projects(copy.dir);
-  const isTest = async project => /Microsoft\.NET\.Test\.Sdk|<IsTestProject>\s*true/i.test(await readFile(project, 'utf8'));
+  // A test project references the test SDK or says it is one; one that says it is not, a helper the tests share, is not.
+  const isTest = async project => {
+    const text = await readFile(project, 'utf8');
+    return !/<IsTestProject>\s*false/i.test(text) && /Microsoft\.NET\.Test\.Sdk|<IsTestProject>\s*true/i.test(text);
+  };
   const tests = [];
   for (const project of all) if (await isTest(project)) tests.push(project);
   if (!tests.length) throw new Error('there is no test project: none references Microsoft.NET.Test.Sdk');

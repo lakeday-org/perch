@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { exec, executedBy, testOf } from '../src/runners/pytest.js';
 import { sandboxKind } from '../src/runners/sandbox.js';
+import { startDriver } from '../src/runners/driver.js';
 import { startWorkers, WORKER_IO } from '../src/runners/workers.js';
 
 const cleanups = [];
@@ -42,6 +43,32 @@ describe('a test run perch starts', () => {
     const run = await exec('sh', ['-c', 'sleep 30'], { cwd: dir, timeout: 300 });
     expect(run.timedOut).toBe(true);
     expect(Date.now() - started).toBeLessThan(5000);
+  });
+
+  it('answers a command that cannot start with its error, and goes on to the next', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'perch-driver-'));
+    cleanups.push(dir);
+    const driver = await startDriver({ scratch: dir, writable: [dir] });
+    try {
+      const missing = await driver.exec('perch-no-such-command', [], { cwd: dir });
+      expect(missing).toMatchObject({ code: null, output: expect.stringContaining('ENOENT') });
+      expect(await driver.exec('sh', ['-c', 'echo after'], { cwd: dir })).toMatchObject({ code: 0, output: 'after\n' });
+    } finally { await driver.close(); }
+  });
+
+  it('stops a command still running when the session closes', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'perch-driver-'));
+    cleanups.push(dir);
+    const driver = await startDriver({ scratch: dir, writable: [dir] });
+    const pidFile = join(dir, 'pid');
+    const ran = driver.exec('sh', ['-c', `echo $$ > "${pidFile}"; exec sleep 30`], { cwd: dir });
+    while (!existsSync(pidFile) || !(await readFile(pidFile, 'utf8')).trim()) await new Promise(resolve => setTimeout(resolve, 20));
+    const pid = Number((await readFile(pidFile, 'utf8')).trim());
+    const started = Date.now();
+    await driver.close();
+    await ran;
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(() => process.kill(pid, 0)).toThrow();
   });
 
   it('keeps a worker between runs, and replaces one whose run left something going', async () => {

@@ -96,13 +96,17 @@ async function prepare(state, { copies: [copy], generated, graph }) {
     await writeFile(path, `${await readFile(path, 'utf8')}\n${SWITCH}`);
   }
   // Each test by its function's name, with its file's module path under its crate root: libtest names it by that path, any
-  // modules inside the file, and the function.
+  // modules inside the file, and the function. Every target is a crate root here, an integration test, an example and a bench
+  // among them, and a file is under the nearest one whose directory holds it.
+  const crates = metadata.packages.flatMap(item => item.targets.map(entry => relative(copy.dir, entry.src_path)));
+  const holds = (rootFile, path) => path === rootFile || dirname(rootFile) === '.' || path.startsWith(`${dirname(rootFile)}/`);
   for (const node of graph.nodes.values()) {
     if (!node.case || graph.files.get(node.path)?.file.language !== 'rust') continue;
-    const root = roots.filter(item => node.path === item.file || node.path.startsWith(`${dirname(item.file)}/`)).sort((a, b) => b.file.length - a.file.length)[0];
+    const root = crates.filter(file => holds(file, node.path))
+      .sort((a, b) => Number(b === node.path) - Number(a === node.path) || dirname(b).length - dirname(a).length)[0];
     const fn = node.qualified_name.split(/::|\./).at(-1);
     if (!names.has(fn)) names.set(fn, []);
-    names.get(fn).push({ id: node.id, module: modulePath(node.path, root?.file ?? node.path) });
+    names.get(fn).push({ id: node.id, module: modulePath(node.path, root ?? node.path) });
   }
   const byFile = new Map();
   let next = 0;

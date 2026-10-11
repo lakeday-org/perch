@@ -13,10 +13,13 @@ const DRIVER = `import { spawn } from 'node:child_process';
 import { writeSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 let open = 0, ended = false;
+// Each command runs in a process group of its own, which the driver's ending does not reach: the driver kills them itself.
+const running = new Set();
 // Replies go out on a descriptor of their own: whatever else writes to standard output cannot be mistaken for one. JSON allows
 // the Unicode line and paragraph separators raw in a string, and a line reader splits on them, so they go out escaped.
 const say = message => writeSync(3, JSON.stringify(message).replace(/\\u2028/g, '\\\\u2028').replace(/\\u2029/g, '\\\\u2029') + '\\n');
 const settle = () => { if (ended && !open) process.exit(0); };
+process.on('exit', () => { for (const kill of running) kill(); });
 createInterface({ input: process.stdin }).on('line', line => {
   const { id, command, args, cwd, env, timeout, whole } = JSON.parse(line);
   open++;
@@ -30,7 +33,9 @@ createInterface({ input: process.stdin }).on('line', line => {
   };
   child.stdout.on('data', keep);
   child.stderr.on('data', keep);
-  const kill = () => { try { process.kill(-child.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH' && error.code !== 'EPERM') throw error; } };
+  // A command that never started, one not on PATH, has no group to kill.
+  const kill = () => { if (!child.pid) return; try { process.kill(-child.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH' && error.code !== 'EPERM') throw error; } };
+  running.add(kill);
   const timer = timeout ? setTimeout(() => { timedOut = true; kill(); }, timeout) : null;
   let done = false;
   const finish = code => {
@@ -38,6 +43,7 @@ createInterface({ input: process.stdin }).on('line', line => {
     done = true;
     if (timer) clearTimeout(timer);
     kill();
+    running.delete(kill);
     open--;
     say({ id, code, output: overflowed ? output + '\\nperch stopped the run: it printed more than 256 MB' : output, timedOut });
     settle();
@@ -45,7 +51,8 @@ createInterface({ input: process.stdin }).on('line', line => {
   child.on('error', error => { output += error.message; finish(null); });
   child.on('exit', kill);
   child.on('close', finish);
-}).on('close', () => { ended = true; settle(); });
+// Once perch stops sending, nobody waits on what is still running: it goes now, before perch has to kill the driver itself.
+}).on('close', () => { ended = true; for (const kill of running) kill(); settle(); });
 `;
 
 /** The driver for one session, writing only under `writable` and the temporary directory. */
@@ -60,6 +67,8 @@ export async function startDriver({ scratch, writable }) {
   let next = 0;
   const exited = new Promise(resolve => child.on('close', resolve));
   exited.then(code => { for (const { reject } of waiting.values()) reject(new Error(`perch's command driver stopped (exit ${code}): ${stderr.trim()}`)); });
+  // A command written after the driver died fails every call waiting on it, as the driver's exit does.
+  child.stdin.on('error', error => { for (const { reject } of waiting.values()) reject(error); waiting.clear(); });
   createInterface({ input: child.stdio[3] }).on('line', line => {
     const message = JSON.parse(line);
     const call = waiting.get(message.id);

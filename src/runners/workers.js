@@ -51,6 +51,8 @@ export async function startWorkers({ script, command = null, count, scratch, wri
     const child = spawn(run.command, run.args, { cwd, detached: true, env: { ...process.env, PWD: cwd, ...own }, stdio: stdio ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe', 'pipe', 'pipe'] });
     const worker = { child, index, output: '', pending: null, input: stdio ? child.stdin : child.stdio[3] };
     live.add(worker);
+    // A command written to a worker that has just died: the worker goes, and its exit answers the run as a crash.
+    worker.input.on('error', () => kill(worker));
     const keep = chunk => { worker.output = (worker.output + chunk).slice(-20000); };
     if (!stdio) child.stdout.on('data', keep);
     child.stderr.on('data', keep);

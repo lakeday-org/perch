@@ -148,6 +148,8 @@ export async function session({ copies: [copy], tool: { python }, parallel }) {
     failed(error);
     for (const { reject } of waiting.values()) reject(error);
   });
+  // A command written after the server died fails every run waiting on it, as the server's exit does.
+  child.stdio[3].on('error', error => { for (const { reject } of waiting.values()) reject(error); waiting.clear(); });
   createInterface({ input: child.stdio[4] }).on('line', line => {
     const message = JSON.parse(line);
     if (message.ready) { ready(message); return; }

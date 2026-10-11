@@ -77,28 +77,20 @@ runs. They count against the score. Source files are listed worst first, and
 test files only when something in them needs fixing.
 
 Under the tables, Perch lists the methods to add a test to, most survived
-mutants first. Each has a line of numbers and, under it, the test to add, from
-its surest survived mutant: the edit a new test has to tell apart, and the line
-it is on. `--all` lists every method, and every survived mutant with the id
-that `perch close` takes. Test problems follow, by file. A survivor's confidence
-is how sure the model is that a caller could see the edit. A test problem the
-test run settled is 100%. A test that checks nothing kills no mutant in the code
-it reaches. A duplicate kills exactly the mutants an earlier test kills. A test
-that mocks what it tests calls only methods it has replaced with its own mocks,
-so it checks the mocks. That is a fact of the call graph, so it is listed with
-`-` for confidence. So is a problem on a test or method the model couldn't be
-asked about.
+mutants first, each with the test to add. `--all` lists every method and every
+survived mutant. Then come the test problems, by file:
 
-Perch also writes an HTML report. It opens on the methods to add a test to,
-each with its score, how many tests reach it, and the test to add; the mutants
-fold out under the row. Source files are a tree of directories, worst first,
-with each score coloured against 60% and 80% as Stryker colours its own. A
-file's page shows its code with a mark in the gutter on each line where a
-mutant survived; press the mark to see each edit, the line both ways, and a
-Copy prompt button, or step through the survivors with the Next survived
-button. The report is one file, unless your repository has more than 8 MB of
-source. Then each file gets its own page in the `files/` directory next to
-`index.html`.
+- **checks_nothing:** the test kills none of the mutants in the code it reaches.
+- **redundant:** the test kills exactly the mutants an earlier test kills.
+- **mocked:** the test only calls methods it has replaced with mocks.
+- **infra:** the test calls a live service with nothing mocked.
+
+A problem the test run settled is 100%. A survivor's confidence is how sure the
+model is that a caller could see the edit. `-` means the call graph decided it,
+with no model answer.
+
+The HTML report shows the same, with each file's code and a mark on every line
+where a mutant survived.
 
 ## How it works
 
@@ -116,49 +108,26 @@ your working tree is never touched:
    first test that fails, as Stryker does. A run that takes half as long again
    as it should, plus five seconds, catches the mutant too: the mutant made
    something never finish. So does a run the mutant crashes before its tests
-   report. A mutant the code can't even be built or loaded with is invalid,
-   and is left out. A failing test is run again by itself before it counts:
-   one that passes the second time failed because of the machine, not the
-   mutant. With many workers at once, tests that open real connections can run
-   out of local ports.
+   report. A mutant the code can't be built or loaded with is invalid, and is
+   left out. A failing test is run again by itself before it counts, so a test
+   that fails only under load is not a kill.
 3. It asks the decision model about the survivors only: would a caller ever see
    this change, or is it harmless, like a log message, or an edit that changes
    nothing? Harmless survivors are equivalent mutants, and are left out of the
    score. Stryker and PIT can't tell them apart from real gaps.
 
-The tests that kill nothing they run, and the tests that kill exactly what
-another test kills, come from the same real results. A test that killed nothing
-is run alone against the rest of its mutants before perch says so. Tests in one
-file that reach exactly the same mutants are run against all of them before
-perch calls one a duplicate.
+Before perch says a test checks nothing, it runs that test alone against the
+rest of its mutants. Before it calls a test a duplicate, it runs both against
+every mutant they reach.
 
-Nothing is set up again for each mutant. Each test run is sandboxed once, for
-the whole run, so a mutated test can write only inside its copy:
+Perch builds every mutant into the code once, each behind a switch, and keeps
+the test framework loaded between mutants, as Stryker and PIT do. pytest
+forks each mutant from one collected session. Go builds each mutant into its
+own copy of the module. The whole run is sandboxed: a mutated test can write
+only inside its copy.
 
-- **pytest:** pytest collects your suite once. Each mutant runs in a process
-  forked from it, with the mutated function swapped in.
-- **Vitest, Jest, Mocha, Jasmine, Karma, Cucumber and node:test:** perch
-  writes every mutant into the code at once, each behind a switch, as Stryker
-  does. Vitest, Jest and Mocha stay loaded in a worker per core, and each
-  mutant is one run inside it with its switch on. A worker whose run leaves a
-  server, a socket or a timer open is replaced, so the next mutant doesn't
-  inherit it. Jasmine, Karma, Cucumber and
-  node:test start for each mutant, with the code already transformed. Karma
-  runs in headless Chrome; Cucumber's scenarios are its tests.
-- **Rust and C#:** the same switches, built once by cargo or dotnet. A mutant
-  the compiler rejects, a value a constant needs at compile time, is taken out
-  and the code built again; it counts as invalid, as Stryker.NET counts it.
-- **Java, Kotlin and Scala:** the same switches, built once by Gradle, Maven or
-  sbt, and run as PIT runs them: in a JVM per core kept warm, through JUnit 5,
-  JUnit 4, TestNG, ScalaTest or MUnit. The project's own classes load afresh
-  for each mutant, so state one run leaves behind is not the next one's.
-- **Go:** Go has no expression that chooses between two values of any type, so
-  each mutant is written into its own copy of the module and its package built
-  again, which Go's build cache makes quick.
-
-Perch saves each mutant's outcome. A later run reuses it while the mutant's
-code, the tests that reach it, every file those tests run, and your dependency
-manifests are unchanged.
+Perch saves each mutant's outcome and reuses it while the code, the tests that
+reach it, and your dependency manifests are unchanged.
 
 Perch runs pytest with the Python on your `PATH`, so activate the project's
 environment first. It needs `pytest-cov` installed there. For JavaScript and

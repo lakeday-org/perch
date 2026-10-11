@@ -115,14 +115,16 @@ describe('running compiled tests', () => {
   it.skipIf(!installed('dotnet'))('builds a solution once with every mutant switched in, and finds the test by its attribute', async () => {
     const root = await repository({
       'src/Shop/Shop.csproj': '<Project Sdk="Microsoft.NET.Sdk">\n  <PropertyGroup>\n    <TargetFramework>net10.0</TargetFramework>\n    <ImplicitUsings>enable</ImplicitUsings>\n  </PropertyGroup>\n</Project>\n',
-      'src/Shop/Calc.cs': 'namespace Shop;\n\npublic static class Calc\n{\n    public static int Add(int a, int b)\n    {\n        return a + b;\n    }\n\n    public static int Scale(int a, int factor)\n    {\n        var result = 0;\n        result += a * factor;\n        return result;\n    }\n}\n',
+      'src/Shop/Calc.cs': 'namespace Shop;\n\npublic static class Calc\n{\n    public static int Add(int a, int b)\n    {\n        return a + b;\n    }\n\n    public static int Scale(int a, int factor)\n    {\n        var result = 0;\n        result += a * factor;\n        return result;\n    }\n\n    public static int Negate(int a)\n    {\n        return -a;\n    }\n}\n',
       'tests/Shop.Tests/Shop.Tests.csproj': '<Project Sdk="Microsoft.NET.Sdk">\n  <PropertyGroup>\n    <TargetFramework>net10.0</TargetFramework>\n    <ImplicitUsings>enable</ImplicitUsings>\n    <IsPackable>false</IsPackable>\n  </PropertyGroup>\n  <ItemGroup>\n    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />\n    <PackageReference Include="xunit" Version="2.9.3" />\n    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />\n  </ItemGroup>\n  <ItemGroup>\n    <ProjectReference Include="..\\..\\src\\Shop\\Shop.csproj" />\n  </ItemGroup>\n</Project>\n',
-      'tests/Shop.Tests/CalcTests.cs': 'using Shop;\nusing Xunit;\n\nnamespace Shop.Tests;\n\npublic class CalcTests\n{\n    [Fact]\n    public void Adds() => Assert.Equal(5, Calc.Add(2, 3));\n\n    [Fact]\n    public async Task ScalesWithoutChecking()\n    {\n        await Task.Yield();\n        Calc.Scale(2, 3);\n    }\n}\n',
+      'tests/Shop.Tests/CalcTests.cs': 'using Shop;\nusing Xunit;\n\nnamespace Shop.Tests;\n\npublic class CalcTests\n{\n    [Fact]\n    public void Adds() => Assert.Equal(5, Calc.Add(2, 3));\n\n    [Fact]\n    public async Task ScalesWithoutChecking()\n    {\n        await Task.Yield();\n        Calc.Scale(2, 3);\n    }\n\n    public class Nested\n    {\n        [Fact]\n        public void Negates() => Assert.Equal(-2, Calc.Negate(2));\n    }\n}\n',
     }, 'bin/\nobj/\n');
     const report = await run(root);
     expect(report.measured).toMatchObject({ runner: 'dotnet', invalid: 0, unmatched_tests: 0 });
     expect(mutant(report, 'Calc.Add', 'arithmetic')).toMatchObject({ killed: true, killed_by: ['tests/Shop.Tests/CalcTests.cs::CalcTests.Adds'] });
     // The async test is found through its state machine; `+=` as a whole statement is chosen as one, and runs.
     expect(mutant(report, 'Calc.Scale', 'update')).toMatchObject({ killed: false, asked: ['tests/Shop.Tests/CalcTests.cs::CalcTests.ScalesWithoutChecking'] });
+    // VSTest names a test in a nested class `CalcTests+Nested.Negates`; it is still perch's test.
+    expect(mutant(report, 'Calc.Negate', 'negative')).toMatchObject({ killed: true, killed_by: ['tests/Shop.Tests/CalcTests.cs::CalcTests.Nested.Negates'] });
   }, 600000);
 });

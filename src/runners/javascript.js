@@ -489,7 +489,10 @@ export function javascriptRunner(framework) {
     if (spec.results === 'json') {
       const text = await readFile(out, 'utf8').catch(error => { if (error.code === 'ENOENT') return null; throw error; });
       if (text === null) return null;
-      for (const file of JSON.parse(text).testResults ?? []) {
+      // A run that died while writing its report left it cut short: it reported nothing, as a run that wrote none.
+      let report;
+      try { report = JSON.parse(text); } catch (error) { if (error instanceof SyntaxError) return null; throw error; }
+      for (const file of report.testResults ?? []) {
         const path = relative(copy, file.name);
         for (const item of file.assertionResults ?? []) {
           if (!['passed', 'failed'].includes(item.status)) continue;

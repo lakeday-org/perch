@@ -47,5 +47,7 @@ export function sandboxed(command, args, writable) {
  * only exited processes; any other error is not.
  */
 export function killGroup(pid) {
+  // A command that never started has no process to kill.
+  if (!pid) return;
   try { process.kill(-pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH' && error.code !== 'EPERM') throw error; }
 }
