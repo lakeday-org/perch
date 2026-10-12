@@ -1,6 +1,4 @@
 {
   "spec": "test/**/*.spec.js",
-  "reporter": "mocha-junit-reporter",
-  "reporter-option": ["jenkinsMode=true", "includePending=true", "suiteTitleSeparatedBy= > "],
   "check-leaks": true
 }

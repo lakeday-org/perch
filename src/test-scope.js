@@ -31,7 +31,8 @@ const MODULES = [
   { languages: ['elixir'], files: [/^mix\.exs$/], nearest: true },
   { languages: ['c', 'cpp'], files: [/^CMakeLists\.txt$/, /^meson\.build$/, /^Makefile$/], nearest: false },
   // A .NET test project is a project of its own, `Shop.Tests/Shop.Tests.csproj`, named for the project it tests.
-  { languages: ['c_sharp', 'fsharp'], files: [/\.sln$/, /\.[cf]sproj$/], nearest: false, tests: /(?:^|\/)[^/]+\.Tests?\// },
+  // It covers the projects it references, which is where the code it tests lives.
+  { languages: ['c_sharp', 'fsharp'], files: [/\.slnx?$/, /\.[cf]sproj$/], nearest: false, tests: /(?:^|\/)[^/]+\.Tests?\//, references: true },
   // Rake's TestTask and RSpec run test/ and spec/; PHPUnit's convention is tests/; busted's default is spec/, with no manifest
   // of its own, so a Lua project is bounded by its rockspec or `.busted`, and failing both, is the repository.
   { languages: ['ruby'], files: [/^Gemfile$/, /\.gemspec$/], nearest: false, tests: /^(?:test|spec|features)\// },
@@ -224,6 +225,28 @@ async function loadJest({ root, config, node, paths }) {
   return { name: 'Jest', version, config, tests, include: include.length ? include : null, exclude: negated, ignore: path => ignore.some(pattern => pattern.test(join(root, path))) };
 }
 
+/**
+ * A Karma config, loaded with a stand-in for Karma's own config object so its `files` are what it set: the patterns of every
+ * file the browser loads, the code under test and the tests alike. Printed on the last line, after a marker.
+ */
+async function loadKarma({ root, config, node, paths }) {
+  const script = `const config = require(${JSON.stringify(join(root, config))});
+const captured = {};
+const fake = new Proxy({ set: values => Object.assign(captured, values) }, { get: (target, key) => (key in target ? target[key] : String(key)) });
+(typeof config === 'function' ? config : config.default)(fake);
+console.log('\\n@@perch' + JSON.stringify({ base: typeof captured.basePath === 'string' ? captured.basePath : '', files: (captured.files || []).map(item => (typeof item === 'string' ? item : item.pattern)).filter(Boolean) }));`;
+  const output = await run(node, ['-e', script], { cwd: join(root, dirOf(config)) });
+  if (!output.includes('@@perch')) throw new Error(`${config} set no files: ${output.trim().split('\n').slice(-3).join(' | ')}`);
+  // Karma reads each pattern from basePath, itself from the config's directory, and takes an absolute one as it is.
+  const { base, files } = JSON.parse(output.split('@@perch').at(-1));
+  // An absolute path from the config is `__dirname`'s, with any symbolic link in the root resolved.
+  const home = await realpath(root);
+  const from = posix.join(dirOf(config), base.startsWith('/') ? posix.relative(home, base) : base);
+  const patterns = files.map(pattern => (pattern.startsWith('/') ? posix.relative(home, pattern) : posix.join(from, pattern)));
+  const matched = paths.filter(path => patterns.some(pattern => glob(pattern, path)));
+  return { name: 'Karma', version: null, config, tests: matched, include: patterns, exclude: [] };
+}
+
 /** The JavaScript test frameworks a config names, loaded. One that cannot be loaded is reported, and its tests fall back. */
 async function javascriptFrameworks({ root, paths: all, node, ignored, debug }) {
   // A config under a path perch.yaml ignores, such as a fixture app's, is not this repository's suite.
@@ -248,9 +271,11 @@ async function javascriptFrameworks({ root, paths: all, node, ignored, debug }) 
     if (/"vitest"\s*:/.test(text)) vitest.push(path);
     else if (/"jest"\s*:/.test(text)) jest.push(path);
   }
+  // Karma runs whatever its config's files load in a browser, sources and tests alike.
+  const karma = paths.filter(path => /(^|\/)karma\.conf\.c?js$/.test(path)).sort(byDepth);
   const frameworks = [];
   const claimed = new Set();
-  for (const [configs, load, name] of [[vitest.sort(byDepth), loadVitest, 'Vitest'], [jest.sort(byDepth), loadJest, 'Jest']]) {
+  for (const [configs, load, name] of [[vitest.sort(byDepth), loadVitest, 'Vitest'], [jest.sort(byDepth), loadJest, 'Jest'], [karma, loadKarma, 'Karma']]) {
     for (const config of configs) {
       // A nested config whose tests a loaded one already runs is one of its projects.
       if ([...claimed].some(path => under(dirOf(config), path))) continue;
@@ -316,9 +341,22 @@ export async function frameworkScope({ root, tree, scan, graph, node = process.e
   const js = await javascriptFrameworks({ root, paths, node, ignored, debug });
   frameworks.push(...js);
   const loaded = js.filter(framework => framework.tests);
-  const jsTests = loaded.length ? loaded.flatMap(framework => framework.tests) : found.filter(file => JS.has(file.language)).map(file => file.path);
+  const holding = new Set(found.map(file => file.path));
+  // Karma names every file the browser loads, the code under test with the tests: its tests are the ones holding test cases.
+  for (const framework of loaded) if (framework.name === 'Karma') framework.tests = framework.tests.filter(path => holding.has(path));
+  const jsTests = loaded.length ? loaded.flatMap(framework => framework.tests)
+    : found.filter(file => JS.has(file.language)).map(file => file.path);
   if (!js.length && jsTests.length) frameworks.push({ name: 'JavaScript tests', config: null, tests: jsTests });
   for (const path of jsTests) if (byPath.has(path)) tests.add(path);
+
+  // Cucumber, when the package depends on it: its tests are the feature files, and its step definitions, the files that import
+  // it, are the test code that reaches the source.
+  const manifest = JSON.parse((await readListed(root, 'package.json')) || '{}');
+  const cucumber = Boolean(manifest.devDependencies?.['@cucumber/cucumber'] ?? manifest.dependencies?.['@cucumber/cucumber']);
+  const features = cucumber ? paths.filter(path => path.endsWith('.feature') && !path.split('/').includes('node_modules')) : [];
+  const steps = new Set(cucumber ? scan.files.filter(file => JS.has(file.language) && (file.imports ?? []).some(item => item.module === '@cucumber/cucumber')).map(file => file.path) : []);
+  if (features.length) frameworks.push({ name: 'Cucumber', config: null, tests: features });
+  for (const path of features) tests.add(path);
 
   // Python: the tests under testpaths named as python_files, or every test the parser found.
   const pyFound = found.filter(file => file.language === 'python').map(file => file.path);
@@ -329,6 +367,7 @@ export async function frameworkScope({ root, tree, scan, graph, node = process.e
     const kept = pyFound.filter(path => (!python.testpaths || python.testpaths.some(dir => under(dir.replace(/\/$/, ''), path))) && (named(path) || !python.testpaths));
     for (const path of kept) tests.add(path);
     python.tests = kept;
+    debug(`pytest (${python.config ?? 'no config'}) runs ${kept.length} test files`);
     frameworks.push(python);
   }
 
@@ -350,6 +389,19 @@ export async function frameworkScope({ root, tree, scan, graph, node = process.e
     // A source file is the module's when its own nearest build file is one the tests are in: a separate tool's pom.xml, or a
     // Gradle module with no tests, has a nearest build file of its own.
     const ownRoot = path => { const holding = manifests.filter(dir => under(dir, path)).sort(byDepth); return (module.nearest ? holding.at(-1) : holding[0]) ?? ''; };
+    // A .NET test project's ProjectReferences, and theirs, are the projects whose code its tests run.
+    if (module.references) {
+      const projects = paths.filter(path => /\.[cf]sproj$/.test(path));
+      for (const queue = [...roots]; queue.length;) {
+        const dir = queue.pop();
+        for (const project of projects.filter(path => dirOf(path) === dir)) {
+          for (const match of (await readListed(root, project)).matchAll(/<ProjectReference\s+Include="([^"]+)"/g)) {
+            const target = dirOf(posix.normalize(posix.join(dir, match[1].replace(/\\/g, '/'))));
+            if (!roots.has(target)) { roots.add(target); queue.push(target); }
+          }
+        }
+      }
+    }
     for (const language of module.languages) moduleRoots.set(language, { roots, ownRoot, built: module.built ?? null, dependency });
     frameworks.push({ name: `${module.languages[0]} tests`, config: null, tests: mine.map(file => file.path), roots: [...roots] });
   }
@@ -357,7 +409,7 @@ export async function frameworkScope({ root, tree, scan, graph, node = process.e
 
   // Followed languages: what the tests import or call, and the files beside those, minus what the coverage settings leave out.
   const reached = new Set();
-  const queue = [...tests].filter(path => FOLLOWED.has(byPath.get(path)?.language));
+  const queue = [...tests, ...steps].filter(path => FOLLOWED.has(byPath.get(path)?.language));
   for (const path of queue) reached.add(path);
   while (queue.length) {
     const file = byPath.get(queue.pop());
@@ -382,10 +434,10 @@ export async function frameworkScope({ root, tree, scan, graph, node = process.e
   const jsIgnored = path => loaded.some(framework => framework.ignore?.(path));
   for (const file of scan.files) {
     // A test file is never source, whatever top-level code a table or a mock in it is; a source file may also hold tests (Rust).
-    if (file.test || (holdsTests(file) && !file.methods.some(method => !method.test && method.node !== null))) continue;
+    if (file.test || steps.has(file.path) || (holdsTests(file) && !file.methods.some(method => !method.test && method.node !== null))) continue;
     const { path, language } = file;
     if (JS.has(language)) {
-      if (!jsTests.length) continue;
+      if (!jsTests.length && !features.length) continue;
       const kept = jsInclude.length ? jsInclude.some(pattern => glob(pattern, path)) : followedDirs.has(dirOf(path));
       if (kept && !jsExclude.some(pattern => glob(pattern, path)) && !jsIgnored(path)) sources.add(path);
     } else if (language === 'python') {

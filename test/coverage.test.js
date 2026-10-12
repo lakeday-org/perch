@@ -8,7 +8,8 @@ import { createSourceAnalyzer } from '../src/analysis.js';
 import { buildGraph } from '../src/graph.js';
 import { AuthenticationError } from '../src/systemone.js';
 import { TOKEN_LIMITS } from '../src/tokens.js';
-import { computeCoverage, coverageRepository, diffReports, judgeTests } from '../src/coverage.js';
+import { computeCoverage, coverageRepository, diffReports, generateMutants, judgeTests } from '../src/coverage.js';
+import { available } from '../src/runners/pytest.js';
 import { main } from '../src/cli.js';
 import { createServer } from 'node:http';
 import { commitAll, initRepo } from './helpers.js';
@@ -163,8 +164,9 @@ const TESTS = {
 /** What a test answers to the yes-or-no questions when its script does not say. */
 const NOUL_DEFAULTS = { infra: 0.05 };
 /**
- * What each method answers about each mutant: whether it matters, and per test reaching it, how likely that test is to fail
- * against it, by the mutant's kind, with `*` for every other kind. Chosen by hand against the fixture's methods.
+ * Which tests fail against each method's mutants, standing in for running them: per test reaching the method, how likely it is
+ * to fail, by the mutant's kind, with `*` for every other kind; at 0.7 or over it fails. And whether a survivor matters, which is
+ * what the model is asked. Chosen by hand against the fixture's methods.
  * apply_discount: its two boundaries (`<` to `<=`, `>` to `>=`) survive every test, since none passes 0 or 100; everything else
  * is killed by the two discount tests, and the negative test, which raises before the arithmetic, kills none of that.
  * total: the negative-price test kills everything, the plain one everything but the boundary, and checkout's test nothing,
@@ -194,7 +196,7 @@ function scripted({ fail = new Set(), error = name => new Error(`scripted failur
   const calls = [];
   const noul = p => ({ type: 'noul', noul: p });
   return {
-    id: 'scripted-jev', limits: TOKEN_LIMITS, calls,
+    id: 'scripted-jev', limits: TOKEN_LIMITS, calls, tests, methods,
     async ask(state, questions) {
       const name = state.test?.name ?? state.method?.name;
       calls.push({ name, state, questions });
@@ -202,24 +204,252 @@ function scripted({ fail = new Set(), error = name => new Error(`scripted failur
       const script = state.test ? tests[name] ?? TESTS[name] : methods[name] ?? METHODS[name];
       if (!script) throw new Error(`no script for ${name}`);
       const answers = {};
-      // The tests a mutant is asked over are the graph's nodes noted test 1, test 2 and so on, in that order.
-      const shown = (state.graph?.nodes ?? []).filter(node => /^test \d+$/.test(node.note ?? '')).map(node => node.id.split('::').at(-1));
       for (const id of Object.keys(questions)) {
         if (id in NOUL_DEFAULTS) answers[id] = noul(script[id] ?? NOUL_DEFAULTS[id]);
         else if (id === 'matters') answers[id] = noul(script.matters ?? 0.9);
-        else if (id.startsWith('kills_')) {
-          const given = script.kills?.[shown[Number(id.slice('kills_'.length)) - 1]];
-          answers[id] = noul(typeof given === 'number' ? given : given?.[state.method.mutation.kind] ?? given?.['*'] ?? script.kill ?? 0.9);
-        } else throw new Error(`no script for ${id} about ${name}`);
+        else throw new Error(`no script for ${id} about ${name}`);
       }
       return { model: 'scripted-jev', answers, usage: { input_tokens: 100, output_tokens: 0 } };
     },
   };
 }
 
-const run = (repo, systemOne, extra = {}) => coverageRepository({ root: repo.root, revision: repo.revision, out: repo.out, analyzer, systemOne, ...extra });
+/**
+ * A test runner standing in for running the fixture's tests, which this machine may have no Python or Node toolchain for. Its
+ * suite run says each test in `executed` ran those lines; every test is its own case, passing, in no time. Against a mutant, a
+ * test fails when its script above gives it 0.7 or more for the mutant's kind.
+ */
+function scriptedRunner({ methods = {}, executed, languages = ['python', 'typescript', 'tsx', 'javascript'] } = {}) {
+  const runs = [];
+  return {
+    name: 'scripted', languages: new Set(languages), runs, copiesFor: () => 1,
+    available: async () => ({}),
+    coverageRun: async () => ({ executed, results: new Map([...executed.keys()].map(test => [test, { test, status: 'passed', time: 0 }])), seconds: 0 }),
+    session: async () => ({ run, close: async () => {} }),
+  };
+  async function run({ nodes, mutant, method, bail }) {
+    const name = method.node.qualified_name, script = methods[name] ?? METHODS[name] ?? {};
+    runs.push({ name, mutant, nodes });
+    const fails = test => {
+      const given = script.kills?.[test.split('::').at(-1)];
+      return (typeof given === 'number' ? given : given?.[mutant.kind] ?? given?.['*'] ?? script.kill ?? 0.9) >= 0.7;
+    };
+    const results = new Map();
+    for (const test of nodes) {
+      results.set(test, { test, status: fails(test) ? 'failed' : 'passed' });
+      if (bail && fails(test)) break;
+    }
+    return { status: 'ran', results };
+  }
+}
+
+/** What each test runs by the call graph: every line of every method it reaches. */
+async function reached(repo) {
+  const scan = await analyzeTree({ root: repo.root, revision: repo.revision, out: repo.out, analyzer });
+  const graph = buildGraph(scan.files);
+  const executed = new Map();
+  for (const test of computeCoverage({ scan, graph }).tests) {
+    const files = new Map();
+    for (const { id } of test.reach) {
+      const node = graph.nodes.get(id);
+      if (!files.has(node.path)) files.set(node.path, new Set());
+      for (let line = node.line; line <= node.end_line; line++) files.get(node.path).add(line);
+    }
+    executed.set(test.id, files);
+  }
+  return executed;
+}
+
+// The tests perch runs are the scripted runner's: whether this machine could run the fixture's pytest and vitest suites is not
+// these tests' to depend on. `runner` replaces the scripted one built from the model's method scripts.
+const run = async (repo, systemOne, { runner, ...extra } = {}) => coverageRepository({ root: repo.root, revision: repo.revision, out: repo.out, analyzer, systemOne, parallel: 2,
+  runner: runner ?? scriptedRunner({ methods: systemOne.methods, executed: await reached(repo) }), ...extra });
 const byId = list => new Map(list.map(item => [item.id, item]));
 const kinds = report => report.findings.map(finding => `${finding.kind} ${finding.unit}`).sort();
+
+describe('the survivors of a run', () => {
+  async function calculator() {
+    const root = await mkdtemp(join(tmpdir(), 'perch-survivors-'));
+    cleanups.push(root);
+    await mkdir(join(root, 'shop'));
+    await mkdir(join(root, 'tests'));
+    await writeFile(join(root, 'shop', 'calc.py'), 'def add(a, b):\n    return a + b\n');
+    const cases = Array.from({ length: 20 }, (_, at) => `def test_${String(at + 1).padStart(2, '0')}():\n    assert add(${at}, 1) is not None\n`);
+    await writeFile(join(root, 'tests', 'test_calc.py'), `from shop.calc import add\n\n\n${cases.join('\n\n')}`);
+    await initRepo(root);
+    return { root, revision: await revision(root), out: join(root, '.perch') };
+  }
+
+  it('kills a mutant a test fails against, and asks only whether a survivor matters', async () => {
+    // Test 17 of 20 fails against every mutant: each is killed by it, with all twenty run, and the model is asked nothing.
+    const killed = scripted({ methods: { add: { matters: 0.9, kill: 0.1, kills: { test_17: 0.9 } } } });
+    const report = await run(await calculator(), killed);
+    const add = report.methods.find(method => method.id === 'shop/calc.py::add');
+    expect(add.mutants.length).toBeGreaterThan(1);
+    for (const mutant of add.mutants) {
+      expect(mutant).toMatchObject({ killed: true, killed_by: ['tests/test_calc.py::test_17'] });
+      expect(mutant.asked).toHaveLength(20);
+    }
+    expect(killed.calls).toEqual([]);
+
+    // No test fails: every mutant survives all twenty, and is asked once whether a caller could see the change.
+    const missed = scripted({ methods: { add: { matters: 0.9, kill: 0.1 } } });
+    const quiet = await run(await calculator(), missed);
+    const survived = quiet.findings.filter(finding => finding.kind === 'survived' && finding.unit === 'shop/calc.py::add');
+    expect(survived).toHaveLength(add.mutants.length);
+    for (const finding of survived) expect(finding).toMatchObject({ probability: 0.9, note: expect.stringMatching(/none of the 20 tests that run it fails\.$/) });
+    expect(missed.calls.map(call => Object.keys(call.questions).join())).toEqual(add.mutants.map(() => 'matters'));
+    // An edit no caller could observe is equivalent: nothing is listed, and the score leaves it out rather than count it against
+    // the tests.
+    const same = scripted({ methods: { add: { matters: 0.2, kill: 0.1 } } });
+    const equivalent = await run(await calculator(), same);
+    const plain = equivalent.methods.find(method => method.id === 'shop/calc.py::add');
+    expect(plain.mutants.every(mutant => mutant.equivalent && !mutant.killed && mutant.asked.length === 20)).toBe(true);
+    expect(plain.equivalent).toBe(plain.mutants.length);
+    expect(equivalent.findings.filter(finding => finding.unit === 'shop/calc.py::add')).toEqual([]);
+    expect(equivalent.totals).toMatchObject({ equivalent: plain.mutants.length, mutants: 0, killed: 0, score: null });
+  });
+
+  it('counts a failure only once the test fails again against the same mutant', async () => {
+    // Test 3 fails the first time it meets each mutant and passes after, as a test does when the machine is out of ports; test 17
+    // fails every time. Every mutant is killed by 17 alone, reached past the run that stopped at 3.
+    const repo = await calculator();
+    const runner = scriptedRunner({ methods: { add: { kill: 0.1, kills: { test_17: 0.9 } } }, executed: await reached(repo) });
+    const met = new Set();
+    const session = await runner.session();
+    const report = await run(repo, scripted({ methods: { add: { matters: 0.9, kill: 0.1 } } }), { runner: { ...runner,
+      session: async () => ({ ...session, async run(request) {
+        const outcome = await session.run(request);
+        const flaky = request.nodes.find(test => test.endsWith('::test_03'));
+        if (flaky && !met.has(request.mutant)) {
+          met.add(request.mutant);
+          return { status: 'ran', results: new Map([...[...outcome.results].filter(([test]) => request.nodes.indexOf(test) < request.nodes.indexOf(flaky)), [flaky, { test: flaky, status: 'failed' }]]) };
+        }
+        return outcome;
+      } }) } });
+    const add = report.methods.find(method => method.id === 'shop/calc.py::add');
+    expect(met.size).toBe(add.mutants.length);
+    for (const mutant of add.mutants) expect(mutant).toMatchObject({ killed: true, killed_by: ['tests/test_calc.py::test_17'] });
+  });
+
+  it('counts a run past its time limit as killed and an edit the tests cannot load as invalid', async () => {
+    const outcomes = ['timeout', 'invalid'];
+    const repo = await calculator();
+    const runner = scriptedRunner({ executed: await reached(repo) });
+    let at = 0;
+    const report = await run(repo, scripted({ methods: { add: { matters: 0.9, kill: 0.1 } } }), { runner: { ...runner,
+      session: async () => ({ run: async () => ({ status: outcomes[at++ % 2] }), close: async () => {} }) } });
+    const add = report.methods.find(method => method.id === 'shop/calc.py::add');
+    const timedOut = add.mutants.filter(mutant => mutant.timeout), invalid = add.mutants.filter(mutant => mutant.invalid);
+    expect(timedOut.length + invalid.length).toBe(add.mutants.length);
+    expect(timedOut.every(mutant => mutant.killed)).toBe(true);
+    expect(report.totals).toMatchObject({ killed: timedOut.length, invalid: invalid.length, mutants: timedOut.length });
+    expect(report.findings.filter(finding => finding.kind === 'survived')).toEqual([]);
+  });
+});
+
+describe('the mutants of a method', () => {
+  it('makes the edits inside a nested function once, in it and not in the function around it', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'perch-nested-'));
+    cleanups.push(root);
+    const source = 'export function outer(items) {\n  const limit = 10;\n  function inner(item) {\n    return item > limit;\n  }\n  return items.filter(inner).length + 1;\n}\n';
+    await writeFile(join(root, 'nested.js'), source);
+    await initRepo(root);
+    const scan = await analyzeTree({ root, revision: await revision(root), out: join(root, '.perch'), analyzer });
+    const graph = buildGraph(scan.files);
+    const methods = computeCoverage({ scan, graph }).methods;
+    const generated = await generateMutants({ methods, graph, sourceText: async () => source });
+    const lines = id => generated.get(methods.find(method => method.id === id).id).map(mutant => mutant.line);
+    expect(lines('nested.js::outer.inner')).toContain(4);
+    expect(lines('nested.js::outer')).not.toContain(4);
+    expect(lines('nested.js::outer')).toEqual(expect.arrayContaining([2, 6]));
+  });
+});
+
+describe('reach measured by the test run', () => {
+  async function measuredRepo() {
+    const root = await mkdtemp(join(tmpdir(), 'perch-measured-'));
+    cleanups.push(root);
+    await mkdir(join(root, 'shop'));
+    await mkdir(join(root, 'tests'));
+    await writeFile(join(root, 'shop', 'calc.py'), 'def add(a, b):\n    if a > 100:\n        return 0\n    return a + b\n\n\ndef sub(a, b):\n    return a - b\n');
+    await writeFile(join(root, 'tests', 'test_calc.py'), 'from shop.calc import add, sub\n\n\ndef test_small():\n    assert add(1, 1) == 2\n\n\ndef test_large():\n    assert add(200, 1) == 0\n\n\ndef test_never():\n    if False:\n        sub(1, 1)\n');
+    await initRepo(root);
+    return { root, revision: await revision(root), out: join(root, '.perch') };
+  }
+
+  it('runs a mutant only against the tests that ran its line, and calls a line no test ran no coverage', async () => {
+    const repo = await measuredRepo();
+    // test_small ran lines 2 and 4, test_large lines 2 and 3; sub's line 8 never ran, though the graph has test_never reach it.
+    const ran = lines => new Map([['shop/calc.py', new Set(lines)]]);
+    const executed = new Map([['tests/test_calc.py::test_small', ran([2, 4])], ['tests/test_calc.py::test_large', ran([2, 3])], ['tests/test_calc.py::test_never', new Map()]]);
+    const systemOne = scripted({ methods: { add: { matters: 0.9, kill: 0.9 } } });
+    const runner = scriptedRunner({ methods: systemOne.methods, executed });
+    const report = await run(repo, systemOne, { runner });
+    const add = report.methods.find(method => method.id === 'shop/calc.py::add'), sub = report.methods.find(method => method.id === 'shop/calc.py::sub');
+    const asked = line => add.mutants.filter(mutant => mutant.line === line && !mutant.no_coverage).map(mutant => mutant.asked);
+    // `return 0` on line 3 ran only under test_large, `a + b` on line 4 only under test_small; the condition on line 2 under both.
+    for (const tests of asked(3)) expect(tests).toEqual(['tests/test_calc.py::test_large']);
+    for (const tests of asked(4)) expect(tests).toEqual(['tests/test_calc.py::test_small']);
+    for (const tests of asked(2)) expect([...tests].sort()).toEqual(['tests/test_calc.py::test_large', 'tests/test_calc.py::test_small']);
+    expect(asked(4).length).toBeGreaterThan(0);
+    // Every mutant of sub has no coverage, and none was run or asked about.
+    expect(sub.covered).toBe(false);
+    expect(sub.mutants.length).toBeGreaterThan(0);
+    expect(sub.mutants.every(mutant => mutant.no_coverage && !mutant.asked.length)).toBe(true);
+    expect(runner.runs.filter(item => item.name === 'sub')).toEqual([]);
+    expect(systemOne.calls.filter(call => call.name === 'sub')).toEqual([]);
+    expect(report.totals.no_coverage).toBe(sub.mutants.length + add.mutants.filter(mutant => mutant.no_coverage).length);
+  });
+
+  it('keeps a test the graph misses when the run says it ran code in scope, and lists a run test perch has no test for', async () => {
+    const repo = await measuredRepo();
+    // test_never really runs sub's body, whatever the graph says; pytest also ran a test the parse never found.
+    const executed = new Map([['tests/test_calc.py::test_never', new Map([['shop/calc.py', new Set([8])]])], ['tests/test_calc.py::test_generated', new Map()]]);
+    const logged = [];
+    const report = await run(repo, scripted(), { runner: scriptedRunner({ executed, methods: { sub: { kill: 0.9 } } }), log: line => logged.push(line) });
+    expect(report.methods.find(method => method.id === 'shop/calc.py::sub').tests.map(item => item.id)).toEqual(['tests/test_calc.py::test_never']);
+    expect(report.measured.unmatched_tests).toBe(1);
+    expect(logged).toContain('scripted ran 1 tests perch found no test for, so what they kill is not counted: tests/test_calc.py::test_generated');
+  });
+});
+
+const pytest = await available({ root: tmpdir() });
+describe.skipIf(!pytest.python)('running the tests', () => {
+  it('runs the suite with per-test coverage, runs each mutant against the tests that run it, and asks only about survivors', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'perch-pytest-'));
+    cleanups.push(root);
+    await mkdir(join(root, 'shop'));
+    await mkdir(join(root, 'tests'));
+    // add is checked exactly; scale only for running without error, so its arithmetic survives; untouched never runs.
+    // bump's default is decided at import and used by a call; small's condition runs over three lines, which coverage.py records
+    // by the lines it executes rather than the `if (` line.
+    await writeFile(join(root, 'shop', 'calc.py'), 'def add(a, b):\n    return a + b\n\n\ndef scale(a, factor):\n    return a * factor\n\n\ndef untouched(a):\n    return a - 1\n\n\ndef bump(a, by=1):\n    return a + by\n\n\ndef small(a):\n    if (\n        a < 10\n    ):\n        return True\n    return False\n');
+    await writeFile(join(root, 'tests', 'test_calc.py'), 'from shop.calc import add, bump, scale, small\n\n\ndef test_add():\n    assert add(2, 3) == 5\n\n\ndef test_scale_runs():\n    scale(2, 3)\n\n\ndef test_bump():\n    assert bump(1) == 2\n\n\ndef test_small():\n    assert small(9) is True\n    assert small(10) is False\n');
+    await writeFile(join(root, 'pytest.ini'), '[pytest]\ntestpaths = tests\n');
+    await initRepo(root);
+    const systemOne = scripted({ methods: { scale: { matters: 0.9 } } });
+    const report = await coverageRepository({ root, revision: await revision(root), out: join(root, '.perch'), analyzer, systemOne, parallel: 2 });
+    expect(report.measured).toMatchObject({ runner: 'pytest', unmatched_tests: 0 });
+    const method = name => report.methods.find(item => item.id === `shop/calc.py::${name}`);
+    // add's mutants are killed by running test_add against them; nothing was asked about them.
+    const arithmetic = method('add').mutants.find(mutant => mutant.kind === 'arithmetic');
+    expect(arithmetic).toMatchObject({ killed: true, killed_by: ['tests/test_calc.py::test_add'], fails: [1] });
+    expect(systemOne.calls.filter(call => call.name === 'add')).toEqual([]);
+    // scale's arithmetic survives the test that runs it, for real, and only then is the model asked whether it matters.
+    const survived = method('scale').mutants.find(mutant => mutant.kind === 'arithmetic');
+    expect(survived).toMatchObject({ killed: false, asked: ['tests/test_calc.py::test_scale_runs'], fails: [0], matters: 0.9 });
+    expect(report.findings.some(finding => finding.kind === 'survived' && finding.unit === 'shop/calc.py::scale')).toBe(true);
+    expect(systemOne.calls.filter(call => call.name === 'scale').every(call => Object.keys(call.questions).join() === 'matters')).toBe(true);
+    // untouched ran under no test: its mutants have no coverage, and nothing was run or asked about them.
+    expect(method('untouched').mutants.every(mutant => mutant.no_coverage)).toBe(true);
+    // The default `1` becoming `0` is caught by the test that calls bump; the boundary on small's middle line by test_small.
+    expect(method('bump').mutants.find(mutant => mutant.kind === 'number')).toMatchObject({ killed: true, killed_by: ['tests/test_calc.py::test_bump'] });
+    expect(method('small').mutants.find(mutant => mutant.kind === 'boundary')).toMatchObject({ killed: true, killed_by: ['tests/test_calc.py::test_small'] });
+    // test_scale_runs kills nothing it runs: it checks nothing, from what really happened.
+    expect(report.findings.some(finding => finding.kind === 'checks_nothing' && finding.unit === 'tests/test_calc.py::test_scale_runs')).toBe(true);
+  }, 120000);
+});
 
 describe('test reach', () => {
   it('walks through a helper in the test file to the code it calls', async () => {
@@ -237,7 +467,7 @@ describe('test reach', () => {
     expect(test.helpers).toEqual(['test/cart.test.js::run']);
   });
 
-  it('stops at mocks, test files and the depth limit', async () => {
+  it('stops at mocks and test files, and nowhere else', async () => {
     const repo = await repository();
     const scan = await analyzeTree({ root: repo.root, revision: repo.revision, out: repo.out, analyzer });
     const graph = buildGraph(scan.files);
@@ -269,9 +499,6 @@ describe('test reach', () => {
     expect(methods.get('cart.py::restock').tests).toEqual([]);
     expect(methods.get('cart.py::apply_discount').branches).toEqual([5, 7]);
     expect(methods.get('pricing.py::round_money').tests.map(item => item.depth)).toEqual([2, 2, 2]);
-    // One call deep, round_money is out of reach.
-    const shallow = byId(computeCoverage({ scan, graph, depth: 1 }).tests);
-    expect(shallow.get('tests/test_cart.py::test_discount_10').reach).toEqual([{ id: 'cart.py::apply_discount', depth: 1 }]);
   });
 });
 
@@ -279,26 +506,26 @@ describe('perch coverage', () => {
   it('judges every test and method', async () => {
     const repo = await repository();
     const systemOne = scripted();
-    const report = await run(repo, systemOne);
+    const runner = scriptedRunner({ executed: await reached(repo) });
+    const report = await run(repo, systemOne, { runner });
     expect(report.failed).toEqual([]);
-    // Only the test with a network call in reach is asked anything; every reached method is asked about each of its mutants
-    // (apply_discount has nineteen, total eight, fetch_rate three), and restock, which no test reaches, is asked nothing.
-    const asked = systemOne.calls.map(call => call.name);
-    expect(asked.filter(name => name in TESTS)).toEqual(['test_rate']);
-    expect(asked.filter(name => name === 'apply_discount')).toHaveLength(19);
-    expect(asked.filter(name => name === 'total')).toHaveLength(8);
-    expect(asked.filter(name => name === 'fetch_rate')).toHaveLength(3);
-    expect(asked).not.toContain('restock');
-    // One request per mutant: the method as written, the edit in words and as code, and a yes-or-no per test reaching it.
-    const boundary = systemOne.calls.find(call => call.name === 'apply_discount' && call.state.method.mutation.kind === 'boundary');
-    expect(boundary.state.method.mutation).toEqual({ kind: 'boundary', edit: '`<=` instead of `<`', original: 'if percent < 0:', mutated: 'if percent <= 0:' });
-    const removal = systemOne.calls.find(call => call.name === 'checkout' && call.state.method.mutation.kind === 'removal');
-    expect(removal.state.method.mutation).toEqual({ kind: 'removal', edit: 'the call `save(amount);` removed', original: 'save(amount);', mutated: '' });
-    expect(boundary.state.method.source).toContain('if percent < 0:');
-    expect(boundary.state.graph.nodes.map(node => [node.id, node.note])).toEqual([
-      ['tests/test_cart.py::test_discount_10', 'test 1'], ['tests/test_cart.py::test_discount_20', 'test 2'], ['tests/test_cart.py::test_discount_negative', 'test 3']]);
-    expect(Object.keys(boundary.questions)).toEqual(['matters', 'kills_1', 'kills_2', 'kills_3']);
-    expect(boundary.questions.kills_2.instructions).toMatch(/^This question is about test 2, `tests\/test_cart.py::test_discount_20`\./);
+    // The model is asked about the test with a network call in reach, and about each mutant every test that runs it passed against:
+    // apply_discount's two boundaries, the save checkout's test never checks, and save's three, which its test asserts nothing about.
+    expect(systemOne.calls.map(call => [call.name, call.state.method?.mutation.kind ?? null, Object.keys(call.questions).join()])).toEqual([
+      ['test_rate', null, 'infra'],
+      ['apply_discount', 'boundary', 'matters'], ['apply_discount', 'boundary', 'matters'],
+      ['checkout', 'removal', 'matters'],
+      ['save', 'body', 'matters'], ['save', 'removal', 'matters'], ['save', 'string', 'matters'],
+    ]);
+    // Each is asked with the method as written, the edit in words and as code, and the method's callers.
+    const boundary = systemOne.calls.find(call => call.name === 'apply_discount').state;
+    expect(boundary.method.mutation).toEqual({ kind: 'boundary', edit: '`<=` instead of `<`', original: 'if percent < 0:', mutated: 'if percent <= 0:' });
+    expect(boundary.method.source).toContain('if percent < 0:');
+    const removal = systemOne.calls.find(call => call.name === 'checkout').state;
+    expect(removal.method.mutation).toEqual({ kind: 'removal', edit: 'the call `save(amount);` removed', original: 'save(amount);', mutated: '' });
+    // Every mutant of a method a test runs is run against those tests; restock's, which no test runs, against none.
+    expect(new Set(runner.runs.filter(item => item.name === 'apply_discount').map(item => item.mutant))).toHaveProperty('size', 19);
+    expect(runner.runs.filter(item => item.name === 'restock')).toEqual([]);
 
     const tests = byId(report.tests);
     const twenty = tests.get('tests/test_cart.py::test_discount_20');
@@ -335,22 +562,22 @@ describe('perch coverage', () => {
       'survived src/db.ts::save',
     ]);
     const find = (kind, unit) => report.findings.filter(finding => finding.kind === kind && finding.unit === unit);
-    // As likely as test_discount_10 is to kill the mutant it is least sure of among those test_discount_20 kills.
-    expect(find('redundant', 'tests/test_cart.py::test_discount_20')[0]).toMatchObject({ probability: 0.9, note: 'Kills the same mutants as test_discount_10 at line 9, and no others.' });
-    // The chance it misses all three: 0.95 three times.
-    expect(find('checks_nothing', 'test/db.test.ts::saves an order')[0]).toMatchObject({ probability: 0.95 ** 3, note: 'Kills none of the 3 mutants in the code it reaches.' });
+    // Both failed against exactly the same mutants of the same code: certain, since both were run.
+    expect(find('redundant', 'tests/test_cart.py::test_discount_20')[0]).toMatchObject({ probability: 1, note: 'Kills the same mutants as test_discount_10 at line 9, and no others.' });
+    expect(find('checks_nothing', 'test/db.test.ts::saves an order')[0]).toMatchObject({ probability: 1, note: 'Kills none of the 3 mutants in the code it reaches.' });
     // The call checkout makes to save: removed, the one test still passes, since it asserts only on what checkout returns.
-    expect(find('survived', 'src/cart.ts::checkout')[0]).toMatchObject({ line: 14, note: 'With the call `save(amount);` removed, the 1 test reaching it still passes.' });
-    expect(find('survived', 'src/cart.ts::checkout')[0].probability).toBeCloseTo(0.95 * 0.9);
+    expect(find('survived', 'src/cart.ts::checkout')[0]).toMatchObject({ line: 14, note: 'With the call `save(amount);` removed, the 1 test that runs it still passes.' });
+    // Survived for certain, so listed at the chance a caller could see the change.
+    expect(find('survived', 'src/cart.ts::checkout')[0].probability).toBe(0.9);
     // That no test reaches restock is the call graph's alone, and the call graph alone lists no problem.
     expect(find('survived', 'cart.py::restock')).toEqual([]);
-    // The two boundaries: each survives all three tests at 0.9, and matters at 0.9.
+    // The two boundaries: every test passes against each, and each matters at 0.9.
     const uncaught = find('survived', 'cart.py::apply_discount');
     expect(uncaught.map(finding => [finding.line, finding.note])).toEqual([
-      [5, 'With `<=` instead of `<`, none of the 3 tests reaching it fails.'],
-      [7, 'With `>=` instead of `>`, none of the 3 tests reaching it fails.'],
+      [5, 'With `<=` instead of `<`, none of the 3 tests that run it fails.'],
+      [7, 'With `>=` instead of `>`, none of the 3 tests that run it fails.'],
     ]);
-    for (const finding of uncaught) expect(finding.probability).toBeCloseTo(0.9 ** 3 * 0.9);
+    for (const finding of uncaught) expect(finding.probability).toBe(0.9);
     expect(new Set(uncaught.map(finding => finding.id)).size).toBe(2);
     expect(find('infra', 'tests/test_cart.py::test_rate')[0]).toMatchObject({ probability: 0.9, note: 'Calls a live service with nothing mocked: requests.get at rates.py:5.' });
     // The model is shown the call and where it is, and the method making it is in the graph it reads.
@@ -375,26 +602,34 @@ describe('perch coverage', () => {
     const first = discount.mutants.find(mutant => mutant.kind === 'boundary');
     expect(first).toMatchObject({ line: 5, column: 15, from: '<', to: '<=', original: '    if percent < 0:', mutated: '    if percent <= 0:', asked: discount.tests.map(item => item.id) });
     expect(first.id).toMatch(/^5:15:boundary:[0-9a-f]{8}$/);
-    expect(first.survives).toBeCloseTo(0.9 ** 3);
-    // The negative-price test kills every mutant of total; the plain one misses only the boundary.
+    expect(first).toMatchObject({ survives: 1, matters: 0.9, fails: [0, 0, 0] });
+    // Every mutant of total is killed. A run stops at its first failing test, so killed_by names the tests that failed before
+    // it stopped: the boundary, which the plain test misses, is killed by the negative-price test alone, and the plain test was
+    // run against it and passed.
     const total = methods.get('src/cart.ts::total');
     expect(total).toMatchObject({ killed: 8 });
-    expect(total.mutants.every(mutant => mutant.killed_by.includes('test/cart.test.ts::cart > rejects a negative price'))).toBe(true);
-    expect(total.mutants.filter(mutant => !mutant.killed_by.includes('test/cart.test.ts::cart > adds prices')).map(mutant => mutant.kind)).toEqual(['boundary']);
+    const edge = total.mutants.find(mutant => mutant.kind === 'boundary');
+    expect(edge.killed_by).toEqual(['test/cart.test.ts::cart > rejects a negative price']);
+    expect(edge.fails[edge.asked.indexOf('test/cart.test.ts::cart > adds prices')]).toBe(0);
     expect(methods.get('rates.py::fetch_rate')).toMatchObject({ killed: 3 });
     expect(methods.get('rates.py::fetch_rate').mutants).toHaveLength(3);
     expect(methods.get('cart.py::item_count')).toMatchObject({ killed: 2, tests: [{ id: 'tests/test_cart.py::test_count_mocked', depth: 1 }] });
     expect(methods.get('cart.py::item_count').mutants.map(mutant => mutant.kind)).toEqual(['body', 'return']);
-    expect(methods.get('cart.py::restock')).toMatchObject({ killed: 0, mutants: [], tests: [] });
+    // No test reaches restock: its eight mutants are made, asked about nothing, and have no coverage.
+    expect(methods.get('cart.py::restock')).toMatchObject({ killed: 0, covered: false, tests: [] });
+    expect(methods.get('cart.py::restock').mutants).toHaveLength(8);
+    expect(methods.get('cart.py::restock').mutants.every(mutant => !mutant.killed && mutant.asked.length === 0 && mutant.survives === null && mutant.finding === null)).toBe(true);
 
-    expect(report.totals).toMatchObject({ methods: 8, reached: 7, useful_reached: 6, mutants: 40, killed: 34, score: 34 / 40, survived: 6, tests: 10, useful: 7, redundant: 2, weak: 1, infra: 1,
+    // The score counts restock's eight uncovered mutants against the tests, as Stryker does; the covered score leaves them out.
+    expect(report.totals).toMatchObject({ methods: 8, covered: 7, useful_covered: 6, mutants: 48, killed: 34, no_coverage: 8, score: 34 / 48, covered_score: 34 / 40, survived: 6, tests: 10, useful: 7, redundant: 2, weak: 1, infra: 1,
       drop: { count: 3 } });
     // saves an order is the only test reaching save, and it is dropped for checking nothing.
     expect(report.totals.drop.unreached).toEqual(['src/db.ts::save']);
     const cartFile = report.files.find(file => file.path === 'cart.py');
     expect(cartFile.kind).toBe('source');
-    expect(cartFile.totals).toMatchObject({ methods: 3, reached: 2, useful_reached: 2, mutants: 21, killed: 19, survived: 2 });
-    expect(cartFile.totals.score).toBeCloseTo(19 / 21);
+    expect(cartFile.totals).toMatchObject({ methods: 3, covered: 2, useful_covered: 2, mutants: 29, killed: 19, no_coverage: 8, survived: 2 });
+    expect(cartFile.totals.score).toBeCloseTo(19 / 29);
+    expect(cartFile.totals.covered_score).toBeCloseTo(19 / 21);
     expect(cartFile.lines[4]).toBe('    if percent < 0:');
     expect(report.files.find(file => file.path === 'tests/test_cart.py').totals).toMatchObject({ tests: 6, useful: 4, redundant: 2, weak: 0, infra: 1 });
 
@@ -405,8 +640,6 @@ describe('perch coverage', () => {
     expect(items.filter(([list]) => list === 'findings').map(([, finding]) => finding)).toEqual(report.findings);
     expect(items.filter(([list]) => list === 'methods')).toHaveLength(report.methods.length);
     expect(await readdir(join(repo.out, 'coverage', 'reports'))).toHaveLength(1);
-    // One test and forty mutants.
-    expect(systemOne.calls).toHaveLength(41);
     expect(report.baseline).toBe(null);
   });
 
@@ -440,33 +673,6 @@ describe('perch coverage', () => {
     expect(reopened.closed).toEqual([]);
   });
 
-  it('shows the model a macro the test checks through', async () => {
-    const repo = await repository({
-      'src/add.h': 'inline int add(int a, int b) {\n  return a + b;\n}\n',
-      'test/add_test.cc': '#include <gtest/gtest.h>\n#include "../src/add.h"\n\n#define CHECK_SUM(actual, expected) \\\n  EXPECT_EQ(actual, expected)\n\nTEST(Add, Sums) {\n  CHECK_SUM(add(1, 2), 3);\n}\n',
-    });
-    const systemOne = scripted({ methods: { add: { matters: 0.9, kill: 0.9 } }, tests: { 'Add.Sums': {} } });
-    await run(repo, systemOne);
-    const { state } = systemOne.calls.find(call => call.state.method?.name === 'add');
-    // The assertion is inside the macro, which no call graph reaches: without it the test reads as asserting nothing. It is
-    // shown after the test, as part of the test's node in the graph.
-    expect(state.graph.nodes.map(node => [node.id, node.note])).toEqual([['test/add_test.cc::Add.Sums', 'test 1'], ['test/add_test.cc::CHECK_SUM', 'a macro the test uses, which may hold its assertions']]);
-    expect(state.graph.nodes[1]).toMatchObject({ path: 'test/add_test.cc', source: '#define CHECK_SUM(actual, expected) \\\n  EXPECT_EQ(actual, expected)' });
-  });
-
-  it('calls a test empty only above the floor', async () => {
-    // checks out scripted to miss all ten mutants it reaches at 0.95: the chance it misses every one is 0.6. At 0.3 each it is
-    // 0.7 to the tenth, well under the floor.
-    const missing = { kills: { 'cart > adds prices': { boundary: 0.1, condition: 0.95 }, 'cart > rejects a negative price': { boundary: 0.9, condition: 0.9 }, 'cart > checks out': 0.3 } };
-    const under = await run(await repository(), scripted({ methods: { total: { ...METHODS.total, ...missing }, checkout: { matters: 0.9, kills: { 'cart > checks out': 0.3 } } } }));
-    const checks = under.tests.find(test => test.id === 'test/cart.test.ts::cart > checks out');
-    expect(under.findings.filter(finding => finding.unit === checks.id).map(finding => finding.kind)).toEqual([]);
-    expect(checks.useful).toBe(true);
-    const over = await run(await repository(), scripted({ methods: { checkout: { matters: 0.9, kills: { 'cart > checks out': 0.05 } } } }));
-    expect(over.findings.filter(finding => finding.unit === checks.id).map(finding => finding.kind)).toEqual(['checks_nothing']);
-    expect(over.tests.find(test => test.id === checks.id).useful).toBe(false);
-  });
-
   it('keeps a survived mutant on its own line when code above the method moves it down', async () => {
     const repo = await repository();
     await run(repo, scripted());
@@ -482,19 +688,15 @@ describe('perch coverage', () => {
 
   it('records units it could not ask about', async () => {
     const repo = await repository();
-    const report = await run(repo, scripted({ fail: new Set(['cart > rejects a negative price', 'total']) }));
-    // The test is never asked, having no live service in reach, so only the method fails: once per mutant, eight times.
-    expect(report.failed.map(unit => [unit.subject, unit.unit])).toEqual(Array(8).fill(['method', 'src/cart.ts::total']));
-    expect(report.failed[0].error).toBe('scripted failure for total');
-    const rejects = report.tests.find(test => test.id === 'test/cart.test.ts::cart > rejects a negative price');
-    // With total's mutants unasked, nothing says whether it kills anything, so it is kept.
-    expect(rejects).toMatchObject({ infra: null, useful: true, asked: 0 });
-    const total = report.methods.find(method => method.id === 'src/cart.ts::total');
-    expect(total).toMatchObject({ killed: 0, mutants: [] });
-    expect(total.useful).toEqual(['test/cart.test.ts::cart > adds prices', 'test/cart.test.ts::cart > rejects a negative price', 'test/cart.test.ts::cart > checks out']);
-    // Every one of total's mutants failed, once each; the failures are listed by the method.
-    expect(report.failed.filter(unit => unit.unit === 'src/cart.ts::total')).toHaveLength(8);
-    expect(report.totals).toMatchObject({ useful: 7, mutants: 32 });
+    const report = await run(repo, scripted({ fail: new Set(['cart > rejects a negative price', 'apply_discount']) }));
+    // The test is never asked, having no live service in reach; apply_discount is asked about its two survivors, and both fail.
+    expect(report.failed.map(unit => [unit.subject, unit.unit])).toEqual(Array(2).fill(['method', 'cart.py::apply_discount']));
+    expect(report.failed[0].error).toBe('scripted failure for apply_discount');
+    // What the run found stands: the two survived, so they are listed, with nothing to say how much they matter.
+    const discount = report.methods.find(method => method.id === 'cart.py::apply_discount');
+    expect(discount).toMatchObject({ killed: 17 });
+    expect(report.findings.filter(finding => finding.unit === 'cart.py::apply_discount').map(finding => [finding.line, finding.probability])).toEqual([[5, null], [7, null]]);
+    expect(report.totals).toMatchObject({ mutants: 48, killed: 34 });
   });
 
   it('stops on rejected credentials', async () => {
@@ -524,13 +726,14 @@ def tax(value):
     const { diff } = after;
     expect(diff.tests).toEqual({ added: ['tests/test_cart.py::test_restock'], removed: [] });
     const methods = byId(diff.methods);
-    // Eight mutants of restock once a test reaches it; its boundary survives that test.
-    expect(methods.get('cart.py::restock')).toMatchObject({ before: { reached: false, mutants: 0, killed: 0 }, after: { reached: true, mutants: 8, killed: 7 } });
-    expect(methods.get('pricing.py::tax')).toMatchObject({ before: null, after: { reached: false, mutants: 0 } });
+    // restock's eight mutants had no coverage; once a test reaches it, seven are killed and its boundary survives.
+    expect(methods.get('cart.py::restock')).toMatchObject({ before: { covered: false, mutants: 8, killed: 0 }, after: { covered: true, mutants: 8, killed: 7 } });
+    expect(methods.get('pricing.py::tax')).toMatchObject({ before: null, after: { covered: false, mutants: 3, killed: 0 } });
     expect(methods.has('cart.py::apply_discount')).toBe(false);
     expect(diff.findings.fixed).toEqual([]);
     expect(diff.findings.new.map(finding => `${finding.kind} ${finding.unit}`)).toEqual(['survived cart.py::restock']);
-    expect(diff.totals.score).toEqual({ before: 34 / 40, after: 41 / 48 });
+    expect(diff.totals.score).toEqual({ before: 34 / 48, after: 41 / 51 });
+    expect(diff.totals.no_coverage).toEqual({ before: 8, after: 3 });
     expect(diff.totals.methods).toEqual({ before: 8, after: 9 });
     expect(diff.totals.tests).toEqual({ before: 10, after: 11 });
     expect(diff.files.map(file => file.path)).toEqual(['cart.py', 'pricing.py', 'tests/test_cart.py']);
@@ -636,34 +839,78 @@ async function answeringEndpoint() {
   return { url: `http://127.0.0.1:${server.address().port}/v1/systemone`, close: () => new Promise(resolve => server.close(resolve)) };
 }
 
-describe('perch coverage from the command line', () => {
-  it('asks, prints, and writes the page', async () => {
-    const repo = await repository();
+describe.skipIf(!pytest.python)('perch coverage from the command line', () => {
+  it('runs the tests, asks, prints, and writes the page', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'perch-cli-'));
+    cleanups.push(root);
+    // add is checked exactly; scale only for running without error, so its arithmetic survives.
+    await write(root, {
+      'shop/calc.py': 'def add(a, b):\n    return a + b\n\n\ndef scale(a, factor):\n    return a * factor\n',
+      'tests/test_calc.py': 'from shop.calc import add, scale\n\n\ndef test_add():\n    assert add(2, 3) == 5\n\n\ndef test_scale_runs():\n    scale(2, 3)\n',
+      'pytest.ini': '[pytest]\ntestpaths = tests\n',
+    });
+    await initRepo(root);
     const endpoint = await answeringEndpoint();
     try {
-      vi.spyOn(process, 'cwd').mockReturnValue(repo.root);
+      vi.spyOn(process, 'cwd').mockReturnValue(root);
       const out = [], err = [];
-      const io = { stdout: text => out.push(text), stderr: text => err.push(text), env: { PERCH_BASE_URL: endpoint.url, PERCH_API_KEY: 'local', HOME: repo.root } };
+      const io = { stdout: text => out.push(text), stderr: text => err.push(text), env: { PERCH_BASE_URL: endpoint.url, PERCH_API_KEY: 'local', HOME: root } };
       const code = await main(['coverage', '--html', 'out/index.html'], io);
       expect(err.join('\n')).not.toContain('perch:');
       expect(code).toBe(3);
       // The source table's rows, before the problem blocks below it name the same files as headings.
       const table = out.join('\n').split('\n\n')[0].split('\n').map(line => line.trim().split(/\s{2,}/));
       const rows = Object.fromEntries(table.map(([path, ...cells]) => [path, cells]));
-      // The endpoint answers 0.9 to every yes-or-no, so every mutant is killed.
-      expect(rows['src/cart.ts']).toEqual(['2 of 2', '100% (10 of 10)', '0']);
-      expect(rows['src/db.ts']).toEqual(['1 of 1', '100% (3 of 3)', '0']);
-      const page = await readFile(join(repo.root, 'out', 'index.html'), 'utf8');
+      // add's three mutants are killed; scale's three survive, and the endpoint says each matters.
+      expect(rows['shop/calc.py']).toEqual(['50% (3 of 6)', '3', '0']);
+      const page = await readFile(join(root, 'out', 'index.html'), 'utf8');
       expect(page).toMatch(/^<!doctype html>/);
       expect(page).toContain('Run details');
     } finally {
       vi.restoreAllMocks();
       await endpoint.close();
     }
-  });
+  }, 120000);
 });
 
 describe('perch coverage on a branch', () => {
+  it('reuses a mutant\'s outcome until its code, its tests or what they run changes', async () => {
+    const repo = await repository();
+    const first = scriptedRunner({ executed: await reached(repo) });
+    const before = await run(repo, scripted(), { runner: first });
+    expect(first.runs.length).toBeGreaterThan(0);
+    // Nothing changed: every mutant's outcome is the saved one, and nothing runs.
+    const again = scriptedRunner({ executed: await reached(repo) });
+    const same = await run(repo, scripted(), { runner: again });
+    expect(again.runs).toEqual([]);
+    expect(same.measured).toMatchObject({ reused: before.measured.mutants_run, mutants_run: 0 });
+    expect(same.totals).toEqual(before.totals);
+    // pricing.py changes: round_money runs again, and so does every mutant whose tests run pricing.py, apply_discount's among them.
+    await write(repo.root, { 'pricing.py': `${FILES['pricing.py']}\n\ndef tax(value):\n    return value * 0.2\n` });
+    await commitAll(repo.root, 'tax');
+    const moved = { ...repo, revision: await revision(repo.root) };
+    const third = scriptedRunner({ executed: await reached(moved) });
+    await run(moved, scripted(), { runner: third });
+    expect([...new Set(third.runs.map(item => item.name))].sort()).toEqual(['apply_discount', 'round_money']);
+  });
+
+  it('runs only the mutants in changed code and those its changed tests run when nothing is saved', async () => {
+    const repo = await repository();
+    await write(repo.root, { 'src/cart.ts': FILES['src/cart.ts'].replace('sum += price;', 'sum += price * 1;') });
+    await commitAll(repo.root, 'branch');
+    const moved = { ...repo, revision: await revision(repo.root) };
+    const runner = scriptedRunner({ executed: await reached(moved) });
+    const report = await run(moved, scripted(), { runner, since: 'main' });
+    // total changed; checkout and save did not, and nothing was saved for them, so they did not run.
+    expect([...new Set(runner.runs.map(item => item.name))]).toEqual(['total']);
+    const methods = byId(report.methods);
+    expect(methods.get('src/cart.ts::checkout').mutants.every(mutant => mutant.skipped)).toBe(true);
+    expect(report.totals.skipped).toBe(report.methods.reduce((sum, method) => sum + method.skipped, 0));
+    expect(report.totals.skipped).toBeGreaterThan(0);
+    // A test that runs a mutant left unrun is judged on nothing: saves an order checks nothing, but nothing it runs ran.
+    expect(report.findings.filter(finding => finding.kind === 'checks_nothing' || finding.kind === 'redundant')).toEqual([]);
+  });
+
   it('reports changed code with --since', async () => {
     const repo = await repository();
     await run(repo, scripted());
@@ -688,8 +935,11 @@ describe('perch coverage on a branch', () => {
     // checkout makes that its test never checks, with the `* 1` it put beside it, and for the save test that asserts nothing.
     const onBranch = report.findings.filter(finding => report.branch.findings.includes(finding.id)).map(finding => `${finding.kind} ${finding.unit}`).sort();
     expect([...new Set(onBranch)]).toEqual(['checks_nothing test/db.test.ts::saves an order', 'survived src/cart.ts::checkout']);
-    // The whole repository was still read and asked about: the branch's tests and what they reach are mostly elsewhere.
-    expect(report.findings.some(finding => finding.unit === 'tests/test_cart.py::test_discount_20')).toBe(true);
+    // Code the branch left alone is not run again: rates.py's outcomes are the ones saved on main, and apply_discount, whose
+    // file the branch touched elsewhere, is left unrun rather than rerun.
+    expect(report.methods.find(method => method.id === 'rates.py::fetch_rate')).toMatchObject({ killed: 3, skipped: 0 });
+    expect(report.measured.reused).toBeGreaterThan(0);
+    expect(report.methods.find(method => method.id === 'cart.py::apply_discount').mutants.every(mutant => mutant.skipped)).toBe(true);
   });
 
   it('fails fast on an unknown --since ref', async () => {
@@ -703,17 +953,17 @@ describe('perch coverage on a branch', () => {
 
 it('finds duplicate tests among 40,000 in about linear time', () => {
   const mutants = new Map(), tests = [];
-  // Two tests for each of 20,000 methods, asked about the same three mutants, killing the same two: the second repeats the first.
+  // Two tests for each of 20,000 methods, run against the same three mutants, failing against the same two: the second repeats
+  // the first.
   for (let index = 0; index < 20000; index++) {
     const ids = [0, 1].map(copy => `test/t${index}.test.js::t${copy}`);
     for (const [copy, id] of ids.entries()) tests.push({ id, node: { path: `test/t${index}.test.js`, line: copy + 1 } });
-    mutants.set(`src/m${index}.js::m`, [0, 1, 2].map(at => ({ mutant: { line: at + 1, column: 0, from: '<', to: '<=' }, matters: 0.9, kills: ids.map(id => [id, at < 2 ? 0.9 : 0.1]) })));
+    mutants.set(`src/m${index}.js::m`, [0, 1, 2].map(at => ({ mutant: { line: at + 1, column: 0, from: '<', to: '<=' }, kills: ids.map(id => [id, at < 2 ? 1 : 0]) })));
   }
   const started = performance.now();
-  const { redundantWith, pairProbability, useful, checksNothing } = judgeTests(tests, mutants, 0.5);
+  const { redundantWith, useful, checksNothing } = judgeTests(tests, mutants);
   expect(performance.now() - started).toBeLessThan(2000);
   expect(useful.size).toBe(20000);
   expect(checksNothing.size).toBe(0);
   expect(redundantWith.get('test/t3.test.js::t1')).toBe('test/t3.test.js::t0');
-  expect(pairProbability.get('test/t3.test.js::t1')).toBe(0.9);
 });

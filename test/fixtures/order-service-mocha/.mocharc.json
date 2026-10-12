@@ -1,7 +1,7 @@
 {
   "require": "ts-node/register",
-  "extension": ["ts"],
-  "spec": "test/**/*.test.ts",
-  "reporter": "mocha-junit-reporter",
-  "reporter-option": ["jenkinsMode=true", "suiteTitleSeparatedBy= > "]
+  "extension": [
+    "ts"
+  ],
+  "spec": "test/**/*.test.ts"
 }

@@ -42,8 +42,8 @@ describe('changedLines', () => {
     expect(changed.base).toBe(base);
     expect(Object.fromEntries(changed.files)).toEqual({
       'a.js': [3, 11, 12],
-      // A line taken out leaves nothing on this side to point at.
-      'trim.js': [],
+      // A line taken out changes what is either side of where it was: line 5 went, so lines 4 and 5, as they are now, changed.
+      'trim.js': [4, 5],
       'caf\u00e9 \u00fc.js': [1, 2],
       'new name.js': [1],
     });

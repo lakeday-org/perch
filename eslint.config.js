@@ -43,8 +43,9 @@ export default [
     rules: { 'no-process-env': 'error' },
   },
   {
-    // The CLI captures configuration; git passes the inherited environment to its child process.
-    files: ['src/cli.js', 'src/git.js'],
+    // The CLI captures configuration; git and the test runners pass the inherited environment to their child processes, since a
+    // test suite runs under the shell's PATH, virtual environment and settings.
+    files: ['src/cli.js', 'src/git.js', 'src/runners/*.js'],
     rules: { 'no-process-env': 'off' },
   },
 ];

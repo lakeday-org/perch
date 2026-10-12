@@ -62,12 +62,14 @@ rules:
 
   - name: one-way-into-the-log
     where: mentions .jsonl
-    # The store is the one place that opens them, so its own methods are not asked.
-    except: src/store.js
+    # The store is the one place that opens them, so its own methods are not asked. The runners work in a copy of the
+    # repository in the temporary directory and never open .perch: a .jsonl file there is a test framework's output.
+    except: [src/store.js, "src/runners/**"]
     ensure: >-
-      This method reads and writes the .jsonl result files by calling the store:
-      readLines, writeLines, recordScan or indexes. Calling readFile, writeFile
-      or appendFile on a .jsonl path here breaks this rule.
+      This method reads and writes perch's own .jsonl files, the ones under the
+      .perch directory, by calling the store: readLines, writeLines,
+      appendLines, recordScan or indexes. Calling readFile, writeFile or
+      appendFile on such a path here breaks this rule.
 
   - name: issues-closable
     # The released perch that scans this repository's pull requests still requires where on every rule.

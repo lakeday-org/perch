@@ -139,6 +139,8 @@ export async function changedLines(root, since, rev = 'HEAD') {
     const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
     if (!hunk || !current) continue;
     const start = Number(hunk[1]), count = hunk[2] === undefined ? 1 : Number(hunk[2]);
+    // A hunk that only deletes names the line before the gap: the lines either side of it are what changed.
+    if (count === 0) files.get(current).push(start, start + 1);
     for (let number = start; number < start + count; number++) files.get(current).push(number);
   }
   return { base, files };
