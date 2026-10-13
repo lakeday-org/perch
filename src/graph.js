@@ -722,7 +722,17 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
     return null;
   };
 
+  const resolving = new Set();
   const resolve = (file, name, from, depth = 0, via = null) => {
+    // A factory can depend on another local whose factory depends on the first. Re-entering the same lookup cannot resolve
+    // that branch; returning lets the surrounding lookup still try imports, type declarations and other concrete callers.
+    const key = JSON.stringify([file.path, name, from, via]);
+    if (resolving.has(key)) return null;
+    resolving.add(key);
+    try { return resolveName(file, name, from, depth, via); }
+    finally { resolving.delete(key); }
+  };
+  const resolveName = (file, name, from, depth = 0, via = null) => {
     const parts = name.split(/::|\./), head = parts[0], tail = parts.at(-1);
     // `a.f` in C or C++ is a member of an object whose type the tree does not give; only `a::f` names a definition.
     const native = NATIVE.has(file.language) && !name.includes('.');
@@ -869,11 +879,20 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
     return parts.length <= 2 && (nodes.get(call.from)?.params ?? []).some(param => param.name === parts[0]);
   };
   /** The method a held value is, when it is a function: one written in place, or a name that resolves to one. */
-  const functionOf = (file, held, from) => {
+  const functionOf = (file, held, from, active = new Set()) => {
     if (!held) return null;
     if (held.fn) return nodes.has(held.fn) ? held.fn : null;
-    if (held.local) { const bound = bindingFor(file, held.local, from); return bound ? functionOf(file, bound, from) : resolve(file, held.local, from) ?? parameterValues(from, held.local).map(site => functionOf(site.file, site.held, site.from)).find(Boolean) ?? null; }
-    return null;
+    if (!held.local) return null;
+    // Recursive callers can forward the same parameter back to each other. Only that branch is unknown; another caller may
+    // still pass a concrete function, so remove the lookup when returning rather than marking it visited for the whole search.
+    const key = JSON.stringify([file.path, from, held.local]);
+    if (active.has(key)) return null;
+    active.add(key);
+    try {
+      const bound = bindingFor(file, held.local, from);
+      return bound ? functionOf(file, bound, from, active) : resolve(file, held.local, from)
+        ?? parameterValues(from, held.local).map(site => functionOf(site.file, site.held, site.from, active)).find(Boolean) ?? null;
+    } finally { active.delete(key); }
   };
   const deferred = [];
   /**

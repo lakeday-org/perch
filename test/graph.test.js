@@ -4,6 +4,31 @@ import { buildGraph, resolveModule } from '../src/graph.js';
 const method = (path, name, line, risk = 10) => ({ id: `${path}::${name}`, node: `function:${line}`, name: name.split('.').at(-1), qualified_name: name, line, end_line: line + 2, hash: 'h', metrics: { risk_score: risk } });
 
 describe('method graph', () => {
+  it('leaves circular factory bindings unresolved while retaining direct calls', () => {
+    const path = 'factory.js', from = 'factory.js::run';
+    const file = { path, language: 'javascript', imports: [], values: [],
+      methods: [method(path, 'run', 1), method(path, 'done', 8)],
+      binds: [{ from, name: 'left', call: 'right.make' }, { from, name: 'right', call: 'left.make' }],
+      calls: [{ from, name: 'left.read', line: 3 }, { from, name: 'done', line: 4 }] };
+    expect(buildGraph([file]).callees(from)).toEqual(['factory.js::done']);
+  });
+
+  it('resolves a concrete callback despite a cycle of forwarded parameters', () => {
+    const path = 'Runner.cs';
+    const named = (name, params = []) => ({ ...method(path, `Runner.${name}`, 1), params });
+    const callback = [{ name: 'callback', index: 0 }];
+    const file = { path, language: 'c_sharp', package: '', imports: [], binds: [], values: [],
+      methods: [named('Run', callback), named('Forward', callback), named('Done'), named('Main')],
+      calls: [
+        { from: 'Runner.cs::Runner.Run', name: 'Forward', args: [{ local: 'callback' }], line: 2 },
+        { from: 'Runner.cs::Runner.Forward', name: 'Run', args: [{ local: 'callback' }], line: 2 },
+        { from: 'Runner.cs::Runner.Run', name: 'callback', line: 3 },
+        { from: 'Runner.cs::Runner.Main', name: 'Run', args: [{ local: 'Done' }], line: 4 },
+      ] };
+    const graph = buildGraph([file]);
+    expect(graph.callees('Runner.cs::Runner.Run').sort()).toEqual(['Runner.cs::Runner.Done', 'Runner.cs::Runner.Forward']);
+  });
+
   it('preserves Go package order, top-level preference, language boundaries and unresolved calls', () => {
     const file = (path, language, names, calls = [], values = []) => ({ path, language, methods: names.map((name, i) => method(path, name, i + 1)), calls, values, imports: [] });
     const files = [
