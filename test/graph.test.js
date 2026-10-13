@@ -4,6 +4,16 @@ import { buildGraph, resolveModule } from '../src/graph.js';
 const method = (path, name, line, risk = 10) => ({ id: `${path}::${name}`, node: `function:${line}`, name: name.split('.').at(-1), qualified_name: name, line, end_line: line + 2, hash: 'h', metrics: { risk_score: risk } });
 
 describe('method graph', () => {
+  it('does not treat Object.prototype.constructor as a supplied argument', () => {
+    const path = 'Reader.java', read = 'Reader.java::Reader.read', main = 'Reader.java::Main.main';
+    const file = { path, language: 'java', package: 'example', imports: [], binds: [], values: [],
+      methods: [{ ...method(path, 'Reader.read', 1), params: [{ name: 'constructor', index: 0 }] }, method(path, 'Main.main', 8)],
+      calls: [{ from: read, name: 'constructor.getName', line: 2 }, { from: main, name: 'Reader.read', args: [null], line: 9 }] };
+    const graph = buildGraph([file]);
+    expect(graph.callees(read)).toEqual([]);
+    expect(graph.callees(main)).toEqual([read]);
+  });
+
   it('leaves circular factory bindings unresolved while retaining direct calls', () => {
     const path = 'factory.js', from = 'factory.js::run';
     const file = { path, language: 'javascript', imports: [], values: [],

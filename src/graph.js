@@ -910,8 +910,9 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
     const values = [];
     for (const site of param ? calledWith.get(from) ?? [] : []) {
       // By position, or by name where the caller labelled it: `run([], Parser(), reader=Reader())`.
-      let held = site.args[param.index - receiver] ?? site.named[param.name] ?? null;
-      if (param.field !== undefined) held = held?.fields?.[param.field] ?? site.named[param.field] ?? null;
+      const named = key => Object.hasOwn(site.named, key) ? site.named[key] : null;
+      let held = site.args[param.index - receiver] ?? named(param.name);
+      if (param.field !== undefined) held = (held?.fields && Object.hasOwn(held.fields, param.field) ? held.fields[param.field] : null) ?? named(param.field);
       if (held) values.push({ held, file: site.file, from: site.from });
     }
     return values;
