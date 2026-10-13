@@ -1,0 +1,13 @@
+- name: requested-test-review-is-not-empty
+  where: src/scan.js
+  ensure: >-
+    Read how scanRepository selects candidates. When includeTests is true,
+    parsed test methods and test-support methods in scope are candidates for
+    model review. This uses the parsed graph, not a guess from a filename.
+- name: file-review-does-not-fabricate-parsing
+  where: src/analyze.js
+  ensure: >-
+    Read the source selection in analyzeTree. When includeFiles is true,
+    supported document and configuration grammars are passed to the same
+    analyzer as code. A parser failure remains a diagnostic; plain text is
+    not reported as successfully parsed code.

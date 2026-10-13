@@ -37,6 +37,8 @@ export const VERSION = typeof PERCH_VERSION === 'string' ? PERCH_VERSION : 'dev'
  * shared sentence would be wrong.
  */
 const options = {
+  'include-tests': ['--include-tests', 'Review parsed test and test-support code alongside production methods', ['scan']],
+  'include-files': ['--include-files', 'Parse document and configuration files alongside callable code', ['scan']],
   paths: ['--paths a,b', 'Only consider files under these repository paths', ['scan', 'coverage']],
   parallel: ['--parallel N', `How many methods to read at once (default ${DEFAULT_PARALLEL}; files and tests go ${UNIT_PARALLEL} at a time, alongside them)`, ['scan', 'coverage'],
     { coverage: `How many tests or methods to ask about at once (default ${DEFAULT_PARALLEL})` }],
@@ -151,7 +153,7 @@ export const EXIT = { clean: 0, broke: 1, usage: 2, found: 3 };
 const valued = new Set(['paths', 'parallel', 'min', 'filter', 'diff', 'html', 'out', 'reason', 'kind', 'limit', 'page', 'since', 'rules',
   'ensure', 'ensure_present', 'ensure_absent', 'where', 'except', 'each', 'sees', 'type', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', 'gate', 'file',
   'pull_requests', 'scan_types', 'scope']);
-const switches = new Set(['force', 'all', 'json', 'verbose', 'closed', 'types', 'wait', 'help', 'version']);
+const switches = new Set(['force', 'all', 'json', 'verbose', 'closed', 'types', 'wait', 'help', 'version', 'include-tests', 'include-files']);
 
 export function parseArgs(argv) {
   const flags = {}, positional = [];
@@ -518,6 +520,7 @@ const commands = {
     try {
       run = await scanRepository({ root: resolved.root, revision, label: resolved.label, github: resolved.github, out: resolved.out,
         systemOne, analyzer: createSourceAnalyzer(), paths, named: [resolved.scope, ...parsePaths(io.flags)].filter(Boolean), parallel, min, filters,
+        includeTests: Boolean(io.flags['include-tests']), includeFiles: Boolean(io.flags['include-files']),
         onFinding: finding => stream?.add(reportFindings(visibleFindings([finding]), min)),
         onProgress: value => { lastProgress = value; stream?.progress(value); },
         onFile: io.flags.json ? () => {} : say,
