@@ -896,10 +896,11 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
     // A Python method's first parameter is the receiver, which no caller passes: `invoke(self, cli)` is called as `r.invoke(cli)`.
     const receiver = params[0] && RECEIVERS.has(params[0].name) && params[0].index === 0 ? 1 : 0;
     const values = [];
+    const own = (object, key) => object && Object.hasOwn(object, key) ? object[key] : null;
     for (const site of param ? calledWith.get(from) ?? [] : []) {
       // By position, or by name where the caller labelled it: `run([], Parser(), reader=Reader())`.
-      let held = site.args[param.index - receiver] ?? site.named[param.name] ?? null;
-      if (param.field !== undefined) held = held?.fields?.[param.field] ?? site.named[param.field] ?? null;
+      let held = site.args[param.index - receiver] ?? own(site.named, param.name);
+      if (param.field !== undefined) held = own(held?.fields, param.field) ?? own(site.named, param.field);
       if (held) values.push({ held, file: site.file, from: site.from });
     }
     return values;

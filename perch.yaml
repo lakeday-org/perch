@@ -25,6 +25,13 @@ rules:
       The call following a factory return passes the current resolution depth
       to memberOfReturned, or passes depth plus one to resolve. Restarting
       resolution at a fixed depth breaks this rule.
+  - name: caller-arguments-have-own-fields
+    where: mentions site.named
+    each: method
+    ensure: >-
+      Named arguments and destructured argument fields are read only when
+      the supplied argument object owns that property. An inherited
+      constructor or toString property is not an argument supplied by a caller.
   - name: cli-honors-api-configuration
     where: src/cli.js
     ensure: >-
