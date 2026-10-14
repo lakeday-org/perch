@@ -11,3 +11,9 @@
     supported document and configuration grammars are passed to the same
     analyzer as code. A parser failure remains a diagnostic; plain text is
     not reported as successfully parsed code.
+- name: file-grammar-scope-preserves-call-context
+  where: src/analyze.js
+  ensure: >-
+    Read the source selection in analyzeTree. filePaths narrows only optional
+    document and configuration grammars. Callable source files remain in the
+    repository graph unless paths explicitly narrows the entire analysis.

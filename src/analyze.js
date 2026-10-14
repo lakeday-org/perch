@@ -8,9 +8,9 @@ import { PARSE_VERSION } from './treesitter/types.ts';
 import { identity, openStore, readScan, writeScan } from './store.js';
 import { markTestSupport } from './test-scope.js';
 
-export function scanIdentity({ revision, paths, includeFiles = false }) {
+export function scanIdentity({ revision, paths, includeFiles = false, filePaths = [] }) {
   const parts = ['scan', PARSE_VERSION, EXCLUSIONS_PROFILE, METHOD_HASH, revision, [...paths].sort()];
-  return identity(...parts, ...(includeFiles ? ['include-files'] : []));
+  return identity(...parts, ...(includeFiles ? ['include-files', [...filePaths].sort()] : []));
 }
 
 const selected = paths => file => !paths.length || paths.some(path => file.path === path || file.path.startsWith(path.replace(/\/$/, '') + '/'));
@@ -49,9 +49,9 @@ async function manifestsOf(root, revision, tree, pattern, read) {
 const cratesOf = (root, revision, tree) => manifestsOf(root, revision, tree, /(^|\/)Cargo\.toml$/, crateOf);
 const goModulesOf = (root, revision, tree) => manifestsOf(root, revision, tree, /(^|\/)go\.mod$/, goModuleOf);
 
-export async function analyzeTree({ root, revision, out, analyzer, label = root, github = null, paths = [], includeFiles = false, progress = () => {}, log = () => {}, debug = () => {} }) {
+export async function analyzeTree({ root, revision, out, analyzer, label = root, github = null, paths = [], includeFiles = false, filePaths = [], progress = () => {}, log = () => {}, debug = () => {} }) {
   const store = openStore(out);
-  const id = scanIdentity({ revision, paths, includeFiles });
+  const id = scanIdentity({ revision, paths, includeFiles, filePaths });
   const dir = store.scanDir(id);
   // A parse is local work the model never sees, and perch issues parses on every call to tell which findings still exist. The
   // same commit and paths parse the same way, so a finished one is the answer.
@@ -63,7 +63,7 @@ export async function analyzeTree({ root, revision, out, analyzer, label = root,
   await store.exclude(root);
   const tree = await listTree(root, revision);
   const header = headerLanguage(tree.map(item => item.path));
-  const sources = tree.filter(createFileSelector(tree)).filter(file => sourceFile(file) || (includeFiles && fileLanguageOf(file.path)))
+  const sources = tree.filter(createFileSelector(tree)).filter(file => sourceFile(file) || (includeFiles && fileLanguageOf(file.path) && selected(filePaths)(file)))
     .filter(selected(paths)).map(file => ({ ...file, language: languageOf(file.path, header) ?? fileLanguageOf(file.path) }));
   // A repository with no code still has files a rule can be about: a docs-only repository scans zero methods, not an error.
   debug(`analyzing ${sources.length} source files`);

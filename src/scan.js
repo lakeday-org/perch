@@ -163,7 +163,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const store = openStore(out);
   // The whole tree is parsed however narrow the run is. Parsing is free next to a request, and a method's callers matter whether
   // or not they are in the diff: a graph cut down to what a branch touched cannot say who calls into it.
-  const scan = await analyzeTree({ root, revision, out, analyzer, label, github, includeFiles, progress: scanProgress, log, debug });
+  const scan = await analyzeTree({ root, revision, out, analyzer, label, github, includeFiles, filePaths: paths, progress: scanProgress, log, debug });
   const graph = buildGraph(scan.files, { crates: scan.crates, modules: scan.modules });
   const rules = asRules(await readRules(root, revision));
   // Which issue types this run asks about, and so which of perch's own questions ride in every request.

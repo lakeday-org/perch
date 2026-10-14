@@ -158,3 +158,16 @@ describe('requested document and configuration parsing', () => {
     expect(reviewed.files.find(file => file.path === 'service.tf').language).toBe('hcl');
   });
 });
+
+it('limits optional file grammars while retaining repository-wide callable context', async () => {
+  const repo = await fixture(makeGraphFixture);
+  await writeFile(join(repo.root, 'config.yaml'), 'enabled: true\n');
+  await writeFile(join(repo.root, 'unrelated.xml'), '<items><item>Example</item></items>\n');
+  await commitAll(repo.root, 'optional file grammar scope');
+  repo.revision = await revision(repo.root);
+  const scan = await analyzeTree(fixtureOptions(repo, { analyzer, includeFiles: true, filePaths: ['config.yaml'] }));
+  expect(scan.files.some(file => file.path === 'config.yaml')).toBe(true);
+  expect(scan.files.some(file => file.path === 'unrelated.xml')).toBe(false);
+  expect(scan.files.some(file => file.path === 'src/a.js')).toBe(true);
+  expect(scan.files.some(file => file.path === 'src/b.js')).toBe(true);
+});
