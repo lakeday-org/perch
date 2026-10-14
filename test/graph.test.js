@@ -269,6 +269,30 @@ describe('functions handed over and objects handed back', () => {
     return buildGraph(scan.files);
   }
 
+  it('stops cyclic callback forwarding and retains concrete callbacks from other callers', async () => {
+    const graph = await repository({
+      'src/retry.js': 'export function first(callback, retry) {\n  if (retry) second(callback);\n  return callback();\n}\n\nfunction second(callback) {\n  return first(callback, false);\n}\n\nfunction work() {\n  return 1;\n}\n\nexport function start() {\n  return first(work, false);\n}\n',
+    });
+    expect(graph.callees('src/retry.js::first').sort()).toEqual(['src/retry.js::second', 'src/retry.js::work']);
+    expect(graph.callees('src/retry.js::second')).toEqual(['src/retry.js::first']);
+    expect(graph.callers('src/retry.js::work')).toContain('src/retry.js::first');
+  });
+
+  it('leaves a callback unresolved when its only callers forward it in a cycle', async () => {
+    const graph = await repository({
+      'src/retry.js': 'export function first(callback, retry) {\n  if (retry) second(callback);\n  return callback();\n}\n\nfunction second(callback) {\n  return first(callback, false);\n}\n',
+    });
+    expect(graph.callees('src/retry.js::first')).toEqual(['src/retry.js::second']);
+    expect(graph.callees('src/retry.js::second')).toEqual(['src/retry.js::first']);
+  });
+
+  it('stops following cyclic factory bindings when their receiver type is unknown', async () => {
+    const graph = await repository({
+      'src/client.js': 'export function run() {\n  const first = second.create();\n  const second = first.create();\n  return first.send();\n}\n',
+    });
+    expect(graph.callees('src/client.js::run')).toEqual([]);
+  });
+
   it('calls the function a caller passed for a parameter', async () => {
     const graph = await repository({
       'src/read.js': 'export async function readAll(files, { readSource }) {\n  return Promise.all(files.map(file => readSource(file)));\n}\n',

@@ -10,6 +10,21 @@ ignore:
   - scripts/**
 
 rules:
+  - name: callable-inference-stops-cycles
+    where: mentions followed
+    each: method
+    ensure: >-
+      Following a callback binding stops when the same local binding in the
+      same method has already been followed on that path. A cyclic caller
+      path must not prevent a concrete callback supplied by another caller
+      from being resolved.
+  - name: factory-inference-preserves-depth
+    where: mentions memberOfReturned
+    each: method
+    ensure: >-
+      The call following a factory return passes the current resolution depth
+      to memberOfReturned, or passes depth plus one to resolve. Restarting
+      resolution at a fixed depth breaks this rule.
   - name: cli-honors-api-configuration
     where: src/cli.js
     ensure: >-
