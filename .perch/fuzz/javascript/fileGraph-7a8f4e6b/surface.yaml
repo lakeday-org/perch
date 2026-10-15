@@ -1,0 +1,57 @@
+id: fileGraph-7a8f4e6b
+language: javascript
+confirmed: false
+entries:
+  -
+    name: fileGraph
+    at: src/check.js:31
+    reached: false
+  -
+    name: resolveTarget
+    at: src/check.js:47
+    reached: false
+  -
+    name: analyzeFiles
+    at: src/analysis.js:259
+    reached: false
+sources:
+  -
+    kind: file
+    api: "readFile(sourcePath, \"\")"
+    at: src/check.js:66
+    in: resolveTarget
+via: []
+reaches: 141
+code: e0e39fd9bfb3524d6fd5862e6786a017ddb671ec
+coverage:
+  lines: 0
+  of: 2547
+  percent: 0
+  best_harness: 0
+corpus: 0
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 16
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 8
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 9
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 39
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 24
+    covered: 0
+    defects: 0

@@ -1,0 +1,52 @@
+id: jsonValues-860199f5
+language: javascript
+confirmed: false
+entries:
+  -
+    name: jsonValues
+    at: src/runners/go.js:51
+    reached: false
+sources:
+  -
+    kind: deserialize
+    api: "JSON.parse(text.slice(start, at + 1)));"
+    at: src/runners/go.js:62
+    in: jsonValues
+via:
+  -
+    name: goRunner.prepare
+    at: src/runners/go.js:29
+reaches: 7
+code: b0895dfd0c5a1c5878474b4e77fb66356c935cf9
+coverage:
+  lines: 0
+  of: 84
+  percent: 0
+  best_harness: 0
+corpus: 0
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 280499
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 140623
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 514818
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 2372796
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 442152
+    covered: 0
+    defects: 0

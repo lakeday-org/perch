@@ -1,0 +1,49 @@
+id: runnersFor-8ff8b697
+language: javascript
+confirmed: true
+entries:
+  -
+    name: runnersFor
+    at: src/runners/index.js:25
+    reached: true
+sources:
+  -
+    kind: file
+    api: "readFile(join(root, \"\"), \"\").catch(error => { if (error.code === \"\") return \"\"; "
+    at: src/runners/index.js:29
+    in: runnersFor
+via: []
+reaches: 7
+code: bddeaa4a2b03e944a495f7c78f08d8cefbb966ab
+coverage:
+  lines: 53
+  of: 357
+  percent: 14.8
+  best_harness: 53
+corpus: 2
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 0
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 5411
+    covered: 53
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 14261
+    covered: 53
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 43952
+    covered: 53
+    defects: 1
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 13130
+    covered: 53
+    defects: 0

@@ -1,0 +1,34 @@
+[
+  {
+    "why": "Nested suites exercise nearest-suite inheritance for file and line, while the testcase overrides the outer file.",
+    "value": {
+      "case": "read_junit",
+      "text": "<testsuites><testsuite name=\"outer\" file=\"src/test.js\" line=\"12\"><testsuite name=\"inner\" line=\"34\"><testcase name=\"case\" file=\"src/override.js\" time=\"0.125\"><failure/></testcase></testsuite></testsuite></testsuites>",
+      "path": "report.xml"
+    }
+  },
+  {
+    "why": "A testcase name containing equivalent numeric character references exercises XML decoding in an attribute.",
+    "value": {
+      "case": "read_junit",
+      "text": "<testsuite name=\"suite\"><testcase name=\"A&#65;&#x41;\" classname=\"pkg.Test\" line=\"1\" time=\"1.25\"/></testsuite>",
+      "path": "input.xml"
+    }
+  },
+  {
+    "why": "Multiple report documents include a JUnit report followed by the libtest report document.",
+    "value": {
+      "case": "read_junit",
+      "text": "<testsuite name=\"suite\"><testcase name=\"sample\"/></testsuite>\n<report total_time=\"0\"/>",
+      "path": "suite.xml"
+    }
+  },
+  {
+    "why": "An external doctype must not be fetched or change the parsed XML root.",
+    "value": {
+      "case": "parse_xml",
+      "text": "<!DOCTYPE node SYSTEM \"https://example.invalid/external.dtd\"><node data=\"safe &amp; sound\">text<![CDATA[ & unchanged ]]><child/></node>",
+      "path": "input.xml"
+    }
+  }
+]

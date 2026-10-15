@@ -1,0 +1,5 @@
+[
+  {"why":"The sole input shape supported by the supplied public API information; the valid configuration fields are not shown.","value":{"case":"go_runner"}},
+  {"why":"A repeated minimal call shape; no further valid input variation can be established from the supplied source.","value":{"case":"go_runner"}},
+  {"why":"A repeated minimal call shape; no further valid input variation can be established from the supplied source.","value":{"case":"go_runner"}}
+]

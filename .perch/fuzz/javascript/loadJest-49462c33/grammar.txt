@@ -1,0 +1,9 @@
+root = {case: "jest_package_config", root: Root, config: PackageConfig, node: Node, paths: list(Path, 0, 8)} | {case: "jest_external_config", root: Root, config: ExternalConfig, node: Node, paths: list(Path, 1, 8)}
+Root = "." | text("/" Path) | Path
+PackageConfig = "package.json" | text(Directory "/" "package.json")
+ExternalConfig = text(Directory "/" JestConfig) | JestConfig
+JestConfig = "jest.config.js" | "jest.config.cjs" | "jest.config.mjs" | "jest.config.json"
+Directory = text(PathSegment ("/" PathSegment)*)
+Path = text(PathSegment ("/" PathSegment)*)
+PathSegment = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-", 1, 40)
+Node = "node" | "nodejs" | str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./-", 1, 80)

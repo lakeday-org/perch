@@ -1,0 +1,86 @@
+{
+  "hash": "c80deede072dfbf29b40bbfa300f6068d13f72f4",
+  "covered": [
+    "src/runners/pytest.js:131",
+    "src/runners/pytest.js:132",
+    "src/runners/pytest.js:133",
+    "src/runners/pytest.js:134",
+    "src/runners/pytest.js:135",
+    "src/runners/pytest.js:137",
+    "src/runners/pytest.js:138",
+    "src/runners/pytest.js:139",
+    "src/runners/pytest.js:140",
+    "src/runners/pytest.js:141",
+    "src/runners/pytest.js:142",
+    "src/runners/pytest.js:143",
+    "src/runners/pytest.js:144",
+    "src/runners/pytest.js:145",
+    "src/runners/pytest.js:146",
+    "src/runners/pytest.js:152",
+    "src/runners/pytest.js:153",
+    "src/runners/pytest.js:161",
+    "src/runners/sandbox.js:15",
+    "src/runners/sandbox.js:18",
+    "src/runners/sandbox.js:19",
+    "src/runners/sandbox.js:20",
+    "src/runners/sandbox.js:28",
+    "src/runners/sandbox.js:31",
+    "src/runners/sandbox.js:32",
+    "src/runners/sandbox.js:33",
+    "src/runners/sandbox.js:34"
+  ],
+  "bestLines": 27,
+  "stalled": 0,
+  "runs": [
+    {
+      "at": "2026-10-14T23:13:10.807Z",
+      "execs": 174980,
+      "covered": 27,
+      "total": 81,
+      "entriesReached": [
+        "session"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:18:17.121Z",
+      "execs": 41007,
+      "covered": 27,
+      "total": 81,
+      "entriesReached": [
+        "session"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:20:50.512Z",
+      "execs": 109769,
+      "covered": 27,
+      "total": 81,
+      "entriesReached": [
+        "session"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:26:50.464Z",
+      "execs": 587601,
+      "covered": 27,
+      "total": 81,
+      "entriesReached": [
+        "session"
+      ],
+      "defects": 2
+    },
+    {
+      "at": "2026-10-15T00:08:35.008Z",
+      "execs": 98809,
+      "covered": 27,
+      "total": 81,
+      "entriesReached": [
+        "session"
+      ],
+      "defects": 2
+    }
+  ]
+}

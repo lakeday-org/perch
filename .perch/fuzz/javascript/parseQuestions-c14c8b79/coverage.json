@@ -1,0 +1,118 @@
+{
+  "hash": "d6f5cc5db0854d915e13658f804b150c9ba141ec",
+  "covered": [
+    "src/ask.js:100",
+    "src/ask.js:103",
+    "src/ask.js:104",
+    "src/ask.js:106",
+    "src/ask.js:107",
+    "src/ask.js:108",
+    "src/ask.js:109",
+    "src/ask.js:110",
+    "src/ask.js:113",
+    "src/ask.js:114",
+    "src/ask.js:115",
+    "src/ask.js:116",
+    "src/ask.js:117",
+    "src/ask.js:118",
+    "src/ask.js:120",
+    "src/ask.js:121",
+    "src/ask.js:123",
+    "src/ask.js:124",
+    "src/ask.js:131",
+    "src/ask.js:140",
+    "src/ask.js:143",
+    "src/ask.js:145",
+    "src/ask.js:146",
+    "src/ask.js:147",
+    "src/ask.js:35",
+    "src/ask.js:47",
+    "src/ask.js:48",
+    "src/ask.js:49",
+    "src/ask.js:50",
+    "src/ask.js:51",
+    "src/ask.js:52",
+    "src/ask.js:53",
+    "src/ask.js:54",
+    "src/ask.js:55",
+    "src/ask.js:56",
+    "src/ask.js:57",
+    "src/ask.js:58",
+    "src/ask.js:59",
+    "src/ask.js:63",
+    "src/ask.js:77",
+    "src/ask.js:80",
+    "src/ask.js:81",
+    "src/ask.js:82",
+    "src/ask.js:83",
+    "src/ask.js:84",
+    "src/ask.js:87",
+    "src/ask.js:88",
+    "src/ask.js:89",
+    "src/ask.js:90",
+    "src/ask.js:91",
+    "src/ask.js:94",
+    "src/ask.js:97",
+    "src/ask.js:98",
+    "src/ask.js:99"
+  ],
+  "bestLines": 54,
+  "stalled": 0,
+  "runs": [
+    {
+      "at": "2026-10-14T23:13:10.807Z",
+      "execs": 251032,
+      "covered": 54,
+      "total": 78,
+      "entriesReached": [
+        "check",
+        "parseQuestions"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:18:17.121Z",
+      "execs": 74459,
+      "covered": 54,
+      "total": 78,
+      "entriesReached": [
+        "check",
+        "parseQuestions"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:20:50.512Z",
+      "execs": 278323,
+      "covered": 54,
+      "total": 78,
+      "entriesReached": [
+        "check",
+        "parseQuestions"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:26:50.464Z",
+      "execs": 1021054,
+      "covered": 54,
+      "total": 78,
+      "entriesReached": [
+        "check",
+        "parseQuestions"
+      ],
+      "defects": 3
+    },
+    {
+      "at": "2026-10-15T00:08:35.008Z",
+      "execs": 216607,
+      "covered": 54,
+      "total": 78,
+      "entriesReached": [
+        "check",
+        "parseQuestions"
+      ],
+      "defects": 3
+    }
+  ]
+}

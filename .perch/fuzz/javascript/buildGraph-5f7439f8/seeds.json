@@ -1,0 +1,128 @@
+[
+  {
+    "why": "A direct local call and matching extracted method exercise ordinary graph construction.",
+    "value": {
+      "case": "scan_files",
+      "files": [
+        {
+          "path": "src/main.js",
+          "language": "javascript",
+          "methods": [
+            {"id": "main", "qualified_name": "main", "name": "main", "params": [], "line": 1, "test": false, "support": false, "parent": null, "returns": null, "yields": null, "decorators": [], "extension": false, "internal": false},
+            {"id": "work", "qualified_name": "work", "name": "work", "params": [], "line": 3, "test": false, "support": false, "parent": null, "returns": null, "yields": null, "decorators": [], "extension": false, "internal": false}
+          ],
+          "calls": [{"from": "main", "name": "work", "line": 2, "args": [], "named": {}, "via": null}],
+          "imports": [],
+          "package": "",
+          "test": false,
+          "default_export": "",
+          "bases": {},
+          "binds": [],
+          "reads": [],
+          "mocks": [],
+          "values": []
+        }
+      ],
+      "crates": [],
+      "modules": []
+    }
+  },
+  {
+    "why": "A receiver call resolves through a declared class type, with a separately recorded read.",
+    "value": {
+      "case": "graph_inheritance",
+      "files": [
+        {
+          "path": "src/cart.py",
+          "language": "python",
+          "methods": [
+            {"id": "cart-add", "qualified_name": "Cart.add", "name": "add", "params": [], "line": 4, "test": false, "support": false, "parent": null, "returns": null, "yields": null, "decorators": [], "extension": false, "internal": false},
+            {"id": "test-cart", "qualified_name": "test_cart", "name": "test_cart", "params": [], "line": 9, "test": true, "support": false, "parent": null, "returns": null, "yields": null, "decorators": [], "extension": false, "internal": false}
+          ],
+          "calls": [{"from": "test-cart", "name": "cart.add", "line": 10, "args": [], "named": {}, "via": null}],
+          "imports": [],
+          "package": "",
+          "test": false,
+          "default_export": "",
+          "bases": {"Cart": []},
+          "binds": [{"name": "cart", "from": "test-cart", "type": "Cart"}],
+          "reads": [{"from": "test-cart", "name": "cart.size", "line": 11}],
+          "mocks": [],
+          "values": []
+        }
+      ],
+      "crates": [],
+      "modules": []
+    }
+  },
+  {
+    "why": "An exact module export and a proper-prefix export are both present to probe exact name resolution.",
+    "value": {
+      "case": "graph_import_resolution",
+      "files": [
+        {
+          "path": "src/api.js",
+          "language": "javascript",
+          "methods": [
+            {"id": "api-run", "qualified_name": "run", "name": "run", "params": [], "line": 1, "test": false, "support": false, "parent": null, "returns": null, "yields": null, "decorators": [], "extension": false, "internal": false},
+            {"id": "api-run-long", "qualified_name": "runExtra", "name": "runExtra", "params": [], "line": 2, "test": false, "support": false, "parent": null, "returns": null, "yields": null, "decorators": [], "extension": false, "internal": false}
+          ],
+          "calls": [],
+          "imports": [],
+          "package": "",
+          "test": false,
+          "default_export": "",
+          "bases": {},
+          "binds": [],
+          "reads": [],
+          "mocks": [],
+          "values": []
+        },
+        {
+          "path": "src/main.js",
+          "language": "javascript",
+          "methods": [
+            {"id": "main", "qualified_name": "main", "name": "main", "params": [], "line": 4, "test": false, "support": false, "parent": null, "returns": null, "yields": null, "decorators": [], "extension": false, "internal": false}
+          ],
+          "calls": [{"from": "main", "name": "run", "line": 5, "args": [], "named": {}, "via": null}],
+          "imports": [{"module": "./api", "name": "run", "alias": "run", "reexport": false}],
+          "package": "",
+          "test": false,
+          "default_export": "",
+          "bases": {},
+          "binds": [],
+          "reads": [],
+          "mocks": [],
+          "values": []
+        }
+      ],
+      "crates": [],
+      "modules": []
+    }
+  },
+  {
+    "why": "An empty but valid extracted file exercises the zero-method and zero-call boundaries.",
+    "value": {
+      "case": "graph_empty_metadata",
+      "files": [
+        {
+          "path": "empty.js",
+          "language": "javascript",
+          "methods": [],
+          "calls": [],
+          "imports": [],
+          "package": "",
+          "test": false,
+          "default_export": "",
+          "bases": {},
+          "binds": [],
+          "reads": [],
+          "mocks": [],
+          "values": []
+        }
+      ],
+      "crates": [],
+      "modules": []
+    }
+  }
+]

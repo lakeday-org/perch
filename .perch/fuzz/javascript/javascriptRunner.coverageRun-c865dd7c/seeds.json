@@ -1,0 +1,35 @@
+[
+  {
+    "why": "Ordinary copied-project and scratch paths for the configured suite.",
+    "value": {
+      "case": "run_configured_suite",
+      "copy": "/tmp/perch-copy",
+      "scratch": "/tmp/perch-scratch",
+      "tool": {
+        "root": "/tmp/perch-tool"
+      }
+    }
+  },
+  {
+    "why": "Nested directory components exercise path handling without changing the configured suite.",
+    "value": {
+      "case": "run_configured_suite",
+      "copy": "/tmp/perch/work/copy",
+      "scratch": "/tmp/perch/work/scratch",
+      "tool": {
+        "root": "/tmp/perch/tool"
+      }
+    }
+  },
+  {
+    "why": "Distinct sibling paths make the copy, scratch, and tool roots visibly different.",
+    "value": {
+      "case": "run_configured_suite",
+      "copy": "/tmp/perch/a",
+      "scratch": "/tmp/perch/b",
+      "tool": {
+        "root": "/tmp/perch/c"
+      }
+    }
+  }
+]

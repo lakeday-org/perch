@@ -1,0 +1,78 @@
+id: instrument.locate-a23a751a
+language: javascript
+confirmed: true
+entries:
+  -
+    name: instrument.locate
+    at: src/runners/schemata.js:301
+    reached: true
+  -
+    name: locate
+    at: src/runners/schemata.js:308
+    reached: false
+sources:
+  -
+    kind: deserialize
+    api: "JSON.parse(stdout);"
+    at: src/runners/cargo.js:91
+    in: prepare
+  -
+    kind: environment
+    api: "process.env, CARGO_TARGET_DIR: target }, maxBuffer: 1 << 28 }));"
+    at: src/runners/cargo.js:135
+    in: prepare
+  -
+    kind: deserialize
+    api: "JSON.parse(line));"
+    at: src/runners/cargo.js:137
+    in: prepare
+  -
+    kind: deserialize
+    api: "JSON.parse(stdout);"
+    at: src/runners/cargo.js:91
+    in: prepare
+  -
+    kind: environment
+    api: "process.env, CARGO_TARGET_DIR: target }, maxBuffer: 1 << 28 }));"
+    at: src/runners/cargo.js:135
+    in: prepare
+  -
+    kind: deserialize
+    api: "JSON.parse(line));"
+    at: src/runners/cargo.js:137
+    in: prepare
+via: []
+reaches: 6
+code: ad78b952169d40131b9b2ed33c36ff552a85e89a
+coverage:
+  lines: 1
+  of: 33
+  percent: 3
+  best_harness: 1
+corpus: 2
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 20618
+    covered: 1
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 13232
+    covered: 1
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 58252
+    covered: 1
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 337450
+    covered: 1
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 38854
+    covered: 1
+    defects: 0

@@ -1,0 +1,94 @@
+{
+  "hash": "f3d5eb40d6696ec15c1ce205a81b8296f841bfb8",
+  "covered": [
+    "src/ask.js:202",
+    "src/ask.js:221",
+    "src/ask.js:244",
+    "src/ask.js:246",
+    "src/ask.js:252",
+    "src/ask.js:253",
+    "src/ask.js:254",
+    "src/ask.js:255",
+    "src/ask.js:256",
+    "src/ask.js:264",
+    "src/ask.js:265",
+    "src/ask.js:266",
+    "src/ask.js:267",
+    "src/ask.js:268",
+    "src/ask.js:269",
+    "src/ask.js:270",
+    "src/ask.js:274",
+    "src/ask.js:275",
+    "src/ask.js:276",
+    "src/ask.js:277",
+    "src/ask.js:278",
+    "src/ask.js:279",
+    "src/ask.js:281",
+    "src/questions.js:54",
+    "src/questions.js:56",
+    "src/questions.js:75",
+    "src/questions.js:76",
+    "src/questions.js:79",
+    "src/questions.js:80",
+    "src/questions.js:81",
+    "src/questions.js:82",
+    "src/questions.js:83",
+    "src/questions.js:84",
+    "src/questions.js:89",
+    "src/questions.js:90"
+  ],
+  "bestLines": 35,
+  "stalled": 0,
+  "runs": [
+    {
+      "at": "2026-10-14T23:13:10.807Z",
+      "execs": 41249,
+      "covered": 35,
+      "total": 49,
+      "entriesReached": [
+        "issuesOf"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:18:17.121Z",
+      "execs": 10625,
+      "covered": 35,
+      "total": 49,
+      "entriesReached": [
+        "issuesOf"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:20:50.512Z",
+      "execs": 38871,
+      "covered": 35,
+      "total": 49,
+      "entriesReached": [
+        "issuesOf"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:26:50.464Z",
+      "execs": 233053,
+      "covered": 35,
+      "total": 49,
+      "entriesReached": [
+        "issuesOf"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-15T00:08:35.008Z",
+      "execs": 28772,
+      "covered": 35,
+      "total": 49,
+      "entriesReached": [
+        "issuesOf"
+      ],
+      "defects": 0
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+[
+  {
+    "why": "Add a named rule using the ordinary rules-file path.",
+    "value": {
+      "case": "add_rule",
+      "file": "rules.yml",
+      "attack": "none",
+      "rule": {
+        "name": "sample"
+      }
+    }
+  },
+  {
+    "why": "Edit the existing rule through a symlink to another file in the temporary workspace.",
+    "value": {
+      "case": "edit_rule",
+      "file": "rules.yml",
+      "attack": "symlink",
+      "name": "sample",
+      "changes": {
+        "name": "sample"
+      }
+    }
+  },
+  {
+    "why": "Remove a rule through a hard link to a sentinel file, testing whether the sentinel is modified.",
+    "value": {
+      "case": "remove_rule",
+      "file": "rules.yml",
+      "attack": "hardlink",
+      "name": "sample"
+    }
+  },
+  {
+    "why": "Add a rule through a path whose parent is a symlink to a directory outside the target root but inside the temporary workspace.",
+    "value": {
+      "case": "add_rule",
+      "file": "linked/rules.yml",
+      "attack": "parent_symlink",
+      "rule": {
+        "name": "new_rule"
+      }
+    }
+  }
+]

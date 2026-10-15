@@ -1,0 +1,48 @@
+[
+  {
+    "why": "Exercises an object containing both a nested array and a string with JSON punctuation.",
+    "value": {
+      "case": "json_chunks",
+      "value": {
+        "a": [
+          "x",
+          {
+            "private": "[]{}:,\""
+          }
+        ],
+        "nested": [
+          0,
+          true,
+          null
+        ]
+      }
+    }
+  },
+  {
+    "why": "Exercises a nonzero indentation offset on a nested array and object.",
+    "value": {
+      "case": "json_pieces",
+      "value": [
+        {
+          "a": [
+            1,
+            2
+          ]
+        },
+        "line\nbreak"
+      ],
+      "depth": 2
+    }
+  },
+  {
+    "why": "Exercises empty containers and the maximum requested indentation depth.",
+    "value": {
+      "case": "json_pieces",
+      "value": {
+        "a": [],
+        "nested": []
+      },
+      "depth": 5
+    }
+  }
+]

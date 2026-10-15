@@ -1,0 +1,4 @@
+root = {case: "run_stdio", message: Json, timeout: Timeout} | {case: "run_descriptor_protocol", message: Json, timeout: Timeout}
+Timeout = null | int(1, 10000)
+Json = null | bool | int(-1000000, 1000000) | float(-1000000, 1000000) | str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-.,", 0, 80) | list(Json, 0, 8) | JsonObject
+JsonObject = {value: Json}

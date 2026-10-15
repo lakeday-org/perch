@@ -1,0 +1,106 @@
+[
+  {
+    "why": "A straightforward unqualified lookup with a matching source file and a real definition.",
+    "value": {
+      "case": "resolve_unqualified",
+      "files": [
+        {
+          "path": "src/main.js",
+          "language": "javascript",
+          "imports": [],
+          "package": "",
+          "methods": [
+            {"id": "caller", "qualified_name": "Resolver.invoke", "params": []},
+            {"id": "target", "qualified_name": "calculate", "params": []}
+          ],
+          "binds": [],
+          "bases": {},
+          "calls": []
+        }
+      ],
+      "file_path": "src/main.js",
+      "name": "calculate",
+      "from": "caller",
+      "depth": 0,
+      "via": null
+    }
+  },
+  {
+    "why": "A qualified native-style name tests the distinction between :: and member-dot spellings.",
+    "value": {
+      "case": "resolve_native_link",
+      "files": [
+        {
+          "path": "src/ledger.cpp",
+          "language": "cpp",
+          "imports": [{"alias": "ledger", "module": "ledger", "name": "*", "reexport": false}],
+          "package": "shop",
+          "methods": [
+            {"id": "caller", "qualified_name": "Ledger.read", "params": []},
+            {"id": "target", "qualified_name": "shop.Money.zero", "params": []}
+          ],
+          "binds": [],
+          "bases": {},
+          "calls": []
+        }
+      ],
+      "file_path": "src/ledger.cpp",
+      "name": "shop::Money::zero",
+      "from": "caller",
+      "depth": 1,
+      "via": null
+    }
+  },
+  {
+    "why": "A receiver chain paired with class information exercises receiver-based member resolution.",
+    "value": {
+      "case": "resolve_receiver_chain",
+      "files": [
+        {
+          "path": "src/store.py",
+          "language": "python",
+          "imports": [],
+          "package": "",
+          "methods": [
+            {"id": "caller", "qualified_name": "Store.load", "params": []},
+            {"id": "target", "qualified_name": "Store.save", "params": []}
+          ],
+          "binds": [],
+          "bases": {},
+          "calls": []
+        }
+      ],
+      "file_path": "src/store.py",
+      "name": "$receiver.save",
+      "from": "caller",
+      "depth": 0,
+      "via": {"type": "Store"}
+    }
+  },
+  {
+    "why": "An unusual string spelling remains a valid string input and probes empty-name and separator handling.",
+    "value": {
+      "case": "resolve_hostile_names",
+      "files": [
+        {
+          "path": "src/status.swift",
+          "language": "swift",
+          "imports": [],
+          "package": "",
+          "methods": [
+            {"id": "caller", "qualified_name": "Status.check", "params": []},
+            {"id": "target", "qualified_name": "Status.PAID.isFinal", "params": []}
+          ],
+          "binds": [],
+          "bases": {},
+          "calls": []
+        }
+      ],
+      "file_path": "src/status.swift",
+      "name": "Status.PAID.isFinal",
+      "from": "caller",
+      "depth": 4,
+      "via": null
+    }
+  }
+]

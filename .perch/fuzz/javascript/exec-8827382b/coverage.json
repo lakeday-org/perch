@@ -1,0 +1,80 @@
+{
+  "hash": "4e3118e08301fd99e5d1f916c7ebf832a7a01f11",
+  "covered": [
+    "src/runners/pytest.js:28",
+    "src/runners/pytest.js:29",
+    "src/runners/pytest.js:30",
+    "src/runners/pytest.js:31",
+    "src/runners/pytest.js:32",
+    "src/runners/pytest.js:33",
+    "src/runners/pytest.js:34",
+    "src/runners/pytest.js:35",
+    "src/runners/pytest.js:36",
+    "src/runners/pytest.js:38",
+    "src/runners/pytest.js:39",
+    "src/runners/pytest.js:41",
+    "src/runners/pytest.js:42",
+    "src/runners/pytest.js:47",
+    "src/runners/pytest.js:48",
+    "src/runners/pytest.js:49"
+  ],
+  "bestLines": 16,
+  "stalled": 0,
+  "runs": [
+    {
+      "at": "2026-10-14T23:13:10.807Z",
+      "execs": 503025,
+      "covered": 16,
+      "total": 53,
+      "entriesReached": [
+        "exec",
+        "available"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:18:17.121Z",
+      "execs": 135158,
+      "covered": 16,
+      "total": 53,
+      "entriesReached": [
+        "exec",
+        "available"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:20:50.512Z",
+      "execs": 619927,
+      "covered": 16,
+      "total": 53,
+      "entriesReached": [
+        "exec",
+        "available"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:26:50.464Z",
+      "execs": 2643964,
+      "covered": 16,
+      "total": 53,
+      "entriesReached": [
+        "exec",
+        "available"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-15T00:08:35.008Z",
+      "execs": 798827,
+      "covered": 16,
+      "total": 53,
+      "entriesReached": [
+        "exec",
+        "available"
+      ],
+      "defects": 0
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+[
+  {"why":"A BOM, a JSON escape, and a trailing comment exercise the accepted double-quoted form and its decoding.","value":{"case":"configured_environment_defaults","content":"﻿api_key = \"token\\nvalue\" # default\norganization='team'","env":{"PERCH_API_KEY":"","PERCH_BASE_URL":"","PERCH_ORGANIZATION":"","PERCH_ROOT":""}}},
+  {"why":"A nonempty shell value overrides a config default while the other setting is loaded from the file.","value":{"case":"configured_environment_overrides","content":"api_key=\"config-token\"\nbase_url='https://example.test'","env":{"PERCH_API_KEY":"shell-token","PERCH_BASE_URL":"","PERCH_ORGANIZATION":"","PERCH_ROOT":""}}},
+  {"why":"Duplicate assignment is a structured invalid document that must be rejected.","value":{"case":"configured_environment_invalid","content":"api_key=\"first\"\napi_key=\"second\"","env":{"PERCH_API_KEY":"","PERCH_BASE_URL":"","PERCH_ORGANIZATION":"","PERCH_ROOT":""}}},
+  {"why":"A valid assignment with an empty value reaches configuredEnvironment's explicit empty-setting rejection.","value":{"case":"configured_environment_invalid","content":"organization=\"\"","env":{"PERCH_API_KEY":"","PERCH_BASE_URL":"","PERCH_ORGANIZATION":"","PERCH_ROOT":""}}},
+  {"why":"A regular file at .perch makes the config read fail without requiring external paths or processes.","value":{"case":"configured_environment_read_error","content":"","env":{"PERCH_API_KEY":"","PERCH_BASE_URL":"","PERCH_ORGANIZATION":"","PERCH_ROOT":""}}}
+]

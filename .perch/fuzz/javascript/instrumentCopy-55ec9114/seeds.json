@@ -1,0 +1,90 @@
+[
+  {
+    "why": "A matching expression edit exercises normal placement and generated replacement text.",
+    "value": {
+      "case": "expression_edit",
+      "source": "const x = 1;\n",
+      "language": "javascript",
+      "mutants": [
+        {
+          "id": 1,
+          "mutant": {
+            "line": 1,
+            "column": 10,
+            "kind": "expression",
+            "from": "1",
+            "to": "2"
+          }
+        }
+      ],
+      "prelude": "",
+      "head": ""
+    }
+  },
+  {
+    "why": "An edit whose declared source text differs from the actual source should be reported as unplaced.",
+    "value": {
+      "case": "source_mismatch",
+      "source": "const x = 1;\n",
+      "language": "javascript",
+      "mutants": [
+        {
+          "id": 2,
+          "mutant": {
+            "line": 1,
+            "column": 10,
+            "kind": "expression",
+            "from": "2",
+            "to": "0"
+          }
+        }
+      ],
+      "prelude": "",
+      "head": ""
+    }
+  },
+  {
+    "why": "Replacement text containing a statement separator and executable-looking text probes how mutation text reaches generated code.",
+    "value": {
+      "case": "replacement_text",
+      "source": "const x = 1;\n",
+      "language": "javascript",
+      "mutants": [
+        {
+          "id": 3,
+          "mutant": {
+            "line": 1,
+            "column": 10,
+            "kind": "expression",
+            "from": "1",
+            "to": "0; globalThis.x = 1"
+          }
+        }
+      ],
+      "prelude": "",
+      "head": ""
+    }
+  },
+  {
+    "why": "A block edit exercises block anchoring on a complete function body.",
+    "value": {
+      "case": "block_edit",
+      "source": "function f() {}\n",
+      "language": "typescript",
+      "mutants": [
+        {
+          "id": 4,
+          "mutant": {
+            "line": 1,
+            "column": 13,
+            "kind": "block",
+            "from": "{}",
+            "to": "{ return 1; }"
+          }
+        }
+      ],
+      "prelude": "",
+      "head": ""
+    }
+  }
+]

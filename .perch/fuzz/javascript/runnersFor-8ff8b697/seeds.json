@@ -1,0 +1,74 @@
+[
+  {
+    "why": "A configured Karma scope takes precedence over other configured JavaScript frameworks.",
+    "value": {
+      "case": "configured_javascript",
+      "frameworks": [
+        {
+          "name": "Vitest",
+          "tests": 2
+        },
+        {
+          "name": "Karma",
+          "tests": 1
+        },
+        {
+          "name": "Jest",
+          "tests": 3
+        }
+      ],
+      "dev": [],
+      "prod": [],
+      "nodes": []
+    }
+  },
+  {
+    "why": "Dependency selection follows its explicit priority even when graph metadata also identifies node:test.",
+    "value": {
+      "case": "dependency_javascript",
+      "frameworks": [
+        {
+          "name": "JavaScript tests",
+          "tests": 2
+        }
+      ],
+      "dev": [
+        "mocha",
+        "jest"
+      ],
+      "prod": [],
+      "nodes": [
+        {
+          "language": "javascript",
+          "framework": "node:test"
+        }
+      ]
+    }
+  },
+  {
+    "why": "Cucumber and compiled-language tests add runners alongside an independently selected pytest runner.",
+    "value": {
+      "case": "compiled_tests",
+      "frameworks": [
+        {
+          "name": "pytest",
+          "tests": 1
+        }
+      ],
+      "dev": [
+        "@cucumber/cucumber"
+      ],
+      "prod": [],
+      "nodes": [
+        {
+          "language": "rust",
+          "framework": "other"
+        },
+        {
+          "language": "go",
+          "framework": "other"
+        }
+      ]
+    }
+  }
+]

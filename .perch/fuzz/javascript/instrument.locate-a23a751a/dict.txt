@@ -1,0 +1,8 @@
+"instrument_column"
+"instrument_line"
+"function f(x) { return x ? 1 : 2; }\x0a"
+"const f = x => x ? {a: 1} : {a: 2};\x0a"
+"if (ready) { run(); } else { stop(); }\x0a"
+"const value = (a && b) || c;\x0a"
+"function"
+"return"

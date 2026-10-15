@@ -1,4 +1,4 @@
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -103,6 +103,19 @@ describe('keeping results out of git status', () => {
     expect(untracked).toContain('.perch/closed.jsonl');
     expect(untracked).not.toContain('scan.jsonl');
     expect(untracked).not.toContain('.gitignore');
+  });
+
+  it('keeps the fuzz harnesses in .perch/fuzz committed, and what that folder ignores out', async () => {
+    const repo = await fixture();
+    await openStore(repo.out).exclude(repo.root);
+    const surface = join(repo.out, 'fuzz', 'javascript', 'parse-1a2b3c4d');
+    await mkdir(join(surface, 'findings', 'f1'), { recursive: true });
+    await writeFile(join(repo.out, 'fuzz', '.gitignore'), '*/*/findings/\n');
+    await writeFile(join(surface, 'harness.js'), 'export function fuzz(v) {}\n');
+    await writeFile(join(surface, 'findings', 'f1', 'finding.json'), '{}\n');
+    const untracked = await git(['status', '--porcelain', '--untracked-files=all'], repo.root);
+    expect(untracked).toContain('.perch/fuzz/javascript/parse-1a2b3c4d/harness.js');
+    expect(untracked).not.toContain('finding.json');
   });
 
   it('writes nothing when the results live outside the repository', async () => {

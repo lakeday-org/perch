@@ -1,0 +1,11 @@
+root = {case: "prepare_gradle", source: Source, generated: Generated, nodes: Nodes, language: Language} | {case: "prepare_maven", source: Source, generated: Generated, nodes: Nodes, language: Language} | {case: "prepare_sbt", source: Source, generated: Generated, nodes: Nodes, language: Language}
+Source = "class T { int f() { return 1; } }"
+Generated = list(GeneratedEntry, 0, 1)
+GeneratedEntry = {methodId: Ident, mutants: list(Mutant, 0, 1)}
+Mutant = {line: int(1, 1), column: int(0, 33), kind: MutantKind, from: str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_ .(){}[];,+-*/=!<>\"'", 1, 8), to: str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_ .(){}[];,+-*/=!<>\"'", 1, 8)}
+MutantKind = "removal" | "block" | "body" | "expression"
+Nodes = list(Node, 0, 2)
+Node = {id: Ident, methodId: Ident, path: "src/T.java", case: bool, qualified_name: QualifiedName}
+Language = "java"
+Ident = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_", 1, 32)
+QualifiedName = text(Ident "." Ident)

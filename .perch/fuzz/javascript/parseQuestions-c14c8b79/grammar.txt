@@ -1,0 +1,14 @@
+root = {case: "load_rules_file", text: QuestionDocument, at: Location, noun: Noun} | {case: "parse_empty_rules_file", text: EmptyText, at: Location, noun: Noun} | {case: "parse_rules_wrapper", text: RulesDocument, at: Location, noun: Noun} | {case: "parse_ignore_or_scan_types_only", text: IgnoreDocument, at: Location, noun: Noun}
+QuestionDocument = QuestionArray
+RulesDocument = text("{\"rules\":" QuestionArray "}")
+IgnoreDocument = "{\"ignore\":[]}" | "{\"scan_types\":[]}" | "{\"ignore\":[],\"scan_types\":[]}"
+EmptyText = "" | " " | "\n" | " \n "
+QuestionArray = "[]" | text("[" Question "]") | text("[" Question "," MoreQuestions "]")
+MoreQuestions = Question | text(Question "," MoreQuestions)
+Question = DisabledQuestion | EnsureQuestion
+DisabledQuestion = text("{\"name\":\"" Name "\",\"disabled\":true}")
+EnsureQuestion = text("{\"name\":\"" Name "\",\"ensure_present\":\"" RuleText "\",\"each\":\"test\"}")
+Name = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-", 1, 24)
+RuleText = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-.", 1, 60)
+Location = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./ -", 1, 60)
+Noun = "question" | "rule" | "check"

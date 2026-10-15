@@ -1,0 +1,10 @@
+root = {case: "add_rule", doc: Doc, rule: Rule} | {case: "edit_rule", doc: Doc, name: Name, changes: Changes} | {case: "remove_rule", doc: Doc, name: Name}
+Doc = BlockDoc | FlowDoc
+BlockDoc = text(RuleBlock RuleBlock RuleBlock*)
+RuleBlock = text("- name: " Name "\n  description: " Word "\n  pattern: \"" Word "\"\n")
+FlowDoc = text("[" FlowRule (", " FlowRule)* "]\n")
+FlowRule = text("{name: " Name ", description: " Word ", pattern: \"" Word "\"}")
+Rule = {name: Name, description: Word, pattern: Word}
+Changes = {description: Word, pattern: Word}
+Name = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-", 1, 32)
+Word = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _.-", 0, 80)

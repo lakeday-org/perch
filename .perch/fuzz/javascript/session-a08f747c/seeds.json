@@ -1,0 +1,67 @@
+[
+  {
+    "why": "Exercise a single-worker session and a valid one-test mutant run.",
+    "value": {
+      "case": "single_worker_session",
+      "copies": [{"dir": "/tmp/project", "scratch": "/tmp/scratch"}],
+      "tool": {"python": "python3"},
+      "parallel": 1,
+      "runs": [{
+        "path": "test_sample.py",
+        "source": "def test_ok():\n    assert True\n",
+        "method": {"node": {"qualified_name": "test_ok", "line": 1}},
+        "mutant": {"statements": []},
+        "nodes": ["test_sample.py::test_ok"],
+        "timeout": 1000,
+        "bail": false
+      }]
+    }
+  },
+  {
+    "why": "Exercise multiple workers and repeated runs on the same server.",
+    "value": {
+      "case": "parallel_mutant_session",
+      "copies": [{"dir": "/tmp/project", "scratch": "/tmp/scratch"}],
+      "tool": {"python": "python3"},
+      "parallel": 4,
+      "runs": [
+        {
+          "path": "test_sample.py",
+          "source": "def test_first():\n    assert True\n",
+          "method": {"node": {"qualified_name": "test_first", "line": 1}},
+          "mutant": {"statements": [1]},
+          "nodes": ["test_sample.py::test_first"],
+          "timeout": 5000,
+          "bail": false
+        },
+        {
+          "path": "test_sample.py",
+          "source": "def test_second():\n    assert 1 == 1\n",
+          "method": {"node": {"qualified_name": "test_second", "line": 1}},
+          "mutant": {"statements": []},
+          "nodes": ["test_sample.py::test_second"],
+          "timeout": 5000,
+          "bail": true
+        }
+      ]
+    }
+  },
+  {
+    "why": "Exercise a short timeout and a source file with multiple tests.",
+    "value": {
+      "case": "single_worker_session",
+      "copies": [{"dir": "/tmp/project", "scratch": "/tmp/scratch"}],
+      "tool": {"python": "python3"},
+      "parallel": 1,
+      "runs": [{
+        "path": "test_sample.py",
+        "source": "def test_a():\n    assert True\n\ndef test_b():\n    assert True\n",
+        "method": {"node": {"qualified_name": "test_a", "line": 1}},
+        "mutant": {"statements": [0, 1]},
+        "nodes": ["test_sample.py::test_a", "test_sample.py::test_b"],
+        "timeout": 1,
+        "bail": false
+      }]
+    }
+  }
+]

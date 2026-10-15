@@ -1,0 +1,119 @@
+id: buildGraph.resolve-5ebb7f0f
+language: javascript
+confirmed: true
+entries:
+  -
+    name: buildGraph.resolve
+    at: src/graph.js:725
+    reached: true
+sources:
+  -
+    kind: deserialize
+    api: "JSON.parse(line);"
+    at: src/runners/driver.js:73
+    in: startDriver
+  -
+    kind: deserialize
+    api: "JSON.parse(raw);"
+    at: src/runners/javascript.js:449
+    in: javascriptRunner
+  -
+    kind: deserialize
+    api: "JSON.parse(Buffer.from(match[1], \"\").toString(\"\")));"
+    at: src/runners/javascript.js:475
+    in: javascriptRunner
+  -
+    kind: file
+    api: "readFile(out, \"\").catch(error => { if (error.code === \"\") return null; throw err"
+    at: src/runners/javascript.js:490
+    in: javascriptRunner
+  -
+    kind: deserialize
+    api: "JSON.parse(text); } catch (error) { if (error instanceof SyntaxError) return nul"
+    at: src/runners/javascript.js:494
+    in: javascriptRunner
+  -
+    kind: file
+    api: "readFile(out, \"\").catch(error => { if (error.code === \"\") return null; throw err"
+    at: src/runners/javascript.js:511
+    in: javascriptRunner
+  -
+    kind: deserialize
+    api: "JSON.parse(line);"
+    at: src/runners/javascript.js:514
+    in: javascriptRunner
+  -
+    kind: file
+    api: "readFile(join(copy.dir, path), \"\"))) continue;"
+    at: src/runners/javascript.js:558
+    in: javascriptRunner
+  -
+    kind: file
+    api: "readFile(full, \"\");"
+    at: src/runners/javascript.js:564
+    in: javascriptRunner
+  -
+    kind: file
+    api: "readFile(hits, \"\")).split('\\n').filter(Boolean)) {"
+    at: src/runners/javascript.js:613
+    in: javascriptRunner
+  -
+    kind: deserialize
+    api: "JSON.parse(line);"
+    at: src/runners/javascript.js:614
+    in: javascriptRunner
+  -
+    kind: deserialize
+    api: "JSON.parse(raw);"
+    at: src/runners/javascript.js:615
+    in: javascriptRunner
+  -
+    kind: deserialize
+    api: "JSON.parse(line);"
+    at: src/runners/pytest.js:154
+    in: session
+  -
+    kind: environment
+    api: "process.env, PWD: cwd, ...own }, stdio: stdio ? [\"\", \"\", \"\"] : [\"\", \"\", \"\", \"\", "
+    at: src/runners/workers.js:51
+    in: startWorkers
+  -
+    kind: deserialize
+    api: "JSON.parse(stdio ? line.slice(\"\".length) : line);"
+    at: src/runners/workers.js:62
+    in: startWorkers
+via: []
+reaches: 102
+code: "92a46bf1ef870b9d59b418d013383983d59588f4"
+coverage:
+  lines: 505
+  of: 834
+  percent: 60.6
+  best_harness: 505
+corpus: 49
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 45227
+    covered: 251
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 30670
+    covered: 422
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 111153
+    covered: 447
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 339806
+    covered: 497
+    defects: 6
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 46095
+    covered: 505
+    defects: 25

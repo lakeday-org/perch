@@ -1,0 +1,34 @@
+[
+  {
+    "why": "A small source file with a direct call and a return exercises ordinary name resolution.",
+    "value": {
+      "case": "resolve_target_method",
+      "target": "src/input.js::entry",
+      "text": "function entry() {\nreturn helper();\n}\nfunction helper() {\nreturn 1;\n}\n"
+    }
+  },
+  {
+    "why": "A call through a class instance exercises constructor and member parsing while keeping the requested entry point present.",
+    "value": {
+      "case": "resolve_target_file",
+      "target": "src/input.js",
+      "text": "function entry() {\nconst vitem = new vthing();\nreturn vitem.run();\n}\nclass vthing {\nrun() {\nreturn 2;\n}\n}\n"
+    }
+  },
+  {
+    "why": "Nested conditionals and repeated calls exercise branch nesting and graph-edge construction.",
+    "value": {
+      "case": "analyze_files",
+      "path": "src/input.js",
+      "text": "function entry(vflag) {\nif (vflag) {\nhelper();\n}\nreturn helper();\n}\nfunction helper() {\nreturn 3;\n}\n"
+    }
+  },
+  {
+    "why": "An empty function body is a minimal valid declaration for testing parser and method accounting.",
+    "value": {
+      "case": "resolve_target_method",
+      "target": "src/input.js::entry",
+      "text": "function entry() {\n}\n"
+    }
+  }
+]

@@ -1,0 +1,60 @@
+{
+  "hash": "ad78b952169d40131b9b2ed33c36ff552a85e89a",
+  "covered": [
+    "src/runners/schemata.js:301"
+  ],
+  "bestLines": 1,
+  "stalled": 0,
+  "runs": [
+    {
+      "at": "2026-10-14T23:13:10.807Z",
+      "execs": 20618,
+      "covered": 1,
+      "total": 33,
+      "entriesReached": [
+        "instrument.locate"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:18:17.121Z",
+      "execs": 13232,
+      "covered": 1,
+      "total": 33,
+      "entriesReached": [
+        "instrument.locate"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:20:50.512Z",
+      "execs": 58252,
+      "covered": 1,
+      "total": 33,
+      "entriesReached": [
+        "instrument.locate"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:26:50.464Z",
+      "execs": 337450,
+      "covered": 1,
+      "total": 33,
+      "entriesReached": [
+        "instrument.locate"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-15T00:08:35.008Z",
+      "execs": 38854,
+      "covered": 1,
+      "total": 33,
+      "entriesReached": [
+        "instrument.locate"
+      ],
+      "defects": 0
+    }
+  ]
+}

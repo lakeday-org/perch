@@ -1,0 +1,74 @@
+id: createCloudClient.sendScan-31f1ad2d
+language: javascript
+confirmed: true
+entries:
+  -
+    name: createCloudClient.sendScan
+    at: src/cloud-client.js:54
+    reached: true
+  -
+    name: createCloudClient.fetchImpl
+    at: src/cloud-client.js:41
+    reached: true
+  -
+    name: createCloudClient.appendFindings
+    at: src/cloud-client.js:69
+    reached: true
+  -
+    name: createCloudClient.finishScan
+    at: src/cloud-client.js:71
+    reached: true
+  -
+    name: createCloudClient.updateScan
+    at: src/cloud-client.js:70
+    reached: true
+  -
+    name: withCurrentToken
+    at: src/cloud-client.js:14
+    reached: true
+sources:
+  -
+    kind: deserialize
+    api: "JSON.parse(options.body);"
+    at: src/cloud-client.js:42
+    in: createCloudClient
+  -
+    kind: deserialize
+    api: "JSON.parse(options.body);"
+    at: src/cloud-client.js:42
+    in: createCloudClient.fetchImpl
+via: []
+reaches: 10
+code: "157448b23a68eba0982b565673c701ab4cee82f5"
+coverage:
+  lines: 34
+  of: 51
+  percent: 66.7
+  best_harness: 34
+corpus: 2
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 495103
+    covered: 7
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 123290
+    covered: 7
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 355019
+    covered: 7
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 1771973
+    covered: 34
+    defects: 2
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 285276
+    covered: 34
+    defects: 1

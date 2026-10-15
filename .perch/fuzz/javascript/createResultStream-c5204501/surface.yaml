@@ -1,0 +1,49 @@
+id: createResultStream-c5204501
+language: javascript
+confirmed: true
+entries:
+  -
+    name: createResultStream
+    at: src/cloud-results.js:64
+    reached: true
+sources:
+  -
+    kind: file
+    api: "readFile(env.GITHUB_EVENT_PATH, \"\"));"
+    at: src/cloud-results.js:18
+    in: runContext
+via: []
+reaches: 5
+code: "876d1de53453b8d8c402f13c494957aa72678b9a"
+coverage:
+  lines: 72
+  of: 122
+  percent: 59
+  best_harness: 72
+corpus: 19
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 12019
+    covered: 72
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 4427
+    covered: 72
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 14960
+    covered: 72
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 90617
+    covered: 72
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 12024
+    covered: 72
+    defects: 1

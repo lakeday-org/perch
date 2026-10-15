@@ -1,0 +1,52 @@
+id: coverageRun-3001da88
+language: javascript
+confirmed: false
+entries:
+  -
+    name: coverageRun
+    at: src/runners/cargo.js:158
+    reached: false
+sources:
+  -
+    kind: file
+    api: "readFile(hits, \"\")).split('\\n').filter(Boolean)) {"
+    at: src/runners/cargo.js:183
+    in: coverageRun
+via:
+  -
+    name: cargoRunner.coverageRun
+    at: src/runners/cargo.js:73
+reaches: 9
+code: ae394346adf454abced995dfe015675271891dff
+coverage:
+  lines: 0
+  of: 109
+  percent: 0
+  best_harness: 0
+corpus: 0
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 0
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 14215
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 63845
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 352090
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 41063
+    covered: 0
+    defects: 0

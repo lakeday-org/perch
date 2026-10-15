@@ -1,0 +1,52 @@
+id: prepare-176b2429
+language: javascript
+confirmed: false
+entries:
+  -
+    name: prepare
+    at: src/runners/cargo.js:86
+    reached: false
+sources:
+  -
+    kind: file
+    api: "readFile(join(copy.dir, path), \"\"));"
+    at: src/runners/cargo.js:124
+    in: prepare
+via:
+  -
+    name: cargoRunner.prepare
+    at: src/runners/cargo.js:73
+reaches: 30
+code: b6187e38be4c6890c8befeb5bccf4bab614f18cf
+coverage:
+  lines: 0
+  of: 301
+  percent: 0
+  best_harness: 0
+corpus: 0
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 0
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 14612
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 45256
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 182914
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 36466
+    covered: 0
+    defects: 0

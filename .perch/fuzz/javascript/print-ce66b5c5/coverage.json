@@ -1,0 +1,96 @@
+{
+  "hash": "38856818f04bfef8ad555cd1b3a18392001287b5",
+  "covered": [
+    "src/store.js:16",
+    "src/store.js:17",
+    "src/store.js:18",
+    "src/store.js:25",
+    "src/store.js:26",
+    "src/store.js:27",
+    "src/store.js:28",
+    "src/store.js:29",
+    "src/store.js:31",
+    "src/store.js:32",
+    "src/store.js:33",
+    "src/store.js:34",
+    "src/store.js:35",
+    "src/store.js:36",
+    "src/store.js:37",
+    "src/store.js:38",
+    "src/store.js:40",
+    "src/store.js:41",
+    "src/store.js:44",
+    "src/store.js:45",
+    "src/store.js:46",
+    "src/store.js:47",
+    "src/store.js:48",
+    "src/store.js:49",
+    "src/store.js:50",
+    "src/store.js:52",
+    "src/store.js:56",
+    "src/store.js:57",
+    "src/store.js:58",
+    "src/store.js:59",
+    "src/store.js:60",
+    "src/store.js:62"
+  ],
+  "bestLines": 32,
+  "stalled": 0,
+  "runs": [
+    {
+      "at": "2026-10-14T23:13:10.807Z",
+      "execs": 21020,
+      "covered": 32,
+      "total": 46,
+      "entriesReached": [
+        "jsonPieces",
+        "jsonChunks"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:18:17.121Z",
+      "execs": 9690,
+      "covered": 32,
+      "total": 46,
+      "entriesReached": [
+        "jsonPieces",
+        "jsonChunks"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:20:50.512Z",
+      "execs": 46644,
+      "covered": 32,
+      "total": 46,
+      "entriesReached": [
+        "jsonPieces",
+        "jsonChunks"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:26:50.464Z",
+      "execs": 204625,
+      "covered": 32,
+      "total": 46,
+      "entriesReached": [
+        "jsonPieces",
+        "jsonChunks"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-15T00:08:35.008Z",
+      "execs": 23610,
+      "covered": 32,
+      "total": 46,
+      "entriesReached": [
+        "jsonPieces",
+        "jsonChunks"
+      ],
+      "defects": 2
+    }
+  ]
+}

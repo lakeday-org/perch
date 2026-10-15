@@ -1,0 +1,67 @@
+id: prepare-59e9ebd6
+language: javascript
+confirmed: true
+entries:
+  -
+    name: prepare
+    at: src/runners/jvm.js:394
+    reached: true
+sources:
+  -
+    kind: file
+    api: "readFile(join(copy.dir, path), \"\"));"
+    at: src/runners/jvm.js:421
+    in: prepare
+  -
+    kind: environment
+    api: "process.env, PERCH_CLASSPATHS: classpaths }, maxBuffer: 1 << 28 });"
+    at: src/runners/jvm.js:440
+    in: prepare
+  -
+    kind: file
+    api: "readFile(join(classpaths, file), \"\")).split(delimiter));"
+    at: src/runners/jvm.js:453
+    in: prepare
+  -
+    kind: file
+    api: "readFile(file, \"\")).trim().split(delimiter));"
+    at: src/runners/jvm.js:460
+    in: prepare
+via:
+  -
+    name: jvmRunner.prepare
+    at: src/runners/jvm.js:322
+reaches: 33
+code: "3e8b053dad18aec48668e03a4e136af613e7eec4"
+coverage:
+  lines: 4
+  of: 342
+  percent: 1.2
+  best_harness: 4
+corpus: 2
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 22637
+    covered: 4
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 7614
+    covered: 4
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 13024
+    covered: 4
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 154970
+    covered: 4
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 19939
+    covered: 4
+    defects: 0

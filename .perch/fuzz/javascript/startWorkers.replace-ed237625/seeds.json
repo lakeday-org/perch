@@ -1,0 +1,35 @@
+[
+  {
+    "why": "A stdio-mode call with a short timeout; the supplied source does not let the harness prescribe the worker reply or trigger replacement without starting a process.",
+    "value": {
+      "case": "run_stdio",
+      "message": {
+        "value": "work"
+      },
+      "timeout": 1
+    }
+  },
+  {
+    "why": "A descriptor-protocol call with no timeout; its worker message schema is not present in the supplied source.",
+    "value": {
+      "case": "run_descriptor_protocol",
+      "message": {
+        "value": true
+      },
+      "timeout": null
+    }
+  },
+  {
+    "why": "A stdio-mode call with a nested JSON value; a reply marked left would trigger replacement, but cannot be supplied through the shown API without a worker process.",
+    "value": {
+      "case": "run_stdio",
+      "message": {
+        "value": [
+          "work",
+          1
+        ]
+      },
+      "timeout": 10000
+    }
+  }
+]

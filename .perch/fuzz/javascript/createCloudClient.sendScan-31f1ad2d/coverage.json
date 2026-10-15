@@ -1,0 +1,106 @@
+{
+  "hash": "157448b23a68eba0982b565673c701ab4cee82f5",
+  "covered": [
+    "src/cloud-auth.js:16",
+    "src/cloud-auth.js:17",
+    "src/cloud-auth.js:18",
+    "src/cloud-auth.js:19",
+    "src/cloud-auth.js:20",
+    "src/cloud-auth.js:21",
+    "src/cloud-auth.js:22",
+    "src/cloud-auth.js:23",
+    "src/cloud-auth.js:25",
+    "src/cloud-auth.js:26",
+    "src/cloud-auth.js:30",
+    "src/cloud-auth.js:31",
+    "src/cloud-auth.js:32",
+    "src/cloud-auth.js:33",
+    "src/cloud-client.js:14",
+    "src/cloud-client.js:15",
+    "src/cloud-client.js:16",
+    "src/cloud-client.js:17",
+    "src/cloud-client.js:18",
+    "src/cloud-client.js:19",
+    "src/cloud-client.js:41",
+    "src/cloud-client.js:54",
+    "src/cloud-client.js:55",
+    "src/cloud-client.js:56",
+    "src/cloud-client.js:57",
+    "src/cloud-client.js:58",
+    "src/cloud-client.js:59",
+    "src/cloud-client.js:60",
+    "src/cloud-client.js:61",
+    "src/cloud-client.js:62",
+    "src/cloud-client.js:63",
+    "src/cloud-client.js:69",
+    "src/cloud-client.js:70",
+    "src/cloud-client.js:71"
+  ],
+  "bestLines": 34,
+  "stalled": 0,
+  "runs": [
+    {
+      "at": "2026-10-14T23:13:10.807Z",
+      "execs": 495103,
+      "covered": 7,
+      "total": 51,
+      "entriesReached": [
+        "createCloudClient.fetchImpl",
+        "withCurrentToken"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:18:17.121Z",
+      "execs": 123290,
+      "covered": 7,
+      "total": 51,
+      "entriesReached": [
+        "createCloudClient.fetchImpl",
+        "withCurrentToken"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:20:50.512Z",
+      "execs": 355019,
+      "covered": 7,
+      "total": 51,
+      "entriesReached": [
+        "createCloudClient.fetchImpl",
+        "withCurrentToken"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:26:50.464Z",
+      "execs": 1771973,
+      "covered": 34,
+      "total": 51,
+      "entriesReached": [
+        "createCloudClient.fetchImpl",
+        "withCurrentToken",
+        "createCloudClient.sendScan",
+        "createCloudClient.appendFindings",
+        "createCloudClient.updateScan",
+        "createCloudClient.finishScan"
+      ],
+      "defects": 2
+    },
+    {
+      "at": "2026-10-15T00:08:35.008Z",
+      "execs": 285276,
+      "covered": 34,
+      "total": 51,
+      "entriesReached": [
+        "createCloudClient.fetchImpl",
+        "createCloudClient.sendScan",
+        "createCloudClient.appendFindings",
+        "createCloudClient.updateScan",
+        "createCloudClient.finishScan",
+        "withCurrentToken"
+      ],
+      "defects": 1
+    }
+  ]
+}

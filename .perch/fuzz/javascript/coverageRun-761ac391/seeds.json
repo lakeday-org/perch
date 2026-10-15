@@ -1,0 +1,5 @@
+[
+  {"why":"The only use case identifiable in the supplied source is coverage collection; its caller inputs and setup are not shown.","value":{"case":"coverage_run"}},
+  {"why":"The source gives no additional caller-controlled fields or valid state construction for this operation.","value":{"case":"coverage_run"}},
+  {"why":"The worker input is generated from internal state, but the public runner contract that supplies that state is not shown.","value":{"case":"coverage_run"}}
+]

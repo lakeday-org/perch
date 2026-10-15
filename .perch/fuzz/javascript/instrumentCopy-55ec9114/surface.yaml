@@ -1,0 +1,66 @@
+id: instrumentCopy-55ec9114
+language: javascript
+confirmed: false
+entries:
+  -
+    name: instrumentCopy
+    at: src/runners/javascript.js:419
+    reached: false
+  -
+    name: instrument
+    at: src/runners/schemata.js:234
+    reached: false
+sources:
+  -
+    kind: file
+    api: "readFile(file, \"\"), language: graph.files.get(path).file.language, mutants, prel"
+    at: src/runners/javascript.js:435
+    in: instrumentCopy
+  -
+    kind: deserialize
+    api: "JSON.parse(stdout);"
+    at: src/runners/cargo.js:91
+    in: prepare
+  -
+    kind: deserialize
+    api: "JSON.parse(line));"
+    at: src/runners/cargo.js:137
+    in: prepare
+via:
+  -
+    name: javascriptRunner.prepare
+    at: src/runners/javascript.js:540
+reaches: 25
+code: "881bc96bd34a00a3eec0f3fa04f5f5d69f457d6b"
+coverage:
+  lines: 0
+  of: 222
+  percent: 0
+  best_harness: 0
+corpus: 0
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 18
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 6
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 12
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 53885
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 26
+    covered: 0
+    defects: 0

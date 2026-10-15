@@ -1,0 +1,66 @@
+id: print-ce66b5c5
+language: javascript
+confirmed: true
+entries:
+  -
+    name: print
+    at: src/cli.js:236
+    reached: false
+  -
+    name: jsonChunks
+    at: src/store.js:56
+    reached: true
+  -
+    name: jsonPieces
+    at: src/store.js:25
+    reached: true
+sources:
+  -
+    kind: file
+    api: "readFile(path, \"\").catch(error => { if (error.code === \"\") return null; throw er"
+    at: src/setup.js:90
+    in: installSkill
+via:
+  -
+    name: computeCoverage
+    at: src/coverage.js:202
+  -
+    name: markTestSupport
+    at: src/test-scope.js:62
+  -
+    name: frameworkScope
+    at: src/test-scope.js:329
+reaches: 7
+code: "38856818f04bfef8ad555cd1b3a18392001287b5"
+coverage:
+  lines: 32
+  of: 46
+  percent: 69.6
+  best_harness: 32
+corpus: 27
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 21020
+    covered: 32
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 9690
+    covered: 32
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 46644
+    covered: 32
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 204625
+    covered: 32
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 23610
+    covered: 32
+    defects: 2

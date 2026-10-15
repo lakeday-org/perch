@@ -1,0 +1,38 @@
+[
+  {
+    "why": "Queries the first source line at the first column.",
+    "value": {
+      "case": "instrument_column",
+      "source": "function f(x) { return x ? 1 : 2; }\n",
+      "line": 1,
+      "column": 1
+    }
+  },
+  {
+    "why": "Uses the no-column mode on a source line after the final newline.",
+    "value": {
+      "case": "instrument_line",
+      "source": "const f = x => x ? {a: 1} : {a: 2};\n",
+      "line": 2,
+      "column": null
+    }
+  },
+  {
+    "why": "Exercises zero and a negative column, which take different truthiness and position paths.",
+    "value": {
+      "case": "instrument_column",
+      "source": "if (ready) { run(); } else { stop(); }\n",
+      "line": 1,
+      "column": 0
+    }
+  },
+  {
+    "why": "Exercises a line at the signed 32-bit boundary and a column one past it.",
+    "value": {
+      "case": "instrument_column",
+      "source": "const value = (a && b) || c;\n",
+      "line": 2147483648,
+      "column": 2147483649
+    }
+  }
+]

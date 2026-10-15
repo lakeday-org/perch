@@ -1,0 +1,74 @@
+[
+  {
+    "why": "Resolve a JavaScript sibling with its extension explicitly present in the index.",
+    "value": {
+      "case": "js_relative",
+      "fromPath": "src/main.js",
+      "module": "./util.js",
+      "language": "javascript",
+      "paths": [
+        "src/util.js"
+      ],
+      "crates": []
+    }
+  },
+  {
+    "why": "Exercise Python's relative-import dot counting and package initializer candidate.",
+    "value": {
+      "case": "python_relative",
+      "fromPath": "pkg/sub/test.py",
+      "module": "..pkg",
+      "language": "python",
+      "paths": [
+        "pkg/__init__.py",
+        "pkg/sub/pkg.py"
+      ],
+      "crates": []
+    }
+  },
+  {
+    "why": "Resolve a Rust external crate name through its declared library file and a child module.",
+    "value": {
+      "case": "rust_crate",
+      "fromPath": "tests/use.rs",
+      "module": "serde_json::de",
+      "language": "rust",
+      "paths": [
+        "vendor/serde_json/src/lib.rs",
+        "vendor/serde_json/src/de.rs"
+      ],
+      "crates": [
+        {
+          "name": "serde_json",
+          "lib": "vendor/serde_json/src/lib.rs"
+        }
+      ]
+    }
+  },
+  {
+    "why": "Check that an unlisted sibling is not returned as a resolved JavaScript module.",
+    "value": {
+      "case": "js_unlisted",
+      "fromPath": "src/main.js",
+      "module": "./internal.js",
+      "language": "javascript",
+      "paths": [
+        "src/other.js"
+      ],
+      "crates": []
+    }
+  },
+  {
+    "why": "Exercise the explicit non-string-module handling branch.",
+    "value": {
+      "case": "unsupported_module",
+      "fromPath": "src/main.js",
+      "module": null,
+      "language": "javascript",
+      "paths": [
+        "src/main.js"
+      ],
+      "crates": []
+    }
+  }
+]

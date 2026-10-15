@@ -1,0 +1,46 @@
+[
+  {
+    "why": "Edits one rule among differently formatted neighboring entries, exercising source-position preservation.",
+    "value": {
+      "case": "edit_rule",
+      "doc": "- name: alpha\n  description: original text\n  pattern: \"first\"\n- name: beta\n  description: untouched text\n  pattern: \"second\"\n",
+      "name": "alpha",
+      "changes": {
+        "description": "revised text",
+        "pattern": "updated"
+      }
+    }
+  },
+  {
+    "why": "Removes the final entry from a multi-rule block document.",
+    "value": {
+      "case": "remove_rule",
+      "doc": "- name: alpha\n  description: keep this\n  pattern: \"one\"\n- name: beta\n  description: remove this\n  pattern: \"two\"\n",
+      "name": "beta"
+    }
+  },
+  {
+    "why": "Adds a rule whose description and pattern share a distinctive prefix, stressing edits and placement around similar text.",
+    "value": {
+      "case": "add_rule",
+      "doc": "- name: alpha\n  description: shared prefix\n  pattern: \"shared prefix one\"\n- name: beta\n  description: shared prefix two\n  pattern: \"shared prefix two\"\n",
+      "rule": {
+        "name": "gamma",
+        "description": "shared prefix new",
+        "pattern": "shared prefix new"
+      }
+    }
+  },
+  {
+    "why": "Exercises flow-style rule maps and edits a value containing spaces.",
+    "value": {
+      "case": "edit_rule",
+      "doc": "[{name: alpha, description: short text, pattern: \"one\"}, {name: beta, description: other text, pattern: \"two\"}]\n",
+      "name": "alpha",
+      "changes": {
+        "description": "a longer replacement",
+        "pattern": "updated pattern"
+      }
+    }
+  }
+]

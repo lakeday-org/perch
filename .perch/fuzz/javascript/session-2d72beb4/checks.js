@@ -1,0 +1,1 @@
+// No sound property checks can be derived: the public goRunner contract and its result semantics were not supplied.

@@ -1,0 +1,1 @@
+No valid property check can be written from the supplied source: `replace` is inaccessible, the harness cannot safely invoke the process-spawning path, and the snippet gives no observable replacement result to compare.

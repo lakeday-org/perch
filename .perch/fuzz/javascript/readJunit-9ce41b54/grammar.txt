@@ -1,0 +1,32 @@
+root = {case: "read_junit", text: JunitInput, path: Path} | {case: "parse_xml", text: XmlDocument, path: Path}
+Path = "report.xml" | "input.xml" | "suite.xml"
+JunitInput = text(JunitDoc list(text(Gap JunitDoc), 0, 4))
+JunitDoc = Testsuites | Suite | Report
+Testsuites = text("<testsuites>" Gap list(text(Suite Gap), 0, 5) "</testsuites>")
+Suite = text("<testsuite" SuiteAttrs ">" Gap list(text((Suite | Testcase) Gap), 0, 5) "</testsuite>")
+SuiteAttrs = text(" name=\"" Name "\"" SuiteExtraAttrs)
+SuiteExtraAttrs = "" | text(" file=\"" File "\"") | text(" line=\"" Line "\"") | text(" file=\"" File "\" line=\"" Line "\"") | text(" line=\"" Line "\" file=\"" File "\"")
+Testcase = text("<testcase" CaseAttrs ">" CaseContent "</testcase>")
+CaseAttrs = text(" name=\"" Name "\"" CaseExtraAttrs)
+CaseExtraAttrs = "" | text(" classname=\"" Name "\"") | text(" file=\"" File "\"") | text(" line=\"" Line "\"") | text(" time=\"" Time "\"") | text(" classname=\"" Name "\" file=\"" File "\"") | text(" classname=\"" Name "\" line=\"" Line "\"") | text(" classname=\"" Name "\" time=\"" Time "\"") | text(" file=\"" File "\" line=\"" Line "\"") | text(" file=\"" File "\" time=\"" Time "\"") | text(" line=\"" Line "\" time=\"" Time "\"") | text(" classname=\"" Name "\" file=\"" File "\" line=\"" Line "\"") | text(" classname=\"" Name "\" file=\"" File "\" time=\"" Time "\"") | text(" classname=\"" Name "\" line=\"" Line "\" time=\"" Time "\"") | text(" file=\"" File "\" line=\"" Line "\" time=\"" Time "\"") | text(" classname=\"" Name "\" file=\"" File "\" line=\"" Line "\" time=\"" Time "\"")
+CaseContent = "" | "<skipped/>" | "<failure/>" | "<error/>" | text(XmlElement)
+Report = "<report total_time=\"0\"/>"
+Gap = text(("" | " " | "\n" | "<!-- gap -->" | "<?tool gap?>"))
+Name = text(NameStart list(NameChar, 0, 7))
+NameStart = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_", 1, 1)
+NameChar = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789.-", 1, 1)
+File = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789/.-", 1, 16)
+Line = text(int(1, 999999))
+Time = text(int(0, 999) "." int(0, 999))
+XmlDocument = text(XmlPrelude XmlDoctype XmlElement XmlTail)
+XmlPrelude = "" | "<!-- before root -->" | "<?tool document?>"
+XmlDoctype = "" | "<!DOCTYPE node SYSTEM \"https://example.invalid/external.dtd\">"
+XmlTail = "" | text(Gap)
+XmlElement = text("<" XmlTag XmlAttrs "/>") | text("<" XmlTag XmlAttrs ">" XmlContent "</" XmlTag ">")
+XmlTag = "node" | "child" | "item"
+XmlAttrs = "" | text(" data=\"" XmlValue "\"")
+XmlContent = "" | XmlText | Cdata | text(XmlText XmlElement) | text(XmlElement XmlText) | text(XmlElement XmlElement) | text(Cdata XmlElement) | text(XmlElement Cdata)
+XmlText = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789.,!?-_", 0, 24) | XmlReference
+Cdata = text("<![CDATA[" str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789.,!?-_&<>", 0, 24) "]]>")
+XmlValue = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ 0123456789.,!?-_", 0, 20) | XmlReference
+XmlReference = "&amp;" | "&lt;" | "&gt;" | "&quot;" | "&apos;" | "&#65;" | "&#x41;"

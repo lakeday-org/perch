@@ -1,0 +1,22 @@
+root = {case: "configured_environment_defaults", content: ConfigDoc, env: Env} | {case: "configured_environment_overrides", content: ConfigDoc, env: Env} | {case: "configured_environment_invalid", content: InvalidDoc, env: Env} | {case: "configured_environment_missing", content: ConfigDoc, env: Env} | {case: "configured_environment_read_error", content: ConfigDoc, env: Env}
+Env = {PERCH_API_KEY: EnvValue, PERCH_BASE_URL: EnvValue, PERCH_ORGANIZATION: EnvValue, PERCH_ROOT: EnvValue}
+EnvValue = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-./:@", 0, 32)
+ConfigDoc = Lines | text(Bom Lines)
+Bom = "﻿"
+Lines = "" | Line | text(Line "\n" Lines) | text(Line "\r\n" Lines)
+Line = Assignment | Comment | Blank
+Assignment = text(Indent Name Space "=" Space Quoted Tail)
+Indent = str(" \t", 0, 4)
+Space = str(" \t", 0, 4)
+Name = "api_key" | "base_url" | "organization" | "root"
+Quoted = text("\"" DoubleValue "\"") | text("'" SingleValue "'")
+DoubleValue = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-./:@#%+,$!?()[]{}", 1, 32)
+SingleValue = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-./:@#%+,$!?()[]{}\"\\", 1, 32)
+Tail = Space | text(Space "#" CommentContent) | ""
+Comment = text(Indent "#" CommentContent)
+CommentContent = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-./:@#%+,$!?()[]{}\"'", 0, 80)
+Blank = ""
+InvalidDoc = text(Indent Name Space "=" Space Bare) | text(Indent UnknownName Space "=" Space Quoted Tail) | text(Indent "api_key" Space "=" Space Quoted Tail "\n" Indent "api_key" Space "=" Space Quoted Tail) | text(Indent Name Space "=" Space EmptyQuoted Tail)
+UnknownName = "constructor" | "__proto__" | "prototype" | text("x_" str("abcdefghijklmnopqrstuvwxyz_", 1, 16))
+Bare = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-./:@#%+,$!?()[]{}", 1, 40)
+EmptyQuoted = "\"\"" | "''"

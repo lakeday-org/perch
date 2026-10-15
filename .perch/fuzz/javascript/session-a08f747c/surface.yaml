@@ -1,0 +1,49 @@
+id: session-a08f747c
+language: javascript
+confirmed: true
+entries:
+  -
+    name: session
+    at: src/runners/pytest.js:131
+    reached: true
+sources:
+  -
+    kind: environment
+    api: "process.env, PWD: copy.dir, PYTHONPATH: \"\", PERCH_ROOT: copy.dir, PERCH_PARALLEL"
+    at: src/runners/pytest.js:137
+    in: session
+via: []
+reaches: 7
+code: c80deede072dfbf29b40bbfa300f6068d13f72f4
+coverage:
+  lines: 27
+  of: 81
+  percent: 33.3
+  best_harness: 27
+corpus: 2
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 174980
+    covered: 27
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 41007
+    covered: 27
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 109769
+    covered: 27
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 587601
+    covered: 27
+    defects: 2
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 98809
+    covered: 27
+    defects: 2

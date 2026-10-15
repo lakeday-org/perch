@@ -1,0 +1,5 @@
+[
+  {"why":"Small input for the only public entry point identified; its required argument shape is not present in the supplied source.","value":{"case":"cargo_runner","input":{"marker":""}}},
+  {"why":"Exercises a short nonempty value without inventing undocumented cargoRunner fields.","value":{"case":"cargo_runner","input":{"marker":"a"}}},
+  {"why":"Exercises a longer marker value while retaining the same documented-by-this-prompt shape.","value":{"case":"cargo_runner","input":{"marker":"abcdefgh"}}}
+]

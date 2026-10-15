@@ -1,0 +1,135 @@
+{
+  "hash": "31b8b7a32a651bc802b27057b0425fb1c047c0e2",
+  "covered": [
+    "src/graph.js:10",
+    "src/graph.js:106",
+    "src/graph.js:107",
+    "src/graph.js:108",
+    "src/graph.js:109",
+    "src/graph.js:11",
+    "src/graph.js:110",
+    "src/graph.js:117",
+    "src/graph.js:118",
+    "src/graph.js:119",
+    "src/graph.js:12",
+    "src/graph.js:122",
+    "src/graph.js:123",
+    "src/graph.js:126",
+    "src/graph.js:127",
+    "src/graph.js:128",
+    "src/graph.js:129",
+    "src/graph.js:13",
+    "src/graph.js:130",
+    "src/graph.js:131",
+    "src/graph.js:133",
+    "src/graph.js:134",
+    "src/graph.js:135",
+    "src/graph.js:136",
+    "src/graph.js:137",
+    "src/graph.js:138",
+    "src/graph.js:139",
+    "src/graph.js:140",
+    "src/graph.js:16",
+    "src/graph.js:17",
+    "src/graph.js:18",
+    "src/graph.js:25",
+    "src/graph.js:26",
+    "src/graph.js:27",
+    "src/graph.js:28",
+    "src/graph.js:30",
+    "src/graph.js:31",
+    "src/graph.js:32",
+    "src/graph.js:33",
+    "src/graph.js:34",
+    "src/graph.js:35",
+    "src/graph.js:36",
+    "src/graph.js:37",
+    "src/graph.js:38",
+    "src/graph.js:39",
+    "src/graph.js:40",
+    "src/graph.js:41",
+    "src/graph.js:42",
+    "src/graph.js:43",
+    "src/graph.js:48",
+    "src/graph.js:49",
+    "src/graph.js:5",
+    "src/graph.js:50",
+    "src/graph.js:51",
+    "src/graph.js:53",
+    "src/graph.js:6",
+    "src/graph.js:62",
+    "src/graph.js:63",
+    "src/graph.js:64",
+    "src/graph.js:65",
+    "src/graph.js:66",
+    "src/graph.js:67",
+    "src/graph.js:68",
+    "src/graph.js:7",
+    "src/graph.js:70",
+    "src/graph.js:71",
+    "src/graph.js:80",
+    "src/graph.js:81",
+    "src/graph.js:82",
+    "src/graph.js:83",
+    "src/graph.js:91",
+    "src/graph.js:92",
+    "src/graph.js:93",
+    "src/graph.js:94",
+    "src/graph.js:95",
+    "src/graph.js:96"
+  ],
+  "bestLines": 76,
+  "stalled": 1,
+  "runs": [
+    {
+      "at": "2026-10-14T23:13:10.807Z",
+      "execs": 304484,
+      "covered": 76,
+      "total": 146,
+      "entriesReached": [
+        "resolveModule"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:18:17.121Z",
+      "execs": 1971,
+      "covered": 76,
+      "total": 146,
+      "entriesReached": [
+        "resolveModule"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:20:50.512Z",
+      "execs": 6116,
+      "covered": 76,
+      "total": 146,
+      "entriesReached": [
+        "resolveModule"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:26:50.464Z",
+      "execs": 12002,
+      "covered": 76,
+      "total": 146,
+      "entriesReached": [
+        "resolveModule"
+      ],
+      "defects": 6
+    },
+    {
+      "at": "2026-10-15T00:08:35.008Z",
+      "execs": 335361,
+      "covered": 76,
+      "total": 146,
+      "entriesReached": [
+        "resolveModule"
+      ],
+      "defects": 0
+    }
+  ]
+}

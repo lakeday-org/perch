@@ -1,0 +1,23 @@
+[
+  {
+    "why": "Ordinary non-language file content for the public file-check path.",
+    "value": {
+      "case": "check_target_nonlanguage_file",
+      "text": "Project notes.\n"
+    }
+  },
+  {
+    "why": "Empty content exercises the file-check path without introducing a parser or model request.",
+    "value": {
+      "case": "check_target_nonlanguage_file",
+      "text": ""
+    }
+  },
+  {
+    "why": "Punctuation and whitespace remain ordinary text in a non-language file.",
+    "value": {
+      "case": "check_target_nonlanguage_file",
+      "text": "  notes: [draft] !\n"
+    }
+  }
+]

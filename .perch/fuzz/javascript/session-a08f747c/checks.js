@@ -1,0 +1,1 @@
+/* No differential, metamorphic, round-trip, or CWE-specific correctness promise is exposed by the supplied session implementation. */

@@ -1,0 +1,65 @@
+[
+  {
+    "why": "Exercise an explicit threshold with a probability answer and a choice-bearing answer.",
+    "value": {
+      "case": "flagged_minimum",
+      "answers": [
+        {
+          "index": 0,
+          "answer": {
+            "probability": 0.9,
+            "choice": "yes"
+          }
+        },
+        {
+          "index": 1,
+          "answer": 0.8
+        }
+      ],
+      "min": 0.25,
+      "lint": null,
+      "closed": null
+    }
+  },
+  {
+    "why": "Exercise the lint finding and a closed label alongside ordinary answers.",
+    "value": {
+      "case": "flagged_default",
+      "answers": [
+        {
+          "index": 0,
+          "answer": 0.75
+        }
+      ],
+      "lint": {
+        "rule": 0,
+        "broken": 0.95
+      },
+      "closed": {
+        "kinds": [
+          "security"
+        ]
+      }
+    }
+  },
+  {
+    "why": "Exercise a zero-probability answer, a zero threshold, and an empty closed-kind list.",
+    "value": {
+      "case": "flagged_minimum",
+      "answers": [
+        {
+          "index": 0,
+          "answer": {
+            "probability": 0,
+            "choice": "no"
+          }
+        }
+      ],
+      "min": 0,
+      "lint": null,
+      "closed": {
+        "kinds": []
+      }
+    }
+  }
+]

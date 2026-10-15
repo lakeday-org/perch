@@ -1,0 +1,49 @@
+id: buildGraph-5f7439f8
+language: javascript
+confirmed: true
+entries:
+  -
+    name: buildGraph
+    at: src/graph.js:187
+    reached: true
+sources:
+  -
+    kind: deserialize
+    api: "deserialize(&mut de)`, a visitor given to a walk in a library. Whatever took it "
+    at: src/graph.js:1145
+    in: buildGraph
+via: []
+reaches: 107
+code: "4c5e925fbd9174c347126f4e6893136378417b5b"
+coverage:
+  lines: 681
+  of: 1998
+  percent: 34.1
+  best_harness: 681
+corpus: 107
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 45586
+    covered: 639
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 2171
+    covered: 653
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 7679
+    covered: 661
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 23670
+    covered: 681
+    defects: 13
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 30012
+    covered: 681
+    defects: 10

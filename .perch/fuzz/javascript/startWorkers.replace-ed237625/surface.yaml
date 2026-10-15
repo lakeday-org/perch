@@ -1,0 +1,62 @@
+id: startWorkers.replace-ed237625
+language: javascript
+confirmed: false
+entries:
+  -
+    name: startWorkers.replace
+    at: src/runners/workers.js:82
+    reached: false
+  -
+    name: startWorkers.launch
+    at: src/runners/workers.js:48
+    reached: false
+  -
+    name: startWorkers.run
+    at: src/runners/workers.js:90
+    reached: false
+sources:
+  -
+    kind: environment
+    api: "process.env, PWD: cwd, ...own }, stdio: stdio ? [\"\", \"\", \"\"] : [\"\", \"\", \"\", \"\", "
+    at: src/runners/workers.js:51
+    in: startWorkers
+  -
+    kind: environment
+    api: "process.env, PWD: cwd, ...own }, stdio: stdio ? [\"\", \"\", \"\"] : [\"\", \"\", \"\", \"\", "
+    at: src/runners/workers.js:51
+    in: startWorkers
+via: []
+reaches: 12
+code: "7049890508a7efe8be9ca2db6517596ccb14d773"
+coverage:
+  lines: 0
+  of: 79
+  percent: 0
+  best_harness: 0
+corpus: 0
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 0
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 0
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 0
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 2899041
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 551509
+    covered: 0
+    defects: 0

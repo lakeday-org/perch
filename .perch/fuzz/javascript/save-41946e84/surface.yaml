@@ -1,0 +1,58 @@
+id: save-41946e84
+language: javascript
+confirmed: false
+entries:
+  -
+    name: save
+    at: src/rules.js:110
+    reached: false
+sources:
+  -
+    kind: file
+    api: "readFile(path, \"\").catch(error => { if (error.code === \"\") return ''; throw erro"
+    at: src/rules.js:112
+    in: save
+via:
+  -
+    name: addRule
+    at: src/rules.js:274
+  -
+    name: editRule
+    at: src/rules.js:298
+  -
+    name: removeRule
+    at: src/rules.js:342
+reaches: 16
+code: "13d592cb4e978f5d3f454972d109ecf0a0417665"
+coverage:
+  lines: 0
+  of: 61
+  percent: 0
+  best_harness: 0
+corpus: 0
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 0
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 2408
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 10615
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 60062
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 6587
+    covered: 0
+    defects: 0

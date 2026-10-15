@@ -1,0 +1,56 @@
+id: session-2d72beb4
+language: javascript
+confirmed: false
+entries:
+  -
+    name: session
+    at: src/runners/go.js:136
+    reached: false
+  -
+    name: startDriver
+    at: src/runners/driver.js:59
+    reached: false
+sources:
+  -
+    kind: file
+    api: "readFile(file);"
+    at: src/runners/go.js:147
+    in: session
+via:
+  -
+    name: goRunner.session
+    at: src/runners/go.js:29
+reaches: 5
+code: "2c43c8ffccb1ac886272222ffc47208e51a79b0d"
+coverage:
+  lines: 0
+  of: 92
+  percent: 0
+  best_harness: 0
+corpus: 0
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 0
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 281882
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 992693
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 4325028
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 1086873
+    covered: 0
+    defects: 0

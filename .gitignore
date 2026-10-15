@@ -3,6 +3,7 @@ dist/
 .perch/*
 !.perch/closed.jsonl
 !.perch/rules/
+!.perch/fuzz/
 .env
 
 # A lock or a half-written rule file, left by a perch that died mid-edit.

@@ -1,0 +1,63 @@
+{
+  "hash": "3e8b053dad18aec48668e03a4e136af613e7eec4",
+  "covered": [
+    "src/runners/jvm.js:394",
+    "src/runners/jvm.js:395",
+    "src/runners/jvm.js:396",
+    "src/runners/jvm.js:397"
+  ],
+  "bestLines": 4,
+  "stalled": 1,
+  "runs": [
+    {
+      "at": "2026-10-14T23:13:10.807Z",
+      "execs": 22637,
+      "covered": 4,
+      "total": 342,
+      "entriesReached": [
+        "prepare"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:18:17.121Z",
+      "execs": 7614,
+      "covered": 4,
+      "total": 342,
+      "entriesReached": [
+        "prepare"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:20:50.512Z",
+      "execs": 13024,
+      "covered": 4,
+      "total": 342,
+      "entriesReached": [
+        "prepare"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:26:50.464Z",
+      "execs": 154970,
+      "covered": 4,
+      "total": 342,
+      "entriesReached": [
+        "prepare"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-15T00:08:35.008Z",
+      "execs": 19939,
+      "covered": 4,
+      "total": 342,
+      "entriesReached": [
+        "prepare"
+      ],
+      "defects": 0
+    }
+  ]
+}

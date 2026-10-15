@@ -1,0 +1,2 @@
+root = {case: "cargo_runner", input: Input}
+Input = {marker: str("abcdefghijklmnopqrstuvwxyz", 0, 8)}

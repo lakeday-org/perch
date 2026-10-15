@@ -1,0 +1,2 @@
+root = {case: "check_target_nonlanguage_file", text: Text}
+Text = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,;:!?'\n-_[]()")

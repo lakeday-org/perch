@@ -1,0 +1,61 @@
+[
+  {
+    "why": "A valid Java expression mutant at its exact source position exercises expression instrumentation.",
+    "value": {
+      "case": "prepare_gradle",
+      "source": "class T { int f() { return 1; } }",
+      "language": "java",
+      "nodes": [
+        {
+          "id": "T_f",
+          "methodId": "T_f",
+          "path": "src/T.java",
+          "case": true,
+          "qualified_name": "T.f"
+        }
+      ],
+      "generated": [
+        {
+          "methodId": "T_f",
+          "mutants": [
+            {
+              "line": 1,
+              "column": 27,
+              "kind": "expression",
+              "from": "1",
+              "to": "2"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "why": "A preparation with a test node but no mutants exercises selector and test lookup setup.",
+    "value": {
+      "case": "prepare_maven",
+      "source": "class T { int f() { return 1; } }",
+      "language": "java",
+      "nodes": [
+        {
+          "id": "T_f",
+          "methodId": "T_f",
+          "path": "src/T.java",
+          "case": true,
+          "qualified_name": "T.f"
+        }
+      ],
+      "generated": []
+    }
+  },
+  {
+    "why": "An empty graph and generated set exercise preparation when there is no source file to instrument.",
+    "value": {
+      "case": "prepare_sbt",
+      "source": "class T { int f() { return 1; } }",
+      "language": "java",
+      "nodes": [],
+      "generated": []
+    }
+  }
+]

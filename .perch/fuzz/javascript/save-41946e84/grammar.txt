@@ -1,0 +1,6 @@
+root = {case: "add_rule", file: File, attack: Attack, rule: Rule} | {case: "edit_rule", file: File, attack: Attack, name: Name, changes: Changes} | {case: "remove_rule", file: File, attack: Attack, name: Name}
+File = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._/-", 1, 40)
+Attack = "none" | "symlink" | "hardlink" | "parent_symlink"
+Rule = {name: Name}
+Changes = {name: Name}
+Name = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-", 1, 24)

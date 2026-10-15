@@ -1,0 +1,49 @@
+id: openStore-23adeb99
+language: javascript
+confirmed: true
+entries:
+  -
+    name: openStore
+    at: src/store.js:171
+    reached: true
+sources:
+  -
+    kind: deserialize
+    api: "JSON.parse(line));"
+    at: src/store.js:254
+    in: openStore
+via: []
+reaches: 1
+code: bb28689a8d95eb635e8a3beb731079fd0b81b943
+coverage:
+  lines: 128
+  of: 242
+  percent: 52.9
+  best_harness: 128
+corpus: 44
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 15414
+    covered: 73
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 3259
+    covered: 73
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 15238
+    covered: 73
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 74547
+    covered: 128
+    defects: 5
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 8899
+    covered: 128
+    defects: 2

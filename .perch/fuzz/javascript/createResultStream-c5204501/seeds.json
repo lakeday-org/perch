@@ -1,0 +1,61 @@
+[
+  {
+    "why": "Duplicate identity tests that repeated rows consume no extra output and preserve the first occurrence.",
+    "value": {
+      "case": "findings_only",
+      "scan": {},
+      "finalScan": {},
+      "rows": [
+        {"id": "same", "kind": "finding", "value": "first"},
+        {"id": "same", "kind": "finding", "value": "second"}
+      ]
+    }
+  },
+  {
+    "why": "Rows near the 80-row batch boundary exercise batching without relying on declared sizes.",
+    "value": {
+      "case": "findings_only",
+      "scan": {},
+      "finalScan": {},
+      "rows": [
+        {"id": "row000", "kind": "finding", "value": "a"},
+        {"id": "row001", "kind": "finding", "value": "b"},
+        {"id": "row002", "kind": "finding", "value": "c"},
+        {"id": "row003", "kind": "finding", "value": "d"},
+        {"id": "row004", "kind": "finding", "value": "e"},
+        {"id": "row005", "kind": "finding", "value": "f"},
+        {"id": "row006", "kind": "finding", "value": "g"},
+        {"id": "row007", "kind": "finding", "value": "h"},
+        {"id": "row008", "kind": "finding", "value": "i"},
+        {"id": "row009", "kind": "finding", "value": "j"}
+      ]
+    }
+  },
+  {
+    "why": "Multiple progress calls exercise coalescing and ensure finish drains the latest progress.",
+    "value": {
+      "case": "progress_updates",
+      "scan": {},
+      "finalScan": {},
+      "progress": [
+        {"phase": "preparing", "completed": 0, "total": 4, "failed": 0},
+        {"phase": "scanning", "completed": 3, "total": 4, "failed": 1}
+      ]
+    }
+  },
+  {
+    "why": "Combined findings and progress exercise both queues during one stream lifecycle.",
+    "value": {
+      "case": "findings_and_progress",
+      "scan": {},
+      "finalScan": {},
+      "rows": [
+        {"id": "alpha", "kind": "warning", "value": "one"},
+        {"id": "beta", "kind": "error", "value": "two"}
+      ],
+      "progress": [
+        {"phase": "scanning", "completed": 2, "total": 2, "failed": 0}
+      ]
+    }
+  }
+]

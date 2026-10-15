@@ -1,0 +1,58 @@
+id: parseQuestions-c14c8b79
+language: javascript
+confirmed: true
+entries:
+  -
+    name: parseQuestions
+    at: src/ask.js:140
+    reached: true
+  -
+    name: check
+    at: src/ask.js:80
+    reached: true
+sources:
+  -
+    kind: file
+    api: "readFile(join(root, RULES_FILE), \"\").catch(() => null);"
+    at: src/checks.js:70
+    in: runChecks
+  -
+    kind: file
+    api: "read(budget); }"
+    at: src/tokens.js:41
+    in: withTokenRetries
+via: []
+reaches: 7
+code: d6f5cc5db0854d915e13658f804b150c9ba141ec
+coverage:
+  lines: 54
+  of: 78
+  percent: 69.2
+  best_harness: 54
+corpus: 13
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 251032
+    covered: 54
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 74459
+    covered: 54
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 278323
+    covered: 54
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 1021054
+    covered: 54
+    defects: 3
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 216607
+    covered: 54
+    defects: 3

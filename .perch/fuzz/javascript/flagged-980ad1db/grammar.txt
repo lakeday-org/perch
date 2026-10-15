@@ -1,0 +1,8 @@
+root = {case: "flagged_default", answers: list(AnswerSlot, 0, 100), lint: null | Lint, closed: null | Closed} | {case: "flagged_minimum", answers: list(AnswerSlot, 0, 100), min: Probability, lint: null | Lint, closed: null | Closed}
+AnswerSlot = {index: QuestionIndex, answer: Answer}
+Answer = Probability | {probability: Probability, choice: Label}
+Lint = {rule: QuestionIndex, broken: Probability}
+Closed = {kinds: list(Label, 0, 20)}
+QuestionIndex = int(0, 1000)
+Probability = float(0, 1)
+Label = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-./'%", 0, 80)

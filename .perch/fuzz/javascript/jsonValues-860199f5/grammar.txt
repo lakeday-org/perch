@@ -1,0 +1,7 @@
+root = {case: "single_go_list_package", text: Package} | {case: "multiple_go_list_packages", text: text(Package " " Package (" " Package)*)}
+Package = text("{\"Dir\":" JsonString ",\"ImportPath\":" JsonString ",\"Name\":" JsonString PackageFields "}")
+PackageFields = "" | text("," JsonString ":" JsonValue PackageFields)
+JsonValue = JsonString | int(-1000000, 1000000) | float(-1000000, 1000000) | "true" | "false" | "null" | JsonArray | JsonObject
+JsonArray = text("[" (JsonValue ("," JsonValue)*)? "]")
+JsonObject = text("{" (JsonString ":" JsonValue ("," JsonString ":" JsonValue)*)? "}")
+JsonString = text("\"" str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _./{}:-", 0, 80) "\"")

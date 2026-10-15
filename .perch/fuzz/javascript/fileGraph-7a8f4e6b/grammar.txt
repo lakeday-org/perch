@@ -1,0 +1,19 @@
+root = {case: "analyze_files", path: Path, text: Program} | {case: "resolve_target_file", target: FileTarget, text: Program} | {case: "resolve_target_method", target: MethodTarget, text: Program}
+Path = "src/input.js"
+FileTarget = "src/input.js"
+MethodTarget = "src/input.js::entry"
+Program = text("function entry(" Params ") " Block "\n" Extra*)
+Extra = FunctionDecl | ClassDecl
+FunctionDecl = text("function " Ident "(" Params ") " Block "\n")
+ClassDecl = text("class " Ident " {\n" Method* "}\n")
+Method = text(Ident "(" Params ") " Block "\n")
+Params = "" | Ident | text(Ident ", " Ident)
+Block = text("{\n" Stmt* "}\n")
+Stmt = ConstStmt | ReturnStmt | ExprStmt | IfStmt | Block
+ConstStmt = text("const " Ident " = " Expr ";\n")
+ReturnStmt = text("return " Expr ";\n")
+ExprStmt = text(Expr ";\n")
+IfStmt = text("if (" Expr ") " Block)
+Expr = Ident | int(-100, 100) | "true" | "false" | "null" | text(Ident "(" Args ")") | text("new " Ident "(" Args ")") | text("(" Expr " + " Expr ")") | text("(" Expr " === " Expr ")")
+Args = "" | Expr | text(Expr ", " Expr)
+Ident = text("v" str("abcdefghijklmnopqrstuvwxyz", 0, 7))

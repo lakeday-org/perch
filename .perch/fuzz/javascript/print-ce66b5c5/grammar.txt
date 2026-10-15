@@ -1,0 +1,5 @@
+root = {case: "json_chunks", value: JSONValue} | {case: "json_pieces", value: JSONValue, depth: int(0, 5)}
+JSONValue = null | bool | int(-9007199254740991, 9007199254740991) | float(-1000000, 1000000) | Text | JSONArray | JSONObject
+JSONArray = list(JSONValue, 0, 8)
+JSONObject = {a: JSONValue} | {private: JSONValue} | {inherited: JSONValue} | {toJSON: JSONValue} | {a: JSONValue, private: JSONValue} | {a: JSONValue, inherited: JSONValue} | {a: JSONValue, toJSON: JSONValue} | {a: JSONValue, nested: JSONArray}
+Text = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 {}[],:\"\\\n\t/._-", 0, 100)

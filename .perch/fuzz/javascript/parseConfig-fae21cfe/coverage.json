@@ -1,0 +1,95 @@
+{
+  "hash": "e4dd9e34e39f2f940f82a780e562aef9461fbc33",
+  "covered": [
+    "src/config.js:13",
+    "src/config.js:16",
+    "src/config.js:17",
+    "src/config.js:18",
+    "src/config.js:19",
+    "src/config.js:20",
+    "src/config.js:21",
+    "src/config.js:22",
+    "src/config.js:23",
+    "src/config.js:24",
+    "src/config.js:26",
+    "src/config.js:28",
+    "src/config.js:29",
+    "src/config.js:30",
+    "src/config.js:31",
+    "src/config.js:33",
+    "src/config.js:37",
+    "src/config.js:38",
+    "src/config.js:39",
+    "src/config.js:40",
+    "src/config.js:41",
+    "src/config.js:42",
+    "src/config.js:43",
+    "src/config.js:46",
+    "src/config.js:47",
+    "src/config.js:48",
+    "src/config.js:51",
+    "src/config.js:52",
+    "src/config.js:53",
+    "src/config.js:54",
+    "src/config.js:56"
+  ],
+  "bestLines": 31,
+  "stalled": 1,
+  "runs": [
+    {
+      "at": "2026-10-14T23:13:10.807Z",
+      "execs": 23194,
+      "covered": 28,
+      "total": 142,
+      "entriesReached": [
+        "parseConfig",
+        "configuredEnvironment"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:18:17.121Z",
+      "execs": 10572,
+      "covered": 28,
+      "total": 142,
+      "entriesReached": [
+        "parseConfig",
+        "configuredEnvironment"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:20:50.512Z",
+      "execs": 36762,
+      "covered": 28,
+      "total": 142,
+      "entriesReached": [
+        "parseConfig",
+        "configuredEnvironment"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:26:50.464Z",
+      "execs": 147622,
+      "covered": 31,
+      "total": 142,
+      "entriesReached": [
+        "parseConfig",
+        "configuredEnvironment"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-15T00:08:35.008Z",
+      "execs": 22018,
+      "covered": 31,
+      "total": 142,
+      "entriesReached": [
+        "parseConfig",
+        "configuredEnvironment"
+      ],
+      "defects": 0
+    }
+  ]
+}

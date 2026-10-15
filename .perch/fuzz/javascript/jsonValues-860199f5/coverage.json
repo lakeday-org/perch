@@ -1,0 +1,48 @@
+{
+  "hash": "b0895dfd0c5a1c5878474b4e77fb66356c935cf9",
+  "covered": [],
+  "bestLines": 0,
+  "stalled": 2,
+  "runs": [
+    {
+      "at": "2026-10-14T23:13:10.807Z",
+      "execs": 280499,
+      "covered": 0,
+      "total": 84,
+      "entriesReached": [],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:18:17.121Z",
+      "execs": 140623,
+      "covered": 0,
+      "total": 84,
+      "entriesReached": [],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:20:50.512Z",
+      "execs": 514818,
+      "covered": 0,
+      "total": 84,
+      "entriesReached": [],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:26:50.464Z",
+      "execs": 2372796,
+      "covered": 0,
+      "total": 84,
+      "entriesReached": [],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-15T00:08:35.008Z",
+      "execs": 442152,
+      "covered": 0,
+      "total": 84,
+      "entriesReached": [],
+      "defects": 0
+    }
+  ]
+}

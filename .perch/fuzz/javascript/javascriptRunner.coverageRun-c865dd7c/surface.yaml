@@ -1,0 +1,49 @@
+id: javascriptRunner.coverageRun-c865dd7c
+language: javascript
+confirmed: false
+entries:
+  -
+    name: javascriptRunner.coverageRun
+    at: src/runners/javascript.js:597
+    reached: false
+sources:
+  -
+    kind: file
+    api: "readFile(hits, \"\")).split('\\n').filter(Boolean)) {"
+    at: src/runners/javascript.js:613
+    in: javascriptRunner.coverageRun
+via: []
+reaches: 19
+code: db254622a2181ce73a2ad9ccd01208eccee50f69
+coverage:
+  lines: 0
+  of: 204
+  percent: 0
+  best_harness: 0
+corpus: 0
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 59868
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 13018
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 57043
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 350670
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 40204
+    covered: 0
+    defects: 0

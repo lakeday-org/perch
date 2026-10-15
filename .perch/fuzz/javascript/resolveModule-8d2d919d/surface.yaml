@@ -1,0 +1,49 @@
+id: resolveModule-8d2d919d
+language: javascript
+confirmed: true
+entries:
+  -
+    name: resolveModule
+    at: src/graph.js:126
+    reached: true
+sources:
+  -
+    kind: deserialize
+    api: "JSON.parse((await readListed(root, \"\")) || \"\");"
+    at: src/test-scope.js:354
+    in: frameworkScope
+via: []
+reaches: 26
+code: "31b8b7a32a651bc802b27057b0425fb1c047c0e2"
+coverage:
+  lines: 76
+  of: 146
+  percent: 52.1
+  best_harness: 76
+corpus: 30
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 304484
+    covered: 76
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 1971
+    covered: 76
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 6116
+    covered: 76
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 12002
+    covered: 76
+    defects: 6
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 335361
+    covered: 76
+    defects: 0

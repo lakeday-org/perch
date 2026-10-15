@@ -1,0 +1,66 @@
+id: parseConfig-fae21cfe
+language: javascript
+confirmed: true
+entries:
+  -
+    name: parseConfig
+    at: src/config.js:16
+    reached: true
+  -
+    name: createCloud.settings
+    at: src/ci.js:97
+    reached: false
+  -
+    name: configuredEnvironment
+    at: src/config.js:37
+    reached: true
+  -
+    name: createCloud.configure
+    at: src/ci.js:113
+    reached: false
+sources:
+  -
+    kind: file
+    api: "readFile(path, \"\"); }"
+    at: src/config.js:40
+    in: configuredEnvironment
+  -
+    kind: deserialize
+    api: "JSON.parse(repository.ci_configuration || \"\") ?? {};"
+    at: src/ci.js:39
+    in: pullRequestSettings
+via: []
+reaches: 19
+code: e4dd9e34e39f2f940f82a780e562aef9461fbc33
+coverage:
+  lines: 31
+  of: 142
+  percent: 21.8
+  best_harness: 31
+corpus: 11
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 23194
+    covered: 28
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 10572
+    covered: 28
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 36762
+    covered: 28
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 147622
+    covered: 31
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 22018
+    covered: 31
+    defects: 0

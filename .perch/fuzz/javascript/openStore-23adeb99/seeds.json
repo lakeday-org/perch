@@ -1,0 +1,7 @@
+[
+  {"why":"Exercise the positive slash-boundary case for a root and its child output directory.","value":{"case":"exclude_boundary","rootName":"repo","suffix":"/child"}},
+  {"why":"Repeated method readings and a rule event exercise last-event indexing while retaining serialized rows.","value":{"case":"record_scan_indexes","rows":[{"id":"event1","method":"methodA","answers_set":true,"text":"old","said":"old"},{"id":"event2","method":"methodA","answers_set":true,"text":"new","said":"new"},{"id":"rule1","rule":"style","broken":true,"text":"__proto__ constructor.prototype","said":"serialized data"}]}},
+  {"why":"Exercise both run and scan directory readers with ordinary safe path components.","value":{"case":"list_records","run":{"id":"run1","visited":[],"broken":[],"failed":[]},"scan":{"revision":"rev1","root":"repo","created_at":"2024-01-01T00:00:00.000Z","files":[]}}},
+  {"why":"The link target is outside the store; pruning must not alter its content.","value":{"case":"symlink_prune","id":"current"}},
+  {"why":"Dangerous-looking property names remain inert JSON data through both JSONL write paths.","value":{"case":"append_read_lines","rows":[{"__proto__":{"polluted":true}},{"constructor":{"prototype":{"polluted":true}}},[1,"x"],null]}}
+]

@@ -1,0 +1,110 @@
+{
+  "hash": "bddeaa4a2b03e944a495f7c78f08d8cefbb966ab",
+  "covered": [
+    "src/runners/cargo.js:71",
+    "src/runners/cargo.js:72",
+    "src/runners/cargo.js:73",
+    "src/runners/go.js:27",
+    "src/runners/go.js:28",
+    "src/runners/go.js:29",
+    "src/runners/index.js:25",
+    "src/runners/index.js:27",
+    "src/runners/index.js:28",
+    "src/runners/index.js:29",
+    "src/runners/index.js:30",
+    "src/runners/index.js:31",
+    "src/runners/index.js:32",
+    "src/runners/index.js:33",
+    "src/runners/index.js:34",
+    "src/runners/index.js:35",
+    "src/runners/index.js:36",
+    "src/runners/index.js:38",
+    "src/runners/index.js:39",
+    "src/runners/index.js:40",
+    "src/runners/index.js:41",
+    "src/runners/index.js:42",
+    "src/runners/index.js:43",
+    "src/runners/index.js:46",
+    "src/runners/index.js:48",
+    "src/runners/index.js:49",
+    "src/runners/index.js:50",
+    "src/runners/index.js:51",
+    "src/runners/index.js:52",
+    "src/runners/index.js:53",
+    "src/runners/index.js:60",
+    "src/runners/index.js:61",
+    "src/runners/index.js:64",
+    "src/runners/index.js:65",
+    "src/runners/index.js:66",
+    "src/runners/index.js:67",
+    "src/runners/index.js:68",
+    "src/runners/javascript.js:443",
+    "src/runners/javascript.js:444",
+    "src/runners/javascript.js:445",
+    "src/runners/javascript.js:448",
+    "src/runners/javascript.js:458",
+    "src/runners/javascript.js:475",
+    "src/runners/javascript.js:477",
+    "src/runners/javascript.js:521",
+    "src/runners/javascript.js:523",
+    "src/runners/javascript.js:524",
+    "src/runners/javascript.js:525",
+    "src/runners/javascript.js:526",
+    "src/runners/javascript.js:696",
+    "src/runners/jvm.js:320",
+    "src/runners/jvm.js:321",
+    "src/runners/jvm.js:322"
+  ],
+  "bestLines": 53,
+  "stalled": 0,
+  "runs": [
+    {
+      "at": "2026-10-14T23:13:10.807Z",
+      "execs": 0,
+      "covered": 0,
+      "total": 357,
+      "entriesReached": [],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:18:17.121Z",
+      "execs": 5411,
+      "covered": 53,
+      "total": 357,
+      "entriesReached": [
+        "runnersFor"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:20:50.512Z",
+      "execs": 14261,
+      "covered": 53,
+      "total": 357,
+      "entriesReached": [
+        "runnersFor"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:26:50.464Z",
+      "execs": 43952,
+      "covered": 53,
+      "total": 357,
+      "entriesReached": [
+        "runnersFor"
+      ],
+      "defects": 1
+    },
+    {
+      "at": "2026-10-15T00:08:35.008Z",
+      "execs": 13130,
+      "covered": 53,
+      "total": 357,
+      "entriesReached": [
+        "runnersFor"
+      ],
+      "defects": 0
+    }
+  ]
+}

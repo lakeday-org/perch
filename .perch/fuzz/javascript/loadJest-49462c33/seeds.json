@@ -1,0 +1,6 @@
+[
+  {"why":"Exercises the package.json config mode with the config at the package root.","value":{"case":"jest_package_config","root":".","config":"package.json","node":"node","paths":[]}},
+  {"why":"Exercises package-directory selection when a package manifest and config share a nested directory.","value":{"case":"jest_package_config","root":".","config":"scripts/package.json","node":"node","paths":["scripts/package.json"]}},
+  {"why":"Exercises external-config mode with a package manifest beneath the config directory.","value":{"case":"jest_external_config","root":".","config":"scripts/jest.config.js","node":"node","paths":["scripts/package.json"]}},
+  {"why":"Exercises external-config mode with a different supported config suffix and a root package manifest.","value":{"case":"jest_external_config","root":".","config":"jest.config.json","node":"node","paths":["package.json"]}}
+]

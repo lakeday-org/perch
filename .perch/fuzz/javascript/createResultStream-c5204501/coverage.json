@@ -1,0 +1,131 @@
+{
+  "hash": "876d1de53453b8d8c402f13c494957aa72678b9a",
+  "covered": [
+    "src/cloud-results.js:100",
+    "src/cloud-results.js:102",
+    "src/cloud-results.js:103",
+    "src/cloud-results.js:104",
+    "src/cloud-results.js:105",
+    "src/cloud-results.js:106",
+    "src/cloud-results.js:107",
+    "src/cloud-results.js:108",
+    "src/cloud-results.js:109",
+    "src/cloud-results.js:110",
+    "src/cloud-results.js:111",
+    "src/cloud-results.js:112",
+    "src/cloud-results.js:113",
+    "src/cloud-results.js:114",
+    "src/cloud-results.js:117",
+    "src/cloud-results.js:118",
+    "src/cloud-results.js:119",
+    "src/cloud-results.js:120",
+    "src/cloud-results.js:121",
+    "src/cloud-results.js:122",
+    "src/cloud-results.js:125",
+    "src/cloud-results.js:126",
+    "src/cloud-results.js:127",
+    "src/cloud-results.js:128",
+    "src/cloud-results.js:129",
+    "src/cloud-results.js:130",
+    "src/cloud-results.js:131",
+    "src/cloud-results.js:132",
+    "src/cloud-results.js:133",
+    "src/cloud-results.js:135",
+    "src/cloud-results.js:137",
+    "src/cloud-results.js:138",
+    "src/cloud-results.js:139",
+    "src/cloud-results.js:141",
+    "src/cloud-results.js:142",
+    "src/cloud-results.js:143",
+    "src/cloud-results.js:144",
+    "src/cloud-results.js:145",
+    "src/cloud-results.js:146",
+    "src/cloud-results.js:147",
+    "src/cloud-results.js:148",
+    "src/cloud-results.js:149",
+    "src/cloud-results.js:64",
+    "src/cloud-results.js:65",
+    "src/cloud-results.js:66",
+    "src/cloud-results.js:67",
+    "src/cloud-results.js:68",
+    "src/cloud-results.js:69",
+    "src/cloud-results.js:70",
+    "src/cloud-results.js:72",
+    "src/cloud-results.js:73",
+    "src/cloud-results.js:74",
+    "src/cloud-results.js:75",
+    "src/cloud-results.js:76",
+    "src/cloud-results.js:77",
+    "src/cloud-results.js:78",
+    "src/cloud-results.js:79",
+    "src/cloud-results.js:80",
+    "src/cloud-results.js:83",
+    "src/cloud-results.js:85",
+    "src/cloud-results.js:86",
+    "src/cloud-results.js:87",
+    "src/cloud-results.js:88",
+    "src/cloud-results.js:89",
+    "src/cloud-results.js:90",
+    "src/cloud-results.js:91",
+    "src/cloud-results.js:92",
+    "src/cloud-results.js:93",
+    "src/cloud-results.js:94",
+    "src/cloud-results.js:95",
+    "src/cloud-results.js:96",
+    "src/cloud-results.js:98"
+  ],
+  "bestLines": 72,
+  "stalled": 0,
+  "runs": [
+    {
+      "at": "2026-10-14T23:13:10.807Z",
+      "execs": 12019,
+      "covered": 72,
+      "total": 122,
+      "entriesReached": [
+        "createResultStream"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:18:17.121Z",
+      "execs": 4427,
+      "covered": 72,
+      "total": 122,
+      "entriesReached": [
+        "createResultStream"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:20:50.512Z",
+      "execs": 14960,
+      "covered": 72,
+      "total": 122,
+      "entriesReached": [
+        "createResultStream"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:26:50.464Z",
+      "execs": 90617,
+      "covered": 72,
+      "total": 122,
+      "entriesReached": [
+        "createResultStream"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-15T00:08:35.008Z",
+      "execs": 12024,
+      "covered": 72,
+      "total": 122,
+      "entriesReached": [
+        "createResultStream"
+      ],
+      "defects": 1
+    }
+  ]
+}

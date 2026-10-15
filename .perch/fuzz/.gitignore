@@ -1,0 +1,5 @@
+# perch fuzz: harnesses, grammars, corpora and coverage are committed; these are not.
+*/*/findings/
+*/*/rejects/
+*/*/export/
+*.tmp

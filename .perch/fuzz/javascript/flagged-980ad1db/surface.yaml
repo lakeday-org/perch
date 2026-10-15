@@ -1,0 +1,54 @@
+id: flagged-980ad1db
+language: javascript
+confirmed: true
+entries:
+  -
+    name: flagged
+    at: src/questions.js:214
+    reached: true
+sources:
+  -
+    kind: file
+    api: "readFile(path, \"\").catch(error => { if (error.code === \"\") return null; throw er"
+    at: src/store.js:220
+    in: openStore
+  -
+    kind: file
+    api: "readFile(store.logPath, \"\").catch(error => { if (error.code === \"\") return ''; t"
+    at: src/store.js:247
+    in: openStore
+via: []
+reaches: 12
+code: a4972fa3c71b9761a9d1546f9e77bcd695c10dc7
+coverage:
+  lines: 37
+  of: 51
+  percent: 72.5
+  best_harness: 37
+corpus: 25
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 35262
+    covered: 37
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 9439
+    covered: 37
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 29273
+    covered: 37
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 213136
+    covered: 37
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 24213
+    covered: 37
+    defects: 0

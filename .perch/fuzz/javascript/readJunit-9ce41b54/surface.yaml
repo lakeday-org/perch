@@ -1,0 +1,72 @@
+id: readJunit-9ce41b54
+language: javascript
+confirmed: true
+entries:
+  -
+    name: readJunit
+    at: src/test-reports.js:303
+    reached: true
+  -
+    name: parseXml
+    at: src/test-reports.js:245
+    reached: true
+  -
+    name: coverageRun
+    at: src/runners/pytest.js:117
+    reached: false
+sources:
+  -
+    kind: deserialize
+    api: "decode(raw.replace(/[\\t\\n]/g, ' '), pos + 1));"
+    at: src/test-reports.js:175
+    in: parseDocuments
+  -
+    kind: deserialize
+    api: "decode(chunk, pos);"
+    at: src/test-reports.js:187
+    in: parseDocuments
+  -
+    kind: deserialize
+    api: "decode(raw.replace(/[\\t\\n]/g, ' '), pos + 1));"
+    at: src/test-reports.js:175
+    in: parseDocuments
+  -
+    kind: deserialize
+    api: "decode(chunk, pos);"
+    at: src/test-reports.js:187
+    in: parseDocuments
+via: []
+reaches: 35
+code: "3639f2d3d42bc9437a6bbbbf74624fd14da8fb40"
+coverage:
+  lines: 204
+  of: 551
+  percent: 37
+  best_harness: 204
+corpus: 87
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 356842
+    covered: 204
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 102854
+    covered: 204
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 335114
+    covered: 204
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 1032120
+    covered: 204
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 270433
+    covered: 204
+    defects: 0

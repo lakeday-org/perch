@@ -1,0 +1,52 @@
+id: coverageRun-761ac391
+language: javascript
+confirmed: false
+entries:
+  -
+    name: coverageRun
+    at: src/runners/jvm.js:494
+    reached: false
+sources:
+  -
+    kind: file
+    api: "readFile(hits, \"\")).split('\\n').filter(Boolean)) {"
+    at: src/runners/jvm.js:508
+    in: coverageRun
+via:
+  -
+    name: jvmRunner.coverageRun
+    at: src/runners/jvm.js:322
+reaches: 15
+code: a0c7a19adc377dfdcd2e9ec763ee05d4430fe14c
+coverage:
+  lines: 0
+  of: 172
+  percent: 0
+  best_harness: 0
+corpus: 0
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 0
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 0
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 25221
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 290632
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 38496
+    covered: 0
+    defects: 0

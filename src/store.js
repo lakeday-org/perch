@@ -215,8 +215,9 @@ export function openStore(out) {
     async exclude(root) {
       if (!out.startsWith(root + '/')) return;
       const path = join(out, '.gitignore');
-      const rules = out === join(root, '.perch') ? '!rules/\n' : '';
-      const wanted = '# Written by perch. Rules and closures are committed; scan output is not.\n/*\n!closed.jsonl\n' + rules;
+      // The rules and the fuzz harnesses (fuzz/, which keeps its own findings and exports out) belong to the repository's own .perch.
+      const kept = out === join(root, '.perch') ? '!rules/\n!fuzz/\n' : '';
+      const wanted = '# Written by perch. Rules, closures and fuzz harnesses are committed; scan output is not.\n/*\n!closed.jsonl\n' + kept;
       if (await readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return null; throw error; }) === wanted) return;
       await mkdir(out, { recursive: true });
       await writeFile(path, wanted);

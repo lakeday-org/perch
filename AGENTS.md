@@ -130,7 +130,7 @@ rule=<name>` spans four files and read broken against the finished feature in ev
 held the whole claim. Split it until each part is a claim one reading can settle, or it belongs in a test instead.
 
 `perch close <id> --reason "..."` sets aside a finding you have read and decided about. The reason is what the next person reads
-instead of reopening it. Commit `.perch/closed.jsonl` and the rules in `.perch/rules/`; the other contents of `.perch` are generated output.
+instead of reopening it. Commit `.perch/closed.jsonl`, the rules in `.perch/rules/` and the fuzz harnesses in `.perch/fuzz/`; the other contents of `.perch` are generated output.
 
 ## Secrets
 

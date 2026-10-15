@@ -1,0 +1,53 @@
+id: exec-8827382b
+language: javascript
+confirmed: true
+entries:
+  -
+    name: exec
+    at: src/runners/pytest.js:28
+    reached: true
+  -
+    name: available
+    at: src/runners/pytest.js:47
+    reached: true
+sources:
+  -
+    kind: file
+    api: "readFile(profile, \"\").catch(error => { if (error.code === \"\" && ran.code !== 0) "
+    at: src/runners/go.js:106
+    in: coverageRun
+via: []
+reaches: 8
+code: "4e3118e08301fd99e5d1f916c7ebf832a7a01f11"
+coverage:
+  lines: 16
+  of: 53
+  percent: 30.2
+  best_harness: 16
+corpus: 2
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 503025
+    covered: 16
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 135158
+    covered: 16
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 619927
+    covered: 16
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 2643964
+    covered: 16
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 798827
+    covered: 16
+    defects: 0

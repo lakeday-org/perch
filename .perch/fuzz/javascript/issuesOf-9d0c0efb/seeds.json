@@ -1,0 +1,76 @@
+[
+  {
+    "why": "Exercises a gated probability with equal answer and exposure values, including the gate multiplication path.",
+    "value": {
+      "case": "gated_issue",
+      "answers": {
+        "risk": 0.75,
+        "exposure": 0.75
+      },
+      "min": 0.2,
+      "questions": [
+        {
+          "name": "risk",
+          "when": "exposure",
+          "issue": {
+            "type": "vulnerability",
+            "label": "self"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "why": "Exercises strongest-per-type selection when both candidates qualify and have the same probability.",
+    "value": {
+      "case": "strongest_of_type",
+      "answers": {
+        "risk_a": 0.8,
+        "risk_b": 0.8
+      },
+      "min": 0.1,
+      "questions": [
+        {
+          "name": "risk_a",
+          "issue": {
+            "type": "vulnerability",
+            "label": "self",
+            "pick": "strongest"
+          }
+        },
+        {
+          "name": "risk_b",
+          "issue": {
+            "type": "vulnerability",
+            "label": "self",
+            "pick": "strongest"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "why": "Exercises a lint finding whose rule has no matching question, and a closed label that removes it.",
+    "value": {
+      "case": "lint_finding",
+      "answers": {
+        "lint": {
+          "rule": "missing_rule",
+          "broken": 0.9
+        }
+      },
+      "min": 0.5,
+      "questions": []
+    }
+  },
+  {
+    "why": "Omits questions to reach the installed questionSet default and omits min to use BELIEVED.",
+    "value": {
+      "case": "default_questions",
+      "answers": {
+        "risk": 0.8,
+        "exposure": 0.9
+      }
+    }
+  }
+]

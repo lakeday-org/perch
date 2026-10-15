@@ -1,0 +1,77 @@
+id: check-4aaeea6f
+language: javascript
+confirmed: true
+entries:
+  -
+    name: check
+    at: src/cli.js:721
+    reached: false
+  -
+    name: scanRepository
+    at: src/scan.js:161
+    reached: false
+  -
+    name: checkTarget
+    at: src/check.js:146
+    reached: true
+  -
+    name: close
+    at: src/cli.js:750
+    reached: false
+  -
+    name: methodContext
+    at: src/context.js:52
+    reached: false
+  -
+    name: selectionFor
+    at: src/check.js:103
+    reached: false
+  -
+    name: analyzeTree
+    at: src/analyze.js:51
+    reached: false
+  -
+    name: computeCoverage
+    at: src/coverage.js:202
+    reached: false
+sources:
+  -
+    kind: file
+    api: "read(budget); }"
+    at: src/tokens.js:41
+    in: withTokenRetries
+via: []
+reaches: 675
+code: ac3b24c6b0b0ee1e0d8e44d587553d56835adc3a
+coverage:
+  lines: 83
+  of: 8453
+  percent: 1
+  best_harness: 83
+corpus: 2
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 0
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 4408
+    covered: 83
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 19230
+    covered: 83
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 9199
+    covered: 83
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 11613
+    covered: 83
+    defects: 0

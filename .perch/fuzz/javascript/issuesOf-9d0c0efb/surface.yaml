@@ -1,0 +1,54 @@
+id: issuesOf-9d0c0efb
+language: javascript
+confirmed: true
+entries:
+  -
+    name: issuesOf
+    at: src/questions.js:75
+    reached: true
+sources:
+  -
+    kind: file
+    api: "readFile(path, \"\").catch(error => { if (error.code === \"\") return null; throw er"
+    at: src/store.js:220
+    in: openStore
+  -
+    kind: file
+    api: "readFile(store.logPath, \"\").catch(error => { if (error.code === \"\") return ''; t"
+    at: src/store.js:247
+    in: openStore
+via: []
+reaches: 10
+code: f3d5eb40d6696ec15c1ce205a81b8296f841bfb8
+coverage:
+  lines: 35
+  of: 49
+  percent: 71.4
+  best_harness: 35
+corpus: 2
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 41249
+    covered: 35
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 10625
+    covered: 35
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 38871
+    covered: 35
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 233053
+    covered: 35
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 28772
+    covered: 35
+    defects: 0

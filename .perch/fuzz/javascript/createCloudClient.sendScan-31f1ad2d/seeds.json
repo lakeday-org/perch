@@ -1,0 +1,41 @@
+[
+  {
+    "why": "A scan ID containing a parent path and an internal-looking name must not select a different operation route.",
+    "value": {
+      "case": "append_findings",
+      "scanId": "../../..",
+      "findings": [{"name": "admin"}],
+      "tokens": ["fuzz-test-token"],
+      "statuses": [200]
+    }
+  },
+  {
+    "why": "An alternate-encoding and case variant exercises route-like values in caller-controlled request data.",
+    "value": {
+      "case": "finish_scan",
+      "scanId": "%2e%2e%2fadmin",
+      "scan": {"route": "Append", "organizationId": "caller-org"},
+      "tokens": ["first", "second"],
+      "statuses": [401, 200]
+    }
+  },
+  {
+    "why": "A wrapper payload echoes configured-field names and requests force mode while keeping the URL distinct.",
+    "value": {
+      "case": "fetch_impl",
+      "url": "https://cloud.test/v1/scans/append",
+      "input": {"organizationId": "caller-org", "repositoryId": "caller-repo", "force": false, "name": "__proto__"},
+      "force": true,
+      "tokens": ["fuzz-test-token"],
+      "statuses": [200]
+    }
+  },
+  {
+    "why": "A changed token after a 401 exercises the one-time refresh-and-retry path.",
+    "value": {
+      "case": "with_current_token",
+      "tokens": ["old-token", "new-token"],
+      "statuses": [401, 200]
+    }
+  }
+]

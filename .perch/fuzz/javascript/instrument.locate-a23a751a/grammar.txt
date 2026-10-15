@@ -1,0 +1,4 @@
+root = {case: "instrument_column", source: Source, line: Line, column: Column} | {case: "instrument_line", source: Source, line: Line, column: null}
+Source = "function f(x) { return x ? 1 : 2; }\n" | "const f = x => x ? {a: 1} : {a: 2};\n" | "if (ready) { run(); } else { stop(); }\n" | "const value = (a && b) || c;\n"
+Line = int(-2, 2147483649)
+Column = int(-2, 2147483649)

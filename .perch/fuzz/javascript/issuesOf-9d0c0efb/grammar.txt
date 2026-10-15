@@ -1,0 +1,11 @@
+root = {case: "single_issue", answers: {risk: Answer}, min: Probability, questions: list(SingleQuestion, 1, 1)} | {case: "gated_issue", answers: {risk: Answer, exposure: Answer}, min: Probability, questions: list(GatedQuestion, 1, 1)} | {case: "strongest_of_type", answers: {risk_a: Answer, risk_b: Answer}, min: Probability, questions: list(StrongestQuestion, 2, 2)} | {case: "choice_label", answers: {category: {choice: Label}, risk: Answer}, min: Probability, questions: list(ChoiceQuestion, 2, 2)} | {case: "inverse_issue", answers: {risk: Answer}, min: Probability, questions: list(InverseQuestion, 1, 1)} | {case: "lint_finding", answers: {lint: {rule: Label, broken: Probability}}, min: Probability, questions: list(LintQuestion, 0, 1)} | {case: "closed_issue", answers: {risk: Answer, closed: {kinds: list(Label, 0, 3)}}, min: Probability, questions: list(SingleQuestion, 1, 1)} | {case: "label_except", answers: {risk: Answer}, min: Probability, questions: list(ExceptQuestion, 1, 1)} | {case: "default_questions", answers: {risk: Answer, exposure: Answer}, min: Probability} | {case: "default_questions", answers: {risk: Answer, exposure: Answer}}
+Probability = float(0, 1)
+Answer = Probability | {probability: Probability}
+Label = str("abcdefghijklmnopqrstuvwxyz_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -", 1, 24)
+SingleQuestion = {name: "risk", issue: {type: "vulnerability", label: "self", min: int(0, 100)}} | {name: "risk", issue: {type: "vulnerability", label: "self"}}
+GatedQuestion = {name: "risk", when: "exposure", issue: {type: "vulnerability", label: "self"}} | {name: "risk", when: "exposure", issue: {type: "vulnerability", label: "self", min: int(0, 100)}}
+StrongestQuestion = {name: "risk_a", issue: {type: "vulnerability", label: "self", pick: "strongest"}} | {name: "risk_b", issue: {type: "vulnerability", label: "self", pick: "strongest"}}
+ChoiceQuestion = {name: "category", type: "choice"} | {name: "risk", issue: {type: "vulnerability", label: "category"}}
+InverseQuestion = {name: "risk", issue: {type: "vulnerability", label: "self", on: false}}
+LintQuestion = {name: "lint_rule", min: int(0, 100)} | {name: "other_rule"}
+ExceptQuestion = {name: "risk", issue: {type: "vulnerability", label: Label, except: Label}} | {name: "risk", issue: {type: "vulnerability", label: "self", except: "risk"}}

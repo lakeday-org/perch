@@ -1,0 +1,6 @@
+[
+  {"why":"A short argument is a prefix of another, exercising preservation of separate argv elements.","value":{"case":"exec_node_argv","command":"node","args":["a","alphabet"],"timeout":1000}},
+  {"why":"Shell metacharacters, command substitution syntax, and an embedded newline must remain ordinary argument text.","value":{"case":"exec_node_argv","command":"node","args":[";|&","$(echo harmless)","`echo harmless`","line\nbreak"],"timeout":1000}},
+  {"why":"Leading-dash options and an equals sign must not become Node options because they occur after the fixed script.","value":{"case":"exec_node_argv","command":"node","args":["--inspect=127.0.0.1:0","-o=value","--","operand"],"timeout":1000}},
+  {"why":"Exercises the other public entry point, which checks Python availability and the pytest imports.","value":{"case":"available_pytest","root":"project_root"}}
+]

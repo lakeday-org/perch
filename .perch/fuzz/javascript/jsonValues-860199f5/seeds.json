@@ -1,0 +1,23 @@
+[
+  {
+    "why": "A package doc string contains brace sequences that must not split the object.",
+    "value": {
+      "case": "single_go_list_package",
+      "text": "{\"Dir\":\"/work\",\"ImportPath\":\"example/pkg\",\"Name\":\"pkg\",\"Doc\":\"text } { more\"}"
+    }
+  },
+  {
+    "why": "Nested JSON values and prototype-related keys exercise plain JSON deserialization.",
+    "value": {
+      "case": "single_go_list_package",
+      "text": "{\"Dir\":\"/work\",\"ImportPath\":\"example/pkg\",\"Name\":\"pkg\",\"__proto__\":{\"constructor\":{\"prototype\":{\"polluted\":true}}},\"Nested\":[{\"Doc\":\"{ }\"},null]}"
+    }
+  },
+  {
+    "why": "Adjacent package objects exercise parsing multiple values from one stream.",
+    "value": {
+      "case": "multiple_go_list_packages",
+      "text": "{\"Dir\":\"/a\",\"ImportPath\":\"example/a\",\"Name\":\"a\"} {\"Dir\":\"/b\",\"ImportPath\":\"example/b\",\"Name\":\"b\",\"Doc\":\"} {\"}"
+    }
+  }
+]

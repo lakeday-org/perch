@@ -1,0 +1,11 @@
+root = {case: "single_worker_session", copies: list(Copy, 1, 1), tool: {python: Program}, parallel: int(1, 1), runs: list(Run, 1, 3)} | {case: "parallel_mutant_session", copies: list(Copy, 1, 1), tool: {python: Program}, parallel: int(2, 8), runs: list(Run, 1, 3)}
+Copy = {dir: Path, scratch: Path}
+Path = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./- ", 1, 256)
+Program = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./- ", 1, 128)
+Run = {path: RelativePath, source: PythonSource, method: Method, mutant: Mutant, nodes: list(NodeId, 1, 16), timeout: int(1, 60000), bail: bool}
+RelativePath = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./-", 1, 256)
+PythonSource = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.,:;()[]{}'\"=<>!+-*/%_ \n", 1, 20000)
+Method = {node: {qualified_name: QualifiedName, line: int(1, 1000000)}}
+QualifiedName = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.", 1, 256)
+Mutant = {statements: list(int(0, 1000000), 0, 1000)}
+NodeId = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./:[]- ", 1, 512)

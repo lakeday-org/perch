@@ -1,0 +1,54 @@
+id: loadJest-49462c33
+language: javascript
+confirmed: false
+entries:
+  -
+    name: loadJest
+    at: src/test-scope.js:202
+    reached: false
+sources:
+  -
+    kind: file
+    api: "readFile(manifest, \"\")).version;"
+    at: src/test-scope.js:210
+    in: loadJest
+  -
+    kind: deserialize
+    api: "JSON.parse(await run(node, [bin, ...named, \"\"], { cwd }));"
+    at: src/test-scope.js:211
+    in: loadJest
+via: []
+reaches: 8
+code: "67b62a33f26758be2502e1c95fbb5ed4b0e16d26"
+coverage:
+  lines: 0
+  of: 40
+  percent: 0
+  best_harness: 0
+corpus: 0
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 0
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 73625
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 207683
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 1177459
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 189003
+    covered: 0
+    defects: 0

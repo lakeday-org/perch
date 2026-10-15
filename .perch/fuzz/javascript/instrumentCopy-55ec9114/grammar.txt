@@ -1,0 +1,7 @@
+root = {case: "expression_edit", source: "const x = 1;\n", language: Language, mutants: list(ExpressionMutant, 1, 4), prelude: "", head: ""} | {case: "statement_edit", source: "function f(){return 1;}\n", language: Language, mutants: list(StatementMutant, 1, 4), prelude: "", head: ""} | {case: "block_edit", source: "function f() {}\n", language: Language, mutants: list(BlockMutant, 1, 4), prelude: "", head: ""} | {case: "source_mismatch", source: "const x = 1;\n", language: Language, mutants: list(MismatchedMutant, 1, 4), prelude: "", head: ""} | {case: "replacement_text", source: "const x = 1;\n", language: Language, mutants: list(InjectedReplacement, 1, 4), prelude: "", head: ""}
+Language = "javascript" | "typescript" | "tsx"
+ExpressionMutant = {id: int(0, 1000), mutant: {line: 1, column: 10, kind: "expression", from: "1", to: "0" | "2" | "x"}}
+StatementMutant = {id: int(0, 1000), mutant: {line: 1, column: 13, kind: "removal", from: "return 1;", to: "return 2;" | "return 0;"}}
+BlockMutant = {id: int(0, 1000), mutant: {line: 1, column: 13, kind: "block", from: "{}", to: "{}" | "{ return 1; }"}}
+MismatchedMutant = {id: int(0, 1000), mutant: {line: 1, column: 10, kind: "expression", from: "2", to: "0" | "x"}}
+InjectedReplacement = {id: int(0, 1000), mutant: {line: 1, column: 10, kind: "expression", from: "1", to: "0; globalThis.x = 1"}}

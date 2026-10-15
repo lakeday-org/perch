@@ -1,0 +1,38 @@
+[
+  {
+    "why": "A valid disabled question exercises the list form without requiring selector fields.",
+    "value": {
+      "case": "load_rules_file",
+      "text": "[{\"name\":\"baseline_rule\",\"disabled\":true}]",
+      "at": "rules.json",
+      "noun": "question"
+    }
+  },
+  {
+    "why": "A rules wrapper with an ensure shorthand exercises expansion and the test-wide selector.",
+    "value": {
+      "case": "parse_rules_wrapper",
+      "text": "{\"rules\":[{\"name\":\"find_marker\",\"ensure_present\":\"a marker exists\",\"each\":\"test\"}]}",
+      "at": "config/rules.yaml",
+      "noun": "rule"
+    }
+  },
+  {
+    "why": "Whitespace-only input is intentionally treated as a valid empty document.",
+    "value": {
+      "case": "parse_empty_rules_file",
+      "text": " \n ",
+      "at": "empty-rules",
+      "noun": "question"
+    }
+  },
+  {
+    "why": "An ignore-only map is a supported configuration with no questions yet.",
+    "value": {
+      "case": "parse_ignore_or_scan_types_only",
+      "text": "{\"ignore\":[],\"scan_types\":[]}",
+      "at": "rules.json",
+      "noun": "check"
+    }
+  }
+]

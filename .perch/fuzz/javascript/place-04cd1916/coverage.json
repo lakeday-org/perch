@@ -1,0 +1,80 @@
+{
+  "hash": "8d9b88cda4ad35d90957a9d9265c75f29df410d1",
+  "covered": [
+    "src/rules.js:120",
+    "src/rules.js:123",
+    "src/rules.js:137",
+    "src/rules.js:138",
+    "src/rules.js:139",
+    "src/rules.js:140",
+    "src/rules.js:141",
+    "src/rules.js:142",
+    "src/rules.js:143",
+    "src/rules.js:144",
+    "src/rules.js:145",
+    "src/rules.js:146",
+    "src/rules.js:147",
+    "src/rules.js:148",
+    "src/rules.js:149",
+    "src/rules.js:150",
+    "src/rules.js:151",
+    "src/rules.js:152",
+    "src/rules.js:153",
+    "src/rules.js:154",
+    "src/rules.js:155",
+    "src/rules.js:156",
+    "src/rules.js:158",
+    "src/rules.js:159",
+    "src/units.js:61"
+  ],
+  "bestLines": 25,
+  "stalled": 1,
+  "runs": [
+    {
+      "at": "2026-10-14T23:13:10.807Z",
+      "execs": 0,
+      "covered": 0,
+      "total": 104,
+      "entriesReached": [],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:18:17.121Z",
+      "execs": 0,
+      "covered": 0,
+      "total": 104,
+      "entriesReached": [],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:20:50.512Z",
+      "execs": 20028,
+      "covered": 25,
+      "total": 104,
+      "entriesReached": [
+        "place"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-14T23:26:50.464Z",
+      "execs": 103427,
+      "covered": 25,
+      "total": 104,
+      "entriesReached": [
+        "place"
+      ],
+      "defects": 0
+    },
+    {
+      "at": "2026-10-15T00:08:35.008Z",
+      "execs": 10203,
+      "covered": 25,
+      "total": 104,
+      "entriesReached": [
+        "place"
+      ],
+      "defects": 0
+    }
+  ]
+}

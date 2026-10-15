@@ -1,0 +1,58 @@
+id: place-04cd1916
+language: javascript
+confirmed: true
+entries:
+  -
+    name: place
+    at: src/rules.js:137
+    reached: true
+sources:
+  -
+    kind: file
+    api: "readFile(path, \"\").catch(error => { if (error.code === \"\") return ''; throw erro"
+    at: src/rules.js:38
+    in: open
+via:
+  -
+    name: addRule
+    at: src/rules.js:274
+  -
+    name: editRule
+    at: src/rules.js:298
+  -
+    name: removeRule
+    at: src/rules.js:342
+reaches: 14
+code: "8d9b88cda4ad35d90957a9d9265c75f29df410d1"
+coverage:
+  lines: 25
+  of: 104
+  percent: 24
+  best_harness: 25
+corpus: 10
+runs:
+  -
+    at: "2026-10-14T23:13:10.807Z"
+    execs: 0
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:18:17.121Z"
+    execs: 0
+    covered: 0
+    defects: 0
+  -
+    at: "2026-10-14T23:20:50.512Z"
+    execs: 20028
+    covered: 25
+    defects: 0
+  -
+    at: "2026-10-14T23:26:50.464Z"
+    execs: 103427
+    covered: 25
+    defects: 0
+  -
+    at: "2026-10-15T00:08:35.008Z"
+    execs: 10203
+    covered: 25
+    defects: 0

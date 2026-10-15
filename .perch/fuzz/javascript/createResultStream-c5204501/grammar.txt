@@ -1,0 +1,10 @@
+root = {case: "findings_only", scan: Scan, finalScan: FinalScan, rows: Findings} | {case: "progress_updates", scan: Scan, finalScan: FinalScan, progress: ProgressList} | {case: "findings_and_progress", scan: Scan, finalScan: FinalScan, rows: Findings, progress: ProgressList}
+Scan = {}
+FinalScan = {}
+Findings = list(Row, 0, 200)
+Row = {id: Token, kind: Token, value: Payload}
+Token = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-.", 1, 16)
+Payload = str("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-.,:;{}", 0, 30000)
+ProgressList = list(Progress, 0, 20)
+Progress = {phase: Token, completed: Count, total: Count, failed: Count}
+Count = int(0, 1000000)
