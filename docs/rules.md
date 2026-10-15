@@ -133,6 +133,12 @@ sees: neighbors    # both
 sees: file         # the whole file it lives in
 ```
 
+During `scan --since REF`, a method question may use `sees: change` for a
+reading with previous source and the diff, or `sees: contracts` to join
+the focused caller/callee reading. Both require `each: method` and apply
+only to branch scans. A change question is skipped when its method has no
+overlapping diff hunk. Ordinary method rules still use their usual graph context.
+
 `calls` and `callers` walk the call graph outward from the unit, nearest first.
 What it calls directly comes before what that calls. Eight is the cap, so it cuts
 the far edge and keeps the near one. A test walks from itself, so `sees: calls`

@@ -350,7 +350,8 @@ export function methodSteps({ node, lines, callees = [], callers = [], edges = [
  * method to read next, and what the neighbours look like from here.
  */
 export function readAnswers(answers, { calls, calledBy, neighbors, asked = questionSet().filter(question => question.each === 'method') }) {
-  const follow = answers.follow.choice;
+  const followAnswer = answers.follow ?? { choice: 'none', confidence: 1, probabilities: { none: 1 } };
+  const follow = followAnswer.choice;
   const read = { answers_set: setHash(asked) };
   for (const question of asked) read[question.name] = readAnswer(question, answers[question.name]);
   return {
@@ -358,6 +359,6 @@ export function readAnswers(answers, { calls, calledBy, neighbors, asked = quest
     severity: { ...read.severity, level: severityOf(read.severity)?.band ?? null, predicted: severityOf(read.severity)?.predicted ?? null },
     misuse: calls.map((call, index) => ({ callee: call.id, probability: answers[`misuse_${index}`].noul })),
     misused_by: calledBy.map((caller, index) => ({ caller: caller.id, probability: answers[`misused_by_${index}`].noul })),
-    follow: { method: neighbors.some(item => item.id === follow) ? follow : null, confidence: answers.follow.confidence, probabilities: answers.follow.probabilities },
+    follow: { method: neighbors.some(item => item.id === follow) ? follow : null, confidence: followAnswer.confidence, probabilities: followAnswer.probabilities },
   };
 }
