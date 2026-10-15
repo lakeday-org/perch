@@ -17,7 +17,9 @@ async function fixture(packets, mode) {
   for (const name of ['run.mjs', 'core.mjs']) await fs.copyFile(new URL(name, import.meta.url), path.join(dir, name));
   const data = gzipSync(packets.map(p => JSON.stringify(p)).join('\n'));
   await fs.writeFile(path.join(dir, 'requests.jsonl.gz'), data);
-  await fs.writeFile(path.join(dir, 'manifest.json'), JSON.stringify({ sha256: { 'requests.jsonl.gz': createHash('sha256').update(data).digest('hex') } }));
+  const targets = Buffer.from([...new Set(packets.map(p => p.id))].map(id => JSON.stringify({ id, name: mode === 'file' ? '<file>' : 'testMethod' })).join('\n') + '\n');
+  await fs.writeFile(path.join(dir, 'targets.jsonl'), targets);
+  await fs.writeFile(path.join(dir, 'manifest.json'), JSON.stringify({ target_scope: 'method', sha256: Object.fromEntries([['requests.jsonl.gz', data], ['targets.jsonl', targets]].map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')])) }));
   await fs.writeFile(path.join(dir, 'mock.mjs'), `
     import fs from 'node:fs';
     const countFile = new URL('./calls.json', import.meta.url);
@@ -65,4 +67,10 @@ it('records a rejected input as failed and continues the remaining targets', asy
   expect((await read('out/jev/a-change_current.json')).failure).toBe('HTTP 400');
   expect((await read('out/jev/b-change_current.json')).failure).toBeUndefined();
   expect(await read('calls.json')).toEqual(['rejected', 'accepted']);
+});
+
+it('rejects whole-file targets before making a model request', async () => {
+  const { run, read } = await fixture([{ id: 'file', arm: 'change_current', steps: [step('whole file')] }], 'file');
+  expect(run).toThrow(/method-only/);
+  await expect(read('calls.json')).rejects.toMatchObject({ code: 'ENOENT' });
 });

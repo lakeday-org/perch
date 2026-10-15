@@ -4,33 +4,33 @@ A fixed two-reading bug detector, evaluated with Jev and GPT-6 Luna Decisions on
 
 ## Results
 
-**18,230 method/file targets across all 219 pull requests, including 1,856 labelled buggy targets.**
+**16,168 methods across 177 pull requests, including 1,506 labelled buggy methods.**
 
 | Model | Precision | Recall | F1 | Correct alerts | False alerts | Missed bugs | Inference cost |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Jev 1.14 | 36.9% | 20.4% | 26.3% | 379 | 649 | 1,477 | $3.6875 |
-| GPT-6 Luna Decisions | 23.2% | 79.1% | 35.9% | 1,469 | 4,866 | 387 | $7.2365 |
+| Jev 1.14 | 34.7% | 20.2% | 25.5% | 304 | 572 | 1,202 | $2.9283 |
+| GPT-6 Luna Decisions | 21.7% | 81.1% | 34.2% | 1,221 | 4,414 | 285 | $5.6363 |
 
 ## Two readings
 
 1. **Current code and its change.** Complete target source, a window of previous source, overlapping diff hunks and the PR title. Questions ask whether the current target has a functional bug, a supported edge-case failure or an exploitable security issue.
 2. **Caller and callee contracts.** Target source plus selected caller, callee, type and configuration evidence. Questions check accepted caller inputs, return contracts, failure cleanup and access scope. Source structure selects applicable checks; the first answer does not gate this reading.
 
-Both models use this protocol. Every target gets the current-code reading; 15,867 also have applicable contract checks, for **34,097 readings per model**. Large inputs use bounded chunks within a reading. Alerts from either reading count once per target. Jev had three failed readings affecting two targets; Luna had one affecting one target. Those failures are included in the scores.
+Both models use this protocol. Every target gets the current-code reading; 14,768 also have applicable contract checks, for **30,936 readings per model**. Large inputs use bounded chunks within a reading. Alerts from either reading count once per target. Jev had no failed readings; Luna had one affecting one method. That failure is included in the scores.
 
 ## Data and scoring
 
-[ReviewBench](https://github.com/review-bench/ReviewBench) supplies PRs and reference findings. `manifest.json` pins the ReviewBench and Perch revisions. `targets.jsonl` records each repository, base/head commits, file, method span, repository split and labels. All 219 PRs contributed targets. File-level inputs cover changes without parsed methods, including configuration, instructions and deleted files. `coverage.jsonl` records the PR and file coverage.
+[ReviewBench](https://github.com/review-bench/ReviewBench) supplies PRs and reference findings. `manifest.json` pins the ReviewBench and Perch revisions. `targets.jsonl` records each repository, base/head commits, file, method span, repository split and labels. All 219 PRs were checked for method targets: 177 contributed methods and 42 had none. `coverage.jsonl` records the method counts for each PR and source file. The benchmark scores methods; caller/callee implementations, configuration and diffs supply context.
 
 The frozen requests contain code and context. Reference findings and judgments stay outside inference. Truncated evidence is marked explicitly.
 
 - Functional alerts require probability **strictly above 60%**; security alerts require **strictly above 70%**.
 - A reference bug must overlap its target. Additional positives require a faulty operation inside that target and source evidence at the recorded head commit. A correct caller of a defective helper is not another positive.
-- Both models use the same 1,856 positive and 16,374 negative targets. `judgments.jsonl` retains source-backed reviews of additional alerts.
+- Both models use the same 1,506 positive and 14,662 negative methods. `judgments.jsonl` retains source-backed reviews of additional alerts.
 - A refusal or timeout counts as a miss on a buggy target and a false alert on a clean one. Missing requests make a run incomplete.
 - Precision is correct alerts divided by all alerts. Recall is bugs detected divided by labelled buggy targets. F1 is their harmonic mean.
 
-These are method/file detection results. ReviewBench's official leaderboard judges review comments against individual issues across its full corpus.
+These are method detection results. ReviewBench's official leaderboard judges review comments against individual issues across its full corpus.
 
 ## Reproduce
 
@@ -42,7 +42,7 @@ node .benchmarks/reviewbench/score.mjs
 npx vitest run --config .benchmarks/reviewbench/vitest.config.mjs
 ```
 
-Scoring makes no API calls. It reads frozen requests and saved probabilities, applies the fixed thresholds and writes `summary.json`. `manifest.json` records SHA-256 hashes of the compressed JSONL snapshots.
+Scoring makes no API calls. It reads frozen requests and saved probabilities, applies the fixed thresholds and writes `summary.json`. Both inference and scoring reject whole-file targets. `manifest.json` records SHA-256 hashes of the compressed JSONL snapshots.
 
 To repeat inference, set `TYPESAFE_API_KEY` or `OPENAI_API_KEY` in your environment:
 
@@ -56,7 +56,7 @@ Use `--limit 2 --out /tmp/perch-reviewbench-smoke` for a small smoke test. Parti
 
 Jev's preview alias must return `jev-1.14.0`. If it changes, select a new output directory and pass the observed version with `--expected-model`. Luna uses two-option choices, unchanged instructions and the probability attached to the true option. There is no third option. Refusals retain their question names.
 
-Costs use returned input usage at Jev $0.042 and Luna $0.10 per million tokens. These are inference estimates for the captured runs. Provider information: [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), [OpenAI Decisions](https://developers.openai.com/api/docs/guides/decisions).
+Costs use returned input usage at Jev $0.042 and Luna $0.10 per million tokens. These estimates sum the saved method requests. Provider information: [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev), [OpenAI Decisions](https://developers.openai.com/api/docs/guides/decisions).
 
 ## Verify judgments
 

@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
 export const hash = value => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex');
 export async function jsonl(file) {
@@ -13,6 +14,8 @@ export async function verifyBundle(root) {
     const actual = createHash('sha256').update(await fs.readFile(new URL(file, root))).digest('hex');
     if (actual !== expected) throw Error('Snapshot hash mismatch: ' + file);
   }
+  const targets = await jsonl(fileURLToPath(new URL('targets.jsonl', root)));
+  if (manifest.target_scope !== 'method' || targets.some(t => !t.name || ['<file>', '<top-level>'].includes(t.name))) throw Error('ReviewBench inputs must be method-only');
   return manifest;
 }
 export const SECURITY = new Set(['change_security', 'access_scope', 'security', 'file_security', 'access_boundary', 'execution_boundary']);
