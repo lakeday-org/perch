@@ -1,0 +1,12 @@
+- name: changes-read-the-merge-base
+  where: src/change-context.js
+  ensure: >-
+    Previous source comes from the merge base of the requested since reference
+    and the scanned revision. Renames use the old path. A new file has no
+    previous source. Diff and source truncation remain explicit.
+- name: delta-questions-need-a-delta
+  where: src/review.js
+  ensure: >-
+    A question with sees change is selected only when before/after context
+    is available for the target. Contract questions do not depend on an
+    earlier model answer. Type filters narrow both question sets.

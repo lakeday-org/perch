@@ -345,12 +345,13 @@ export function methodSteps({ node, lines, callees = [], callers = [], edges = [
  * method to read next.
  */
 export function readAnswers(answers, { neighbors, asked = questionSet().filter(question => question.each === 'method') }) {
-  const follow = answers.follow.choice;
+  const followAnswer = answers.follow ?? { choice: 'none', confidence: 1, probabilities: { none: 1 } };
+  const follow = followAnswer.choice;
   const read = { answers_set: setHash(asked) };
   for (const question of asked) read[question.name] = readAnswer(question, answers[question.name]);
   return {
     ...read,
     severity: { ...read.severity, level: severityOf(read.severity)?.band ?? null, predicted: severityOf(read.severity)?.predicted ?? null },
-    follow: { method: neighbors.some(item => item.id === follow) ? follow : null, confidence: answers.follow.confidence, probabilities: answers.follow.probabilities },
+    follow: { method: neighbors.some(item => item.id === follow) ? follow : null, confidence: followAnswer.confidence, probabilities: followAnswer.probabilities },
   };
 }
