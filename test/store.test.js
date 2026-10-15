@@ -1,5 +1,8 @@
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { jsonChunks, jsonPieces } from '../src/store.js';
+import { jsonChunks, jsonPieces, openStore } from '../src/store.js';
 
 describe('JSON in pieces', () => {
   it('joins to exactly what JSON.stringify writes', () => {
@@ -19,5 +22,44 @@ describe('JSON in pieces', () => {
     expect(chunks.join('')).toBe(JSON.stringify(value, null, 2));
     // How --json prints them: one stdout line each.
     expect(JSON.parse(chunks.join('\n'))).toEqual(value);
+  });
+});
+
+describe('symbolic links in the results directory', () => {
+  // A repository being scanned decides what is in its .perch, links included: what it points them at is outside the repository.
+  const repository = async () => {
+    const root = await mkdtemp(join(tmpdir(), 'perch-store-'));
+    await mkdir(join(root, 'repo', '.perch'), { recursive: true });
+    await writeFile(join(root, 'outside.txt'), 'keep\n');
+    return { root, out: join(root, 'repo', '.perch'), outside: join(root, 'outside.txt') };
+  };
+
+  it('refuses to write the scan log through a link and leaves its target alone', async () => {
+    const { out, outside } = await repository();
+    await symlink(outside, join(out, 'scan.log'));
+    await expect(openStore(out).startLog()).rejects.toThrow(/scan\.log is a symbolic link/);
+    expect(await readFile(outside, 'utf8')).toBe('keep\n');
+  });
+
+  it('refuses to append a dismissal through a link', async () => {
+    const { out, outside } = await repository();
+    await symlink(outside, join(out, 'closed.jsonl'));
+    await expect(openStore(out).dismiss({ id: 'f1', path: 'a.js', name: 'a', line: 1 }, 'known', ['comment'])).rejects.toThrow(/closed\.jsonl is a symbolic link/);
+    expect(await readFile(outside, 'utf8')).toBe('keep\n');
+  });
+
+  it('refuses a results directory that is itself a link', async () => {
+    const { root, outside } = await repository();
+    await mkdir(join(root, 'elsewhere'));
+    await symlink(join(root, 'elsewhere'), join(root, 'repo', 'linked'));
+    await expect(openStore(join(root, 'repo', 'linked')).startLog()).rejects.toThrow(/linked is a symbolic link/);
+    expect(await readFile(outside, 'utf8')).toBe('keep\n');
+  });
+
+  it('writes the scan log in an ordinary results directory', async () => {
+    const { out } = await repository();
+    const log = await openStore(out).startLog();
+    await log('analyzing 1 source files');
+    expect(await readFile(join(out, 'scan.log'), 'utf8')).toMatch(/analyzing 1 source files/);
   });
 });

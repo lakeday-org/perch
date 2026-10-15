@@ -1,9 +1,9 @@
 /** Results directory layout: what a scan found, what it did, and what you set aside, under one --out directory. */
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { appendFile, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { appendFile, lstat, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { git, repoRoot } from './git.js';
 import { BELIEVED, flagged, issuesOf, issueWeight } from './questions.js';
 
@@ -137,6 +137,20 @@ export async function resolveOut(out, cwd = process.cwd()) {
   return join(await repoRoot(cwd).catch(() => cwd), '.perch');
 }
 
+/**
+ * A path in the results directory, refused when it, or a directory between it and the results directory, is a symbolic link.
+ * The results directory is .perch in the repository being scanned, and a repository can commit a link there: a scan writing
+ * through it would replace a file outside the repository with perch's output, as whoever ran the scan.
+ */
+export async function writable(out, path) {
+  const parts = relative(out, path).split(sep).filter(Boolean);
+  for (let at = out, i = 0; i <= parts.length; at = join(at, parts[i] ?? ''), i++) {
+    const stat = await lstat(at).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
+    if (stat?.isSymbolicLink()) throw new Error(`${at} is a symbolic link. perch does not write through links in its results directory; remove it and run again.`);
+  }
+  return path;
+}
+
 async function entries(dir) {
   try { return await readdir(dir, { withFileTypes: true }); }
   catch (error) { if (error.code === 'ENOENT') return []; throw error; }
@@ -194,6 +208,7 @@ export function openStore(out) {
     async startRun(run) {
       const path = join(store.runDir(run.id), 'run.json');
       const journal = join(store.runDir(run.id), 'progress.jsonl');
+      await writable(out, journal);
       await writeJson(path, run);
       await writeFile(journal, '');
       const lengths = Object.fromEntries(RUN_ROWS.map(key => [key, 0]));
@@ -217,6 +232,7 @@ export function openStore(out) {
       const path = join(out, '.gitignore');
       const rules = out === join(root, '.perch') ? '!rules/\n' : '';
       const wanted = '# Written by perch. Rules and closures are committed; scan output is not.\n/*\n!closed.jsonl\n' + rules;
+      await writable(out, path);
       if (await readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return null; throw error; }) === wanted) return;
       await mkdir(out, { recursive: true });
       await writeFile(path, wanted);
@@ -232,6 +248,7 @@ export function openStore(out) {
     /** Everything the last run did, written whether or not anyone asked to watch it, which is when you want it. */
     logPath: join(out, 'scan.log'),
     async startLog() {
+      await writable(out, store.logPath);
       await mkdir(out, { recursive: true });
       await writeFile(store.logPath, `${new Date().toISOString()} perch\n`);
       // A line the log could not take must not end the run it describes, so it is said once on stderr and the run goes on.
@@ -257,6 +274,7 @@ export function openStore(out) {
     },
     /** Rows added to the end of a .jsonl file, as a run that keeps what each answer cost while it goes writes them. */
     async appendLines(path, rows) {
+      await writable(out, path);
       await mkdir(dirname(path), { recursive: true });
       await appendFile(path, rows.map(row => JSON.stringify(row) + '\n').join(''));
     },
@@ -264,6 +282,7 @@ export function openStore(out) {
       // Written beside and moved into place, the way writeJson does. A crash partway through a direct write leaves the file every
       // command reads truncated at whatever line it reached, which reads as a scan that found less rather than as a broken file.
       // The directory the file is in, which is the store's own only for a file at its top.
+      await writable(out, path);
       await mkdir(dirname(path), { recursive: true });
       const tmp = `${path}.${randomUUID()}.tmp`;
       try {
@@ -303,6 +322,7 @@ export function openStore(out) {
       // thing back, so it names none: the kinds it would otherwise list are the live ones, which were never closed.
       const covers = type === 'dismissed' ? { kinds: kinds ?? issuesOf(finding, BELIEVED).map(issue => issue.label), reason } : kinds ? { kinds } : {};
       const event = { type, at: new Date().toISOString(), id: finding.id, method: finding.method ?? null, path: finding.path, name: finding.name, line: finding.line, ...covers };
+      await writable(out, store.closedPath);
       await mkdir(out, { recursive: true });
       await appendFile(store.closedPath, JSON.stringify(event) + '\n');
       return event;

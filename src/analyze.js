@@ -5,7 +5,7 @@ import { analyzeFiles, languageOf, METHOD_HASH, sourceFile } from './analysis.js
 import { headerLanguage } from './languages.js';
 import { createFileSelector, EXCLUSIONS_PROFILE } from './exclusions.js';
 import { PARSE_VERSION } from './treesitter/types.ts';
-import { identity, openStore, readScan, writeScan } from './store.js';
+import { identity, openStore, readScan, writable, writeScan } from './store.js';
 import { markTestSupport } from './test-scope.js';
 
 export function scanIdentity({ revision, paths }) {
@@ -80,6 +80,7 @@ export async function analyzeTree({ root, revision, out, analyzer, label = root,
   const scan = { id, status: 'complete', target: label, github, root, revision, paths, out: dir, created_at: new Date().toISOString(),
     coverage: { ...analysis.coverage, excluded: tree.filter(item => item.type === 'blob').length - sources.length }, functions: analysis.functions, files: analysis.files, candidates: analysis.candidates,
     crates: await cratesOf(root, revision, tree), modules: await goModulesOf(root, revision, tree) };
+  await writable(store.out, dir);
   await writeScan(dir, scan);
   await store.prune('scans', id).catch(error => log(`Could not remove earlier scans: ${error.message}`));
   return scan;
