@@ -16,23 +16,30 @@ if (!config.key) throw Error(`Set ${provider === 'jev' ? 'TYPESAFE_API_KEY' : 'O
 const packets = (await jsonl(path.join(root, 'requests.jsonl.gz'))).filter(p => ARMS.includes(p.arm)).slice(0, Number(option('limit', Infinity)));
 const out = path.resolve(option('out', path.join(root, 'runs/live'))), cache = path.join(out, provider);
 await fs.mkdir(cache, { recursive: true });
-let next = 0, completed = 0, stop = false, nextSend = 0;
+let next = 0, completed = 0, stop = false, interrupted = false, nextSend = 0;
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { interrupted = true; });
 async function work(packet) {
   const input_hash = hash({ provider, expected: config.expected, packet }), file = path.join(cache, `${packet.id}-${packet.arm}.json`);
-  try { const r = JSON.parse(await fs.readFile(file, 'utf8')); if (r.input_hash !== input_hash) throw Error('Cached request identity changed'); completed++; return; }
-  catch (e) { if (e.code !== 'ENOENT') throw e; }
-  const record = { id: packet.id, arm: packet.arm, provider, input_hash, answers: [], raw: [], usage: { input_tokens: 0, output_tokens: 0 }, seconds: 0, cost_usd: 0 };
+  let pending;
   try {
-    for (const step of packet.steps) {
+    const r = JSON.parse(await fs.readFile(file, 'utf8'));
+    if (r.input_hash !== input_hash) throw Error('Cached request identity changed');
+    if (r.interrupted) { pending = r; delete pending.interrupted; }
+    else { completed++; return; }
+  }
+  catch (e) { if (e.code !== 'ENOENT') throw e; }
+  const record = pending ?? { id: packet.id, arm: packet.arm, provider, input_hash, answers: [], raw: [], usage: { input_tokens: 0, output_tokens: 0 }, seconds: 0, cost_usd: 0 };
+  try {
+    for (const step of packet.steps.slice(record.answers.length)) {
       const questions = structuredClone(step.questions);
       const body = provider === 'luna' ? decisionPayload(step.state, questions) : { model: config.model, state: step.state, questions };
       const scheduled = Math.max(Date.now(), nextSend); nextSend = scheduled + 100;
       await new Promise(resolve => setTimeout(resolve, Math.max(0, scheduled - Date.now())));
-      if (stop) throw Error('Run stopped');
+      if (stop || interrupted) { record.interrupted = true; break; }
       const started = performance.now();
       const response = await fetch(config.url, { method: 'POST', headers: { Authorization: `Bearer ${config.key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) });
       record.seconds += (performance.now() - started) / 1000;
-      if (!response.ok) { await response.arrayBuffer(); if ([400, 401, 402, 403].includes(response.status)) stop = true; throw Error('HTTP ' + response.status); }
+      if (!response.ok) { await response.arrayBuffer(); if ([401, 402, 403].includes(response.status)) stop = true; throw Error('HTTP ' + response.status); }
       const raw = await response.json(); record.raw.push(raw); record.model = raw.model;
       if (!Number.isSafeInteger(raw.usage?.input_tokens)) throw Error('Missing input usage');
       record.usage.input_tokens += raw.usage.input_tokens; record.usage.output_tokens += raw.usage.output_tokens ?? 0;
@@ -53,8 +60,13 @@ async function work(packet) {
   completed++;
   if (completed % 100 === 0) console.log(JSON.stringify({ provider, completed, total: packets.length }));
 }
-await Promise.all(Array.from({ length: 8 }, async () => { while (!stop && next < packets.length) await work(packets[next++]); }));
+await Promise.all(Array.from({ length: 8 }, async () => {
+  while (!stop && next < packets.length) {
+    if (interrupted) break;
+    await work(packets[next++]);
+  }
+}));
 const records = await Promise.all((await fs.readdir(cache)).filter(f => f.endsWith('.json')).sort().map(async f => JSON.parse(await fs.readFile(path.join(cache, f), 'utf8'))));
 await fs.writeFile(path.join(out, provider + '.jsonl'), records.map(r => JSON.stringify(r)).join('\n') + '\n');
-console.log(JSON.stringify({ provider, attempted: records.length, expected: packets.length, failed: records.filter(r => r.failure).length, cost_usd: records.reduce((n, r) => n + r.cost_usd, 0), stopped: stop }));
-if (stop) process.exitCode = 1;
+console.log(JSON.stringify({ provider, attempted: records.length, expected: packets.length, failed: records.filter(r => r.failure).length, cost_usd: records.reduce((n, r) => n + r.cost_usd, 0), stopped: stop, interrupted }));
+if (stop || interrupted) process.exitCode = 1;

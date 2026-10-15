@@ -17,6 +17,7 @@ for (const provider of ['jev', 'luna']) {
   for (const r of records) {
     const key = `${r.id}:${r.arm}`;
     if (seen.has(key) || !packets.has(key)) throw Error('Duplicate or unknown result ' + key);
+    if (r.interrupted) throw Error('Incomplete interrupted request ' + key);
     seen.add(key);
   }
     const selected = records.filter(r => ARMS.includes(r.arm));

@@ -4,29 +4,29 @@ A fixed two-reading bug detector, evaluated with Jev and GPT-6 Luna Decisions on
 
 ## Results
 
-**1,480 method/file targets across 93 pull requests, including 321 labelled buggy targets.**
+**18,230 method/file targets across all 219 pull requests, including 1,856 labelled buggy targets.**
 
 | Model | Precision | Recall | F1 | Correct alerts | False alerts | Missed bugs | Inference cost |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Jev 1.14 | 57.7% | 12.8% | 20.9% | 41 | 30 | 280 | $0.2927 |
-| GPT-6 Luna Decisions | 39.4% | 62.3% | 48.3% | 200 | 307 | 121 | $0.5609 |
+| Jev 1.14 | 36.9% | 20.4% | 26.3% | 379 | 649 | 1,477 | $3.6875 |
+| GPT-6 Luna Decisions | 23.2% | 79.1% | 35.9% | 1,469 | 4,866 | 387 | $7.2365 |
 
 ## Two readings
 
 1. **Current code and its change.** Complete target source, a window of previous source, overlapping diff hunks and the PR title. Questions ask whether the current target has a functional bug, a supported edge-case failure or an exploitable security issue.
 2. **Caller and callee contracts.** Target source plus selected caller, callee, type and configuration evidence. Questions check accepted caller inputs, return contracts, failure cleanup and access scope. Source structure selects applicable checks; the first answer does not gate this reading.
 
-Both models use this protocol. Every target gets the current-code reading; 1,308 also have applicable contract checks. Each model completed **2,788 requests with zero failures**. Alerts from either reading count once per target.
+Both models use this protocol. Every target gets the current-code reading; 15,867 also have applicable contract checks, for **34,097 readings per model**. Large inputs use bounded chunks within a reading. Alerts from either reading count once per target. Jev had three failed readings affecting two targets; Luna had one affecting one target. Those failures are included in the scores.
 
 ## Data and scoring
 
-[ReviewBench](https://github.com/review-bench/ReviewBench) supplies PRs and reference findings. `manifest.json` pins the ReviewBench and Perch revisions. `targets.jsonl` records each repository, base/head commits, file, method span, repository split and labels. The selection contains 107 PRs; 93 contributed targets and 14 had none in this captured sample.
+[ReviewBench](https://github.com/review-bench/ReviewBench) supplies PRs and reference findings. `manifest.json` pins the ReviewBench and Perch revisions. `targets.jsonl` records each repository, base/head commits, file, method span, repository split and labels. All 219 PRs contributed targets. File-level inputs cover changes without parsed methods, including configuration, instructions and deleted files. `coverage.jsonl` records the PR and file coverage.
 
 The frozen requests contain code and context. Reference findings and judgments stay outside inference. Truncated evidence is marked explicitly.
 
 - Functional alerts require probability **strictly above 60%**; security alerts require **strictly above 70%**.
 - A reference bug must overlap its target. Additional positives require a faulty operation inside that target and source evidence at the recorded head commit. A correct caller of a defective helper is not another positive.
-- Both models use the same 321 positive and 1,159 negative targets. `judgments.jsonl` retains source-backed reviews of additional alerts.
+- Both models use the same 1,856 positive and 16,374 negative targets. `judgments.jsonl` retains source-backed reviews of additional alerts.
 - A refusal or timeout counts as a miss on a buggy target and a false alert on a clean one. Missing requests make a run incomplete.
 - Precision is correct alerts divided by all alerts. Recall is bugs detected divided by labelled buggy targets. F1 is their harmonic mean.
 
@@ -52,7 +52,7 @@ node .benchmarks/reviewbench/run.mjs --provider luna
 node .benchmarks/reviewbench/score.mjs --results .benchmarks/reviewbench/runs/live
 ```
 
-Use `--limit 2 --out /tmp/perch-reviewbench-smoke` for a small smoke test. Partial runs cannot produce a complete score. Responses are cached by input identity and model, including refusals. Resume with the same directory. Requests time out after 30 seconds; authentication, balance, schema and model-version errors stop the run.
+Use `--limit 2 --out /tmp/perch-reviewbench-smoke` for a small smoke test. Partial runs cannot produce a complete score. Responses are cached by input identity and model, including refusals. Resume with the same directory. An interrupted run retains completed responses and resumes unfinished readings. Requests time out after 30 seconds; authentication, balance and model-version errors stop the run. Other rejected requests are recorded as failures and the run continues.
 
 Jev's preview alias must return `jev-1.14.0`. If it changes, select a new output directory and pass the observed version with `--expected-model`. Luna uses two-option choices, unchanged instructions and the probability attached to the true option. There is no third option. Refusals retain their question names.
 

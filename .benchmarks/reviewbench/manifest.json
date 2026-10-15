@@ -4,10 +4,10 @@
   "upstream": "https://github.com/review-bench/ReviewBench",
   "upstream_revision": "c17b05be9c90b85a1fc012ce39e455e2d09a7255",
   "perch_revision": "67575f846d2b0c1d912fea8e0f0e9ba8941c4a24",
-  "selected_prs": 107,
-  "prs_with_targets": 93,
-  "targets": 1480,
-  "positive_targets": 321,
+  "selected_prs": 219,
+  "prs_with_targets": 219,
+  "targets": 18230,
+  "positive_targets": 1856,
   "failure_policy": "A failed target is a miss if positive and a false alert if clean. Missing requests are incomplete coverage, never scored as clean.",
   "thresholds": {
     "functional": "strictly greater than 0.60",
@@ -22,11 +22,12 @@
     "luna": 0.1
   },
   "sha256": {
-    "judgments.jsonl": "e8b864571840de9dfd6cf0aaab85bd3affd5b0cbf11a6ce603c7d589f7b76e99",
-    "targets.jsonl": "5bc9a9b30e87a9b734ec027435fb17fea879cce66e85204a9f2538f18c050602",
-    "requests.jsonl.gz": "3debdd082b84a22a8d0260d0c79c360004d5429220c3513c8935ac34c8f4ab50",
-    "results/luna.jsonl.gz": "a6d426415d44a0f6eec309dc97aa7e4458f0fa5c4b359bbddd19baf34cb23e9c",
-    "results/jev.jsonl.gz": "3ad6cbbc44ff696b85617c9e65623560e61ef20389411759a6306b339193474d"
+    "targets.jsonl": "d6c5a960a4dbde2b29ea9267abaa1b647c2f6b663ef98116a3c11a0241d8cb71",
+    "requests.jsonl.gz": "0f530cd45267753477c487fb7d6aa351b771ebfd7d3c2aba14b0d11d5d6b1646",
+    "judgments.jsonl": "735d2cc1c5565f7d4310075b68f2e4a0a72001545c841c9ef71937c938ff4456",
+    "coverage.jsonl": "6b044583dd0e0412d23390f603cacf23c97880cc1a6751332151d9bd2c2752ca",
+    "results/jev.jsonl.gz": "ac5f6627fde5e6826bc22075277b9a50e73fa570ce0d05fcb51f0044cb04aa65",
+    "results/luna.jsonl.gz": "d326342732351f0c3f6a595491d7daee5e2d5fc0f0ec298e1995a5adc666f7ae"
   },
   "protocol": {
     "readings": [
@@ -34,5 +35,23 @@
       "relation"
     ],
     "selection": "The same fixed two-reading protocol for both providers."
+  },
+  "readings_per_model": 34097,
+  "planned_api_calls_per_model": 34495,
+  "completed_at": "2026-10-15T21:03:15.289Z",
+  "graph_revision": "eaf1cc93313cc3329b06e551f0b42922fc7a5f65",
+  "runs": {
+    "jev": {
+      "readings": 34097,
+      "api_calls_attempted": 34475,
+      "failed_readings": 3,
+      "failed_targets": 2
+    },
+    "luna": {
+      "readings": 34097,
+      "api_calls_attempted": 34495,
+      "failed_readings": 1,
+      "failed_targets": 1
+    }
   }
 }
