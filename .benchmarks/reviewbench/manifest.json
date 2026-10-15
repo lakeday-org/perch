@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "benchmark": "ReviewBench",
+  "upstream": "https://github.com/review-bench/ReviewBench",
+  "upstream_revision": "c17b05be9c90b85a1fc012ce39e455e2d09a7255",
+  "perch_revision": "67575f846d2b0c1d912fea8e0f0e9ba8941c4a24",
+  "selected_prs": 107,
+  "prs_with_targets": 93,
+  "targets": 1480,
+  "positive_targets": 321,
+  "failure_policy": "A failed target is a miss if positive and a false alert if clean. Missing requests are incomplete coverage, never scored as clean.",
+  "thresholds": {
+    "functional": "strictly greater than 0.60",
+    "security": "strictly greater than 0.70"
+  },
+  "models": {
+    "jev": "jev-1.14.0",
+    "luna": "gpt-6-luna"
+  },
+  "input_prices_per_million": {
+    "jev": 0.042,
+    "luna": 0.1
+  },
+  "sha256": {
+    "judgments.jsonl": "e8b864571840de9dfd6cf0aaab85bd3affd5b0cbf11a6ce603c7d589f7b76e99",
+    "targets.jsonl": "5bc9a9b30e87a9b734ec027435fb17fea879cce66e85204a9f2538f18c050602",
+    "requests.jsonl.gz": "3debdd082b84a22a8d0260d0c79c360004d5429220c3513c8935ac34c8f4ab50",
+    "results/luna.jsonl.gz": "a6d426415d44a0f6eec309dc97aa7e4458f0fa5c4b359bbddd19baf34cb23e9c",
+    "results/jev.jsonl.gz": "3ad6cbbc44ff696b85617c9e65623560e61ef20389411759a6306b339193474d"
+  },
+  "protocol": {
+    "readings": [
+      "change_current",
+      "relation"
+    ],
+    "selection": "The same fixed two-reading protocol for both providers."
+  }
+}
