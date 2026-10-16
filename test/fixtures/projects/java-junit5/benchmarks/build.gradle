@@ -1,0 +1,11 @@
+plugins {
+    id 'application'
+}
+
+dependencies {
+    implementation project(':api')
+}
+
+application {
+    mainClass = 'com.acme.ledger.bench.PostingBenchmark'
+}

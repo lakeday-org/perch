@@ -1,5 +1,51 @@
 # Changelog
 
+## [0.4.3](https://github.com/lakeday-org/perch/compare/v0.4.2...v0.4.3) (2026-10-11)
+
+
+### Features
+
+* perch ci shows what CI found on your branch ([#252](https://github.com/lakeday-org/perch/issues/252)) ([6f40a1f](https://github.com/lakeday-org/perch/commit/6f40a1f06b9990f83abfdc1e867c020cf64a3c31))
+
+
+### Bug Fixes
+
+* perch scan stopped on a function inside a constructor that uses this ([#359](https://github.com/lakeday-org/perch/issues/359)) ([dacd98f](https://github.com/lakeday-org/perch/commit/dacd98f6fc25c99f4f41d65bfdd8f45a28ae56ec))
+* print rule breaks in perch scan ([#343](https://github.com/lakeday-org/perch/issues/343)) ([cbc6211](https://github.com/lakeday-org/perch/commit/cbc621164c81fa4b25e4baaa28fbcf41d2735675)), closes [#342](https://github.com/lakeday-org/perch/issues/342)
+
+## [0.4.2](https://github.com/lakeday-org/perch/compare/v0.4.1...v0.4.2) (2026-10-08)
+
+
+### Features
+
+* perch coverage finds low-value tests and real coverage gaps ([#317](https://github.com/lakeday-org/perch/issues/317)) ([767a4e4](https://github.com/lakeday-org/perch/commit/767a4e4d09d0f55bf1c45eab205d6db90cfba68d))
+* perch coverage finds tests in every language scan reads ([#331](https://github.com/lakeday-org/perch/issues/331)) ([0c27493](https://github.com/lakeday-org/perch/commit/0c27493c9caa8c932d4117fb1574312b65742479))
+* perch coverage makes every mutant of a method, fourteen kinds ([#337](https://github.com/lakeday-org/perch/issues/337)) ([7f88076](https://github.com/lakeday-org/perch/commit/7f88076db3a5060c232a6f3e1fe219b7d10c50d0))
+* perch coverage predicts which mutants your tests kill ([#320](https://github.com/lakeday-org/perch/issues/320)) ([73fc9bf](https://github.com/lakeday-org/perch/commit/73fc9bfff4ad941a617c142a46000cfe8a7b9f6a))
+* PERCH_BASE_URL can point at OpenAI's Decisions API ([#335](https://github.com/lakeday-org/perch/issues/335)) ([e122e6d](https://github.com/lakeday-org/perch/commit/e122e6ded8070303386251f049f80e33439efaa2))
+
+
+### Bug Fixes
+
+* perch scan ran out of open files reading callers ([#314](https://github.com/lakeday-org/perch/issues/314)) ([b966805](https://github.com/lakeday-org/perch/commit/b966805c2f5baefd6029278af74fcbbbb2bfd7f1)), closes [#305](https://github.com/lakeday-org/perch/issues/305) [#313](https://github.com/lakeday-org/perch/issues/313)
+
+## [0.4.1](https://github.com/lakeday-org/perch/compare/v0.4.0...v0.4.1) (2026-10-02)
+
+
+### Features
+
+* perch tells Perch Cloud which command and run sent each request ([#267](https://github.com/lakeday-org/perch/issues/267)) ([93f6730](https://github.com/lakeday-org/perch/commit/93f6730d3bdd03d7894ec70d63a688ab32b6b344))
+
+
+### Bug Fixes
+
+* a repository with no code scans its file rules instead of failing ([#250](https://github.com/lakeday-org/perch/issues/250)) ([bba684d](https://github.com/lakeday-org/perch/commit/bba684d70051ab54ef609047692dd262ae4a0455))
+* perch scan --filter rule= hid perch.yaml parse errors ([#264](https://github.com/lakeday-org/perch/issues/264)) ([879944b](https://github.com/lakeday-org/perch/commit/879944bc330bc0b5c7b203200616f939b4af3386))
+* perch scan asked again about unchanged methods when lines above them moved ([#310](https://github.com/lakeday-org/perch/issues/310)) ([7f6967d](https://github.com/lakeday-org/perch/commit/7f6967dbe1802c78f885745df02aa87ac2d0b423))
+* perch scan failed on defect readings barely over 50% ([#303](https://github.com/lakeday-org/perch/issues/303)) ([613c4c4](https://github.com/lakeday-org/perch/commit/613c4c41f3728ecd5fe5c71a33b43d0e15c3253b)), closes [#302](https://github.com/lakeday-org/perch/issues/302)
+* perch sent a model more questions per request than it accepts ([#265](https://github.com/lakeday-org/perch/issues/265)) ([07d38ca](https://github.com/lakeday-org/perch/commit/07d38cacba96f1def641899ec695dceeb0fd7f43))
+* Rust super imports resolved to no module or the wrong one ([#287](https://github.com/lakeday-org/perch/issues/287)) ([32ecb54](https://github.com/lakeday-org/perch/commit/32ecb5441a4696d190ec28f913f970cff20dcf8d))
+
 ## [0.4.0](https://github.com/lakeday-org/perch/compare/v0.3.5...v0.4.0) (2026-09-30)
 
 

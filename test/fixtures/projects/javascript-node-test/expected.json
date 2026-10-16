@@ -1,0 +1,167 @@
+{
+  "language": "javascript",
+  "framework": "node:test",
+  "left_out": ["scripts/build-docs.js", "scripts/check-exports.js"],
+  "tests": [
+    {
+      "file": "test/args.test.js",
+      "name": "reads --key=value and --key value",
+      "reaches": ["src/args.js::parseArgs", "src/args.js::splitOnce", "src/env.js::coerce", "src/env.js::setPath"]
+    },
+    {
+      "file": "test/args.test.js",
+      "name": "reads --flag as true and --no-flag as false",
+      "reaches": ["src/args.js::parseArgs", "src/env.js::setPath"]
+    },
+    {
+      "file": "test/args.test.js",
+      "name": "reads a dotted key into a nested object and stops at --",
+      "reaches": ["src/args.js::parseArgs", "src/env.js::setPath"]
+    },
+    {
+      "file": "test/env.test.js",
+      "name": "nests keys on the separator and camel-cases them",
+      "reaches": ["src/env.js::fromEnv", "src/env.js::toCamel", "src/env.js::setPath", "src/env.js::coerce"]
+    },
+    {
+      "file": "test/env.test.js",
+      "name": "keeps keys as written without camelCase",
+      "reaches": ["src/env.js::fromEnv", "src/env.js::setPath"]
+    },
+    {
+      "file": "test/env.test.js",
+      "name": "reads booleans, null and numbers, and leaves the rest",
+      "reaches": ["src/env.js::coerce"]
+    },
+    {
+      "file": "test/errors.test.js",
+      "name": "says how many problems and lists each",
+      "reaches": ["src/errors.js::ValidationError.constructor", "src/errors.js::formatProblems", "src/errors.js::ConfigError.constructor"]
+    },
+    {
+      "file": "test/errors.test.js",
+      "name": "gives the problems with one key",
+      "reaches": ["src/errors.js::ValidationError.constructor", "src/errors.js::ValidationError.about"]
+    },
+    {
+      "file": "test/formats.test.js",
+      "name": "parses JSON with comments and trailing commas",
+      "reaches": ["src/formats/json.js::parseJson", "src/formats/json.js::stripComments"]
+    },
+    {
+      "file": "test/formats.test.js",
+      "name": "names the file in a syntax error",
+      "reaches": ["src/formats/json.js::parseJson", "src/errors.js::ConfigError.constructor"]
+    },
+    {
+      "file": "test/formats.test.js",
+      "name": "reads sections, nested sections and quoted values",
+      "reaches": ["src/formats/ini.js::parseIni", "src/formats/ini.js::unquote"]
+    },
+    {
+      "file": "test/formats.test.js",
+      "name": "reads quoted values, escapes and trailing comments",
+      "reaches": ["src/formats/dotenv.js::parseDotenv", "src/formats/dotenv.js::expandEscapes"]
+    },
+    {
+      "file": "test/formats.test.js",
+      "name": "picks a parser by extension",
+      "reaches": ["src/formats/index.js::formatFor"]
+    },
+    {
+      "file": "test/formats.test.js",
+      "name": "rejects a file it has no parser for",
+      "reaches": ["src/formats/index.js::formatFor", "src/errors.js::ConfigError.constructor"]
+    },
+    {
+      "file": "test/interpolate.test.js",
+      "name": "replaces a variable",
+      "reaches": ["src/interpolate.js::interpolate"]
+    },
+    {
+      "file": "test/interpolate.test.js",
+      "name": "takes the fallback for an unset or empty variable",
+      "reaches": ["src/interpolate.js::interpolate"]
+    },
+    {
+      "file": "test/interpolate.test.js",
+      "name": "names the key when a variable is missing",
+      "reaches": ["src/interpolate.js::interpolate", "src/errors.js::ConfigError.constructor"]
+    },
+    {
+      "file": "test/interpolate.test.js",
+      "name": "interpolates every string in a tree and nothing else",
+      "reaches": ["src/interpolate.js::interpolateAll", "src/interpolate.js::interpolate", "src/merge.js::isPlainObject"]
+    },
+    {
+      "file": "test/load.test.js",
+      "name": "layers defaults, files, the environment and flags in that order",
+      "reaches": ["src/load.js::loadConfig", "src/load.js::readLayer", "src/env.js::fromEnv", "src/args.js::parseArgs", "src/merge.js::merge", "src/interpolate.js::interpolateAll", "src/formats/index.js::formatFor"]
+    },
+    {
+      "file": "test/load.test.js",
+      "name": "passes over an optional file that is not there",
+      "reaches": ["src/load.js::loadConfig", "src/load.js::readLayer"]
+    },
+    {
+      "file": "test/load.test.js",
+      "name": "rejects a configuration the schema does not allow",
+      "reaches": ["src/load.js::loadConfig", "src/schema/index.js::Schema.constructor"]
+    },
+    {
+      "file": "test/load.test.js",
+      "name": "hands the merged configuration to the schema once",
+      "reaches": ["src/load.js::loadConfig", "src/schema/index.js::Schema.constructor"]
+    },
+    {
+      "file": "test/merge.test.js",
+      "name": "merges nested objects, later sources winning",
+      "reaches": ["src/merge.js::merge", "src/merge.js::mergeWith", "src/merge.js::isPlainObject"]
+    },
+    {
+      "file": "test/merge.test.js",
+      "name": "replaces arrays by default",
+      "reaches": ["src/merge.js::merge", "src/merge.js::mergeWith"]
+    },
+    {
+      "file": "test/merge.test.js",
+      "name": "concatenates arrays when asked",
+      "reaches": ["src/merge.js::mergeWith"]
+    },
+    {
+      "file": "test/merge.test.js",
+      "name": "does not merge into the prototype",
+      "reaches": ["src/merge.js::merge", "src/merge.js::mergeWith"]
+    },
+    {
+      "file": "test/merge.test.js",
+      "name": "isPlainObject tells an object literal from an instance",
+      "reaches": ["src/merge.js::isPlainObject"]
+    },
+    {
+      "file": "test/schema.test.js",
+      "name": "fills in defaults",
+      "reaches": ["src/schema/index.js::Schema.constructor", "src/schema/index.js::Schema.validate", "src/schema/index.js::flatten", "src/schema/index.js::getPath"]
+    },
+    {
+      "file": "test/schema.test.js",
+      "name": "coerces strings from the environment",
+      "reaches": ["src/schema/index.js::Schema.validate", "src/schema/types.js::coerceType", "src/schema/types.js::checkType"]
+    },
+    {
+      "file": "test/schema.test.js",
+      "name": "reports every problem at once",
+      "reaches": ["src/schema/index.js::Schema.validate", "src/errors.js::ValidationError.constructor"]
+    },
+    {
+      "file": "test/schema.test.js",
+      "name": "describes each key for the docs",
+      "reaches": ["src/schema/index.js::Schema.describe"]
+    },
+    {
+      "file": "test/schema.test.js",
+      "name": "validates arrays of objects",
+      "reaches": ["src/schema/index.js::Schema.constructor", "src/schema/index.js::Schema.validate"]
+    }
+  ]
+}

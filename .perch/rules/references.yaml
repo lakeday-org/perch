@@ -5,17 +5,24 @@
     such as café, matches IDENTIFIER and is returned as it is. An ASCII-only
     pattern such as [A-Za-z_], which turns that name into <dynamic>, breaks
     this rule.
+# Bounded to the methods that read these imports: read over the whole of references.ts, both rules sat in the fifties once
+# the file passed a thousand lines, whatever the code did.
 - name: import-equals-is-an-import
-  where: src/treesitter/references.ts
+  where: mentions import_require_clause
+  except: "test/**"
+  each: method
   ensure: >-
-    Read importModule and the import_require_clause branch below it. For
-    TypeScript's import Foo = require("./foo"), the module is the clause's
-    source, "./foo", and Foo is the local binding. Leaving
-    import_require_clause out of either breaks this rule.
+    If this method reads the module or the local binding of an import, then
+    for TypeScript's import Foo = require("./foo") the module it reads is the
+    import_require_clause's source, "./foo", and the binding is Foo. A method
+    that reads imports and leaves import_require_clause out of either breaks
+    this rule. A method that only lists node types holds it.
 - name: import-call-is-an-import
-  where: src/treesitter/references.ts
+  where: mentions <unknown-module>
+  except: "test/**"
+  each: method
   ensure: >-
-    Read collectReferences. A call node whose callee is the import keyword is
-    recorded with makeReference("import", ...), naming its argument as the
-    module. Recording it as a call to a function named import breaks this
-    rule.
+    Find the branch of this method for a call node whose callee is the import
+    keyword. It records the call with makeReference("import", ...), naming
+    the call's argument as the module. Recording it as a call to a function
+    named import breaks this rule.

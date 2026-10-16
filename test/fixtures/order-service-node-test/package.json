@@ -1,0 +1,11 @@
+{
+  "name": "perch-fixture-order-service-node-test",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc",
+    "start": "node src/main.ts",
+    "test": "node --test --experimental-test-module-mocks 'test/*.test.ts'"
+  },
+  "devDependencies": { "@types/node": "^22.10.0", "typescript": "^5.7.3" }
+}

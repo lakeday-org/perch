@@ -1,0 +1,202 @@
+{
+  "language": "javascript",
+  "framework": "Mocha",
+  "left_out": ["examples/hello-world/index.js", "examples/route-params/index.js", "benchmark/middleware.js"],
+  "tests": [
+    {
+      "file": "test/application.spec.js",
+      "name": "should start with x-powered-by and weak etags",
+      "reaches": ["lib/application.js::createApplication", "lib/application.js::Application.constructor"]
+    },
+    {
+      "file": "test/application.spec.js",
+      "name": "should cache views in production",
+      "reaches": ["lib/application.js::createApplication", "lib/application.js::Application.constructor", "lib/application.js::Application.defaultConfiguration"]
+    },
+    {
+      "file": "test/application.spec.js",
+      "name": "should answer from the route that matches",
+      "reaches": ["lib/application.js::createApplication"]
+    },
+    {
+      "file": "test/application.spec.js",
+      "name": "should answer 404 when no route matches",
+      "reaches": ["lib/application.js::createApplication"]
+    },
+    {
+      "file": "test/application.spec.js",
+      "name": "should answer with the status of the error a handler throws",
+      "reaches": ["lib/application.js::createApplication"]
+    },
+    {
+      "file": "test/layer.spec.js",
+      "name": "fills params from the path, decoded",
+      "reaches": ["lib/router/layer.js::Layer.constructor", "lib/router/layer.js::Layer.match", "lib/router/layer.js::decodeParam"]
+    },
+    {
+      "file": "test/layer.spec.js",
+      "name": "fails a param that does not decode with a 400",
+      "reaches": ["lib/router/layer.js::Layer.match", "lib/router/layer.js::decodeParam"]
+    },
+    {
+      "file": "test/layer.spec.js",
+      "name": "passes what the handler throws to next",
+      "reaches": ["lib/router/layer.js::Layer.constructor", "lib/router/layer.js::Layer.handleRequest"]
+    },
+    {
+      "file": "test/layer.spec.js",
+      "name": "passes the error over a handler that takes three arguments",
+      "reaches": ["lib/router/layer.js::Layer.handleError"]
+    },
+    {
+      "file": "test/middleware.spec.js",
+      "name": "should collect a repeated key into an array",
+      "reaches": ["lib/middleware/query.js::query"]
+    },
+    {
+      "file": "test/middleware.spec.js",
+      "name": "should leave a query something else parsed",
+      "reaches": ["lib/middleware/query.js::query"]
+    },
+    {
+      "file": "test/middleware.spec.js",
+      "name": "should link the request, the response and the app",
+      "reaches": ["lib/middleware/init.js::exports.init"]
+    },
+    {
+      "file": "test/path-to-regexp.spec.js",
+      "name": "names each parameter in keys",
+      "reaches": ["lib/path-to-regexp.js::pathToRegexp", "lib/path-to-regexp.js::escapeString"]
+    },
+    {
+      "file": "test/path-to-regexp.spec.js",
+      "name": "allows a trailing slash unless strict",
+      "reaches": ["lib/path-to-regexp.js::pathToRegexp"]
+    },
+    {
+      "file": "test/path-to-regexp.spec.js",
+      "name": "matches a prefix that ends on a segment",
+      "reaches": ["lib/path-to-regexp.js::pathToRegexp"]
+    },
+    {
+      "file": "test/path-to-regexp.spec.js",
+      "name": "numbers the groups of a regular expression",
+      "reaches": ["lib/path-to-regexp.js::pathToRegexp"]
+    },
+    {
+      "file": "test/request.spec.js",
+      "name": "should pick the type the client prefers",
+      "reaches": ["lib/request.js::accepts", "lib/request.js::parseAccept", "lib/request.js::quality"]
+    },
+    {
+      "file": "test/request.spec.js",
+      "name": "should trust X-Forwarded-Proto only from a trusted proxy",
+      "reaches": ["lib/request.js::protocol", "lib/utils.js::exports.compileTrust"]
+    },
+    {
+      "file": "test/request.spec.js",
+      "name": "should drop the port but keep an IPv6 literal whole",
+      "reaches": ["lib/request.js::hostname"]
+    },
+    {
+      "file": "test/response.spec.js",
+      "name": "should send an object as JSON",
+      "reaches": ["lib/response.js::Response.constructor", "lib/response.js::Response.json"]
+    },
+    {
+      "file": "test/response.spec.js",
+      "name": "should escape the characters that would end a script tag",
+      "reaches": ["lib/response.js::Response.send", "lib/response.js::Response.json"]
+    },
+    {
+      "file": "test/response.spec.js",
+      "name": "should set the ETag the app's etag function makes",
+      "reaches": ["lib/response.js::Response.send", "lib/application.js::createApplication"]
+    },
+    {
+      "file": "test/response.spec.js",
+      "name": "should drop the body of a 204",
+      "reaches": ["lib/response.js::Response.status", "lib/response.js::Response.send"]
+    },
+    {
+      "file": "test/response.spec.js",
+      "name": "should redirect with a 302 and a Location header",
+      "reaches": ["lib/response.js::Response.redirect"]
+    },
+    {
+      "file": "test/route.spec.js",
+      "name": "should run the handlers in order",
+      "reaches": ["lib/router/route.js::Route.constructor", "lib/router/route.js::Route.dispatch", "lib/router/route.js::Route.dispatch.next"]
+    },
+    {
+      "file": "test/route.spec.js",
+      "name": "should skip handlers for another method",
+      "reaches": ["lib/router/route.js::Route.dispatch"]
+    },
+    {
+      "file": "test/route.spec.js",
+      "name": "should leave the route when a handler calls next(\"route\")",
+      "reaches": ["lib/router/route.js::Route.all", "lib/router/route.js::Route.dispatch"]
+    },
+    {
+      "file": "test/route.spec.js",
+      "name": "should answer HEAD with its GET handlers",
+      "reaches": ["lib/router/route.js::Route.handlesMethod"]
+    },
+    {
+      "file": "test/router.spec.js",
+      "name": "should send a request to the route that matches",
+      "reaches": ["lib/router/index.js::Router.route", "lib/router/index.js::Router.handle", "lib/router/index.js::Router.handle.next", "lib/router/route.js::Route.dispatch"]
+    },
+    {
+      "file": "test/router.spec.js",
+      "name": "should hand on a request no route matches",
+      "reaches": ["lib/router/index.js::Router.route", "lib/router/index.js::Router.handle", "lib/router/index.js::pathname"]
+    },
+    {
+      "file": "test/router.spec.js",
+      "name": "should strip the mount path from req.url inside the middleware",
+      "reaches": ["lib/router/index.js::Router.use", "lib/router/index.js::Router.handle", "lib/router/index.js::Router.handle.trimPrefix"]
+    },
+    {
+      "file": "test/router.spec.js",
+      "name": "should pass an error to the next error handler",
+      "reaches": ["lib/router/index.js::Router.use", "lib/router/index.js::Router.handle", "lib/router/index.js::Router.handle.next"]
+    },
+    {
+      "file": "test/router.spec.js",
+      "name": "should run a param callback once per request",
+      "reaches": ["lib/router/index.js::Router.param", "lib/router/index.js::Router.handle", "lib/router/index.js::Router.processParams"]
+    },
+    {
+      "file": "test/router.spec.js",
+      "name": "should merge params from a parent router",
+      "reaches": ["lib/router/index.js::Router.constructor", "lib/router/index.js::Router.use", "lib/router/index.js::Router.route"]
+    },
+    {
+      "file": "test/utils.spec.js",
+      "name": "should make a strong tag from the length and a hash",
+      "reaches": ["lib/utils.js::exports.etag", "lib/utils.js::entityTag"]
+    },
+    {
+      "file": "test/utils.spec.js",
+      "name": "should make a weak tag",
+      "reaches": ["lib/utils.js::exports.wetag", "lib/utils.js::entityTag"]
+    },
+    {
+      "file": "test/utils.spec.js",
+      "name": "should normalize ${type}",
+      "reaches": ["lib/utils.js::exports.normalizeType"]
+    },
+    {
+      "file": "test/utils.spec.js",
+      "name": "should replace a charset and keep other parameters",
+      "reaches": ["lib/utils.js::exports.setCharset"]
+    },
+    {
+      "file": "test/utils.spec.js",
+      "name": "should throw on a value it does not know",
+      "reaches": ["lib/utils.js::exports.compileETag"]
+    }
+  ]
+}

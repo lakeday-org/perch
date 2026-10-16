@@ -12,10 +12,13 @@ export type { LanguageId, LanguageDefinition } from "./languages";
 export type {
   AnalysisDiagnostic,
   AnalysisTruncation,
+  AnalyzeOptions,
   Analyzer,
   ComplexityMetrics,
   Declaration,
   HalsteadMetrics,
+  Mock,
+  MockTarget,
   ParserStatus,
   QualityMetrics,
   Reference,
@@ -25,4 +28,5 @@ export type {
   SourceLocation,
   SourcePoint,
   StructureHotspot,
+  TestCase,
 } from "./types";

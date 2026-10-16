@@ -1,0 +1,8 @@
+return {
+  _all = {
+    lpath = "./src/?.lua;./src/?/init.lua",
+  },
+  default = {
+    verbose = true,
+  },
+}

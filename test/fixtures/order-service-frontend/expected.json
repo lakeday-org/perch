@@ -1,0 +1,170 @@
+{
+  "language": "tsx",
+  "framework": "vitest",
+  "sources": 7,
+  "availability": {
+    "path": "src/CheckoutPanel.tsx",
+    "name": "canCheckout"
+  },
+  "tests": [
+    {
+      "n": 1,
+      "file": "src/CheckoutPanel.test.tsx",
+      "name": "allows checkout when every item is in stock",
+      "direct": [
+        "src/CheckoutPanel.tsx::canCheckout"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 2,
+      "file": "src/CheckoutPanel.test.tsx",
+      "name": "refuses checkout for an empty cart",
+      "direct": [
+        "src/CheckoutPanel.tsx::canCheckout"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "empty_or_absent_input",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 3,
+      "file": "src/CheckoutPanel.test.tsx",
+      "name": "allows a quantity equal to the stock level",
+      "direct": [
+        "src/CheckoutPanel.tsx::canCheckout"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "boundary",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 4,
+      "file": "src/cart.test.tsx",
+      "name": "takes 10 percent off",
+      "direct": [
+        "src/cart.ts::applyDiscount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 5,
+      "file": "src/cart.test.tsx",
+      "name": "takes 20 percent off",
+      "direct": [
+        "src/cart.ts::applyDiscount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 6,
+      "file": "src/cart.test.tsx",
+      "name": "takes 25 percent off",
+      "direct": [
+        "src/cart.ts::applyDiscount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 7,
+      "file": "src/cart.test.tsx",
+      "name": "takes 50 percent off",
+      "direct": [
+        "src/cart.ts::applyDiscount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 8,
+      "file": "src/cart.test.tsx",
+      "name": "takes 75 percent off",
+      "direct": [
+        "src/cart.ts::applyDiscount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 9,
+      "file": "src/CheckoutPanel.test.tsx",
+      "name": "returns what the stub returns",
+      "direct": [],
+      "cuts": [
+        "src/CheckoutPanel.tsx::canCheckout"
+      ],
+      "touches": [],
+      "decides": "nothing",
+      "smell": "asserts_mock",
+      "infra": false
+    },
+    {
+      "n": 10,
+      "file": "src/cart.test.tsx",
+      "name": "adds up the cart",
+      "direct": [
+        "src/cart.ts::subtotal"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "nothing",
+      "smell": "no_assertion",
+      "infra": false
+    },
+    {
+      "n": 11,
+      "file": "src/cart.test.tsx",
+      "name": "matches the total the orders API saved",
+      "direct": [
+        "src/cart.ts::subtotal"
+      ],
+      "cuts": [],
+      "touches": [
+        "network",
+        "environment"
+      ],
+      "decides": "happy_path",
+      "smell": "mystery_guest",
+      "infra": true
+    },
+    {
+      "n": 12,
+      "file": "src/checkout.test.tsx",
+      "name": "returns the subtotal when every item is in stock",
+      "direct": [
+        "src/checkout.ts::placeOrder"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    }
+  ]
+}

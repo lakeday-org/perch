@@ -1,0 +1,18 @@
+# Decision models take different numbers of questions and options per request. A batch has to fit the model it goes to.
+- name: batches-fit-the-model
+  where: src/tokens.js
+  ensure: >-
+    Read questionBatches. A batch closes when it already holds
+    limits.questions questions, as well as when the next question would go
+    over the token budget. A choice with more options than limits.options is
+    refused. Closing a batch only on tokens, or checking options against a
+    fixed number, breaks this rule.
+- name: limits-learned-before-batching
+  where: src/systemone.js
+  ensure: >-
+    Read askAll. Only the first ask a client makes splits its questions
+    before the endpoint has answered once, and that first request is kept
+    small while the limits are unknown. Every other ask waits for that first
+    answer, so the limits the endpoint reported in _meta are in place before
+    its questions are split. Splitting questions into batches before the
+    first answer arrives breaks this rule.

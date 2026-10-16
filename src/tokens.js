@@ -4,8 +4,11 @@ import { countTokens } from 'gpt-tokenizer/encoding/o200k_base';
 /** Perch Cloud's bug model takes at most 128 options in one Choice; a longer list is narrowed through windows first. */
 export const MAX_CHOICES = 128;
 
-// Leave room below Jev's 32k per question and 64k per request limits for server formatting.
-export const TOKEN_LIMITS = Object.freeze({ state: 24000, single: 30000, request: 60000 });
+/**
+ * Leave room below Jev's 32k per question and 64k per request limits for server formatting. Jev takes any number of questions
+ * that fit; another model may take fewer, and says so in `_meta.max_questions`, which `createSystemOne` puts in `questions`.
+ */
+export const TOKEN_LIMITS = Object.freeze({ state: 24000, single: 30000, request: 60000, questions: Infinity, options: MAX_CHOICES });
 const literal = { disallowedSpecial: new Set() };
 
 /** o200k plus 20% headroom is an estimate, not Jev's exact tokenization. */
@@ -46,10 +49,11 @@ export async function withTokenRetries(read, initial = TOKEN_LIMITS.state) {
 }
 /**
  * Count state once, include every question and criterion, and preserve each question intact. A batch closes when the next
- * question would not fit the request.
+ * question would not fit the request, or when it holds as many questions as the model takes.
  */
 export function questionBatches(state, questions, limits = TOKEN_LIMITS) {
   const size = estimateTokens(state);
+  const most = limits.questions ?? Infinity, options = limits.options ?? MAX_CHOICES;
   if (size > limits.state) throw new ContextLimitError('request state exceeds its estimated token budget', Math.floor(limits.state / 2));
   const batches = [];
   let current = {}, total = size + 64;
@@ -57,9 +61,10 @@ export function questionBatches(state, questions, limits = TOKEN_LIMITS) {
     const tokens = estimateTokens({ [name]: question }) + 32;
     if (size + tokens + 64 > limits.single)
       throw new ContextLimitError(`question ${name} and its context exceed the estimated token budget`, Math.floor(size / 2));
-    if (question.criteria && Object.keys(question.criteria).length > MAX_CHOICES)
-      throw new IncompleteCheckError(`question ${name} has more than ${MAX_CHOICES} choices`);
-    if (total + tokens > limits.request && Object.keys(current).length) { batches.push(current); current = {}; total = size + 64; }
+    if (question.criteria && Object.keys(question.criteria).length > options)
+      throw new IncompleteCheckError(`question ${name} has more than ${options} choices`);
+    const held = Object.keys(current).length;
+    if ((total + tokens > limits.request || held >= most) && held) { batches.push(current); current = {}; total = size + 64; }
     if (total + tokens > limits.request) throw new ContextLimitError(`question ${name} exceeds the request token budget`, Math.floor(size / 2));
     current[name] = question;
     total += tokens;

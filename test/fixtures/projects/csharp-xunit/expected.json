@@ -1,0 +1,72 @@
+{
+  "language": "c_sharp",
+  "framework": "xUnit",
+  "left_out": ["tools/Ledger.Seed/Program.cs"],
+  "tests": [
+    {
+      "file": "tests/Ledger.Tests/MoneyTests.cs",
+      "name": "ParsesDecimalStrings",
+      "reaches": ["src/Ledger/Money.cs::Money.Parse", "src/Ledger/Currency.cs::Currency.FromCode"]
+    },
+    {
+      "file": "tests/Ledger.Tests/MoneyTests.cs",
+      "name": "RejectsMoreDecimalsThanTheCurrencyHas",
+      "reaches": ["src/Ledger/Money.cs::Money.Parse"]
+    },
+    {
+      "file": "tests/Ledger.Tests/MoneyTests.cs",
+      "name": "RefusesToAddAcrossCurrencies",
+      "reaches": ["src/Ledger/Money.cs::Money.Parse", "src/Ledger/Money.cs::Money.Plus"]
+    },
+    {
+      "file": "tests/Ledger.Tests/MoneyTests.cs",
+      "name": "RoundsHalfToEven",
+      "reaches": ["src/Ledger/Money.cs::Money.Times"]
+    },
+    {
+      "file": "tests/Ledger.Tests/MoneyTests.cs",
+      "name": "FormatsANegativeAmountWithTheSignFirst",
+      "reaches": ["src/Ledger/Money.cs::Money.Parse", "src/Ledger/Money.cs::Money.Negate", "src/Ledger/Money.cs::Money.ToString"]
+    },
+    {
+      "file": "tests/Ledger.Tests/MoneyTests.cs",
+      "name": "ZeroIsNeitherNegativeNorNonZero",
+      "reaches": ["src/Ledger/Money.cs::Money.Zero"]
+    },
+    {
+      "file": "tests/Ledger.Tests/JournalEntryTests.cs",
+      "name": "ABalancedEntryValidates",
+      "reaches": ["src/Ledger/Journal/JournalEntry.cs::JournalEntry.JournalEntry", "src/Ledger/Journal/JournalEntry.cs::JournalEntry.Debit", "src/Ledger/Journal/JournalEntry.cs::JournalEntry.Credit", "src/Ledger/Journal/JournalEntry.cs::JournalEntry.Validate", "src/Ledger/Journal/JournalEntry.cs::JournalEntry.IsBalanced", "src/Ledger/Journal/JournalEntry.cs::JournalEntry.Imbalance"]
+    },
+    {
+      "file": "tests/Ledger.Tests/JournalEntryTests.cs",
+      "name": "AnUnbalancedEntryIsRefused",
+      "reaches": ["src/Ledger/Journal/JournalEntry.cs::JournalEntry.Debit", "src/Ledger/Journal/JournalEntry.cs::JournalEntry.Validate", "src/Ledger/Money.cs::Money.Parse"]
+    },
+    {
+      "file": "tests/Ledger.Tests/JournalEntryTests.cs",
+      "name": "AnEntryNeedsTwoLines",
+      "reaches": ["src/Ledger/Journal/JournalEntry.cs::JournalEntry.Debit", "src/Ledger/Journal/JournalEntry.cs::JournalEntry.Validate"]
+    },
+    {
+      "file": "tests/Ledger.Tests/BookTests.cs",
+      "name": "PostingMovesBothBalances",
+      "reaches": ["src/Ledger/Book.cs::Book.Open", "src/Ledger/Book.cs::Book.Post", "src/Ledger/Book.cs::Book.Balance", "src/Ledger/Money.cs::Money.Parse", "src/Ledger/Journal/JournalEntry.cs::JournalEntry.Validate", "src/Ledger/Book.cs::Book.AccountFor"]
+    },
+    {
+      "file": "tests/Ledger.Tests/BookTests.cs",
+      "name": "PostingIntoAClosedPeriodIsRefused",
+      "reaches": ["src/Ledger/Book.cs::Book.ClosePeriod", "src/Ledger/Book.cs::Book.Post"]
+    },
+    {
+      "file": "tests/Ledger.Tests/BookTests.cs",
+      "name": "AFrozenAccountRefusesEntries",
+      "reaches": ["src/Ledger/Book.cs::Book.AccountFor", "src/Ledger/Book.cs::Book.Post"]
+    },
+    {
+      "file": "tests/Ledger.Tests/BookTests.cs",
+      "name": "APeriodCannotBeReopened",
+      "reaches": ["src/Ledger/Book.cs::Book.ClosePeriod", "src/Ledger/Book.cs::Book.Open", "src/Ledger/Account.cs::Account.Account"]
+    }
+  ]
+}

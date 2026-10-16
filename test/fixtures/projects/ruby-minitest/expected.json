@@ -1,0 +1,57 @@
+{
+  "language": "ruby",
+  "framework": "Minitest",
+  "left_out": ["scripts/restock.rb"],
+  "tests": [
+    {
+      "file": "test/item_test.rb",
+      "name": "test_grams_converts_the_unit",
+      "reaches": ["lib/pantry/item.rb::Pantry.Item.initialize", "lib/pantry/item.rb::Pantry.Item.grams", "lib/pantry/units.rb::Pantry.Units.to_grams"]
+    },
+    {
+      "file": "test/item_test.rb",
+      "name": "test_rejects_a_zero_quantity",
+      "reaches": ["lib/pantry/item.rb::Pantry.Item.initialize"]
+    },
+    {
+      "file": "test/item_test.rb",
+      "name": "test_merge_adds_in_grams",
+      "reaches": ["lib/pantry/item.rb::Pantry.Item.initialize", "lib/pantry/item.rb::Pantry.Item.merge"]
+    },
+    {
+      "file": "test/item_test.rb",
+      "name": "test_low_below_the_threshold",
+      "reaches": ["lib/pantry/item.rb::Pantry.Item.initialize", "lib/pantry/item.rb::Pantry.Item.low?"]
+    },
+    {
+      "file": "test/shelf_test.rb",
+      "name": "test_add_merges_the_same_item",
+      "reaches": ["lib/pantry/shelf.rb::Pantry.Shelf.initialize", "lib/pantry/shelf.rb::Pantry.Shelf.add", "lib/pantry/shelf.rb::Pantry.Shelf.find", "lib/pantry/item.rb::Pantry.Item.initialize"]
+    },
+    {
+      "file": "test/shelf_test.rb",
+      "name": "test_find_raises_for_a_missing_item",
+      "reaches": ["lib/pantry/shelf.rb::Pantry.Shelf.initialize", "lib/pantry/shelf.rb::Pantry.Shelf.add", "lib/pantry/shelf.rb::Pantry.Shelf.find"]
+    },
+    {
+      "file": "test/shelf_test.rb",
+      "name": "test_low_stock_lists_items_under_the_threshold",
+      "reaches": ["lib/pantry/shelf.rb::Pantry.Shelf.add", "lib/pantry/shelf.rb::Pantry.Shelf.low_stock", "lib/pantry/item.rb::Pantry.Item.initialize"]
+    },
+    {
+      "file": "test/shelf_test.rb",
+      "name": "test_stock_builds_a_shelf",
+      "reaches": ["lib/pantry.rb::Pantry.stock", "lib/pantry/shelf.rb::Pantry.Shelf.initialize", "lib/pantry/shelf.rb::Pantry.Shelf.add", "lib/pantry/item.rb::Pantry.Item.initialize"]
+    },
+    {
+      "file": "test/recipe_test.rb",
+      "name": "scales ingredients to the number served",
+      "reaches": ["lib/pantry/recipe.rb::Pantry.Recipe.initialize", "lib/pantry/recipe.rb::Pantry.Recipe.needs", "lib/pantry/recipe.rb::Pantry.Recipe.scaled"]
+    },
+    {
+      "file": "test/recipe_test.rb",
+      "name": "lists what the shelf lacks",
+      "reaches": ["lib/pantry/recipe.rb::Pantry.Recipe.initialize", "lib/pantry/recipe.rb::Pantry.Recipe.needs", "lib/pantry/recipe.rb::Pantry.Recipe.missing_from", "lib/pantry.rb::Pantry.stock", "lib/pantry/units.rb::Pantry.Units.to_grams"]
+    }
+  ]
+}

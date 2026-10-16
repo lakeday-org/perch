@@ -1,0 +1,72 @@
+{
+  "language": "scala",
+  "framework": "ScalaTest",
+  "left_out": ["scripts/Seed.sc"],
+  "tests": [
+    {
+      "file": "src/test/scala/ledger/money/MoneySuite.scala",
+      "name": "parses decimal strings",
+      "reaches": ["src/main/scala/ledger/money/Money.scala::Money.parse"]
+    },
+    {
+      "file": "src/test/scala/ledger/money/MoneySuite.scala",
+      "name": "rejects more decimals than the currency has",
+      "reaches": ["src/main/scala/ledger/money/Money.scala::Money.parse"]
+    },
+    {
+      "file": "src/test/scala/ledger/money/MoneySuite.scala",
+      "name": "refuses to add across currencies",
+      "reaches": ["src/main/scala/ledger/money/Money.scala::Money.parse", "src/main/scala/ledger/money/Money.scala::Money.plus"]
+    },
+    {
+      "file": "src/test/scala/ledger/money/MoneySuite.scala",
+      "name": "rounds half to even",
+      "reaches": ["src/main/scala/ledger/money/Money.scala::Money.times"]
+    },
+    {
+      "file": "src/test/scala/ledger/money/MoneySuite.scala",
+      "name": "finds a currency by its code",
+      "reaches": ["src/main/scala/ledger/money/Currency.scala::Currency.fromCode"]
+    },
+    {
+      "file": "src/test/scala/ledger/EntrySpec.scala",
+      "name": "A balanced entry should validate",
+      "reaches": ["src/main/scala/ledger/Journal.scala::Entry.debit", "src/main/scala/ledger/Journal.scala::Entry.credit", "src/main/scala/ledger/Journal.scala::Entry.validate", "src/main/scala/ledger/money/Money.scala::Money.parse"]
+    },
+    {
+      "file": "src/test/scala/ledger/EntrySpec.scala",
+      "name": "A balanced entry should report what it is off by when it is not",
+      "reaches": ["src/main/scala/ledger/Journal.scala::Entry.debit", "src/main/scala/ledger/Journal.scala::Entry.credit", "src/main/scala/ledger/Journal.scala::Entry.validate", "src/main/scala/ledger/Journal.scala::Entry.imbalance"]
+    },
+    {
+      "file": "src/test/scala/ledger/EntrySpec.scala",
+      "name": "An entry with one line should not be balanced",
+      "reaches": ["src/main/scala/ledger/Journal.scala::Entry.debit", "src/main/scala/ledger/Journal.scala::Entry.validate"]
+    },
+    {
+      "file": "src/test/scala/ledger/LedgerSuite.scala",
+      "name": "posting moves both balances",
+      "reaches": ["src/main/scala/ledger/Ledger.scala::Ledger.smallBusiness", "src/main/scala/ledger/Ledger.scala::Ledger.post", "src/main/scala/ledger/Ledger.scala::Ledger.balance", "src/main/scala/ledger/Journal.scala::Entry.debit", "src/main/scala/ledger/Journal.scala::Entry.credit", "src/main/scala/ledger/money/Money.scala::Money.parse", "src/main/scala/ledger/Ledger.scala::Ledger.open"]
+    },
+    {
+      "file": "src/test/scala/ledger/LedgerSuite.scala",
+      "name": "posting into a closed period is refused",
+      "reaches": ["src/main/scala/ledger/Ledger.scala::Ledger.closePeriod", "src/main/scala/ledger/Ledger.scala::Ledger.post"]
+    },
+    {
+      "file": "src/test/scala/ledger/LedgerSuite.scala",
+      "name": "a frozen account refuses entries",
+      "reaches": ["src/main/scala/ledger/Ledger.scala::Ledger.account", "src/main/scala/ledger/Account.scala::Account.freeze", "src/main/scala/ledger/Ledger.scala::Ledger.post"]
+    },
+    {
+      "file": "src/test/scala/ledger/LedgerSuite.scala",
+      "name": "a period cannot be reopened",
+      "reaches": ["src/main/scala/ledger/Ledger.scala::Ledger.closePeriod", "src/main/scala/ledger/Ledger.scala::Ledger.smallBusiness"]
+    },
+    {
+      "file": "src/test/scala/ledger/LedgerSuite.scala",
+      "name": "a debit raises an asset and lowers revenue",
+      "reaches": ["src/main/scala/ledger/Ledger.scala::Ledger.account", "src/main/scala/ledger/Account.scala::Account.apply", "src/main/scala/ledger/money/Money.scala::Money.plus"]
+    }
+  ]
+}

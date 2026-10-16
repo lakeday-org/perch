@@ -1,0 +1,62 @@
+{
+  "language": "c",
+  "framework": "cmocka",
+  "left_out": ["bench/cart_bench.c"],
+  "tests": [
+    {
+      "file": "tests/discount_test.c",
+      "name": "test_takes_the_percentage_off",
+      "reaches": ["src/discount.c::apply_discount"]
+    },
+    {
+      "file": "tests/discount_test.c",
+      "name": "test_a_full_discount_is_free",
+      "reaches": ["src/discount.c::apply_discount"]
+    },
+    {
+      "file": "tests/discount_test.c",
+      "name": "test_no_discount_leaves_the_total",
+      "reaches": ["src/discount.c::apply_discount"]
+    },
+    {
+      "file": "tests/discount_test.c",
+      "name": "test_bulk_discounts",
+      "reaches": ["src/discount.c::discount_for_quantity"]
+    },
+    {
+      "file": "tests/discount_test.c",
+      "name": "test_tax_rounds_half_up",
+      "reaches": ["src/tax.c::tax_for"]
+    },
+    {
+      "file": "tests/discount_test.c",
+      "name": "test_tax_rate_by_region",
+      "reaches": ["src/tax.c::tax_rate"]
+    },
+    {
+      "file": "tests/cart_test.c",
+      "name": "test_an_empty_cart_costs_nothing",
+      "reaches": ["src/cart.c::cart_init", "src/cart.c::cart_subtotal", "src/cart.c::cart_total", "src/tax.c::tax_for", "src/tax.c::tax_rate"]
+    },
+    {
+      "file": "tests/cart_test.c",
+      "name": "test_subtotal_applies_bulk_discounts",
+      "reaches": ["src/cart.c::cart_init", "src/cart.c::cart_add", "src/cart.c::cart_subtotal", "src/discount.c::apply_discount", "src/discount.c::discount_for_quantity"]
+    },
+    {
+      "file": "tests/cart_test.c",
+      "name": "test_total_adds_the_regions_tax",
+      "reaches": ["src/cart.c::cart_init", "src/cart.c::cart_add", "src/cart.c::cart_total", "src/cart.c::cart_subtotal", "src/tax.c::tax_for", "src/tax.c::tax_rate"]
+    },
+    {
+      "file": "tests/cart_test.c",
+      "name": "test_rejects_a_zero_quantity",
+      "reaches": ["src/cart.c::cart_init", "src/cart.c::cart_add"]
+    },
+    {
+      "file": "tests/cart_test.c",
+      "name": "test_the_cart_fills_up",
+      "reaches": ["src/cart.c::cart_init", "src/cart.c::cart_add"]
+    }
+  ]
+}

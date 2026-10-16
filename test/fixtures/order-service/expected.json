@@ -1,0 +1,170 @@
+{
+  "language": "python",
+  "framework": "pytest",
+  "sources": 7,
+  "availability": {
+    "path": "checkout.py",
+    "name": "can_fulfil"
+  },
+  "tests": [
+    {
+      "n": 1,
+      "file": "tests/test_order_service.py",
+      "name": "test_can_fulfil_when_every_item_is_in_stock",
+      "direct": [
+        "checkout.py::can_fulfil"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 2,
+      "file": "tests/test_order_service.py",
+      "name": "test_can_fulfil_rejects_an_empty_cart",
+      "direct": [
+        "checkout.py::can_fulfil"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "empty_or_absent_input",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 3,
+      "file": "tests/test_order_service.py",
+      "name": "test_can_fulfil_when_quantity_equals_stock",
+      "direct": [
+        "checkout.py::can_fulfil"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "boundary",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 4,
+      "file": "tests/test_order_service.py",
+      "name": "test_apply_discount_10_percent",
+      "direct": [
+        "cart.py::apply_discount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 5,
+      "file": "tests/test_order_service.py",
+      "name": "test_apply_discount_20_percent",
+      "direct": [
+        "cart.py::apply_discount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 6,
+      "file": "tests/test_order_service.py",
+      "name": "test_apply_discount_25_percent",
+      "direct": [
+        "cart.py::apply_discount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 7,
+      "file": "tests/test_order_service.py",
+      "name": "test_apply_discount_50_percent",
+      "direct": [
+        "cart.py::apply_discount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 8,
+      "file": "tests/test_order_service.py",
+      "name": "test_apply_discount_75_percent",
+      "direct": [
+        "cart.py::apply_discount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 9,
+      "file": "tests/test_order_service.py",
+      "name": "test_can_fulfil_stubbed",
+      "direct": [],
+      "cuts": [
+        "checkout.py::can_fulfil"
+      ],
+      "touches": [],
+      "decides": "nothing",
+      "smell": "asserts_mock",
+      "infra": false
+    },
+    {
+      "n": 10,
+      "file": "tests/test_order_service.py",
+      "name": "test_subtotal_adds_up_the_cart",
+      "direct": [
+        "cart.py::subtotal"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "nothing",
+      "smell": "no_assertion",
+      "infra": false
+    },
+    {
+      "n": 11,
+      "file": "tests/test_order_service.py",
+      "name": "test_subtotal_matches_the_saved_order",
+      "direct": [
+        "cart.py::subtotal"
+      ],
+      "cuts": [],
+      "touches": [
+        "database",
+        "environment"
+      ],
+      "decides": "happy_path",
+      "smell": "mystery_guest",
+      "infra": true
+    },
+    {
+      "n": 12,
+      "file": "tests/test_order_service.py",
+      "name": "test_place_order_charges_the_subtotal",
+      "direct": [
+        "checkout.py::place_order"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    }
+  ]
+}

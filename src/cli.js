@@ -1,5 +1,6 @@
-/** perch command line: scan, issues, check, close, rules, doctor. */
-import { join } from 'node:path';
+/** perch command line: scan, coverage, issues, check, ci, cloud, close, rules, doctor. */
+import { appendFile, mkdir, writeFile } from 'node:fs/promises';
+import { dirname, join, posix, resolve } from 'node:path';
 import { git, repoRoot, revision as gitRevision } from './git.js';
 import { resolveTarget } from './target.js';
 import { loginCloud, logoutCloud } from './cloud-auth.js';
@@ -7,7 +8,7 @@ import { configuredSystemOne, credentialSource } from './cloud-client.js';
 import { createResultStream, reportFindings, runContext } from './cloud-results.js';
 import { configuredEnvironment } from './config.js';
 import { createSourceAnalyzer } from './analysis.js';
-import { openStore, resolveOut } from './store.js';
+import { jsonChunks, openStore, resolveOut } from './store.js';
 import { analyzeTree } from './analyze.js';
 import { covers, DEFAULT_PARALLEL, scanRepository } from './scan.js';
 import { BELIEVED, filterKeys, filterStrength, matchesFilters, parseFilters } from './questions.js';
@@ -17,9 +18,13 @@ import { checkTarget } from './check.js';
 import { runChecks } from './checks.js';
 import { addRule, editRule, KINDS as RULE_KINDS, removeRule, ruleFile } from './rules.js';
 import { allQuestions, parseQuestions, SHAPES } from './ask.js';
-import { installSkill, TARGET_NAMES, TARGETS } from './setup.js';
+import { installSkill, registerMcp, TARGET_NAMES, TARGETS } from './setup.js';
+import { createCloud, running, SCAN_TYPES, waitForRun } from './ci.js';
 import { createMeter, metered } from './meter.js';
-import { formatDoctor, formatFilterKeys, gating, useColor, formatFinding, formatIssues, formatCheck, formatRules, formatScanReport, issueCount, scanCount, scanTally, TOP, visibleFindings } from './report.js';
+import { coverageFindings, coverageRepository, withoutSource } from './coverage.js';
+import { renderCoverageSite } from './coverage-html.js';
+import { COVERAGE_KINDS, coverageCount, coverageDetails, formatCoverage, formatCoverageDiff, listedFindings, parseCoverageFilters } from './coverage-report.js';
+import { formatCloud, formatDoctor, formatFilterKeys, formatRun, formatRuns, gating, runResult, runSummary, useColor, formatFinding, formatIssues, formatCheck, formatRules, formatScanReport, issueCount, relative, scanCount, scanTally, shownIssues, TOP, visibleFindings } from './report.js';
 
 /**
  * Stamped into the bundle at build time, so it reports what is running rather than a number read off a package.json that may not
@@ -27,17 +32,33 @@ import { formatDoctor, formatFilterKeys, gating, useColor, formatFinding, format
  */
 export const VERSION = typeof PERCH_VERSION === 'string' ? PERCH_VERSION : 'dev';
 
+/**
+ * Every flag: how it is written, what it does, which commands take it, and what it does differently on the one command where the
+ * shared sentence would be wrong.
+ */
 const options = {
-  paths: ['--paths a,b', 'Only consider files under these repository paths', ['scan']],
-  parallel: ['--parallel N', `How many methods to read at once (default ${DEFAULT_PARALLEL}; files and tests go ${UNIT_PARALLEL} at a time, alongside them)`, ['scan']],
-  since: ['--since REF', 'Only what changed since this branch or commit', ['scan']],
-  all: ['--all', 'List every row instead of the top 10', ['scan', 'issues']],
+  'include-tests': ['--include-tests', 'Review parsed test and test-support code alongside production methods', ['scan']],
+  'include-files': ['--include-files', 'Parse document and configuration files alongside callable code', ['scan']],
+  paths: ['--paths a,b', 'Only consider files under these repository paths', ['scan', 'coverage']],
+  parallel: ['--parallel N', `How many methods to read at once (default ${DEFAULT_PARALLEL}; files and tests go ${UNIT_PARALLEL} at a time, alongside them)`, ['scan', 'coverage'],
+    { coverage: `How many tests or methods to ask about at once (default ${DEFAULT_PARALLEL})` }],
+  since: ['--since REF', 'Only what changed since this branch or commit', ['scan', 'coverage'],
+    { coverage: 'Report only what changed since this branch or commit' }],
+  all: ['--all', 'List every row instead of the top 10', ['scan', 'issues', 'coverage']],
   limit: ['--limit N', `Rows per page (default ${TOP})`, ['issues']],
   page: ['--page N', 'Which page of them, 1 is the first', ['issues']],
   closed: ['--closed', 'Include closed issues (worked and given up on, or nothing left to do)', ['issues']],
-  min: ['--min P', `Only issues it is at least P percent sure of (default ${BELIEVED * 100}; --min 0 shows everything). On a rule, the floor for that one alone`, ['scan', 'issues', 'rules']],
-  filter: ['--filter k=v', 'Only issues matching, e.g. type=security, kind=too big, severity=P1 (comma-separated)', ['scan', 'issues']],
-  gate: ['--gate yes|no', 'Whether breaking this one fails a scan. Defaults to yes for a defect, a vulnerability or a rule', ['rules']],
+  min: ['--min P', `Only issues it is at least P percent sure of (default ${BELIEVED * 100}; --min 0 shows everything). On a rule, the floor for that one alone`, ['scan', 'issues', 'rules', 'coverage'],
+    { coverage: `Only problems it is at least P percent sure of (default ${BELIEVED * 100}; --min 0 shows everything)` }],
+  filter: ['--filter k=v', 'Only issues matching, e.g. type=security, kind=too big, severity=P1 (comma-separated)', ['scan', 'issues', 'coverage'],
+    { coverage: 'Only problems of these kinds, e.g. kind=survived,kind=redundant' }],
+  diff: ['--diff REF', 'Compare with the run saved at this branch or commit', ['coverage']],
+  html: ['--html FILE', 'Where to write the HTML report (default coverage/index.html under --out)', ['coverage']],
+  gate: ['--gate yes|no', 'Whether breaking this one fails a scan. Defaults to yes for a defect, a vulnerability or a rule', ['rules', 'cloud'],
+    { cloud: 'Whether issues fail the Perch Scan check on a pull request' }],
+  pull_requests: ['--pull_requests yes|no', 'Whether Perch Cloud scans this repository\'s pull requests', ['cloud']],
+  scan_types: ['--scan_types a,b', `Issue types to scan for: ${SCAN_TYPES.join(', ')}`, ['cloud']],
+  scope: ['--scope changes|all', 'Scan the changed code or the whole repository', ['cloud']],
   file: ['--file F', `The rule file: ${RULES_FILE} or a .yaml under ${RULES_DIR}/. add creates it; list shows only it`, ['rules']],
   types: ['--types', 'Print everything --filter accepts and stop', ['issues']],
   rules: ['--rules a,b', 'Ask only these: rule names, or defect, security, refactor, docs', ['check']],
@@ -59,9 +80,10 @@ const options = {
   reason: ['--reason R', 'Why you are setting these aside, kept on the record', ['close']],
   kind: ['--kind a,b', 'Only these kinds of it, e.g. docs, too_big (default: everything on it now)', ['close', 'reopen']],
   force: ['--force', 'setup: replace a skill file you have edited. scan, check: ask Perch Cloud again instead of using cached answers', ['setup', 'scan', 'check']],
-  out: ['--out DIR', 'Results directory (default .perch)', ['scan', 'issues', 'check', 'close', 'reopen', 'doctor']],
-  json: ['--json', 'Print JSON instead of a summary', ['scan', 'rules', 'issues', 'check', 'close', 'reopen', 'doctor', 'setup']],
-  verbose: ['--verbose', 'Show every file, method, model call, and command', ['scan', 'issues', 'check']],
+  out: ['--out DIR', 'Results directory (default .perch)', ['scan', 'coverage', 'issues', 'check', 'close', 'reopen', 'doctor']],
+  wait: ['--wait', 'Wait for the current commit\'s run, or the named run, to finish', ['ci']],
+  json: ['--json', 'Print JSON instead of a summary', ['scan', 'coverage', 'rules', 'issues', 'check', 'ci', 'cloud', 'close', 'reopen', 'doctor', 'setup']],
+  verbose: ['--verbose', 'Show every file, method, model call, and command', ['scan', 'coverage', 'issues', 'check']],
 };
 
 /** Other names that still work. */
@@ -71,12 +93,15 @@ const commandHelp = {
   login: { args: '[organization-id]', summary: 'Sign in to Perch Cloud', detail: 'Shows a device code to confirm in your browser. Stores a private login outside the repository. In CI, set PERCH_API_KEY to a CI token from the dashboard, or let a GitHub Actions job sign in with its own OIDC token.' },
   logout: { args: '', summary: 'Remove this device’s cloud login', detail: 'Removes the saved login from this device. CI credentials are revoked separately in the dashboard.' },
   scan: { args: '[target]', summary: 'Find issues', detail: `Scores every method with tree-sitter, then reads them with System One, callers and callees in view. Custom rules in ${RULES_FILE} and ${RULES_DIR}/ are asked in the same reading, so they cost nothing extra on a method perch was reading anyway.\n\nEvery run asks about every method in scope. Answers are cached by the endpoint rather than in .perch: Perch Cloud shares them across a repository's scans, locally and in CI. --force asks again and replaces what was cached.\n\ntarget is the file or directory to read, and defaults to where you are. Scans read the Git repository at HEAD. --paths and --since narrow the run, and --since origin/main is what CI wants. ignore in perch.yaml skips paths on a scan of the repository; a path you name is read anyway. Exits 3 on anything it found. Every type it asks about fails the run; scan_types in perch.yaml decides which those are, and defaults to defect and lint; --filter type=security asks about vulnerabilities. Questions go to Perch Cloud: sign in with perch login, or set PERCH_API_KEY to a CI token; a GitHub Actions job with id-token: write signs itself in. PERCH_BASE_URL sends them to another endpoint instead, with PERCH_API_KEY as its key. Defaults can be set in ~/.perch/config.toml.` },
+  coverage: { args: '[target]', summary: 'Test coverage, and which tests are worth keeping', detail: `Mutation testing that runs your tests. perch runs them itself, in a copy of the repository at the commit: once with per-test coverage, to know which tests run each line, then each mutant, a one-line edit off the syntax tree, against just those tests. A mutant a test fails on is caught. The model is asked only about the ones that survive: whether a caller could ever see the change. Lists the survivors that matter, the tests that catch nothing they run, and the tests that catch exactly what another catches. A percentage is how sure the model is that a survivor matters.\n\nIt runs pytest, with the Python on PATH, which needs pytest-cov, Vitest, Jest, Mocha, Jasmine, Karma, Cucumber and node:test from node_modules, cargo test, go test and dotnet test, and JUnit, TestNG, ScalaTest and MUnit on Gradle, Maven or sbt. A mutant's outcome is saved and reused while its code, its tests and what they run are unchanged; on a branch, --since runs only the mutants in code it changed. A repository whose tests it cannot run is an error that says what is missing.\n\n--since REF reports the problems in code the branch changed since REF. --diff REF compares with the run saved at REF. perch close <id> sets a problem aside.\n\ntarget is the file or directory to read, and defaults to where you are. --filter takes kind=, one of ${COVERAGE_KINDS.join(', ')}. Exits 3 when it lists a problem and 1 when it could not run. Asks Perch Cloud, the same way perch scan does. PERCH_BASE_URL sends it to another endpoint instead; PERCH_MODEL_ID selects the model.` },
   rules: { args: '[list | add <name> | edit <name> | remove <name>]', summary: `Change ${RULES_FILE} without opening it`, detail: `Custom rules are questions perch asks alongside its own, written in the same grammar as the ones it ships with in scan.yaml. perch scan asks them; this writes them, keeping comments and ordering.\n\nRules live in ${RULES_FILE} or in .yaml files under ${RULES_DIR}/. add writes to ${RULES_FILE} unless --file names a split file; edit and remove find the file a rule is in; list shows every file, or one file with --file.\n\nMost are a yes-or-no, so --ensure is usually the only flag needed. It covers what a parser can't: whether a comment says why, whether a test asserts what you claim.\n\n  perch rules add no-stale-docs --where "docs/**/*.md" --ensure_absent "docs for code that was deleted"\n\nAn answer that is not yes-or-no is written out: --ask with --type and the options or levels it offers, and --issue for what an answer means. --when names a question this one is only as likely as.\n\n  perch rules add handles_absence --type choice --each method --where "src/**/*.js" \\\n    --ask "How does this method handle a value that is missing?" \\\n    --options "checks=It checks for it; ignores=It carries on with the missing value" \\\n    --issue "type=defect,label=handles_absence,except=checks"` },
   issues: { args: '[issue-id]', summary: 'List what the scan found, or show one', detail: 'Worst first. --filter narrows the list, --types prints what it accepts, --closed includes closed ones, --all lists every row. Give it an id to see everything known about that method. perch findings does the same thing.' },
   check: { args: '<path | path::method | issue-id>', summary: 'Ask about one piece of code, uncommitted', detail: 'Reads that one file off disk and asks about the point you named: every rule that covers it, plus the scan\'s own questions for a method. --rules narrows it to specific rules, or to defect, security, refactor or docs. Nothing is committed or recorded, so run it on work in progress. Exits 3 while something is still wrong. Asks Perch Cloud, the same way perch scan does. PERCH_BASE_URL sends it to another endpoint instead; PERCH_MODEL_ID selects the model.' },
-  close: { args: '<issue-id>...', summary: 'Set issues aside', detail: 'Stops an issue being listed: a false positive, or code you have looked at and are not changing. --reason is kept and shown by perch issues <id>. It stays closed through later scans and later edits, and perch reopen is the only thing that brings it back.\n\nIt covers the kinds on that issue now, so a defect found in the method later is a new thing and is listed. --kind closes some of them and leaves the rest:\n\n  perch close 2638fb16 --kind docs' },
+  ci: { args: '[run-id]', summary: 'List this branch\'s CI runs, or show one run\'s issues', detail: 'Lists this branch\'s CI runs in Perch Cloud, newest first, including running ones. With a run id, it shows that run\'s issues in the perch scan layout. Each issue\'s method works as a perch check target. On a pull request, each issue also shows the status of Perch\'s review comment on it, with replies underneath.\n\n--wait waits for the current commit\'s run, or the named run, to finish, then shows its issues. Push first: it gives up if no run starts within 10 minutes. With a run, it exits with the run\'s result: 3 for failing issues, 1 if the run didn\'t finish.\n\nUses your perch login. A CI token in PERCH_API_KEY works too, but sees only its own repository\'s finished runs.\n\n  git push && perch ci --wait' },
+  cloud: { args: '[set]', summary: 'Show or change this repository\'s Perch Cloud scan settings', detail: `Shows your account, your workspace, and this repository's pull request scan settings: whether pull requests are scanned, the issue types, the scope (changed code or the whole repository), and whether issues fail the Perch Scan check.\n\nperch cloud set changes the settings. Anything you leave out stays the same. It needs a workspace admin.\n\n  perch cloud set --scan_types defect,security,lint --scope changes --gate yes\n\nNeeds perch login; a CI token can't read or change settings.` },
+  close: { args: '<issue-id>...', summary: 'Set issues aside', detail: 'Stops an issue being listed: a false positive, or code you have looked at and are not changing. An id perch coverage printed closes that problem, and later coverage runs leave it out. --reason is kept and shown by perch issues <id>. It stays closed through later scans and later edits, and perch reopen is the only thing that brings it back.\n\nIt covers the kinds on that issue now, so a defect found in the method later is a new thing and is listed. --kind closes some of them and leaves the rest:\n\n  perch close 2638fb16 --kind docs' },
   reopen: { args: '<issue-id>...', summary: 'Put closed issues back', detail: 'Undoes perch close, all of it, or the kinds --kind names.' },
-  setup: { args: `<${TARGET_NAMES.join(' | ')}>`, summary: 'Teach a coding assistant to use perch', detail: `Writes the perch skill into the assistant's configuration, so it knows to scan what a branch changed, to read the JSON rather than the table, that a finding is a probability rather than a located defect, to ask about one method after a fix, and to write a rule when the same mistake comes back.\n\n${Object.entries(TARGETS).map(([name, target]) => `  perch setup ${name}`.padEnd(28) + target.path).join('\n')}\n\nThe file can be edited once written: perch will not replace an edited one unless you pass --force.` },
+  setup: { args: `<${TARGET_NAMES.join(' | ')}>`, summary: 'Teach a coding assistant to use perch', detail: `Writes the perch skill into the assistant's configuration, so it knows to scan what a branch changed, to read the JSON rather than the table, that a finding is a probability rather than a located defect, to ask about one method after a fix, and to write a rule when the same mistake comes back.\n\n${Object.entries(TARGETS).map(([name, target]) => `  perch setup ${name}`.padEnd(28) + target.path).join('\n')}\n\nThe file can be edited once written: perch will not replace an edited one unless you pass --force.\n\nIt also adds Perch Cloud's MCP server, which reads CI runs and Perch's review comments on a pull request, to .mcp.json for Claude Code and .cursor/mcp.json for Cursor, and prints the command that adds it to Codex. The assistant signs in to it through Perch Cloud, in a browser, so nothing secret is written.` },
   doctor: { args: '', summary: 'Check perch can run, and what the last run did', detail: 'Whether perch can run here: node, credentials, Git, the repository and commit, somewhere to write, and whether perch.yaml parses. Anything that fails says what to do about it, and the command exits 1.\n\nUnder that, the last run: every method it could not read with the error, every question it asked and what each raised, and the end of the log when a run did not finish. Names, paths, counts and error messages only, never source, so it can be pasted into a bug report as it stands.' },
 };
 
@@ -103,19 +128,20 @@ ${column([...Object.values(options).filter(([, , verbs]) => verbs.length === Obj
 Configuration: ~/.perch/config.toml (environment variables take precedence)
 
 Environment:
-${column([['PERCH_API_KEY', 'a Perch Cloud CI token, or the key for PERCH_BASE_URL'], ['PERCH_BASE_URL', 'scan, check: another endpoint instead of Perch Cloud, the exact URL to POST to'], ['PERCH_MODEL_ID', 'scan, check: model ID (default: the one Perch Cloud serves, or jev-latest elsewhere)'], ['PERCH_ORGANIZATION', 'Perch Cloud organization, when a login has several'], ['PERCH_REPOSITORY', 'Perch Cloud repository ID, instead of the one the git remote names']])}`;
+${column([['PERCH_API_KEY', 'a Perch Cloud CI token, or the key for PERCH_BASE_URL'], ['PERCH_BASE_URL', 'scan, coverage, check: another endpoint instead of Perch Cloud, the exact URL to POST to; one ending in /decisions is OpenAI\'s Decisions API'], ['PERCH_MODEL_ID', 'scan, coverage, check: model ID (default: the one Perch Cloud serves, gpt-6-luna on the Decisions API, or jev-latest elsewhere)'], ['OPENAI_API_KEY', 'the Decisions API key, when PERCH_API_KEY is not set'], ['PERCH_MAX_QUESTIONS', 'scan, check: most questions per request, for a PERCH_BASE_URL model that does not report it'], ['PERCH_MAX_OPTIONS', 'scan, check: most options in one choice, likewise'], ['PERCH_ORGANIZATION', 'Perch Cloud organization, when a login has several'], ['PERCH_REPOSITORY', 'Perch Cloud repository ID, instead of the one the git remote names']])}`;
 
+/** A command that takes no options, login and logout, says so by leaving them out rather than printing an empty heading. */
 function usageFor(name) {
   const help = commandHelp[name];
   const own = Object.values(options).filter(([, , verbs]) => verbs.includes(name));
   return `perch ${name}: ${help.summary}
 
-Usage: perch ${name} ${help.args ? `${help.args} ` : ''}[options]
+Usage: perch ${[name, help.args, own.length ? '[options]' : ''].filter(Boolean).join(' ')}
 
-${wrap(help.detail)}
+${wrap(help.detail)}${own.length ? `
 
 Options:
-${column(own.map(([flag, text]) => [flag, text]))}`;
+${column(own.map(([flag, text, , differs]) => [flag, differs?.[name] ?? text]))}` : ''}`;
 }
 
 /**
@@ -124,9 +150,10 @@ ${column(own.map(([flag, text]) => [flag, text]))}`;
  */
 export const EXIT = { clean: 0, broke: 1, usage: 2, found: 3 };
 
-const valued = new Set(['paths', 'parallel', 'min', 'filter', 'out', 'reason', 'kind', 'limit', 'page', 'since', 'rules',
-  'ensure', 'ensure_present', 'ensure_absent', 'where', 'except', 'each', 'sees', 'type', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', 'gate', 'file']);
-const switches = new Set(['force', 'all', 'json', 'verbose', 'closed', 'types', 'help', 'version']);
+const valued = new Set(['paths', 'parallel', 'min', 'filter', 'diff', 'html', 'out', 'reason', 'kind', 'limit', 'page', 'since', 'rules',
+  'ensure', 'ensure_present', 'ensure_absent', 'where', 'except', 'each', 'sees', 'type', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', 'gate', 'file',
+  'pull_requests', 'scan_types', 'scope']);
+const switches = new Set(['force', 'all', 'json', 'verbose', 'closed', 'types', 'wait', 'help', 'version', 'include-tests', 'include-files']);
 
 export function parseArgs(argv) {
   const flags = {}, positional = [];
@@ -141,8 +168,11 @@ export function parseArgs(argv) {
     if (valued.has(key)) {
       // `--min=` is as empty as `--min` with nothing after it, and an empty string reads as zero further down, which would make
       // it a floor of none rather than a mistake to correct.
+      // So is `--min --all`: the next flag is not a value, and taking it as one dropped the flag it was.
       const value = eq < 0 ? argv[++i] : arg.slice(eq + 1);
-      if (value === undefined || value === '') throw new Error(`--${key} requires a value`);
+      if (value === undefined || value === '' || (eq < 0 && /^--[a-z]/.test(value))) throw new Error(`--${key} requires a value`);
+      // A flag given twice is a mistake: keeping one of the two dropped the other without a word.
+      if (key in flags) throw new Error(`--${key} is given twice`);
       flags[key] = value;
     } else if (switches.has(key)) flags[key] = true;
     else throw new Error(`unknown option --${key}`);
@@ -161,7 +191,15 @@ function checkFlags(flags, commandName) {
   }
 }
 
-const parsePaths = flags => flags.paths ? flags.paths.split(',').map(path => path.trim()).filter(Boolean) : [];
+/**
+ * `--paths a,b` as paths under the repository root, the way git names them. One that leaves the repository names nothing perch
+ * reads, and a run that read nothing reported itself clean, so it is refused. `./src` and `src/` are `src`.
+ */
+const parsePaths = flags => (flags.paths ? flags.paths.split(',').map(path => path.trim()).filter(Boolean) : []).map(path => {
+  const normal = posix.normalize(path.replaceAll('\\', '/')).replace(/\/$/, '');
+  if (posix.isAbsolute(normal) || normal === '..' || normal.startsWith('../')) throw new UsageError(`--paths takes paths inside the repository; ${path} is outside it`);
+  return normal;
+}).filter(path => path !== '.');
 const storeFrom = async flags => openStore(await resolveOut(flags.out));
 /**
  * Put this repository's own questions in force. Anything that names a kind, or reads one back off a finding, has to know what
@@ -175,14 +213,29 @@ const ownQuestions = async () => {
 };
 /** `--filter type=security,severity=P1` as tests a finding must pass; a bad clause is a usage error naming the real values. */
 const filtersFrom = (flags, rules = []) => { try { return parseFilters(flags.filter ?? '', rules); } catch (error) { throw new UsageError(error.message); } };
-/** The rules in force, so `--filter rule=` can name one and a typo is answered with the list. */
-const rulesInForce = async root => readRules(root, await gitRevision(root)).catch(() => []);
+/**
+ * The rules in force, so `--filter rule=` can name one and a typo is answered with the list. A perch.yaml that does not parse is
+ * an error to show. Read as no rules, it answered a filter naming a rule the file holds with there being none.
+ */
+const rulesInForce = async root => readRules(root, await gitRevision(root));
 /** The findings a filter keeps, the surest match first: filtering for one kind of problem should rank by that problem, not by whatever else the method carries. With no filter the scan's own ranking stands. */
 const narrow = (findings, filters, min) => findings.filter(finding => matchesFilters(finding, filters, min))
   .sort((a, b) => filters.length ? filterStrength(b, filters) - filterStrength(a, filters) : 0);
 const threshold = (value, fallback = BELIEVED * 100) => { const min = value === undefined ? fallback : Number(value); if (!(min >= 0 && min <= 100)) throw new UsageError('--min must be a percentage, 0 to 100: how sure the scan has to be of an issue to list it'); return min; };
 const positiveInteger = (flag, value, fallback) => { const number = value === undefined ? fallback : Number(value); if (!Number.isInteger(number) || number < 1) throw new UsageError(`${flag} must be a positive integer`); return number; };
-const print = (io, record, text) => io.stdout(io.flags.json ? JSON.stringify(record, null, 2) : text);
+/** Write the report's pages: index.html where --html says, and for a report split by file, files/ and its style and script beside it. */
+async function writeCoverageSite(html, site) {
+  const dir = dirname(html);
+  await mkdir(dir, { recursive: true });
+  if (site.assets.length) await mkdir(join(dir, 'files'), { recursive: true });
+  for (const asset of site.assets) await writeFile(join(dir, asset.name), asset.text);
+  for (const page of site.pages) await writeFile(join(dir, page.name), page.html);
+  await writeFile(html, '');
+  for (const part of site.index) await appendFile(html, part);
+}
+
+// JSON goes out a megabyte at a time, each piece ending at a token, so a report too long for one string still prints as valid JSON.
+const print = (io, record, text) => { if (!io.flags.json) { io.stdout(text); return; } for (const chunk of jsonChunks(record)) io.stdout(chunk); };
 /** Counts and costs: context for a person watching, never part of the output a pipe reads. */
 const noteFrom = (io, stderr) => (...lines) => { if (!io.flags.json) for (const line of lines.filter(Boolean)) stderr(line); };
 /**
@@ -240,7 +293,8 @@ function liveCounter(io, doing) {
 function liveCounters(io, ...doing) {
   const line = liveCounter(io, ''), counts = new Map();
   const draw = () => {
-    const going = [...counts].filter(([, [done, total]]) => !total || done < total);
+    // A phase with nothing to do is told 0 of 0, and is finished rather than going.
+    const going = [...counts].filter(([, [done, total]]) => total == null || done < total);
     const text = (going.length ? going : [...counts].slice(-1)).map(([label, [done, total]]) => total ? `${label} ${done} of ${total}` : `${label} ${done}`).join(', ');
     if (text) line.say(text);
   };
@@ -278,16 +332,33 @@ function kindsFrom(flags) {
   return named;
 }
 
+/**
+ * The issue or coverage problem an id names, and the kinds a closure of it covers. A scan issue covers what it lists unless
+ * --kind says otherwise; a coverage problem is one kind on one test or method, so it covers that kind. An id both could mean is
+ * ambiguous rather than guessed.
+ */
+async function findingFor(store, ref) {
+  const coverage = await coverageFindings(store.out, ref);
+  let scanned = null;
+  try { scanned = await store.findFinding(ref); } catch (error) { if (!coverage.length || !/^no finding/.test(error.message)) throw error; }
+  const ids = [...(scanned ? [scanned.id] : []), ...coverage.map(finding => finding.id)];
+  if (ids.length > 1) throw new Error(`finding id ${ref} is ambiguous: ${ids.join(', ')}`);
+  if (scanned) return { finding: scanned, kinds: null };
+  const [problem] = coverage;
+  return { finding: { id: problem.id, method: problem.unit, path: problem.path, name: problem.name, line: problem.line }, kinds: [problem.kind] };
+}
+
 /** `perch close a1b2 c3d4 --reason "..."`, and its undo. Ids are the ones in the first column; a unique prefix is enough. */
 async function setAside(io, verb) {
-  if (!io.args.length) throw new UsageError(`perch ${verb} needs at least one issue id; perch issues lists them`);
+  if (!io.args.length) throw new UsageError(`perch ${verb} needs at least one issue id; perch issues or perch coverage lists them`);
   await ownQuestions();
   const store = await storeFrom(io.flags);
   const kinds = kindsFrom(io.flags);
   const done = [];
   for (const ref of io.args) {
-    const finding = await store.findFinding(ref);
-    done.push(verb === 'close' ? await store.dismiss(finding, io.flags.reason ?? null, kinds) : await store.reopen(finding, kinds));
+    const { finding, kinds: covers } = await findingFor(store, ref);
+    const named = kinds ?? covers;
+    done.push(verb === 'close' ? await store.dismiss(finding, io.flags.reason ?? null, named) : await store.reopen(finding, named));
   }
   print(io, done, done.map(event => `${event.id}  ${event.name}  ${event.path}:${event.line ?? ''}`.trimEnd()
     + `  ${verb === 'close' ? 'closed' : 'reopened'}${event.kinds?.length ? `  ${event.kinds.join(', ')}` : ''}`).join('\n'));
@@ -296,10 +367,14 @@ async function setAside(io, verb) {
 /** What a scan covers: --paths as given, or what --since says a branch changed. */
 // A scan covers the target it was given, narrowed further by --paths or --since. `perch scan docs/` is `--paths docs`, so a
 // directory costs what it covers rather than what encloses it.
-const scanPaths = async (io, root, scope = null) => {
-  const asked = io.flags.since ? await changedPaths(root, io.flags.since) : parsePaths(io.flags);
+// Coverage passes since as null: a branch's tests and the code they reach are mostly in files it did not change, so it reads the
+// whole target and --since only decides what it reports.
+const scanPaths = async (io, root, scope = null, since = io.flags.since) => {
+  const asked = since ? await changedPaths(root, since) : parsePaths(io.flags);
   if (!scope) return asked;
-  if (!asked.length) return [scope];
+  // No --paths is the whole target. --since finding no changes is not that: it is a run with nothing to read, and widening it to
+  // the target scanned every method under it.
+  if (!io.flags.since && !asked.length) return [scope];
   // Both were given, so the run is what they agree on: the asked-for paths that lie inside the target.
   return asked.filter(path => path === scope || path.startsWith(scope.replace(/\/$/, '') + '/'));
 };
@@ -322,6 +397,14 @@ function issueFrom(text) {
     issue[key] = value === 'true' ? true : value === 'false' ? false : value;
   }
   return issue;
+}
+
+/** `--scan_types defect,security` as the types a pull request scan asks about. One Perch Cloud does not know is a mistake to say. */
+function scanTypes(text) {
+  const named = String(text).split(',').map(part => part.trim()).filter(Boolean);
+  const wrong = named.filter(type => !SCAN_TYPES.includes(type));
+  if (!named.length || wrong.length) throw new UsageError(`--scan_types takes ${SCAN_TYPES.join(', ')}${wrong.length ? `, not ${wrong.join(', ')}` : ''}`);
+  return [...new Set(named)];
 }
 
 /** What the flags say the question is, in the grammar's own words. */
@@ -376,8 +459,9 @@ async function manageRules(io, action, name) {
   if (!Object.keys(written).length) throw new UsageError(`perch rules ${action} needs something to write: --ensure, or --ask with --type`);
   if (action === 'add') {
     if (!RULE_KINDS.some(key => written[key]) && !written.ask) throw new UsageError(`perch rules add needs --ensure, --ensure_present, --ensure_absent, or --ask`);
-    // Everything, unless you say otherwise. A rule that covers the whole repository is a fine rule to want.
-    await addRule(root, { name, where: '**/*', ...written }, { file });
+    // Everything, unless you say otherwise. A rule that covers the whole repository is a fine rule to want, and a rule about
+    // tests covers every test without a where.
+    await addRule(root, { name, ...(written.each === 'test' ? {} : { where: '**/*' }), ...written }, { file });
     io.stdout(`Added ${name} to ${file === undefined ? RULES_FILE : ruleFile(file)}.`);
     return EXIT.clean;
   }
@@ -409,7 +493,8 @@ const commands = {
     // On the counter and in the log both. On the counter because a retry is the wait that looks like a hang, and in the log
     // because the counter is gone by the time anyone asks what the run was doing.
     const retrying = message => { methods.say(message); note(message); };
-    const systemOne = metered(await configuredSystemOne({ env: io.env, root: resolved.root, log: retrying, force: Boolean(io.flags.force) }), meter);
+    const systemOne = metered(await configuredSystemOne({ env: io.env, root: resolved.root, log: retrying, command: 'scan', version: VERSION,
+      force: Boolean(io.flags.force) }), meter);
     const revision = await gitRevision(resolved.root);
     const started = Date.now();
     const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD'], resolved.root).then(out => out.trim(), () => null);
@@ -420,12 +505,14 @@ const commands = {
         error => io.note(`Could not update scan progress in Perch Cloud: ${error.message}`)) : null;
     // A file prints the moment it is finished rather than at the end, so a long run says what it is finding while it finds it.
     const said = new Set();
-    const say = (path, findings) => {
-      const block = formatScanReport(narrow(visibleFindings(findings), filters, min), { min, filters, summary: false, empty: '' });
+    const say = (_path, findings) => {
+      const shown = narrow(visibleFindings(findings), filters, min);
+      const block = formatScanReport(shown, { min, filters, summary: false, empty: '' });
       if (!block) return;
-      // Only a file that printed counts as said. A file whose methods were quiet still gets findings later, from the rules about
-      // whole files and from the searches, and marking it reported on the way past dropped every one of them.
-      said.add(path);
+      // What printed is said, not the file it is in. The rules about whole files, the `mentions` rules and the searches answer
+      // beside the walk, often after their file has gone past, and marking the file reported dropped every one of them while
+      // the tally still counted them.
+      for (const finding of shown) if (shownIssues(finding, min, filters).length) said.add(finding.id);
       methods.clear();
       io.stdout(block + '\n');
     };
@@ -433,6 +520,7 @@ const commands = {
     try {
       run = await scanRepository({ root: resolved.root, revision, label: resolved.label, github: resolved.github, out: resolved.out,
         systemOne, analyzer: createSourceAnalyzer(), paths, named: [resolved.scope, ...parsePaths(io.flags)].filter(Boolean), parallel, min, filters,
+        includeTests: Boolean(io.flags['include-tests']), includeFiles: Boolean(io.flags['include-files']),
         onFinding: finding => stream?.add(reportFindings(visibleFindings([finding]), min)),
         onProgress: value => { lastProgress = value; stream?.progress(value); },
         onFile: io.flags.json ? () => {} : say,
@@ -452,9 +540,10 @@ const commands = {
     const everything = visibleFindings(splitStale(await store.issues(min, { scan }), scan).current)
       .filter(finding => inScope(finding.path));
     const issues = narrow(everything, filters, min);
-    // Whatever has not gone past already: the rules about files and tests, which report once they have all answered. Then the tally, which
-    // counts the whole run. What was read and what it cost is context for a person watching, and goes under it on stderr.
-    const rest = issues.filter(finding => !said.has(finding.path));
+    // Whatever has not gone past already: the rules asked outside a method's reading, which report once they have all answered.
+    // Then the tally, which counts the whole run. What was read and what it cost is context for a person watching, and goes under
+    // it on stderr.
+    const rest = issues.filter(finding => !said.has(finding.id));
     // A run that read no method and asked no rule found nothing because it looked at nothing. Saying "nothing to report" there
     // described the configuration as the code, so it says what emptied the scope instead.
     const readNothing = !run.methods && !run.checked;
@@ -485,6 +574,44 @@ const commands = {
     }
     return exit;
   },
+  /**
+   * Which tests reach which methods, from the call graph and System One, with nothing run. Everything printed is read off the report
+   * coverageRepository returns, which is also what --json prints and what the HTML page is drawn from, so the three agree.
+   */
+  async coverage(io) {
+    // Everything a flag can get wrong is said before anything is parsed or asked, so a typo costs nothing.
+    let filters;
+    try { filters = parseCoverageFilters(io.flags.filter ?? ''); } catch (error) { throw new UsageError(error.message); }
+    const parallel = positiveInteger('--parallel', io.flags.parallel, DEFAULT_PARALLEL);
+    const min = threshold(io.flags.min) / 100;
+    const meter = createMeter();
+    const resolved = await resolveTarget(io.argument ?? '.', { out: io.flags.out });
+    const paths = await scanPaths(io, resolved.root, resolved.scope, null);
+    const files = liveCounter(io, 'finding methods,'), tests = liveCounter(io, 'reading test'), methods = liveCounter(io, 'reading method');
+    // A request being retried answers nothing, so the counter would sit still and read as a hang. What the service said goes on
+    // the counter's line instead, the same as a scan.
+    const retrying = message => { tests.say(message); io.debug(message); };
+    const systemOne = metered(await configuredSystemOne({ env: io.env, root: resolved.root, log: retrying }), meter);
+    let report;
+    try {
+      report = await coverageRepository({ root: resolved.root, revision: await gitRevision(resolved.root), label: resolved.label, github: resolved.github,
+        out: resolved.out, systemOne, analyzer: createSourceAnalyzer(), paths, named: [resolved.scope, ...parsePaths(io.flags)].filter(Boolean),
+        parallel, min, diff: io.flags.diff ?? null, since: io.flags.since ?? null,
+        scanProgress: files.update, testProgress: tests.update, methodProgress: methods.update,
+        log: io.debug, debug: io.debug });
+    } finally { files.clear(); tests.clear(); methods.clear(); }
+    report = { ...report, usage: meter.toJSON() };
+    // The page is written whether or not anyone asked for JSON: it is the report a person opens, and it is the same run.
+    const html = io.flags.html ? resolve(io.flags.html) : join(resolved.out, 'coverage', 'index.html');
+    await writeCoverageSite(html, renderCoverageSite(report));
+    const all = Boolean(io.flags.all);
+    print(io, withoutSource(report), [formatCoverage(report, { min, filters, all }), io.flags.diff ? formatCoverageDiff(report) : ''].filter(Boolean).join('\n\n'));
+    for (const unit of report.failed ?? []) io.debug(`could not ask about ${unit.subject} ${unit.name} (${unit.path}): ${unit.error}`);
+    for (const line of coverageDetails(report)) io.debug(line);
+    io.note(coverageCount(report, { min, filters, all }), `Report: ${relative(html)}`, ...meter.lines());
+    // Every problem listed is one the run stands behind, so any at all is a result; the top-ten cut only decides what fits.
+    return listedFindings(report, { min, filters }).length ? EXIT.found : EXIT.clean;
+  },
   /** perch rules list, add, edit and remove: the rule file as something you can change without opening it. */
   rules(io) {
     const [action, name] = io.args;
@@ -514,11 +641,65 @@ const commands = {
     io.note(issueCount({ open: visibleFindings(all).length, matched: rows.length, from, listed: page.length, size, edited,
       closed: closed ? 0 : all.length - visibleFindings(all).length, filtered: filters.length > 0 }));
   },
+  /**
+   * What Perch Cloud's CI runs of this branch found. A run still going is listed and shown like one that finished, so --wait is
+   * the only thing that waits.
+   */
+  async ci(io) {
+    const root = await repoRoot(process.cwd());
+    const reader = createCloud({ env: io.env, root });
+    const branch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'], root)).trim();
+    const onBranch = branch !== 'HEAD' ? branch : null;
+    if (!io.argument && !io.flags.wait) {
+      const listing = await reader.runs({ branch: onBranch });
+      print(io, listing, formatRuns(listing));
+      return EXIT.clean;
+    }
+    let detail;
+    if (io.flags.wait) {
+      const revision = io.argument ? null : await gitRevision(root);
+      // A commit no remote has is one CI will never scan, and waiting ten minutes to say so helps nobody.
+      if (revision && !(await git(['branch', '-r', '--contains', revision], root)).trim()) {
+        throw new Error(`${revision.slice(0, 7)} is not on any remote branch, so CI has nothing to scan. Push it, then run perch ci --wait.`);
+      }
+      const line = liveCounter(io, '');
+      try {
+        detail = await waitForRun(reader, { id: io.argument ?? null, revision, branch: onBranch, sleep: ms => new Promise(done => setTimeout(done, ms)),
+          progress: run => line.say(run ? `CI is ${runResult(run)}` : `waiting for a CI run of ${revision.slice(0, 7)}`) });
+      } finally { line.clear(); }
+    }
+    // Read once more with Perch's review comments, which come from GitHub and are not worth asking for on every poll.
+    detail = await reader.run(detail?.run.id ?? io.argument, { comments: true });
+    print(io, detail, formatRun(detail));
+    io.note(`${runSummary(detail.run)}: ${detail.url}`, detail.links?.pull && `Pull request: ${detail.links.pull}`, detail.commentsNotice);
+    if (running(detail.run)) return EXIT.clean;
+    return detail.run.exit_code === 1 ? EXIT.broke : detail.run.exit_code === 3 ? EXIT.found : EXIT.clean;
+  },
+  /** How Perch Cloud scans this repository, and perch cloud set to change it. Nothing about the code is read or sent. */
+  async cloud(io) {
+    const [action, ...extra] = io.args;
+    if (action !== undefined && action !== 'set' || extra.length) throw new UsageError(`perch cloud takes set or nothing, not ${io.args.join(' ')}`);
+    if (io.flags.scope !== undefined && !['changes', 'all'].includes(io.flags.scope)) throw new UsageError(`--scope is changes or all, not ${io.flags.scope}`);
+    const change = {
+      scans: io.flags.pull_requests === undefined ? undefined : yesOrNo('--pull_requests', io.flags.pull_requests),
+      types: io.flags.scan_types === undefined ? undefined : scanTypes(io.flags.scan_types),
+      scope: io.flags.scope,
+      gate: io.flags.gate === undefined ? undefined : yesOrNo('--gate', io.flags.gate),
+    };
+    const named = Object.values(change).some(value => value !== undefined);
+    if (!action && named) throw new UsageError('perch cloud set changes settings; perch cloud only shows them');
+    if (action && !named) throw new UsageError('perch cloud set needs something to change: --pull_requests, --scan_types, --scope or --gate');
+    const cloud = createCloud({ env: io.env, root: await repoRoot(process.cwd()) });
+    const settings = action ? await cloud.configure(change) : await cloud.settings();
+    print(io, settings, formatCloud(settings));
+    return EXIT.clean;
+  },
   async doctor(io) {
     const store = await storeFrom(io.flags);
     const versions = { perch: VERSION, node: process.version, platform: `${process.platform} ${process.arch}` };
     // Whether perch can run here, worked out before anything that assumes it can. A machine where nothing works still gets an
     // answer, which is the whole reason this command has this name.
+    // Outside a repository doctor still runs, from here; its repository check is the one that says so.
     const root = await repoRoot(process.cwd()).catch(() => process.cwd());
     let env = io.env, configError = null, loginError = null, source = null;
     try { env = await configuredEnvironment(io.env); }
@@ -528,7 +709,9 @@ const commands = {
     const checks = await runChecks({ root, out: store.out, env, versions, credential: source?.kind });
     if (configError) checks.unshift({ name: 'config', ok: false, found: configError.message, fix: 'fix ~/.perch/config.toml' });
     if (loginError) checks.unshift({ name: 'login', ok: false, found: loginError.message, fix: 'run perch logout, then perch login' });
-    const [scan, run] = [await store.latestScan().catch(() => null), await store.latestRun().catch(() => null)];
+    // A saved scan or run that cannot be read is something doctor exists to say, so it is a failed check rather than nothing.
+    const saved = (name, read) => read().catch(error => { checks.push({ name, ok: false, found: error.message, fix: `remove ${store.out} and run perch scan again` }); return null; });
+    const [scan, run] = [await saved('last scan', () => store.latestScan()), await saved('last run', () => store.latestRun())];
     // The end of the log, on a run that did not finish cleanly. On one that did, the path to it is enough.
     const log = run && run.status !== 'complete' ? await store.tail(20) : [];
     print(io, { versions, out: store.out, checks, scan, run, log }, formatDoctor({ versions, scan, run, out: store.out, checks, log }));
@@ -542,7 +725,8 @@ const commands = {
     if (!io.argument) throw new UsageError('perch check needs a path, a path::method, or an issue id');
     const meter = createMeter();
     const root = await repoRoot(process.cwd());
-    const systemOne = metered(await configuredSystemOne({ env: io.env, root, log: io.debug, force: Boolean(io.flags.force) }), meter);
+    const systemOne = metered(await configuredSystemOne({ env: io.env, root, log: io.debug, command: 'check', version: VERSION,
+      force: Boolean(io.flags.force) }), meter);
     const only = io.flags.rules ? io.flags.rules.split(',').map(name => name.trim()).filter(Boolean) : [];
     const checked = await checkTarget({ target: io.argument, root, out: await resolveOut(io.flags.out), analyzer: createSourceAnalyzer(),
       systemOne, revision: await gitRevision(root), only, debug: io.debug });
@@ -557,8 +741,12 @@ const commands = {
     if (!target) throw new UsageError(`perch setup takes ${TARGET_NAMES.join(', ')}`);
     const root = await repoRoot(process.cwd()).catch(() => process.cwd());
     const done = await installSkill({ root, target, force: Boolean(io.flags.force) });
-    const said = done.wrote ? `${done.replaced ? 'Replaced' : 'Wrote'} ${done.path} for ${done.name}.`
-      : done.same ? `${done.path} is already this skill.` : done.why;
+    done.mcp = await registerMcp({ root, target });
+    const mcp = done.mcp.registered ? `Added Perch Cloud's MCP server to ${done.mcp.path}. ${done.name} signs in to it through Perch Cloud, in your browser.`
+      : done.mcp.already ? `${done.mcp.path} already has Perch Cloud's MCP server.`
+        : done.mcp.why ?? (done.mcp.command ? `To let ${done.name} read Perch Cloud's CI runs, run: ${done.mcp.command}` : null);
+    const said = [done.wrote ? `${done.replaced ? 'Replaced' : 'Wrote'} ${done.path} for ${done.name}.`
+      : done.same ? `${done.path} is already this skill.` : done.why, mcp].filter(Boolean).join('\n');
     print(io, done, said);
     return done.wrote || done.same ? EXIT.clean : EXIT.usage;
   },
@@ -599,7 +787,7 @@ export async function main(argv, { stdout = text => process.stdout.write(text + 
   const debug = message => { if (verbose) stderr(`[perch] ${message}`); };
   try {
     // A command that returns a number is saying what the exit code should be.
-    const configured = ['login', 'scan', 'check'].includes(commandName) ? await configuredEnvironment(env) : env;
+    const configured = ['login', 'scan', 'coverage', 'check', 'ci', 'cloud'].includes(commandName) ? await configuredEnvironment(env) : env;
     const code = await command({ argument, args: positional.slice(1), flags, env: configured, stdout, stderr, log, debug, verbose, note: noteFrom({ flags }, stderr) });
     return typeof code === 'number' ? code : EXIT.clean;
   } catch (error) {
@@ -609,3 +797,7 @@ export async function main(argv, { stdout = text => process.stdout.write(text + 
     return EXIT.broke;
   }
 }
+
+/** For a test that loads the bundle: the parse is what runs on worker threads, and only from the bundle. */
+export { analyzeFiles } from './analysis.js';
+export { createSourceAnalyzer } from './analysis.js';

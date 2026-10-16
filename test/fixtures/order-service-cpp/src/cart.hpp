@@ -9,3 +9,4 @@ struct Item {
 };
 
 int subtotal(const std::vector<Item>& items);
+int apply_discount(int total, int percent);

@@ -39,13 +39,11 @@ defaults to the file as a whole. Narrow any of them when you need to:
 ```yaml
 - name: private-logs
   where: "src/**/*.ts"
-  except: "src/**/*.test.ts"
   each: method
   ensure: >
     Keep passwords and access tokens out of logs.
 
 - name: tests-assert-real-behavior
-  where: "test/**/*.test.js"
   each: test
   sees: calls
   ensure: >
@@ -112,8 +110,15 @@ where: mentions scan.jsonl     # every method whose source names that string
 
 `each: method` asks about every method separately. Use it when the claim is about
 one method's behavior. Leaving it off asks about the file as a whole, which suits
-a claim about how the file is arranged. `each: test` asks about each test
-function.
+a claim about how the file is arranged. `each: test` asks about each test case
+the parser finds: pytest and `unittest` tests, `it` and `test` in JavaScript and
+TypeScript, `#[test]` functions in Rust, JUnit's `@Test`, and GoogleTest and
+Catch2 macros in C++. A test is read from its first line to the end of its body.
+You do not need to specify `where` for a rule with `each: test`. The parser
+understands what a test looks like and will look for them in any file. `where`
+can still be used to limit the rule to only some of the tests it finds. A rule
+with `each: method` will not find tests or test helper methods that are next to
+tests.
 
 ### `sees`
 
@@ -130,7 +135,8 @@ sees: file         # the whole file it lives in
 
 `calls` and `callers` walk the call graph outward from the unit, nearest first.
 What it calls directly comes before what that calls. Eight is the cap, so it cuts
-the far edge and keeps the near one. A file walks from the methods it declares.
+the far edge and keeps the near one. A test walks from itself, so `sees: calls`
+shows the code the test calls. A file walks from the methods it declares.
 
 A file the parser does not read has no methods and no call graph. Markdown and
 YAML walk the file tree instead. `calls` is what sits under the file's directory,
@@ -145,7 +151,6 @@ any one file. They search the likeliest units first and stop at the answer.
 
 ```yaml
 - name: issues-closable
-  where: "test/**/*.js"
   each: test
   ensure_present: >
     A test that closes an issue with a reason and then asserts it is gone from
@@ -238,11 +243,20 @@ Fails column, and a custom rule is read no differently from perch's own:
 
 ```console
 $ perch rules list
-Question                     From        Asks            Fails  Over
-has_bug                      builtin     noul >50%       yes    **/*
-bug_edge_case                builtin     noul >50%       yes    **/*
-refactor                     builtin     choice >60%     yes    **/*
-documented                   builtin     noul >75%       yes    **/*
+Question       From     Asks         Fails  Over  Description
+has_bug        builtin  noul >60%    yes    **/*  Does `method` contain a concrete behavioral
+                                                  defect that a caller can reach?
+bug_edge_case  builtin  noul >60%    yes    **/*  Does `method` produce a wrong result for a
+                                                  valid empty, zero, first, last, or missing
+                                                  input?
+refactor       builtin  choice >60%  yes    **/*  Judging from `method`, its `metrics`
+                                                  (risk_score and maintainability_index run
+                                                  0-100, cyclomatic_complexity and max_nesting
+                                                  are counts), and how its callers use it,
+                                                  what does it most need?
+documented     builtin  noul >75%    yes    **/*  Could a caller learn what `method` promises
+                                                  from the comment above it, or from the code
+                                                  itself where it is small enough to read?
 ```
 
 There is no type that gets asked about and cannot fail. A run that reports
@@ -371,7 +385,7 @@ perch rules list
 perch rules list --file .perch/rules/docs.yaml
 perch rules add no-stale-docs --where "docs/**/*.md" --ensure_absent "docs for code that was deleted"
 perch rules add docs-no-rationale --file .perch/rules/docs.yaml --where "docs/**/*.md" --ensure "..."
-perch rules edit private-logs --except "src/**/*.test.ts,scripts/**"
+perch rules edit private-logs --except "src/generated/**,scripts/**"
 perch rules remove no-stale-docs
 ```
 
@@ -393,15 +407,13 @@ Every question carries a floor, in percent. Below it, an answer is not listed.
 | --- | --- |
 | 75% | `documented` |
 | 70% | Most security checks |
-| 60% | `refactor`, `cwe_79` (XSS), `cwe_89` (SQL injection), `cwe_125` (out-of-bounds read) |
-| 50% | `has_bug`, `bug_edge_case` |
+| 60% | `has_bug`, `bug_edge_case`, `refactor`, `cwe_79` (XSS), `cwe_89` (SQL injection), `cwe_125` (out-of-bounds read) |
 
-A score near 50% is a weak signal, not a calibrated probability of a bug. The
-default 50% floor for the bug checks limits the number of alerts. Raising it
-further also misses more bugs; use `--min` to choose a stricter floor for a run.
-XSS, SQL injection, and out-of-bounds reads have 60% floors; the other security
-checks use 70%. These are alert cutoffs, not calibrated probabilities that a
-vulnerability exists.
+A score near 50% is a weak signal, not a calibrated probability of a bug, so the
+bug checks list nothing at 60% or below. A higher floor misses more bugs; use
+`--min` to choose a stricter floor for a run. XSS, SQL injection, and
+out-of-bounds reads have 60% floors; the other security checks use 70%. These
+are alert cutoffs, not calibrated probabilities that a vulnerability exists.
 
 `--min` sets a floor for a whole run. Both apply and the higher wins. Asking for
 `--min 90` gets you nothing at 73%, whatever a question set for itself.

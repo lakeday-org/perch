@@ -30,9 +30,9 @@ const extensions = ['js', 'mjs', 'cjs', 'jsx', 'ts', 'mts', 'cts', 'tsx', 'py', 
   'groovy', 'gradle', 'c', 'h', 'cpp', 'cc', 'cxx', 'hpp', 'hh', 'hxx', 'cs', 'rb', 'rake', 'php', 'phtml', 'lua', 'swift', 'zig',
   'sol', 'sh', 'bash', 'dart', 'ex', 'hs', 'fs', 'R', 'pl', 'clj', 'md', 'yaml'];
 const blob = path => ({ type: 'blob', path, sha: path });
-const selected = (paths, each = 'file') => {
+const selected = paths => {
   const tree = paths.map(blob), files = new Map(paths.map(path => [path, "test('authored behavior', () => {});\n"]));
-  return selectUnits({ name: 'selection', where: '**/*', each }, { tree, files }).map(unit => unit.path);
+  return selectUnits({ name: 'selection', where: '**/*', each: 'file' }, { tree, files }).map(unit => unit.path);
 };
 
 it('excludes generated and dependency directories regardless of language, depth, or rule kind', () => {
@@ -41,8 +41,6 @@ it('excludes generated and dependency directories regardless of language, depth,
     const kept = extensions.map(ext => `${prefix}src/example.${ext}`);
     expect(selected([...omitted, ...kept])).toEqual(kept);
     expect([...omitted, ...kept].map(blob).filter(sourceFile).map(item => item.path)).toEqual(kept.filter(languageOf));
-    const tests = excluded.map(dir => `${prefix}${dir}/example.test.js`);
-    expect(selected([...tests, `${prefix}test/example.test.js`], 'test')).toEqual([`${prefix}test/example.test.js`]);
   }
 });
 

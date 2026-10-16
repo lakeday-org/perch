@@ -11,3 +11,11 @@ pub fn subtotal(items: &[Item]) -> i32 {
     }
     total
 }
+
+/// Take a percentage off a total. A discount of 100 percent or more makes the order free.
+pub fn apply_discount(total: i32, percent: i32) -> i32 {
+    if percent >= 100 {
+        return 0;
+    }
+    total - total * percent / 100
+}

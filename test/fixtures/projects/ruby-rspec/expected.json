@@ -1,0 +1,62 @@
+{
+  "language": "ruby",
+  "framework": "RSpec",
+  "left_out": ["examples/week.rb"],
+  "tests": [
+    {
+      "file": "spec/shift_spec.rb",
+      "name": "lasts from its start to its end",
+      "reaches": ["lib/rota/shift.rb::Rota.Shift.initialize", "lib/rota/shift.rb::Rota.Shift.hours"]
+    },
+    {
+      "file": "spec/shift_spec.rb",
+      "name": "rejects a shift that ends before it starts",
+      "reaches": ["lib/rota/shift.rb::Rota.Shift.initialize"]
+    },
+    {
+      "file": "spec/shift_spec.rb",
+      "name": "overlaps a shift on the same day sharing an hour",
+      "reaches": ["lib/rota/shift.rb::Rota.Shift.initialize", "lib/rota/shift.rb::Rota.Shift.overlaps?"]
+    },
+    {
+      "file": "spec/shift_spec.rb",
+      "name": "is a night shift when it starts late",
+      "reaches": ["lib/rota/shift.rb::Rota.Shift.initialize", "lib/rota/shift.rb::Rota.Shift.night?"]
+    },
+    {
+      "file": "spec/schedule_spec.rb",
+      "name": "adds up a person's hours",
+      "reaches": ["lib/rota/schedule.rb::Rota.Schedule.initialize", "lib/rota/schedule.rb::Rota.Schedule.assign", "lib/rota/schedule.rb::Rota.Schedule.hours_for", "lib/rota/shift.rb::Rota.Shift.initialize"]
+    },
+    {
+      "file": "spec/schedule_spec.rb",
+      "name": "refuses a second shift at the same time",
+      "reaches": ["lib/rota/schedule.rb::Rota.Schedule.initialize", "lib/rota/schedule.rb::Rota.Schedule.assign"]
+    },
+    {
+      "file": "spec/schedule_spec.rb",
+      "name": "lists who is on duty at an hour",
+      "reaches": ["lib/rota/schedule.rb::Rota.Schedule.assign", "lib/rota/schedule.rb::Rota.Schedule.on_duty"]
+    },
+    {
+      "file": "spec/schedule_spec.rb",
+      "name": "reports the problems",
+      "reaches": ["lib/rota/schedule.rb::Rota.Schedule.assign", "lib/rota/schedule.rb::Rota.Schedule.problems", "lib/rota/rules.rb::Rota.Rules.check", "lib/rota/rules.rb::Rota.Rules.rest_broken?"]
+    },
+    {
+      "file": "spec/schedule_spec.rb",
+      "name": "asks the rules once for the whole schedule",
+      "reaches": ["lib/rota/schedule.rb::Rota.Schedule.assign", "lib/rota/schedule.rb::Rota.Schedule.problems"]
+    },
+    {
+      "file": "spec/rules_spec.rb",
+      "name": "passes a reasonable week",
+      "reaches": ["lib/rota/rules.rb::Rota.Rules.check", "lib/rota/rules.rb::Rota.Rules.rest_broken?", "lib/rota/shift.rb::Rota.Shift.initialize"]
+    },
+    {
+      "file": "spec/rules_spec.rb",
+      "name": "flags a night shift followed by an early start",
+      "reaches": ["lib/rota/rules.rb::Rota.Rules.rest_broken?", "lib/rota/shift.rb::Rota.Shift.initialize"]
+    }
+  ]
+}

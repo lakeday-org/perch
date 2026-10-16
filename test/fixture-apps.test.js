@@ -2,17 +2,13 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
+import { expectations } from './fixtures/expectations.mjs';
 import { analyzeFiles, createSourceAnalyzer, sourceFile } from '../src/analysis.js';
 
 const fixtures = fileURLToPath(new URL('./fixtures/', import.meta.url));
-const applications = [
-  ['order-service', 6, 'checkout.py', 'can_fulfil'],
-  ['order-service-typescript', 4, 'src/inventory.ts', 'canFulfil'],
-  ['order-service-frontend', 3, 'src/CheckoutPanel.tsx', 'canCheckout'],
-  ['order-service-rust', 4, 'src/inventory.rs', 'can_fulfil'],
-  ['order-service-java', 4, 'src/example/Inventory.java', 'Inventory.canFulfil'],
-  ['order-service-cpp', 5, 'src/checkout.cpp', 'can_fulfil'],
-];
+// Each application's expected.json says how many source files it has, test files included, and which method holds its
+// deliberate availability bug.
+const expected = await expectations();
 
 async function sources(root, prefix = '') {
   const files = [];
@@ -25,7 +21,8 @@ async function sources(root, prefix = '') {
   return files;
 }
 
-it.each(applications)('analyzes the %s application without losing its buggy method or source span', async (directory, count, path, name) => {
+it.each(expected.map(app => [app.app, app]))('analyzes the %s application without losing its buggy method or source span', async (directory, app) => {
+  const { sources: count, availability: { path, name }, tests } = app;
   const root = join(fixtures, directory);
   const files = await sources(root);
   expect(files).toHaveLength(count);
@@ -41,4 +38,13 @@ it.each(applications)('analyzes the %s application without losing its buggy meth
   expect(body).toMatch(/return [Tt]rue/);
   expect(body).toMatch(/return [Ff]alse/);
   expect(scan.candidates.map(candidate => candidate.id)).toContain(`${path}::${name}`);
+
+  // The expectations in expected.json name methods by id, so every id there has to be one the parser produces, and every
+  // test file has to be one the scanner keeps out of its candidates.
+  expect(tests.map(test => test.n)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  const methods = new Set(scan.files.flatMap(file => file.methods.map(method => method.id)));
+  for (const id of tests.flatMap(test => [...test.direct, ...test.cuts])) expect(methods).toContain(id);
+  const testPaths = new Set(tests.map(test => test.file));
+  for (const testPath of testPaths) expect(scan.files.find(file => file.path === testPath)?.test).toBe(true);
+  expect(scan.candidates.filter(candidate => testPaths.has(candidate.id.split('::')[0]))).toEqual([]);
 });

@@ -21,7 +21,7 @@
     type: defect
     label: kind
     pick: strongest
-  min: 50
+  min: 60
 - name: bug_edge_case
   each: method
   where: "**/*"
@@ -32,7 +32,7 @@
     type: defect
     label: kind
     pick: strongest
-  min: 50
+  min: 60
 - name: kind
   type: choice
   each: method
@@ -82,7 +82,7 @@
 - name: documented
   each: method
   where: "**/*"
-  ask: Could a caller learn what `method` promises from its `leading_comment`, or from the code itself
+  ask: Could a caller learn what `method` promises from the comment above it, or from the code itself
     where it is small enough to read?
   "true": Its contract, its edge cases and its side effects are all there to be read
   "false": "A caller could not learn what it promises without reading it through. A comment that says

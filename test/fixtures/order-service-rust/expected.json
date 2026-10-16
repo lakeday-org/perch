@@ -1,0 +1,168 @@
+{
+  "language": "rust",
+  "framework": "libtest",
+  "sources": 5,
+  "availability": {
+    "path": "src/inventory.rs",
+    "name": "can_fulfil"
+  },
+  "tests": [
+    {
+      "n": 1,
+      "file": "src/tests.rs",
+      "name": "accepts_when_every_item_is_in_stock",
+      "direct": [
+        "src/inventory.rs::can_fulfil"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 2,
+      "file": "src/tests.rs",
+      "name": "rejects_an_empty_cart",
+      "direct": [
+        "src/inventory.rs::can_fulfil"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "empty_or_absent_input",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 3,
+      "file": "src/tests.rs",
+      "name": "accepts_quantity_equal_to_stock",
+      "direct": [
+        "src/inventory.rs::can_fulfil"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "boundary",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 4,
+      "file": "src/tests.rs",
+      "name": "takes_ten_percent_off",
+      "direct": [
+        "src/cart.rs::apply_discount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 5,
+      "file": "src/tests.rs",
+      "name": "takes_twenty_percent_off",
+      "direct": [
+        "src/cart.rs::apply_discount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 6,
+      "file": "src/tests.rs",
+      "name": "takes_twenty_five_percent_off",
+      "direct": [
+        "src/cart.rs::apply_discount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 7,
+      "file": "src/tests.rs",
+      "name": "takes_fifty_percent_off",
+      "direct": [
+        "src/cart.rs::apply_discount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 8,
+      "file": "src/tests.rs",
+      "name": "takes_seventy_five_percent_off",
+      "direct": [
+        "src/cart.rs::apply_discount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 9,
+      "file": "src/tests.rs",
+      "name": "returns_what_the_stub_returns",
+      "direct": [],
+      "cuts": [],
+      "touches": [],
+      "decides": "nothing",
+      "smell": "asserts_mock",
+      "infra": false
+    },
+    {
+      "n": 10,
+      "file": "src/tests.rs",
+      "name": "adds_up_the_cart",
+      "direct": [
+        "src/cart.rs::subtotal"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "nothing",
+      "smell": "no_assertion",
+      "infra": false
+    },
+    {
+      "n": 11,
+      "file": "src/tests.rs",
+      "name": "matches_the_price_service_total",
+      "direct": [
+        "src/cart.rs::subtotal"
+      ],
+      "cuts": [],
+      "touches": [
+        "network",
+        "environment"
+      ],
+      "decides": "happy_path",
+      "smell": "mystery_guest",
+      "infra": true
+    },
+    {
+      "n": 12,
+      "file": "src/tests.rs",
+      "name": "place_order_returns_the_subtotal",
+      "direct": [
+        "src/checkout.rs::place_order"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+option('tests', type: 'feature', value: 'auto', description: 'Build the Criterion tests')
+option('examples', type: 'boolean', value: false, description: 'Build the parse_line example')

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+echo
+MW=$1 node "$2.js" &
+pid=$!
+
+sleep 2
+
+autocannon -c 50 -d 5 http://localhost:3333/ 2>&1 | grep -E 'Req/Sec|Latency'
+
+kill $pid

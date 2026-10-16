@@ -2,7 +2,7 @@
 import { compile, floorFor, issues, questionSet, readAnswer, setHash, vocabulary } from './ask.js';
 import { RULES_FILE } from './units.js';
 import { sourceChunks } from './chunks.js';
-import { TOKEN_LIMITS, estimateTokens, textTokens, questionBatches, IncompleteCheckError, ContextLimitError } from './tokens.js';
+import { TOKEN_LIMITS, estimateTokens, questionBatches, IncompleteCheckError, ContextLimitError } from './tokens.js';
 
 /** The bands a severity score is named by, worst last, matching the rubric declared in the question set. */
 export const SEVERITY_BANDS = ['P3', 'P2', 'P1', 'P0'];
@@ -216,34 +216,31 @@ export const flagged = (answers, min = 0) => issuesOf(answers, min).some(issue =
 export const needsDesign = (answers, min = 0) => issuesOf(answers, min).some(isDesign);
 export const hasIssue = (answers, min = 0) => issuesOf(answers, min).length > 0;
 
-export const MAX_CALLEES = 8, MAX_CALLERS = 8, STATE_BUDGET = TOKEN_LIMITS.state, MODULE_SCOPE_BUDGET = 2000;
-export const lineId = line => `L${String(line).padStart(4, '0')}`;
-/** Prefixes each line with its id. Consecutive null lines are replaced by one line saying which line numbers were left out. */
-export const tagged = (lines, start) => {
-  const out = [];
-  for (let index = 0; index < lines.length; index++) {
-    if (lines[index] !== null) { out.push(`${lineId(start + index)}| ${lines[index]}`); continue; }
-    let last = index;
-    while (lines[last + 1] === null) last++;
-    out.push(`... (lines ${start + index}-${start + last} are read on their own)`);
-    index = last;
-  }
-  return out.join('\n');
-};
+export const MAX_CALLEES = 8, MAX_CALLERS = 8, STATE_BUDGET = TOKEN_LIMITS.state;
+/**
+ * Lines as they are sent: the text and nothing about where in its file it sits. An answer is cached under the state it was asked
+ * over, so a line number in the state made every method below an inserted line a state nobody had asked about, and every method
+ * showing one of them as a neighbour another. Consecutive null lines, which belong to methods read on their own, are one line
+ * saying so.
+ */
+export const shownLines = lines => lines.flatMap((text, index) => (text !== null ? [text] : lines[index - 1] !== null ? ['... (read on its own)'] : [])).join('\n');
 /** Returns a unit's lines from first to last. For a top-level unit, lines that belong to methods are null. */
 export const spanOf = (node, lines) => {
   const own = node.lines && new Set(node.lines);
   return lines.slice(node.line - 1, node.end_line).map((text, index) => (!own || own.has(node.line + index) ? text : null));
 };
-/** A method's source, or a window of `limit` lines from it; when a `focus` line is given (a call site) the window is centered there so the call is visible. */
-const excerpt = (node, lines, limit, focus = null) => {
-  const slice = spanOf(node, lines), start = node.line;
-  if (slice.length <= limit) return tagged(slice, start);
-  const from = focus === null ? 0 : Math.min(Math.max(0, focus - start - Math.floor(limit / 2)), slice.length - limit);
-  const shown = tagged(slice.slice(from, from + limit), start + from);
+/**
+ * A neighbour as it is shown: the comment above it, which is its contract, then its lines, or a window of `limit` lines of the
+ * two together. When a `focus` line is given (a call site) the window is centered there so the call is visible.
+ */
+export const excerpt = (node, lines, limit, focus = null) => {
+  const comment = leadingComment(lines, node.line), above = comment ? comment.split('\n') : [];
+  const slice = [...above, ...spanOf(node, lines)];
+  if (slice.length <= limit) return shownLines(slice);
+  const from = focus === null ? 0 : Math.min(Math.max(0, above.length + focus - node.line - Math.floor(limit / 2)), slice.length - limit);
+  const shown = shownLines(slice.slice(from, from + limit));
   return `${from ? `... (${from} lines above)\n` : ''}${shown}${from + limit < slice.length ? `\n... (${slice.length - from - limit} more lines)` : ''}`;
 };
-const short = id => id.split('::').at(-1);
 const commentLine = /^\s*(\/\/|\/\*|\*|#|"""|''')/;
 /** A method's contract is written above it, not inside it, so any question about documentation has to reach up for it. */
 export function leadingComment(lines, line) {
@@ -262,68 +259,54 @@ export function shownSource(lines, line, endLine) {
   return (comment ? `${comment}\n` : '') + lines.slice(line - 1, endLine).join('\n');
 }
 
-/**
- * Without this, an identifier that is neither a callee nor an import is a name the model has to guess at. Cut at `budget` estimated tokens,
- * because a file's constants are worth less to the reading than its callers are.
- */
-export function moduleScope(lines, methods, budget = MODULE_SCOPE_BUDGET) {
-  const inside = new Set();
-  for (const method of methods) if (!method.lines) for (let line = method.line; line <= method.end_line; line++) inside.add(line);
-  const kept = [];
-  let size = 0;
-  for (let line = 1; line <= lines.length; line++) {
-    const text = lines[line - 1];
-    if (inside.has(line) || !text.trim() || commentLine.test(text) || /^\s*(import|from|use|package)\b/.test(text)) continue;
-    const entry = `${lineId(line)}| ${text}`;
-    const tokens = textTokens(entry + '\n');
-    if (size + tokens > budget) { kept.push(`... (cut at ${budget} estimated tokens)`); break; }
-    kept.push(entry);
-    size += tokens;
-  }
-  return kept.join('\n') || null;
-}
+const HANDED_ON = 'does not call the method here: it passes it on to be called later, so the call itself is not in view';
 
 /**
  * The state and questions for one method.
- * `node` is the graph node and `lines` its file's lines. `imports` are the file's import records; `methods` the file's method records,
- * so the module scope around them can be shown. `callees` and `callers` are [{ node, lines, site, calls }] with the neighbor's file
- * lines, the calling line (callers), and the names of the neighbor's own callees (second hop). `edges` are ["a -> b"] strings.
+ *
+ * The state is the method and its call graph, and nothing else: the method's source under the comment above it and the metrics
+ * measured from that source, each caller and callee shown the same way, and the edges between them. So it changes when the
+ * method or a neighbour does, and an answer already given about it is still the answer after code elsewhere in the file moves
+ * it down a line.
+ *
+ * `node` is the graph node and `lines` its file's lines. `callees` and `callers` are [{ node, lines, site, handover }] with the
+ * neighbor's file lines and, for a caller, the calling line, which is where its excerpt is centered. `edges` are [from, to]
+ * pairs of method ids.
  */
-export function methodStep({ node, lines, imports = [], methods = [node], moduleScopeText = moduleScope(lines, methods), callees, callers, edges = [], budget = STATE_BUDGET, limits = [40, 20, 8, 3], maxCallees = MAX_CALLEES, maxCallers = MAX_CALLERS, chunk = null, asked = questionSet().filter(question => question.each === 'method') }) {
-  const build = (limit, own = Infinity, scope = true, [fewerCallees, fewerCallers] = [maxCallees, maxCallers]) => ({
-    method: { path: node.path, name: node.qualified_name, leading_comment: leadingComment(lines, node.line) || null, metrics: node.metrics ?? null,
-      source: chunk ? tagged(chunk.source.split("\n").map((text, index) => (!node.lines || node.lines.includes(chunk.line + node.line - 1 + index) ? text : null)), chunk.line + node.line - 1) : excerpt(node, lines, own) },
-    imports: imports.map(item => `${item.name}${item.alias !== item.name ? ` as ${item.alias}` : ''} from ${item.module}`),
-    module_scope: scope ? moduleScopeText : null,
-    calls: callees.slice(0, fewerCallees).map(({ node: callee, lines: calleeLines, calls = [] }) =>
-      ({ id: callee.id, name: callee.qualified_name, path: callee.path, source: excerpt(callee, calleeLines, limit), calls: calls.map(short) })),
-    called_by: callers.slice(0, fewerCallers).map(({ node: caller, lines: callerLines, site, handover = false }) =>
-      ({ id: caller.id, name: caller.qualified_name, path: caller.path,
-        ...(handover
-          ? { hands_method_on_at: site ?? null, note: 'this caller does not call the method here: it passes it on to be called later, so the call itself is not in view' }
-          : { calls_method_at: site ?? null }),
-        source: excerpt(caller, callerLines, limit, site ?? null) })),
-    // The edges are the neighbourhood drawn as lines, so they go when the neighbourhood does.
-    call_graph: fewerCallees || fewerCallers ? edges : [],
-  });
-  const over = () => estimateTokens(state) > budget;
-  let state = build(limits[0] === Infinity ? Infinity : 80);
-  for (const limit of limits) { if (!over()) break; state = build(limit); }
-  if (over()) state = build(limits.at(-1), Infinity, false);
+export function methodStep({ node, lines, callees, callers, edges = [], budget = STATE_BUDGET, limits = [40, 20, 8, 3], maxCallees = MAX_CALLEES, maxCallers = MAX_CALLERS, chunk = null, asked = questionSet().filter(question => question.each === 'method') }) {
+  const id = node.id ?? `${node.path}::${node.qualified_name}`;
+  // One pass of a method read in several holds a slice of it, and for a top-level unit the lines of the methods inside it are
+  // left out. `span` is the lines this pass is about, null where a line is another unit's, and `start` is the first one's number.
+  const span = chunk ? chunk.source.split('\n').map((text, index) => (!node.lines || node.lines.includes(chunk.line + node.line - 1 + index) ? text : null)) : spanOf(node, lines);
+  const start = chunk ? chunk.line + node.line - 1 : node.line;
+  const source = [leadingComment(lines, node.line), chunk && chunk.line > 1 ? `... (${chunk.line - 1} lines above)` : '', shownLines(span)].filter(Boolean).join('\n');
+  const named = ({ node: neighbor }) => ({ id: neighbor.id, name: neighbor.qualified_name, path: neighbor.path });
+  const build = (limit, [fewerCallees, fewerCallers] = [maxCallees, maxCallers]) => {
+    const calls = callees.slice(0, fewerCallees), calledBy = callers.slice(0, fewerCallers);
+    // A method that both calls this one and is called by it is one node, shown as the callee it is.
+    const nodes = new Map(calls.map(({ node: callee, lines: calleeLines }) => [callee.id, { id: callee.id, path: callee.path, source: excerpt(callee, calleeLines, limit) }]));
+    for (const { node: caller, lines: callerLines, site, handover = false } of calledBy)
+      if (!nodes.has(caller.id)) nodes.set(caller.id, { id: caller.id, path: caller.path, source: excerpt(caller, callerLines, limit, site ?? null), ...(handover ? { note: HANDED_ON } : {}) });
+    // An edge is drawn from code in view, so the edges go when the neighbourhood does, and one from a method not shown is left
+    // out: it would change the state when code nothing here shows changed.
+    const drawn = nodes.size ? edges.filter(([from]) => from === id || nodes.has(from)).map(([from, to]) => `${from} -> ${to}`) : [];
+    return { state: { method: { path: node.path, name: node.qualified_name, metrics: node.metrics ?? null, source }, graph: { nodes: [...nodes.values()], edges: drawn } }, calls: calls.map(named), calledBy: calledBy.map(named) };
+  };
+  const over = () => estimateTokens(built.state) > budget;
+  let built = build(limits[0] === Infinity ? Infinity : 80);
+  for (const limit of limits) { if (!over()) break; built = build(limit); }
   // Fewer neighbours before none, and none before refusing: a method read without its callers is a weaker reading than one
   // read with them, and a method not read at all is no reading. Shortening the excerpts alone left the count at eight each, so
   // a method in a dense graph failed the same way on every retry.
-  for (const fewer of [4, 2, 1, 0]) { if (!over()) break; state = build(limits.at(-1), Infinity, false, [Math.min(fewer, maxCallees), Math.min(fewer, maxCallers)]); }
+  for (const fewer of [4, 2, 1, 0]) { if (!over()) break; built = build(limits.at(-1), [Math.min(fewer, maxCallees), Math.min(fewer, maxCallers)]); }
   if (over()) throw new ContextLimitError(`${node.path}::${node.qualified_name}: method context exceeds the token budget`, budget / 2);
-  if (chunk) state.reading = { start_byte: chunk.startByte, end_byte: chunk.endByte, partial: chunk.partial };
+  const { state, calls, calledBy } = built;
+  if (chunk?.partial) state.reading = { start_byte: chunk.startByte, end_byte: chunk.endByte, partial: true };
   if (over()) throw new ContextLimitError(`${node.path}: method metadata exceeds the token budget`, budget / 2);
-  const { calls, called_by: calledBy } = state;
   const neighbors = [...calls, ...calledBy].filter((item, index, all) => all.findIndex(other => other.id === item.id) === index);
-  // Only lines the model can see are lines it can point at: a trimmed method must not be asked about the part that was cut.
-  const shown = [...state.method.source.matchAll(/^L(\d+)\|/gm)].map(match => Number(match[1]));
   // The questions themselves are declared, not written here: what perch asks of a method is data, so a repository can reword a
-  // class or add one without this function hearing about it. What stays is what is not a question about your code — which line
-  // the defect is on, and which method to read next — because both are built from this method's own neighbourhood.
+  // class or add one without this function hearing about it. What stays is what is not a question about your code — which
+  // method to read next, and how each neighbour uses this one — because both are built from this method's own neighbourhood.
   const questions = {
     ...compile(asked),
     follow: { type: 'choice', instructions: 'Which related method most likely holds or reveals a defect connected to `method`, and is worth examining next?',
@@ -335,21 +318,21 @@ export function methodStep({ node, lines, imports = [], methods = [node], module
   for (const [index, caller] of calledBy.entries())
     questions[`misused_by_${index}`] = { type: 'noul', instructions: { caller: caller.id, question: 'Does `caller` call `method` in a way that violates the contract evident from the method\'s source, or rely on behavior the method does not guarantee?' },
       criteria: { true: 'The caller passes something the method does not handle, or depends on a result or side effect the method does not reliably provide', false: 'The caller uses the method as its source intends' } };
-  return { state, questions, asked, calls, calledBy, neighbors, covers: { line: shown[0] ?? node.line, end_line: shown.at(-1) ?? node.end_line, ...(chunk ? { start_byte: chunk.startByte, end_byte: chunk.endByte } : {}) } };
+  // What this pass read, in the file's own line numbers, which are kept here and never sent.
+  const first = span.findIndex(text => text !== null), last = span.findLastIndex(text => text !== null);
+  return { state, questions, asked, calls, calledBy, neighbors, covers: { line: first < 0 ? node.line : start + first, end_line: last < 0 ? node.end_line : start + last, ...(chunk ? { start_byte: chunk.startByte, end_byte: chunk.endByte } : {}) } };
 }
 
 /** Native syntax chunks overlap in source bytes, including when one line spans multiple requests. */
-export function methodSteps({ node, lines, imports = [], methods = [node], callees = [], callers = [], edges = [], ...options }) {
-  // Blank the lines that belong to other methods instead of removing them, so line numbers stay correct.
+export function methodSteps({ node, lines, callees = [], callers = [], edges = [], ...options }) {
+  // Blank the lines that belong to other methods instead of removing them, so a chunk's line still counts from the unit's first.
   const source = spanOf(node, lines).map(text => text ?? '').join('\n');
   const budget = options.budget ?? STATE_BUDGET;
-  // A top-level unit's source already is the module scope.
-  const moduleScopeText = node.lines ? null : moduleScope(lines, methods);
   let maxTokens = budget;
   for (;;) {
     const chunks = sourceChunks(source, { path: node.path, maxTokens });
     try {
-      const steps = chunks.map((chunk, index) => methodStep({ node, lines, imports: index ? [] : imports, methods, moduleScopeText,
+      const steps = chunks.map((chunk, index) => methodStep({ node, lines,
         callees: index ? [] : callees, callers: index ? [] : callers, edges: index ? [] : edges,
         ...options, budget, chunk: { ...chunk, partial: chunks.length > 1 } }));
       for (const step of steps) questionBatches(step.state, step.questions);

@@ -1,0 +1,67 @@
+{
+  "language": "c_sharp",
+  "framework": "MSTest",
+  "left_out": ["scripts/Reminders.cs"],
+  "tests": [
+    {
+      "file": "test/Billing.Tests/InvoiceTests.cs",
+      "name": "SubtotalAppliesLineDiscounts",
+      "reaches": ["src/Billing/Invoice.cs::Invoice.Invoice", "src/Billing/Invoice.cs::Invoice.Add", "src/Billing/Invoice.cs::Invoice.Subtotal", "src/Billing/LineItem.cs::LineItem.LineItem", "src/Billing/Terms/PaymentTerms.cs::PaymentTerms.Parse"]
+    },
+    {
+      "file": "test/Billing.Tests/InvoiceTests.cs",
+      "name": "TaxesAndTotal",
+      "reaches": ["src/Billing/Invoice.cs::Invoice.Taxed", "src/Billing/Invoice.cs::Invoice.Taxes", "src/Billing/Invoice.cs::Invoice.Total", "src/Billing/Tax.cs::Tax.For", "src/Billing/Tax.cs::Tax.IsExempt"]
+    },
+    {
+      "file": "test/Billing.Tests/InvoiceTests.cs",
+      "name": "AnEmptyInvoiceCannotBeIssued",
+      "reaches": ["src/Billing/Invoice.cs::Invoice.Issue"]
+    },
+    {
+      "file": "test/Billing.Tests/InvoiceTests.cs",
+      "name": "PartialPaymentLeavesABalance",
+      "reaches": ["src/Billing/Invoice.cs::Invoice.Issue", "src/Billing/Invoice.cs::Invoice.RecordPayment", "src/Billing/Invoice.cs::Invoice.BalanceDue", "src/Billing/Invoice.cs::Invoice.DueDate", "src/Billing/Invoice.cs::Invoice.Total"]
+    },
+    {
+      "file": "test/Billing.Tests/PaymentTermsTests.cs",
+      "name": "ParsesTheNetDays",
+      "reaches": ["src/Billing/Terms/PaymentTerms.cs::PaymentTerms.Parse", "src/Billing/Terms/PaymentTerms.cs::PaymentTerms.PaymentTerms"]
+    },
+    {
+      "file": "test/Billing.Tests/PaymentTermsTests.cs",
+      "name": "UnknownTermsAreRefused",
+      "reaches": ["src/Billing/Terms/PaymentTerms.cs::PaymentTerms.Parse"]
+    },
+    {
+      "file": "test/Billing.Tests/PaymentTermsTests.cs",
+      "name": "EarlyPaymentEarnsTheDiscountOnlyWhileItLasts",
+      "reaches": ["src/Billing/Terms/PaymentTerms.cs::PaymentTerms.Parse", "src/Billing/Terms/PaymentTerms.cs::PaymentTerms.EarlyPaymentDiscount"]
+    },
+    {
+      "file": "test/Billing.Tests/PaymentTermsTests.cs",
+      "name": "LateFeesCompoundMonthly",
+      "reaches": ["src/Billing/Terms/PaymentTerms.cs::PaymentTerms.LateFee"]
+    },
+    {
+      "file": "test/Billing.Tests/TaxTests.cs",
+      "name": "ChargesEachRuleOnTheNet",
+      "reaches": ["src/Billing/Tax.cs::Tax.For"]
+    },
+    {
+      "file": "test/Billing.Tests/TaxTests.cs",
+      "name": "ACompoundRuleIsChargedOnTheTaxToo",
+      "reaches": ["src/Billing/Tax.cs::Tax.For"]
+    },
+    {
+      "file": "test/Billing.Tests/TaxTests.cs",
+      "name": "NothingIsExemptButNothing",
+      "reaches": ["src/Billing/Tax.cs::Tax.IsExempt"]
+    },
+    {
+      "file": "test/Billing.Tests/TaxTests.cs",
+      "name": "ADiscountedLineIsTaxedOnItsNet",
+      "reaches": ["src/Billing/LineItem.cs::LineItem.LineItem", "src/Billing/LineItem.cs::LineItem.Net", "src/Billing/LineItem.cs::LineItem.Gross", "src/Billing/Tax.cs::Tax.For"]
+    }
+  ]
+}

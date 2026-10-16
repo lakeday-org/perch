@@ -1,0 +1,142 @@
+{
+  "language": "cpp",
+  "framework": "Catch2",
+  "left_out": ["tools/stockroom_count.cpp", "bench/pick_bench.cpp"],
+  "tests": [
+    {
+      "file": "tests/csv_test.cpp",
+      "name": "split_csv_line",
+      "reaches": ["src/csv.cpp::stockroom.split_csv_line"]
+    },
+    {
+      "file": "tests/csv_test.cpp",
+      "name": "parse_receipt reads a goods-in line",
+      "reaches": ["src/csv.cpp::stockroom.parse_receipt", "src/csv.cpp::stockroom.split_csv_line", "src/sku.cpp::stockroom.parse_sku", "src/location.cpp::stockroom.parse_location"]
+    },
+    {
+      "file": "tests/csv_test.cpp",
+      "name": "parse_receipt names the field it could not read",
+      "reaches": ["src/csv.cpp::stockroom.parse_receipt", "src/location.cpp::stockroom.parse_location"]
+    },
+    {
+      "file": "tests/inventory_test.cpp",
+      "name": "receive adds to a bin that already holds the SKU",
+      "reaches": ["src/inventory.cpp::stockroom.Inventory.receive", "src/inventory.cpp::stockroom.Inventory.on_hand", "include/stockroom/inventory.hpp::stockroom.Inventory.bins", "src/sku.cpp::stockroom.Sku.Sku"]
+    },
+    {
+      "file": "tests/inventory_test.cpp",
+      "name": "receive refuses a quantity that is not positive",
+      "reaches": ["src/inventory.cpp::stockroom.Inventory.receive", "src/sku.cpp::stockroom.Sku.Sku"]
+    },
+    {
+      "file": "tests/inventory_test.cpp",
+      "name": "reserve holds stock against an order",
+      "reaches": ["src/inventory.cpp::stockroom.Inventory.receive", "src/inventory.cpp::stockroom.Inventory.reserve", "src/inventory.cpp::stockroom.Inventory.reserved", "src/inventory.cpp::stockroom.Inventory.release", "include/stockroom/inventory.hpp::stockroom.Inventory.available"]
+    },
+    {
+      "file": "tests/inventory_test.cpp",
+      "name": "pick takes from the nearest bin first",
+      "reaches": ["src/inventory.cpp::stockroom.Inventory.reserve", "src/inventory.cpp::stockroom.Inventory.pick", "src/inventory.cpp::stockroom.Inventory.on_hand"]
+    },
+    {
+      "file": "tests/inventory_test.cpp",
+      "name": "pick refuses stock nobody reserved",
+      "reaches": ["src/inventory.cpp::stockroom.Inventory.pick"]
+    },
+    {
+      "file": "tests/inventory_test.cpp",
+      "name": "release refuses more than was reserved",
+      "reaches": ["src/inventory.cpp::stockroom.Inventory.release", "src/sku.cpp::stockroom.Sku.Sku"]
+    },
+    {
+      "file": "tests/inventory_test.cpp",
+      "name": "on_hand is zero for a SKU never received",
+      "reaches": ["src/inventory.cpp::stockroom.Inventory.on_hand"]
+    },
+    {
+      "file": "tests/inventory_test.cpp",
+      "name": "a million receipts into one bin",
+      "reaches": ["src/inventory.cpp::stockroom.Inventory.receive", "src/inventory.cpp::stockroom.Inventory.on_hand"]
+    },
+    {
+      "file": "tests/location_test.cpp",
+      "name": "parse_location reads aisle, shelf and slot",
+      "reaches": ["src/location.cpp::stockroom.parse_location"]
+    },
+    {
+      "file": "tests/location_test.cpp",
+      "name": "parse_location rejects what is not a bin",
+      "reaches": ["src/location.cpp::stockroom.parse_location"]
+    },
+    {
+      "file": "tests/location_test.cpp",
+      "name": "format_location pads shelf and slot",
+      "reaches": ["src/location.cpp::stockroom.format_location"]
+    },
+    {
+      "file": "tests/location_test.cpp",
+      "name": "walk_distance",
+      "reaches": ["src/location.cpp::stockroom.walk_distance"]
+    },
+    {
+      "file": "tests/reorder_test.cpp",
+      "name": "reorder_quantity follows the policy",
+      "reaches": ["src/reorder.cpp::stockroom.reorder_quantity"]
+    },
+    {
+      "file": "tests/reorder_test.cpp",
+      "name": "lead-time demand rounds part of a unit up",
+      "reaches": ["src/reorder.cpp::stockroom.reorder_quantity"]
+    },
+    {
+      "file": "tests/reorder_test.cpp",
+      "name": "round_to_case",
+      "reaches": ["src/reorder.cpp::stockroom.round_to_case"]
+    },
+    {
+      "file": "tests/reorder_test.cpp",
+      "name": "round_to_case never orders less than a supplier's minimum case",
+      "reaches": ["src/reorder.cpp::stockroom.round_to_case"]
+    },
+    {
+      "file": "tests/ring_buffer_test.cpp",
+      "name": "RingBuffer keeps the last N values",
+      "reaches": ["include/stockroom/ring_buffer.hpp::stockroom.RingBuffer.push", "include/stockroom/ring_buffer.hpp::stockroom.RingBuffer.full", "include/stockroom/ring_buffer.hpp::stockroom.RingBuffer.size", "include/stockroom/ring_buffer.hpp::stockroom.RingBuffer.at"]
+    },
+    {
+      "file": "tests/ring_buffer_test.cpp",
+      "name": "RingBuffer averages what it holds",
+      "reaches": ["include/stockroom/ring_buffer.hpp::stockroom.RingBuffer.push", "include/stockroom/ring_buffer.hpp::stockroom.RingBuffer.mean"]
+    },
+    {
+      "file": "tests/ring_buffer_test.cpp",
+      "name": "RingBuffer refuses an index past its size",
+      "reaches": ["include/stockroom/ring_buffer.hpp::stockroom.RingBuffer.at"]
+    },
+    {
+      "file": "tests/sku_test.cpp",
+      "name": "is_valid_sku accepts three letters, a dash and four digits",
+      "reaches": ["src/sku.cpp::stockroom.is_valid_sku"]
+    },
+    {
+      "file": "tests/sku_test.cpp",
+      "name": "is_valid_sku rejects malformed codes",
+      "reaches": ["src/sku.cpp::stockroom.is_valid_sku"]
+    },
+    {
+      "file": "tests/sku_test.cpp",
+      "name": "parse_sku cleans up what a scanner sends",
+      "reaches": ["src/sku.cpp::stockroom.parse_sku", "include/stockroom/sku.hpp::stockroom.Sku.code"]
+    },
+    {
+      "file": "tests/sku_test.cpp",
+      "name": "Sku splits into a family and a number",
+      "reaches": ["src/sku.cpp::stockroom.Sku.Sku", "src/sku.cpp::stockroom.Sku.family", "src/sku.cpp::stockroom.Sku.number"]
+    },
+    {
+      "file": "tests/sku_test.cpp",
+      "name": "Sku refuses an invalid code",
+      "reaches": ["src/sku.cpp::stockroom.Sku.Sku"]
+    }
+  ]
+}

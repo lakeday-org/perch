@@ -93,12 +93,15 @@ sent for C, C++, Rust, and Zig methods, while `cwe_89` is sent in every language
 The IDs follow the [supported language list](#1-tree-sitter): `c`, `cpp`,
 `rust`, `javascript`, `typescript`, `tsx`, `c_sharp`, and so on.
 
-A request carries the method's source with each line tagged
-`L0042|`, the comment above it, and its metrics. It carries the file's imports
-and module scope. It also carries up to 8 callees with the names of their own
-callees. It carries up to 8 callers with the line where each calls it. When
-they do not fit, each neighbour is shortened, then fewer are shown, down to
-none, before the method is given up on.
+A request carries the method and its call graph. The method is its source under
+the comment above it, with its metrics. The graph is up to 8 callees and up to
+8 callers, each shown with its comment and source, and the calls between them. A long caller is cut to the
+lines around its call. When they do not fit, each neighbour is shortened, then
+fewer are shown, down to none, before the method is given up on.
+
+Nothing in a request says where in its file the method sits. Adding a line
+above a method does not change what is asked about it, so its cached answers
+are still used.
 
 A method too long for one request is read in **overlapping passes**, each sized
 to what the budget actually holds. Only lines a pass can see are offered to its
@@ -174,8 +177,8 @@ only with `--filter type=security` or `security` in `scan_types`.
 ### The floor
 
 An issue is listed only when its score exceeds both the question's floor and
-the run's `--min`. Both bug checks use the default **50%** floor. Most security checks
-use 70%; XSS, SQL injection, and out-of-bounds reads use 60%.
+the run's `--min`. Both bug checks use a **60%** floor. Most security checks use 70%;
+XSS, SQL injection, and out-of-bounds reads use 60%.
 These scores rank answers but are not calibrated probabilities that a reported
 issue is real. Higher floors produce fewer alerts and miss more issues.
 

@@ -15,7 +15,7 @@ export function wrap(text, width = 92, indent = '  ') {
 }
 
 /** Columns wide enough for their widest cell. Trailing space is trimmed so a row can be diffed and grepped. */
-function table(header, rows, align) {
+export function table(header, rows, align) {
   const all = [header, ...rows];
   const widths = header.map((_, column) => Math.max(...all.map(row => String(row[column]).length)));
   return all.map(row => row.map((cell, column) => align[column] === 'left' ? String(cell).padEnd(widths[column]) : String(cell).padStart(widths[column])).join('  ').trimEnd());
@@ -23,9 +23,9 @@ function table(header, rows, align) {
 
 const number = value => value === null || value === undefined ? '-' : Math.round(value);
 /** Absolute paths push the columns that matter off the screen, so a path is said relative to where you are standing. */
-const relative = path => (path === process.cwd() ? path.split('/').at(-1) : path.startsWith(process.cwd() + '/') ? path.slice(process.cwd().length + 1) : path);
+export const relative = path => (path === process.cwd() ? path.split('/').at(-1) : path.startsWith(process.cwd() + '/') ? path.slice(process.cwd().length + 1) : path);
 
-const percent = value => `${Math.round(value * 100)}%`;
+export const percent = value => `${Math.round(value * 100)}%`;
 const words = label;
 const shortId = id => id.split('::').at(-1);
 const short = revision => (revision ?? '?').slice(0, 7);
@@ -54,8 +54,8 @@ const issueCell = (issues, width = Infinity) => {
 /** A finding points at the method it is about. */
 const locationOf = finding => `${finding.path}:${finding.line}`;
 /** Cut to `width`, keeping the end: a path's file and line say more than the crates/ it starts with. */
-const keepEnd = (text, width) => (text.length <= width ? text : '…' + text.slice(text.length - width + 1));
-const keepStart = (text, width) => (text.length <= width ? text : text.slice(0, width - 1) + '…');
+export const keepEnd = (text, width) => (text.length <= width ? text : '…' + text.slice(text.length - width + 1));
+export const keepStart = (text, width) => (text.length <= width ? text : text.slice(0, width - 1) + '…');
 
 /** The width to lay a table out in: the terminal's, or 100 when there isn't one (a pipe, a file, a test). */
 export const WIDTH = () => (process.stdout.columns >= 60 ? process.stdout.columns : 100);
@@ -135,16 +135,26 @@ export function formatScanReport(findings, { min = 0, width = WIDTH(), color = C
       name: shortId(finding.name), severity: CORRECTNESS.has(issue.type) ? severityName(finding.severity) : '-' });
   }
   if (!byFile.size) return empty;
+  const blocks = fileBlocks(byFile, { width, color });
+  return (summary ? [...blocks, scanTally(findings, min, color)] : blocks).join('\n\n');
+}
 
+/**
+ * One block per file, its name and then a row per problem, for a scan here and a run in CI alike. Rows are the problem as printed:
+ * its id, line, severity, type, how sure (`sure`), what it is (`said`) and the method's name. A CI run on a pull request adds what
+ * became of Perch's review comment on each (`review`), with the replies to it on the lines under its row.
+ */
+function fileBlocks(byFile, { width, color, review = false }) {
   // The id is on every row rather than once per method, so any row you are looking at is one you can act on without hunting up
   // the block for it: `perch issues <id>` opens it, and `perch close <id> --kind <problem>` sets that one problem aside.
   // How sure is its own column rather than a suffix on the problem: it is the number you sort by, argue with, and set a floor
   // against, and reading it means finding it in the same place on every row.
-  const HEAD = ['ID', 'Line', 'Severity', 'Type', 'Confidence', 'Problem', 'Method'];
+  const HEAD = ['ID', 'Line', 'Severity', 'Type', 'Confidence', 'Problem', ...(review ? ['Review'] : []), 'Method'];
   const blocks = [];
   const paths = [...byFile.keys()].filter(key => key !== SEARCHED).sort();
   for (const path of [...paths, ...(byFile.has(SEARCHED) ? [SEARCHED] : [])]) {
-    const rows = byFile.get(path).sort((a, b) => a.line - b.line || b.sure - a.sure);
+    const rows = byFile.get(path).map(row => ({ ...row, line: row.line ?? '-' }))
+      .sort((a, b) => (Number(a.line) || 0) - (Number(b.line) || 0) || b.sure - a.sure);
     const widest = pick => Math.max(...rows.map(row => String(pick(row)).length));
     const ident = Math.max(HEAD[0].length, widest(row => row.id));
     const at = Math.max(HEAD[1].length, widest(row => row.line));
@@ -152,17 +162,20 @@ export function formatScanReport(findings, { min = 0, width = WIDTH(), color = C
     const type = Math.max(HEAD[3].length, widest(row => row.type));
     const sure = Math.max(HEAD[4].length, widest(row => percent(row.sure)));
     const said = Math.max(HEAD[5].length, widest(row => row.said));
-    const named = Math.max(HEAD[6].length, Math.min(widest(row => row.name), Math.max(8, width - ident - at - band - type - sure - said - 14)));
+    const reviewed = review ? Math.max('Review'.length, widest(row => row.review)) : 0;
+    const reviewCell = text => (review ? `${text.padEnd(reviewed)}  ` : '');
+    const named = Math.max('Method'.length, Math.min(widest(row => row.name), Math.max(8, width - ident - at - band - type - sure - said - (review ? reviewed + 2 : 0) - 14)));
     // Padded before it is painted: an escape sequence is not a column of anything, and counting it as one bends every row after.
     const lines = [bold(path === SEARCHED ? SEARCHED : relative(path), color),
-      dim(`  ${HEAD[0].padEnd(ident)}  ${HEAD[1].padStart(at)}  ${HEAD[2].padEnd(band)}  ${HEAD[3].padEnd(type)}  ${HEAD[4].padStart(sure)}  ${HEAD[5].padEnd(said)}  ${HEAD[6]}`, color)];
+      dim(`  ${HEAD[0].padEnd(ident)}  ${HEAD[1].padStart(at)}  ${HEAD[2].padEnd(band)}  ${HEAD[3].padEnd(type)}  ${HEAD[4].padStart(sure)}  ${HEAD[5].padEnd(said)}  ${reviewCell('Review')}Method`, color)];
     for (const row of rows) {
       const severity = row.severity.padEnd(band);
-      lines.push(`  ${row.id.padEnd(ident)}  ${dim(String(row.line).padStart(at), color)}  ${row.severity === '-' ? dim(severity, color) : severity}  ${row.type.padEnd(type)}  ${sureness(row.sure, color).padStart(sure + (color ? 9 : 0))}  ${row.said.padEnd(said)}  ${dim(keepStart(row.name, named), color)}`.trimEnd());
+      lines.push(`  ${row.id.padEnd(ident)}  ${dim(String(row.line).padStart(at), color)}  ${row.severity === '-' ? dim(severity, color) : severity}  ${row.type.padEnd(type)}  ${sureness(row.sure, color).padStart(sure + (color ? 9 : 0))}  ${row.said.padEnd(said)}  ${reviewCell(row.review ?? '')}${dim(keepStart(row.name, named), color)}`.trimEnd());
+      for (const reply of row.replies ?? []) lines.push(dim(`      ${keepStart(reply, Math.max(20, width - 6))}`, color));
     }
     blocks.push(lines.join('\n'));
   }
-  return (summary ? [...blocks, scanTally(findings, min, color)] : blocks).join('\n\n');
+  return blocks;
 }
 
 /**
@@ -255,7 +268,7 @@ export function issueCount({ open, matched, from = 0, listed, size = Infinity, c
 /** How long ago, in the largest unit that still says something. */
 function since(at) {
   if (!at) return '';
-  const seconds = Math.max(0, Math.round((Date.now() - Date.parse(at)) / 1000));
+  const seconds = Math.max(0, Math.round((Date.now() - (typeof at === 'number' ? at : Date.parse(at))) / 1000));
   if (seconds < 90) return `${seconds}s ago`;
   if (seconds < 5400) return `${Math.round(seconds / 60)}m ago`;
   if (seconds < 172800) return `${Math.round(seconds / 3600)}h ago`;
@@ -435,25 +448,69 @@ export function formatFinding(finding, { width = WIDTH(), color = COLOR() } = {}
   return lines.join('\n');
 }
 
+const problems = count => `${count} ${count === 1 ? 'problem' : 'problems'}`;
 
-/** What actually moved: "risk 84 -> 28, complexity 55 -> 9, 153 -> 41 lines". Numbers that did not change are left out. */
-export function metricShift(before, after) {
-  if (!before || !after) return '-';
-  const parts = [];
-  for (const [name, key] of [['risk', 'risk_score'], ['complexity', 'cyclomatic_complexity'], ['nesting', 'max_nesting']])
-    if (number(before[key]) !== number(after[key])) parts.push(`${name} ${number(before[key])} -> ${number(after[key])}`);
-  if (number(before.sloc) !== number(after.sloc)) parts.push(`${number(before.sloc)} -> ${number(after.sloc)} lines`);
-  return parts.join(', ') || 'unchanged';
+/** What a CI run came to, in the words its exit code means. A run still going says how far it has got. */
+export function runResult(run) {
+  if (run.exit_code < 0) return run.phase === 'reading' && run.total_methods ? `running, ${run.completed_methods} of ${run.total_methods} methods read` : 'running';
+  if (run.exit_code === 1) return 'could not finish';
+  if (!run.open_issues) return 'clean';
+  return `${problems(run.open_issues)}, ${run.exit_code === 3 ? 'failing' : 'none failing'}`;
 }
 
+/** The runs perch ci lists, newest first. The branch is a column only when the list is of every branch. */
+export function formatRuns({ runs, branch }) {
+  if (!runs.length) return `No CI runs${branch ? ` of ${branch}` : ''} in Perch Cloud.`;
+  const header = ['ID', 'Commit', 'Pull request', ...(branch ? [] : ['Branch']), 'Result', 'When'];
+  const rows = runs.map(run => [run.id, short(run.revision), run.pull_request ? `#${run.pull_request}` : '-', ...(branch ? [] : [run.branch ?? '-']),
+    runResult(run), since(run.exit_code < 0 ? run.started_at : run.finished_at)]);
+  return table(header, rows, header.map(() => 'left')).join('\n');
+}
+
+/** "#252 at eea5f3c, finished 2h ago": which run this is, for the line under its issues. */
+export const runSummary = run => `${run.pull_request ? `#${run.pull_request}` : run.branch ?? 'run'} at ${short(run.revision)}, `
+  + (run.exit_code < 0 ? `started ${since(run.started_at)}` : `finished ${since(run.finished_at)}`);
+
 /**
- * What became of each objective. Printing the issues before and the issues after leaves the reader to diff two lists in their head;
- * the useful reading is which ones went, which ones are still there and by how much, and which ones the rewrite introduced.
+ * What became of Perch's review comment on a finding: open, resolved, or resolved by Perch when a later scan stopped reporting it.
+ * Perch's own reply saying so is the last one on a thread it resolved, and the Review column has already said it.
  */
-export function issueOutcome(before = [], after = []) {
-  const byLabel = new Map(after.map(issue => [issue.label, issue]));
-  const gone = before.filter(issue => !byLabel.has(issue.label));
-  const left = before.filter(issue => byLabel.has(issue.label)).map(issue => ({ ...issue, now: byLabel.get(issue.label).probability }));
-  const seen = new Set(before.map(issue => issue.label));
-  return { gone, left, added: after.filter(issue => !seen.has(issue.label)) };
+const reviewOf = comment => (!comment ? 'no comment' : !comment.resolved ? 'open' : comment.resolvedByPerch ? 'resolved by Perch' : 'resolved');
+const repliesTo = comment => (comment?.replies ?? []).slice(0, comment?.resolvedByPerch ? -1 : undefined)
+  .map(reply => `${reply.author ?? 'someone'}: ${String(reply.body).replace(/\s+/g, ' ').trim()}`);
+
+/** One CI run's issues in the layout a scan prints, then what the run came to. A pull request run says what became of each comment. */
+export function formatRun({ run, findings }, { width = WIDTH(), color = COLOR() } = {}) {
+  // Only a pull request run read with its comments has a comment field on its findings, null where Perch left none.
+  const review = findings.some(finding => finding.comment !== undefined);
+  const byFile = new Map();
+  for (const finding of findings) {
+    if (!byFile.has(finding.path)) byFile.set(finding.path, []);
+    byFile.get(finding.path).push({ id: finding.id, line: finding.line, type: finding.type, said: finding.kind, sure: finding.probability,
+      name: shortId(finding.method), severity: finding.severity ?? '-',
+      ...(review ? { review: reviewOf(finding.comment), replies: repliesTo(finding.comment) } : {}) });
+  }
+  const where = `${problems(findings.length)} in ${byFile.size} ${byFile.size === 1 ? 'file' : 'files'}`;
+  const tally = run.exit_code < 0 ? `… ${runResult(run)}${findings.length ? `, ${where} so far` : ''}`
+    : run.exit_code === 1 ? `${red('✖', color)} the run could not finish${run.error ? `: ${run.error}` : ''}`
+      : run.findings_deleted_at ? `${problems(run.open_issues)}, no longer kept in Perch Cloud`
+        : !findings.length ? '✓ nothing to report'
+          : run.exit_code === 3 ? `${red('✖', color)} ${where}, failing` : `${yellow('!', color)} ${where}, none failing`;
+  return [...fileBlocks(byFile, { width, color, review }), tally].join('\n\n');
+}
+
+const SCOPE = { changes: 'the changed code', all: 'the whole repository' };
+/**
+ * perch cloud: who is signed in, to which workspace, and how Perch Cloud scans this repository's pull requests. A repository the
+ * workspace does not have says so and where to add it, since every other row would be about nothing.
+ */
+export function formatCloud(cloud) {
+  const pull = cloud.pullRequests;
+  const rows = [['Signed in as', cloud.user.email], ['Workspace', `${cloud.organization.name}${cloud.organization.role ? ` (${cloud.organization.role})` : ''}`],
+    ['Repository', cloud.repository ? `${cloud.repository}${cloud.repositoryId ? '' : `, not in this workspace; add it at ${cloud.url}`}` : 'none: this checkout has no origin remote']];
+  if (pull) rows.push(['GitHub app', cloud.github ? 'installed' : `not installed; install it at ${cloud.url}`],
+    ['Pull requests', pull.scans ? 'scanned' : 'not scanned'], ['Asks about', pull.types.join(', ')], ['Reads', SCOPE[pull.scope] ?? pull.scope],
+    ['Issues', pull.gate ? 'fail the Perch Scan check' : 'are reported, and the check passes']);
+  const label = Math.max(...rows.map(([name]) => name.length));
+  return rows.map(([name, value]) => `${name.padEnd(label)}  ${value}`).join('\n');
 }

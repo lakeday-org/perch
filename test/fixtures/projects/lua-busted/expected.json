@@ -1,0 +1,67 @@
+{
+  "language": "lua",
+  "framework": "busted",
+  "left_out": ["scripts/bench.lua"],
+  "tests": [
+    {
+      "file": "spec/duration_spec.lua",
+      "name": "parses hours and minutes into seconds",
+      "reaches": ["src/tempo/duration.lua::Duration.parse", "src/tempo/duration.lua::Duration.new"]
+    },
+    {
+      "file": "spec/duration_spec.lua",
+      "name": "rejects a unit it does not know",
+      "reaches": ["src/tempo/duration.lua::Duration.parse"]
+    },
+    {
+      "file": "spec/duration_spec.lua",
+      "name": "rejects a negative length",
+      "reaches": ["src/tempo/duration.lua::Duration.new"]
+    },
+    {
+      "file": "spec/duration_spec.lua",
+      "name": "adds two durations",
+      "reaches": ["src/tempo/duration.lua::Duration.new", "src/tempo/duration.lua::Duration.add"]
+    },
+    {
+      "file": "spec/duration_spec.lua",
+      "name": "compares lengths",
+      "reaches": ["src/tempo/duration.lua::Duration.new", "src/tempo/duration.lua::Duration.longer_than"]
+    },
+    {
+      "file": "spec/duration_spec.lua",
+      "name": "converts to minutes",
+      "reaches": ["src/tempo/duration.lua::Duration.new", "src/tempo/duration.lua::Duration.minutes"]
+    },
+    {
+      "file": "spec/format_spec.lua",
+      "name": "writes minutes and seconds",
+      "reaches": ["src/tempo/format.lua::M.clock", "src/tempo/format.lua::pad", "src/tempo/duration.lua::Duration.new"]
+    },
+    {
+      "file": "spec/format_spec.lua",
+      "name": "switches to hours after sixty minutes",
+      "reaches": ["src/tempo/format.lua::M.human", "src/tempo/duration.lua::Duration.new"]
+    },
+    {
+      "file": "spec/tempo_spec.lua",
+      "name": "parses a duration",
+      "reaches": ["src/tempo.lua::tempo.parse", "src/tempo/duration.lua::Duration.parse", "src/tempo/duration.lua::Duration.new"]
+    },
+    {
+      "file": "spec/tempo_spec.lua",
+      "name": "describes a duration in words",
+      "reaches": ["src/tempo.lua::tempo.describe", "src/tempo/format.lua::M.human", "src/tempo/duration.lua::Duration.parse"]
+    },
+    {
+      "file": "spec/tempo_spec.lua",
+      "name": "measures the time since a moment",
+      "reaches": ["src/tempo.lua::tempo.stopwatch", "src/tempo.lua::tempo.parse", "src/tempo/clock.lua::Clock.new", "src/tempo/clock.lua::Clock.advance", "src/tempo/clock.lua::Clock.since"]
+    },
+    {
+      "file": "spec/tempo_spec.lua",
+      "name": "refuses a moment in the future",
+      "reaches": ["src/tempo.lua::tempo.stopwatch", "src/tempo/clock.lua::Clock.new", "src/tempo/clock.lua::Clock.since"]
+    }
+  ]
+}

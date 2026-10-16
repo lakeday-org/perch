@@ -1,0 +1,177 @@
+{
+  "language": "python",
+  "framework": "pytest",
+  "left_out": ["scripts/seed_demo.py", "docs/conf.py", "examples/monthly_close.py", "src/tally/_compat.py"],
+  "tests": [
+    {
+      "file": "tests/test_money.py",
+      "name": "test_parse",
+      "reaches": ["src/tally/money.py::Money.parse"]
+    },
+    {
+      "file": "tests/test_money.py",
+      "name": "test_parse_rejects",
+      "reaches": ["src/tally/money.py::Money.parse"]
+    },
+    {
+      "file": "tests/test_money.py",
+      "name": "test_rounded",
+      "reaches": ["src/tally/money.py::Money.rounded"]
+    },
+    {
+      "file": "tests/test_money.py",
+      "name": "test_allocate_gives_leftover_cents_to_the_first_parts",
+      "reaches": ["src/tally/money.py::Money.allocate"]
+    },
+    {
+      "file": "tests/test_money.py",
+      "name": "test_minor_units_of_an_unknown_currency",
+      "reaches": ["src/tally/money.py::minor_units"]
+    },
+    {
+      "file": "tests/test_journal.py",
+      "name": "test_a_balanced_entry_validates",
+      "reaches": ["src/tally/journal.py::Entry.debit", "src/tally/journal.py::Entry.credit", "src/tally/journal.py::Entry.validate", "src/tally/journal.py::Entry.is_balanced", "src/tally/journal.py::Entry.totals"]
+    },
+    {
+      "file": "tests/test_journal.py",
+      "name": "test_an_unbalanced_entry_raises",
+      "reaches": ["src/tally/journal.py::Entry.debit", "src/tally/journal.py::Entry.credit", "src/tally/journal.py::Entry.validate"]
+    },
+    {
+      "file": "tests/test_journal.py",
+      "name": "test_an_entry_needs_two_lines",
+      "reaches": ["src/tally/journal.py::Entry.debit", "src/tally/journal.py::Entry.validate"]
+    },
+    {
+      "file": "tests/test_ledger.py",
+      "name": "test_post_moves_both_balances",
+      "reaches": ["src/tally/ledger.py::Ledger.post", "src/tally/ledger.py::Ledger.balance", "src/tally/journal.py::Entry.debit", "src/tally/journal.py::Entry.credit"]
+    },
+    {
+      "file": "tests/test_ledger.py",
+      "name": "test_post_on_the_lock_date_is_rejected",
+      "reaches": ["src/tally/ledger.py::Ledger.__init__", "src/tally/ledger.py::Ledger.open_account", "src/tally/ledger.py::Ledger.post"]
+    },
+    {
+      "file": "tests/test_ledger.py",
+      "name": "test_post_to_a_placeholder_is_rejected",
+      "reaches": ["src/tally/ledger.py::Ledger.__init__", "src/tally/ledger.py::Ledger.open_account", "src/tally/ledger.py::Ledger.post"]
+    },
+    {
+      "file": "tests/test_ledger.py",
+      "name": "test_balance_includes_subaccounts",
+      "reaches": ["src/tally/ledger.py::Ledger.__init__", "src/tally/ledger.py::Ledger.open_account", "src/tally/ledger.py::Ledger.post", "src/tally/ledger.py::Ledger.balance", "src/tally/journal.py::Entry.debit", "src/tally/journal.py::Entry.credit"]
+    },
+    {
+      "file": "tests/test_ledger.py",
+      "name": "test_trial_balance_debits_equal_credits",
+      "reaches": ["src/tally/ledger.py::Ledger.post", "src/tally/ledger.py::Ledger.trial_balance"]
+    },
+    {
+      "file": "tests/test_ledger.py",
+      "name": "test_close_period_cannot_move_backwards",
+      "reaches": ["src/tally/chart.py::open_ledger", "src/tally/ledger.py::Ledger.close_period"]
+    },
+    {
+      "file": "tests/test_ledger.py",
+      "name": "test_post_in_a_foreign_currency_converts",
+      "reaches": ["src/tally/chart.py::open_ledger", "src/tally/journal.py::Entry.debit", "src/tally/journal.py::Entry.credit", "src/tally/ledger.py::Ledger.post", "src/tally/ledger.py::Ledger.balance"]
+    },
+    {
+      "file": "tests/test_invoice.py",
+      "name": "test_subtotal_applies_line_discounts",
+      "reaches": ["src/tally/invoicing/invoice.py::Invoice.__init__", "src/tally/invoicing/invoice.py::Invoice.add", "src/tally/invoicing/invoice.py::Invoice.subtotal"]
+    },
+    {
+      "file": "tests/test_invoice.py",
+      "name": "test_line_item_rejects_a_discount_over_100_percent",
+      "reaches": ["src/tally/invoicing/invoice.py::LineItem.net"]
+    },
+    {
+      "file": "tests/test_invoice.py",
+      "name": "test_taxes_and_total",
+      "reaches": ["src/tally/invoicing/invoice.py::Invoice.taxes", "src/tally/invoicing/invoice.py::Invoice.total"]
+    },
+    {
+      "file": "tests/test_invoice.py",
+      "name": "test_an_empty_invoice_cannot_be_issued",
+      "reaches": ["src/tally/invoicing/invoice.py::Invoice.__init__", "src/tally/invoicing/invoice.py::Invoice.issue"]
+    },
+    {
+      "file": "tests/test_invoice.py",
+      "name": "test_partial_payment_leaves_a_balance",
+      "reaches": ["src/tally/invoicing/invoice.py::Invoice.issue", "src/tally/invoicing/invoice.py::Invoice.record_payment", "src/tally/invoicing/invoice.py::Invoice.balance_due"]
+    },
+    {
+      "file": "tests/test_invoice.py",
+      "name": "test_to_entry_posts_a_balanced_sale",
+      "reaches": ["src/tally/invoicing/invoice.py::Invoice.issue", "src/tally/invoicing/invoice.py::Invoice.to_entry", "src/tally/journal.py::Entry.is_balanced", "src/tally/ledger.py::Ledger.post", "src/tally/ledger.py::Ledger.balance"]
+    },
+    {
+      "file": "tests/test_tax.py",
+      "name": "test_tax_for",
+      "reaches": ["src/tally/invoicing/tax.py::tax_for", "src/tally/money.py::Money.rounded"]
+    },
+    {
+      "file": "tests/test_tax.py",
+      "name": "test_compound_rule_is_charged_on_tax_too",
+      "reaches": ["src/tally/invoicing/tax.py::tax_for"]
+    },
+    {
+      "file": "tests/test_tax.py",
+      "name": "test_tax_by_code_rounds_once_per_code",
+      "reaches": ["src/tally/invoicing/tax.py::tax_by_code"]
+    },
+    {
+      "file": "tests/test_terms.py",
+      "name": "test_due_date",
+      "reaches": ["src/tally/invoicing/terms.py::due_date"]
+    },
+    {
+      "file": "tests/test_terms.py",
+      "name": "test_unknown_terms_raise",
+      "reaches": ["src/tally/invoicing/terms.py::parse_terms"]
+    },
+    {
+      "file": "tests/test_terms.py",
+      "name": "test_late_fee",
+      "reaches": ["src/tally/invoicing/terms.py::late_fee"]
+    },
+    {
+      "file": "tests/test_terms.py",
+      "name": "test_late_fee_compounds_monthly",
+      "reaches": ["src/tally/invoicing/terms.py::late_fee"]
+    },
+    {
+      "file": "tests/test_numbering.py",
+      "name": "test_peek_does_not_advance",
+      "reaches": ["src/tally/invoicing/numbering.py::InvoiceNumberer.__init__", "src/tally/invoicing/numbering.py::InvoiceNumberer.peek", "src/tally/invoicing/numbering.py::InvoiceNumberer.next"]
+    },
+    {
+      "file": "tests/test_rates.py",
+      "name": "test_rates_are_fetched_once_per_base",
+      "reaches": ["src/tally/rates.py::RateProvider.__init__", "src/tally/rates.py::RateProvider.rate", "src/tally/rates.py::RateProvider._fetch"]
+    },
+    {
+      "file": "tests/test_rates.py",
+      "name": "test_convert_rounds_to_the_target_currency",
+      "reaches": ["src/tally/rates.py::convert", "src/tally/rates.py::RateProvider.__init__"]
+    },
+    {
+      "file": "tests/test_reports.py",
+      "name": "test_aging_bucket",
+      "reaches": ["src/tally/reports.py::aging_bucket"]
+    },
+    {
+      "file": "tests/test_reports.py",
+      "name": "test_aging_report_buckets_what_is_owed",
+      "reaches": ["src/tally/invoicing/invoice.py::Invoice.issue", "src/tally/reports.py::aging_report"]
+    },
+    {
+      "file": "tests/test_package.py",
+      "name": "test_open_ledger_has_the_small_business_chart",
+      "reaches": ["src/tally/chart.py::open_ledger", "src/tally/ledger.py::Ledger.account"]
+    }
+  ]
+}

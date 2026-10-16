@@ -5,18 +5,23 @@ const at = 'test.yaml question 1';
 const noul = (name, extra = {}) => check({ name, where: '**/*', ask: 'Is it?', true: 'Yes', false: 'No', ...extra }, at);
 
 describe('the question grammar', () => {
-  it('ships a set that declares what perch asks, and nothing asks it twice', () => {
+  it('ships each question once, with the checks it is known for', () => {
     const names = BUILTIN.map(question => question.name);
     expect(new Set(names).size).toBe(names.length);
     expect(names).toEqual(expect.arrayContaining(['has_bug', 'kind', 'severity', 'refactor', 'cwe_79', 'cwe_416']));
     expect(names.filter(name => name.startsWith('bug_'))).toEqual(['bug_edge_case']);
     expect(names.filter(name => name.startsWith('cwe_'))).toHaveLength(30);
-    // An ID says which check it was; the label is what a row prints, so it is a name a reader knows without a lookup.
+  });
+
+  it('labels each specific check with a name a reader knows without a lookup', () => {
+    // An ID says which check it was; the label is what a row prints.
     const specific = BUILTIN.filter(question => /^(bug|cwe)_/.test(question.name));
     expect(specific.filter(question => /^(bug|cwe)_|^self$/.test(question.issue.label))).toEqual([]);
     expect(Object.fromEntries(specific.filter(question => ['cwe_89', 'cwe_862', 'cwe_327'].includes(question.name))
       .map(question => [question.name, question.issue.label]))).toEqual({ cwe_89: 'sql_injection', cwe_862: 'missing_authorization', cwe_327: 'weak_crypto' });
-    // Every shipped question is about a method, and the three shapes are all in use.
+  });
+
+  it('ships only questions about a method, in all three shapes', () => {
     expect(new Set(BUILTIN.map(question => question.each))).toEqual(new Set(['method']));
     expect(new Set(BUILTIN.map(question => question.type))).toEqual(new Set(['noul', 'choice', 'score']));
   });

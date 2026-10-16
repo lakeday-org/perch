@@ -1,11 +1,12 @@
-import { rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer, sourceFile } from '../src/analysis.js';
 import { analyzeTree } from '../src/analyze.js';
-import { fixtureOptions, makeFixture, makeGraphFixture } from './helpers.js';
+import { commitAll, fixtureOptions, initRepo, makeFixture, makeGraphFixture } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
 const cleanups = [];
@@ -24,6 +25,26 @@ describe('source selection', () => {
       expect(sourceFile({ type: 'blob', path: `src/app.min.${extension}`, size: 100 })).toBe(false);
       expect(sourceFile({ type: 'blob', path: `src/app.${extension}`, size: 100 })).toBe(true);
     }
+  });
+});
+
+describe('a header', () => {
+  it('is C++ in a repository with C++ sources, and C in one without', async () => {
+    const header = 'namespace shop {\ntemplate <typename T> T twice(T value) {\n  return value + value;\n}\n}\n';
+    const read = async files => {
+      const root = await mkdtemp(join(tmpdir(), 'perch-header-'));
+      cleanups.push(root);
+      for (const [path, text] of Object.entries(files)) { await mkdir(join(root, dirname(path)), { recursive: true }); await writeFile(join(root, path), text); }
+      await initRepo(root);
+      const scan = await analyzeTree({ root, revision: await revision(root), out: join(root, '.perch'), analyzer });
+      return scan.files.find(file => file.path === 'include/shop.h');
+    };
+    // Read as C, the template and the namespace are errors and the function in them is lost.
+    const cpp = await read({ 'include/shop.h': header, 'src/shop.cc': '#include "../include/shop.h"\nint main() {\n  return shop::twice(1);\n}\n' });
+    expect(cpp.language).toBe('cpp');
+    expect(cpp.methods.map(method => method.qualified_name)).toContain('shop.twice');
+    const c = await read({ 'include/shop.h': 'int twice(int value);\n', 'src/shop.c': 'int twice(int value) {\n  return value + value;\n}\n' });
+    expect(c.language).toBe('c');
   });
 });
 
@@ -77,6 +98,16 @@ describe('perch scan', () => {
     expect(again.id).toBe(scan.id);
     expect(again.created_at).toBe(scan.created_at);
     expect(analyzed).toBe(0);
+    expect(again.files).toEqual(scan.files);
+  });
+
+  it('keeps file records out of scan.json, one line each in files.jsonl', async () => {
+    const repo = await fixture();
+    const scan = await analyzeTree(fixtureOptions(repo, { analyzer }));
+    const header = JSON.parse(await readFile(join(scan.out, 'scan.json'), 'utf8'));
+    expect(header.files).toBe('files.jsonl');
+    const lines = (await readFile(join(scan.out, 'files.jsonl'), 'utf8')).trim().split('\n');
+    expect(lines.map(line => JSON.parse(line).path)).toEqual(scan.files.map(file => file.path));
   });
 
   it('records calls and imports per file and keeps test methods out of the ranking', async () => {
@@ -100,4 +131,43 @@ describe('perch scan', () => {
     expect(empty.status).toBe('complete');
     expect(empty.candidates).toEqual([]);
   });
+});
+
+describe('requested document and configuration parsing', () => {
+  it('parses authored files with their own grammar and keeps the default source scan unchanged', async () => {
+    const repo = await fixture();
+    for (const [path, source] of Object.entries({
+      'config.yaml': 'enabled: true\nretries: 3\n',
+      'settings.json': '{"enabled": true}\n',
+      'notes.md': '# Deployment\n\nSet enabled to true.\n',
+      'service.tf': 'resource "example" "main" {\n name = "service"\n}\n',
+      'page.html': '<main><h1>Service</h1></main>\n',
+      'styles.css': 'main { color: red; }\n',
+      'settings.toml': '[service]\nenabled = true\n',
+    })) await writeFile(join(repo.root, path), source);
+    await commitAll(repo.root, 'file review inputs');
+    repo.revision = await revision(repo.root);
+    const ordinary = await analyzeTree(fixtureOptions(repo, { analyzer }));
+    expect(ordinary.files.some(file => file.path === 'config.yaml')).toBe(false);
+    const reviewed = await analyzeTree(fixtureOptions(repo, { analyzer, includeFiles: true }));
+    expect(reviewed.id).not.toBe(ordinary.id);
+    for (const path of ['config.yaml', 'settings.json', 'notes.md', 'service.tf', 'page.html', 'styles.css', 'settings.toml'])
+      expect(reviewed.files.some(file => file.path === path)).toBe(true);
+    expect(reviewed.coverage.parse_failures).toBe(0);
+    expect(reviewed.files.find(file => file.path === 'config.yaml').language).toBe('yaml');
+    expect(reviewed.files.find(file => file.path === 'service.tf').language).toBe('hcl');
+  });
+});
+
+it('limits optional file grammars while retaining repository-wide callable context', async () => {
+  const repo = await fixture(makeGraphFixture);
+  await writeFile(join(repo.root, 'config.yaml'), 'enabled: true\n');
+  await writeFile(join(repo.root, 'unrelated.xml'), '<items><item>Example</item></items>\n');
+  await commitAll(repo.root, 'optional file grammar scope');
+  repo.revision = await revision(repo.root);
+  const scan = await analyzeTree(fixtureOptions(repo, { analyzer, includeFiles: true, filePaths: ['config.yaml'] }));
+  expect(scan.files.some(file => file.path === 'config.yaml')).toBe(true);
+  expect(scan.files.some(file => file.path === 'unrelated.xml')).toBe(false);
+  expect(scan.files.some(file => file.path === 'src/a.js')).toBe(true);
+  expect(scan.files.some(file => file.path === 'src/b.js')).toBe(true);
 });

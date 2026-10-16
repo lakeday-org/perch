@@ -10,4 +10,10 @@ public class Cart {
         for (Item item : items) total += item.unitPrice() * item.quantity();
         return total;
     }
+
+    /** Take a percentage off a total. A discount of 100 percent or more makes the order free. */
+    public static int applyDiscount(int total, int percent) {
+        if (percent >= 100) return 0;
+        return total - total * percent / 100;
+    }
 }

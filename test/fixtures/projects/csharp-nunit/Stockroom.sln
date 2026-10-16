@@ -1,0 +1,14 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Stockroom", "Stockroom\Stockroom.csproj", "{4E7B9F35-AEA0-4E85-CF30-5D4A6B2B1D34}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Stockroom.Tests", "Stockroom.Tests\Stockroom.Tests.csproj", "{5F8CA046-BFB1-4F96-D041-6E5B7C3C2E45}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Stockroom.Benchmarks", "benchmarks\Stockroom.Benchmarks\Stockroom.Benchmarks.csproj", "{6A9DB157-CAC2-4AA7-E152-7F6C8D4D3F56}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+EndGlobal

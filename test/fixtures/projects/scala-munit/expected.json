@@ -1,0 +1,52 @@
+{
+  "language": "scala",
+  "framework": "munit",
+  "left_out": ["examples/QuoteExample.scala"],
+  "tests": [
+    {
+      "file": "src/test/scala/parcel/ParcelSuite.scala",
+      "name": "girth is the longest side plus twice the others",
+      "reaches": ["src/main/scala/parcel/Parcel.scala::Parcel.girth"]
+    },
+    {
+      "file": "src/test/scala/parcel/ParcelSuite.scala",
+      "name": "bills the heavier of scale and volume",
+      "reaches": ["src/main/scala/parcel/Parcel.scala::Parcel.billableGrams", "src/main/scala/parcel/Parcel.scala::Parcel.volumetricGrams"]
+    },
+    {
+      "file": "src/test/scala/parcel/ParcelSuite.scala",
+      "name": "rejects what the carrier will not take",
+      "reaches": ["src/main/scala/parcel/Parcel.scala::Parcel.validate"]
+    },
+    {
+      "file": "src/test/scala/parcel/ParcelSuite.scala",
+      "name": "zones by first digit",
+      "reaches": ["src/main/scala/parcel/Zone.scala::Zone.forPostcode"]
+    },
+    {
+      "file": "src/test/scala/parcel/QuoteSuite.scala",
+      "name": "prices by zone and band",
+      "reaches": ["src/main/scala/parcel/Quote.scala::Quoter.quote", "src/main/scala/parcel/rates/RateCard.scala::RateCard.standard", "src/main/scala/parcel/Zone.scala::Zone.forPostcode", "src/main/scala/parcel/rates/RateCard.scala::RateCard.cents"]
+    },
+    {
+      "file": "src/test/scala/parcel/QuoteSuite.scala",
+      "name": "an unknown destination is refused",
+      "reaches": ["src/main/scala/parcel/Quote.scala::Quoter.quote"]
+    },
+    {
+      "file": "src/test/scala/parcel/QuoteSuite.scala",
+      "name": "past the last band there is no rate",
+      "reaches": ["src/main/scala/parcel/rates/RateCard.scala::RateCard.empty", "src/main/scala/parcel/rates/RateCard.scala::RateCard.set", "src/main/scala/parcel/Quote.scala::Quoter.quote"]
+    },
+    {
+      "file": "src/test/scala/parcel/QuoteSuite.scala",
+      "name": "surcharges round to the cent",
+      "reaches": ["src/main/scala/parcel/Quote.scala::Quoter.quote", "src/main/scala/parcel/Quote.scala::Quote.surcharged"]
+    },
+    {
+      "file": "src/test/scala/parcel/QuoteSuite.scala",
+      "name": "cheapest skips what cannot ship",
+      "reaches": ["src/main/scala/parcel/Quote.scala::Quoter.cheapest", "src/main/scala/parcel/Quote.scala::Quoter.quote"]
+    }
+  ]
+}

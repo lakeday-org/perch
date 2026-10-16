@@ -1,0 +1,57 @@
+{
+  "language": "swift",
+  "framework": "Swift Testing",
+  "left_out": ["Examples/quote/main.swift", "Package.swift"],
+  "tests": [
+    {
+      "file": "Tests/ParcelTests/ParcelTests.swift",
+      "name": "girth is the longest side plus twice the others",
+      "reaches": ["Sources/Parcel/Parcel.swift::Parcel.init", "Sources/Parcel/Parcel.swift::Parcel.girth"]
+    },
+    {
+      "file": "Tests/ParcelTests/ParcelTests.swift",
+      "name": "billsTheHeavierOfScaleAndVolume",
+      "reaches": ["Sources/Parcel/Parcel.swift::Parcel.init", "Sources/Parcel/Parcel.swift::Parcel.billableGrams"]
+    },
+    {
+      "file": "Tests/ParcelTests/ParcelTests.swift",
+      "name": "rejects what the carrier will not take",
+      "reaches": ["Sources/Parcel/Parcel.swift::Parcel.init", "Sources/Parcel/Parcel.swift::Parcel.validate"]
+    },
+    {
+      "file": "Tests/ParcelTests/QuoteTests.swift",
+      "name": "zonesByFirstDigit",
+      "reaches": ["Sources/Parcel/Zone.swift::Zone.forPostcode"]
+    },
+    {
+      "file": "Tests/ParcelTests/QuoteTests.swift",
+      "name": "aPostcodeWithoutADigitHasNoZone",
+      "reaches": ["Sources/Parcel/Zone.swift::Zone.forPostcode"]
+    },
+    {
+      "file": "Tests/ParcelTests/QuoteTests.swift",
+      "name": "prices by zone and band",
+      "reaches": ["Sources/Parcel/Quote.swift::Quoter.quote", "Sources/Parcel/Zone.swift::Zone.forPostcode", "Sources/Parcel/RateCard.swift::RateCard.cents"]
+    },
+    {
+      "file": "Tests/ParcelTests/QuoteTests.swift",
+      "name": "anUnknownDestinationIsRefused",
+      "reaches": ["Sources/Parcel/Quote.swift::Quoter.quote"]
+    },
+    {
+      "file": "Tests/ParcelTests/QuoteTests.swift",
+      "name": "pastTheLastBandThereIsNoRate",
+      "reaches": ["Sources/Parcel/RateCard.swift::RateCard.init", "Sources/Parcel/RateCard.swift::RateCard.set", "Sources/Parcel/Quote.swift::Quoter.init", "Sources/Parcel/Quote.swift::Quoter.quote", "Sources/Parcel/RateCard.swift::RateCard.Band.init"]
+    },
+    {
+      "file": "Tests/ParcelTests/QuoteTests.swift",
+      "name": "surcharges round to the cent",
+      "reaches": ["Sources/Parcel/Quote.swift::Quoter.quote", "Sources/Parcel/Quote.swift::Quote.surcharged"]
+    },
+    {
+      "file": "Tests/ParcelTests/QuoteTests.swift",
+      "name": "cheapestSkipsWhatCannotShip",
+      "reaches": ["Sources/Parcel/Parcel.swift::Parcel.init", "Sources/Parcel/Quote.swift::Quoter.cheapest", "Sources/Parcel/Quote.swift::Quoter.quote"]
+    }
+  ]
+}

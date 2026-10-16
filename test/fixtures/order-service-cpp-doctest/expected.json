@@ -1,0 +1,168 @@
+{
+  "language": "cpp",
+  "framework": "doctest",
+  "sources": 7,
+  "availability": {
+    "path": "src/checkout.cpp",
+    "name": "can_fulfil"
+  },
+  "tests": [
+    {
+      "n": 1,
+      "file": "test/checkout_test.cpp",
+      "name": "can_fulfil accepts when every item is in stock",
+      "direct": [
+        "src/checkout.cpp::can_fulfil"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 2,
+      "file": "test/checkout_test.cpp",
+      "name": "can_fulfil rejects an empty cart",
+      "direct": [
+        "src/checkout.cpp::can_fulfil"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "empty_or_absent_input",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 3,
+      "file": "test/checkout_test.cpp",
+      "name": "can_fulfil accepts a quantity equal to the stock",
+      "direct": [
+        "src/checkout.cpp::can_fulfil"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "boundary",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 4,
+      "file": "test/cart_test.cpp",
+      "name": "apply_discount takes ten percent off",
+      "direct": [
+        "src/cart.cpp::apply_discount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 5,
+      "file": "test/cart_test.cpp",
+      "name": "apply_discount takes twenty percent off",
+      "direct": [
+        "src/cart.cpp::apply_discount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 6,
+      "file": "test/cart_test.cpp",
+      "name": "apply_discount takes twenty-five percent off",
+      "direct": [
+        "src/cart.cpp::apply_discount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 7,
+      "file": "test/cart_test.cpp",
+      "name": "apply_discount takes fifty percent off",
+      "direct": [
+        "src/cart.cpp::apply_discount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 8,
+      "file": "test/cart_test.cpp",
+      "name": "apply_discount takes seventy-five percent off",
+      "direct": [
+        "src/cart.cpp::apply_discount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 9,
+      "file": "test/checkout_test.cpp",
+      "name": "can_fulfil returns what the stub returns",
+      "direct": [],
+      "cuts": [],
+      "touches": [],
+      "decides": "nothing",
+      "smell": "asserts_mock",
+      "infra": false
+    },
+    {
+      "n": 10,
+      "file": "test/cart_test.cpp",
+      "name": "subtotal adds up the cart",
+      "direct": [
+        "src/cart.cpp::subtotal"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "nothing",
+      "smell": "no_assertion",
+      "infra": false
+    },
+    {
+      "n": 11,
+      "file": "test/cart_test.cpp",
+      "name": "subtotal matches the price service total",
+      "direct": [
+        "src/cart.cpp::subtotal"
+      ],
+      "cuts": [],
+      "touches": [
+        "network",
+        "environment"
+      ],
+      "decides": "happy_path",
+      "smell": "mystery_guest",
+      "infra": true
+    },
+    {
+      "n": 12,
+      "file": "test/checkout_test.cpp",
+      "name": "place_order returns the subtotal",
+      "direct": [
+        "src/checkout.cpp::place_order"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    }
+  ]
+}

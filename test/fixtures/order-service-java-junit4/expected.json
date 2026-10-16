@@ -1,0 +1,170 @@
+{
+  "language": "java",
+  "framework": "junit4",
+  "sources": 7,
+  "availability": {
+    "path": "src/example/Inventory.java",
+    "name": "Inventory.canFulfil"
+  },
+  "tests": [
+    {
+      "n": 1,
+      "file": "test/example/InventoryTest.java",
+      "name": "acceptsWhenEveryItemIsInStock",
+      "direct": [
+        "src/example/Inventory.java::Inventory.canFulfil"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 2,
+      "file": "test/example/InventoryTest.java",
+      "name": "rejectsAnEmptyCart",
+      "direct": [
+        "src/example/Inventory.java::Inventory.canFulfil"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "empty_or_absent_input",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 3,
+      "file": "test/example/InventoryTest.java",
+      "name": "acceptsQuantityEqualToStock",
+      "direct": [
+        "src/example/Inventory.java::Inventory.canFulfil"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "boundary",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 4,
+      "file": "test/example/CartTest.java",
+      "name": "takesTenPercentOff",
+      "direct": [
+        "src/example/Cart.java::Cart.applyDiscount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 5,
+      "file": "test/example/CartTest.java",
+      "name": "takesTwentyPercentOff",
+      "direct": [
+        "src/example/Cart.java::Cart.applyDiscount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 6,
+      "file": "test/example/CartTest.java",
+      "name": "takesTwentyFivePercentOff",
+      "direct": [
+        "src/example/Cart.java::Cart.applyDiscount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 7,
+      "file": "test/example/CartTest.java",
+      "name": "takesFiftyPercentOff",
+      "direct": [
+        "src/example/Cart.java::Cart.applyDiscount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 8,
+      "file": "test/example/CartTest.java",
+      "name": "takesSeventyFivePercentOff",
+      "direct": [
+        "src/example/Cart.java::Cart.applyDiscount"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    },
+    {
+      "n": 9,
+      "file": "test/example/InventoryTest.java",
+      "name": "returnsWhatTheStubReturns",
+      "direct": [],
+      "cuts": [
+        "src/example/Inventory.java::Inventory.canFulfil"
+      ],
+      "touches": [],
+      "decides": "nothing",
+      "smell": "asserts_mock",
+      "infra": false
+    },
+    {
+      "n": 10,
+      "file": "test/example/CartTest.java",
+      "name": "addsUpTheCart",
+      "direct": [
+        "src/example/Cart.java::Cart.subtotal"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "nothing",
+      "smell": "no_assertion",
+      "infra": false
+    },
+    {
+      "n": 11,
+      "file": "test/example/CartTest.java",
+      "name": "matchesTheSavedOrderTotal",
+      "direct": [
+        "src/example/Cart.java::Cart.subtotal"
+      ],
+      "cuts": [],
+      "touches": [
+        "database",
+        "environment"
+      ],
+      "decides": "happy_path",
+      "smell": "mystery_guest",
+      "infra": true
+    },
+    {
+      "n": 12,
+      "file": "test/example/CheckoutTest.java",
+      "name": "placeOrderReturnsTheSubtotal",
+      "direct": [
+        "src/example/Checkout.java::Checkout.placeOrder"
+      ],
+      "cuts": [],
+      "touches": [],
+      "decides": "happy_path",
+      "smell": "none",
+      "infra": false
+    }
+  ]
+}
