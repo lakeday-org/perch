@@ -869,10 +869,17 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
     return parts.length <= 2 && (nodes.get(call.from)?.params ?? []).some(param => param.name === parts[0]);
   };
   /** The method a held value is, when it is a function: one written in place, or a name that resolves to one. */
-  const functionOf = (file, held, from) => {
+  const functionOf = (file, held, from, followed = new Set()) => {
     if (!held) return null;
     if (held.fn) return nodes.has(held.fn) ? held.fn : null;
-    if (held.local) { const bound = bindingFor(file, held.local, from); return bound ? functionOf(file, bound, from) : resolve(file, held.local, from) ?? parameterValues(from, held.local).map(site => functionOf(site.file, site.held, site.from)).find(Boolean) ?? null; }
+    if (held.local) {
+      const key = JSON.stringify([file.path, from, held.local]);
+      if (followed.has(key)) return null;
+      const branch = new Set(followed).add(key);
+      const bound = bindingFor(file, held.local, from);
+      return bound ? functionOf(file, bound, from, branch)
+        : resolve(file, held.local, from) ?? parameterValues(from, held.local).map(site => functionOf(site.file, site.held, site.from, branch)).find(Boolean) ?? null;
+    }
     return null;
   };
   const deferred = [];
@@ -889,10 +896,11 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
     // A Python method's first parameter is the receiver, which no caller passes: `invoke(self, cli)` is called as `r.invoke(cli)`.
     const receiver = params[0] && RECEIVERS.has(params[0].name) && params[0].index === 0 ? 1 : 0;
     const values = [];
+    const own = (object, key) => object && Object.hasOwn(object, key) ? object[key] : null;
     for (const site of param ? calledWith.get(from) ?? [] : []) {
       // By position, or by name where the caller labelled it: `run([], Parser(), reader=Reader())`.
-      let held = site.args[param.index - receiver] ?? site.named[param.name] ?? null;
-      if (param.field !== undefined) held = held?.fields?.[param.field] ?? site.named[param.field] ?? null;
+      let held = site.args[param.index - receiver] ?? own(site.named, param.name);
+      if (param.field !== undefined) held = own(held?.fields, param.field) ?? own(site.named, param.field);
       if (held) values.push({ held, file: site.file, from: site.from });
     }
     return values;
@@ -1097,8 +1105,8 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
    * `counter.update()` where counter holds what a factory returned: `return { draw, update: n => ... }` names the function the
    * member is, written in the factory. Null when the factory returns no object literal with that member.
    */
-  const memberOfReturned = (file, held, member, from) => {
-    const target = held?.call ? resolve(file, held.call, from, 1) : null;
+  const memberOfReturned = (file, held, member, from, depth) => {
+    const target = held?.call ? resolve(file, held.call, from, depth + 1) : null;
     const node = target && nodes.get(target);
     if (!node) return null;
     // `return { draw, update }` written out, or `const store = { ... }; return store;` through the local it returns.
@@ -1119,7 +1127,7 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
   };
   const viaBinding = (file, name, member, from, depth = 0) => {
     const binding = bindingFor(file, name, from);
-    const returned = binding && memberOfReturned(file, binding, member, from);
+    const returned = binding && memberOfReturned(file, binding, member, from, depth);
     if (returned) return returned;
     const elsewhere = binding ? null : bindingElsewhere(file, name, from);
     const kind = binding ? classOf(file, binding, from, depth) : elsewhere && classOf(elsewhere.file, elsewhere.held, elsewhere.from ?? from, depth);
