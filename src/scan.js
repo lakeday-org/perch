@@ -158,12 +158,12 @@ export const typesAsked = (scanTypes, filters = [], questions = questionSet()) =
   ]);
 };
 
-export async function scanRepository({ root, revision, out, analyzer, systemOne, label = root, github = null, paths = [], named = [], parallel = DEFAULT_PARALLEL,
+export async function scanRepository({ root, revision, out, analyzer, systemOne, label = root, github = null, paths = [], named = [], parallel = DEFAULT_PARALLEL, includeTests = false, includeFiles = false,
   unitParallel = UNIT_PARALLEL, min = 0.5, filters = [], onFile = () => {}, onFinding = () => {}, onProgress = () => {}, progress = () => {}, unitProgress = () => {}, searchProgress = () => {}, scanProgress = () => {}, log = () => {}, debug = () => {} }) {
   const store = openStore(out);
   // The whole tree is parsed however narrow the run is. Parsing is free next to a request, and a method's callers matter whether
   // or not they are in the diff: a graph cut down to what a branch touched cannot say who calls into it.
-  const scan = await analyzeTree({ root, revision, out, analyzer, label, github, progress: scanProgress, log, debug });
+  const scan = await analyzeTree({ root, revision, out, analyzer, label, github, includeFiles, filePaths: paths, progress: scanProgress, log, debug });
   const graph = buildGraph(scan.files, { crates: scan.crates, modules: scan.modules });
   const rules = asRules(await readRules(root, revision));
   // Which issue types this run asks about, and so which of perch's own questions ride in every request.
@@ -179,9 +179,11 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const ignored = (await readIgnored(root, revision)).filter(glob => !coversNamed(glob));
   const covered = covers(paths);
   const inScope = path => covered(path) && !ignored.some(glob => matches(glob, path));
-  const candidates = scan.candidates.filter(candidate => graph.nodes.has(candidate.id) && inScope(graph.nodes.get(candidate.id).path));
+  const ranked = includeTests ? [...graph.nodes.values()].map(node => ({ id: node.id, score: node.metrics?.risk_score ?? 0 }))
+    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id)) : scan.candidates;
+  const candidates = ranked.filter(candidate => graph.nodes.has(candidate.id) && inScope(graph.nodes.get(candidate.id).path));
   // How many methods the run was asked about that ignore took out, so a run left with none can say why rather than call it clean.
-  const excluded = scan.candidates.filter(candidate => graph.nodes.has(candidate.id) && covered(graph.nodes.get(candidate.id).path)).length - candidates.length;
+  const excluded = ranked.filter(candidate => graph.nodes.has(candidate.id) && covered(graph.nodes.get(candidate.id).path)).length - candidates.length;
   // No methods in scope is an ordinary run, not a failure: a branch that only touched markdown and a workflow has none, and the
   // rules about files still cover what it did touch. Erroring here failed the run and skipped those rules as well.
   const candidateIds = candidates.map(candidate => candidate.id);

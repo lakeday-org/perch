@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer, sourceFile } from '../src/analysis.js';
 import { analyzeTree } from '../src/analyze.js';
-import { fixtureOptions, initRepo, makeFixture, makeGraphFixture } from './helpers.js';
+import { commitAll, fixtureOptions, initRepo, makeFixture, makeGraphFixture } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
 const cleanups = [];
@@ -131,4 +131,43 @@ describe('perch scan', () => {
     expect(empty.status).toBe('complete');
     expect(empty.candidates).toEqual([]);
   });
+});
+
+describe('requested document and configuration parsing', () => {
+  it('parses authored files with their own grammar and keeps the default source scan unchanged', async () => {
+    const repo = await fixture();
+    for (const [path, source] of Object.entries({
+      'config.yaml': 'enabled: true\nretries: 3\n',
+      'settings.json': '{"enabled": true}\n',
+      'notes.md': '# Deployment\n\nSet enabled to true.\n',
+      'service.tf': 'resource "example" "main" {\n name = "service"\n}\n',
+      'page.html': '<main><h1>Service</h1></main>\n',
+      'styles.css': 'main { color: red; }\n',
+      'settings.toml': '[service]\nenabled = true\n',
+    })) await writeFile(join(repo.root, path), source);
+    await commitAll(repo.root, 'file review inputs');
+    repo.revision = await revision(repo.root);
+    const ordinary = await analyzeTree(fixtureOptions(repo, { analyzer }));
+    expect(ordinary.files.some(file => file.path === 'config.yaml')).toBe(false);
+    const reviewed = await analyzeTree(fixtureOptions(repo, { analyzer, includeFiles: true }));
+    expect(reviewed.id).not.toBe(ordinary.id);
+    for (const path of ['config.yaml', 'settings.json', 'notes.md', 'service.tf', 'page.html', 'styles.css', 'settings.toml'])
+      expect(reviewed.files.some(file => file.path === path)).toBe(true);
+    expect(reviewed.coverage.parse_failures).toBe(0);
+    expect(reviewed.files.find(file => file.path === 'config.yaml').language).toBe('yaml');
+    expect(reviewed.files.find(file => file.path === 'service.tf').language).toBe('hcl');
+  });
+});
+
+it('limits optional file grammars while retaining repository-wide callable context', async () => {
+  const repo = await fixture(makeGraphFixture);
+  await writeFile(join(repo.root, 'config.yaml'), 'enabled: true\n');
+  await writeFile(join(repo.root, 'unrelated.xml'), '<items><item>Example</item></items>\n');
+  await commitAll(repo.root, 'optional file grammar scope');
+  repo.revision = await revision(repo.root);
+  const scan = await analyzeTree(fixtureOptions(repo, { analyzer, includeFiles: true, filePaths: ['config.yaml'] }));
+  expect(scan.files.some(file => file.path === 'config.yaml')).toBe(true);
+  expect(scan.files.some(file => file.path === 'unrelated.xml')).toBe(false);
+  expect(scan.files.some(file => file.path === 'src/a.js')).toBe(true);
+  expect(scan.files.some(file => file.path === 'src/b.js')).toBe(true);
 });

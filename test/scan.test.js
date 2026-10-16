@@ -589,3 +589,14 @@ describe('perch hunt', () => {
     expect((await openStore(other.out).latestRun()).status).toBe('failed');
   });
 });
+
+describe('requested review of test code', () => {
+  it('includes parsed tests only when requested, without changing the default method scan', async () => {
+    const repo = await fixture();
+    const ordinary = await scanRepository(await withRevision(repo, { systemOne: scriptedSystemOne() }));
+    expect(ordinary.visited.some(row => row.path.startsWith('test/'))).toBe(false);
+    const reviewed = await scanRepository(await withRevision(repo, { systemOne: scriptedSystemOne(), includeTests: true }));
+    expect(reviewed.visited.some(row => row.path.startsWith('test/'))).toBe(true);
+    expect(reviewed.methods).toBeGreaterThan(ordinary.methods);
+  });
+});
