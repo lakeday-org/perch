@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.4](https://github.com/lakeday-org/perch/compare/v0.4.3...v0.4.4) (2026-10-16)
+
+
+### Features
+
+* perch coverage runs your tests and asks the model only about survivors ([#355](https://github.com/lakeday-org/perch/issues/355)) ([d9486db](https://github.com/lakeday-org/perch/commit/d9486dbe174d21dd971705681e02f2676ae20fb6))
+
+
+### Bug Fixes
+
+* prevent crashes during call graph inference ([#368](https://github.com/lakeday-org/perch/issues/368)) ([c6bd61b](https://github.com/lakeday-org/perch/commit/c6bd61bd784f6336143e58a3199733fad1b6d823))
+
 ## [0.4.3](https://github.com/lakeday-org/perch/compare/v0.4.2...v0.4.3) (2026-10-11)
 
 
