@@ -5,9 +5,11 @@
 # The example applications have deliberate bugs for scanner and workflow verification.
 # Keep it out of ordinary repository scans.
 # scripts/ is dev tooling that regenerates fixture reports and runs live checks; it is not shipped and no test runs it.
+# .benchmarks/ is the harness that scores perch's models against frozen inputs; it is not shipped either.
 ignore:
   - test/fixtures/**/*
   - scripts/**
+  - .benchmarks/**
 
 rules:
   - name: callable-inference-stops-cycles
@@ -85,9 +87,8 @@ rules:
   - name: one-way-into-the-log
     where: mentions .jsonl
     # The store is the one place that opens them, so its own methods are not asked. The runners work in a copy of the
-    # repository in the temporary directory and never open .perch: a .jsonl file there is a test framework's output. The
-    # benchmark harness reads and writes its own snapshots and never opens .perch either.
-    except: [src/store.js, "src/runners/**", ".benchmarks/**"]
+    # repository in the temporary directory and never open .perch: a .jsonl file there is a test framework's output.
+    except: [src/store.js, "src/runners/**"]
     ensure: >-
       This method reads and writes perch's own .jsonl files, the ones under the
       .perch directory, by calling the store: readLines, writeLines,
