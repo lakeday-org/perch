@@ -140,13 +140,18 @@ export async function resolveOut(out, cwd = process.cwd()) {
 /**
  * A path in the results directory, refused when it, or a directory between it and the results directory, is a symbolic link.
  * The results directory is .perch in the repository being scanned, and a repository can commit a link there: a scan writing
- * through it would replace a file outside the repository with perch's output, as whoever ran the scan.
+ * through it would replace a file outside the repository with perch's output, as whoever ran the scan. A path outside the
+ * results directory, such as the page --html names, is the one you gave and is not checked.
  */
 export async function writable(out, path) {
   const parts = relative(out, path).split(sep).filter(Boolean);
-  for (let at = out, i = 0; i <= parts.length; at = join(at, parts[i] ?? ''), i++) {
+  if (parts[0] === '..') return path;
+  for (let i = 0; i <= parts.length; i++) {
+    const at = join(out, ...parts.slice(0, i));
     const stat = await lstat(at).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
-    if (stat?.isSymbolicLink()) throw new Error(`${at} is a symbolic link. perch does not write through links in its results directory; remove it and run again.`);
+    // Nothing below a missing directory exists either.
+    if (!stat) break;
+    if (stat.isSymbolicLink()) throw new Error(`${at} is a symbolic link. perch does not write through links in its results directory; remove it and run again.`);
   }
   return path;
 }

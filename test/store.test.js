@@ -1,7 +1,8 @@
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { saveCoverageReport } from '../src/coverage.js';
 import { jsonChunks, jsonPieces, openStore } from '../src/store.js';
 
 describe('JSON in pieces', () => {
@@ -54,6 +55,25 @@ describe('symbolic links in the results directory', () => {
     await symlink(join(root, 'elsewhere'), join(root, 'repo', 'linked'));
     await expect(openStore(join(root, 'repo', 'linked')).startLog()).rejects.toThrow(/linked is a symbolic link/);
     expect(await readFile(outside, 'utf8')).toBe('keep\n');
+  });
+
+  // perch coverage saves its report under reports/ and copies it to latest.jsonl, which a copy onto a link would write through.
+  const report = { created_at: '2026-10-17T00:00:00.000Z', revision: 'abc1234def', files: [], methods: [], tests: [], findings: [], closed: [], failed: [] };
+
+  it('refuses to copy the latest coverage report through a link', async () => {
+    const { out, outside } = await repository();
+    await mkdir(join(out, 'coverage'));
+    await symlink(outside, join(out, 'coverage', 'latest.jsonl'));
+    await expect(saveCoverageReport(out, report)).rejects.toThrow(/latest\.jsonl is a symbolic link/);
+    expect(await readFile(outside, 'utf8')).toBe('keep\n');
+  });
+
+  it('refuses a coverage directory that is a link', async () => {
+    const { root, out } = await repository();
+    await mkdir(join(root, 'elsewhere'));
+    await symlink(join(root, 'elsewhere'), join(out, 'coverage'));
+    await expect(saveCoverageReport(out, report)).rejects.toThrow(/coverage is a symbolic link/);
+    expect(await readdir(join(root, 'elsewhere'))).toEqual([]);
   });
 
   it('writes the scan log in an ordinary results directory', async () => {

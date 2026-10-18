@@ -23,7 +23,7 @@ import { buildGraph } from './graph.js';
 import { AuthenticationError } from './systemone.js';
 import { compile, parseQuestions, readAnswer } from './ask.js';
 import { excerpt, leadingComment, shownLines, spanOf } from './questions.js';
-import { identity, openStore } from './store.js';
+import { identity, openStore, writable } from './store.js';
 import { estimateTokens, IncompleteCheckError, TOKEN_LIMITS, withTokenRetries } from './tokens.js';
 import { matches, readIgnored } from './units.js';
 import { covers } from './scan.js';
@@ -955,10 +955,10 @@ const reportName = report => `${report.created_at.replace(/[:.]/g, '-')}-${Strin
  * written nor read back.
  */
 const REPORT_LISTS = ['files', 'methods', 'tests', 'findings', 'closed', 'failed'];
-async function writeReport(path, report) {
+async function writeReport(out, path, report) {
   const header = Object.fromEntries(Object.entries(report).map(([key, value]) => [key, REPORT_LISTS.includes(key) && Array.isArray(value) ? [] : value]));
   const rows = [header, ...REPORT_LISTS.flatMap(key => (Array.isArray(report[key]) ? report[key].map(item => [key, item]) : []))];
-  await openStore(dirname(path)).writeLines(path, rows);
+  await openStore(out).writeLines(path, rows);
 }
 
 /** A report saved by writeReport. Null when there is none. */
@@ -983,8 +983,8 @@ export const withoutSource = report => ({ ...report, files: report.files.map(({ 
 export async function saveCoverageReport(out, report) {
   const paths = coveragePaths(out);
   const path = join(paths.reports, reportName(report));
-  await writeReport(path, withoutSource(report));
-  await copyFile(path, paths.latest);
+  await writeReport(out, path, withoutSource(report));
+  await copyFile(path, await writable(out, paths.latest));
   return path;
 }
 
