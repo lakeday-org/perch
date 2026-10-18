@@ -78,6 +78,38 @@ You can extend perch with your own linting rules by adding them to `perch.yaml`:
     Keep passwords and access tokens out of logs.
 ```
 
+## ReviewBench
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/reviewbench-dark.svg">
+  <img alt="F1, precision and recall for perch with GPT-6 Luna and Jev 1.14 beside the eleven reviewers on the ReviewBench leaderboard" src=".github/reviewbench-light.svg" width="880">
+</picture>
+
+[ReviewBench](https://review-bench.ai) is GitHub's benchmark for AI code review. With GPT-6 Luna, perch's recall is 81.1%, higher
+than any reviewer on its leaderboard. The run, both models' answers and how to reproduce them are in
+[`.benchmarks/reviewbench`](.benchmarks/reviewbench).
+
+<details>
+<summary>The numbers</summary>
+
+| Reviewer | F1 | Precision | Recall |
+| --- | ---: | ---: | ---: |
+| Laude RevEngine Prime | 59.6% | 83.6% | 46.3% |
+| block/review | 47.7% | 88.7% | 32.6% |
+| Klaussy | 44.1% | 84.1% | 29.8% |
+| Copilot code review | 40.1% | 87.8% | 26.0% |
+| DeepSeek Harness Reviewer | 39.9% | 89.5% | 25.6% |
+| Devin AI | 37.0% | 84.0% | 23.8% |
+| Qodo | 35.1% | 85.3% | 22.1% |
+| **Perch · GPT-6 Luna** | **34.2%** | **21.7%** | **81.1%** |
+| Codex | 30.4% | 86.0% | 18.5% |
+| Cubic | 27.3% | 85.5% | 16.3% |
+| Greptile | 27.2% | 86.1% | 16.2% |
+| **Perch · Jev 1.14** | **25.5%** | **34.7%** | **20.2%** |
+| Cursor | 17.3% | 87.7% | 9.6% |
+
+</details>
+
 ## Models
 
 By default, Perch Cloud routes your questions to the best model for answering them. To ask a specific decision model,
