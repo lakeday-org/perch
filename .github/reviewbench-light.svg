@@ -1,0 +1,154 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="582" viewBox="0 0 880 582" role="img" aria-labelledby="title desc">
+<title id="title">Perch on ReviewBench</title>
+<desc id="desc">F1, precision and recall for perch beside the ReviewBench leaderboard. Laude RevEngine Prime: F1 59.6%, precision 83.6%, recall 46.3%. block/review: F1 47.7%, precision 88.7%, recall 32.6%. Klaussy: F1 44.1%, precision 84.1%, recall 29.8%. Copilot code review: F1 40.1%, precision 87.8%, recall 26%. DeepSeek Harness Reviewer: F1 39.9%, precision 89.5%, recall 25.6%. Devin AI: F1 37%, precision 84%, recall 23.8%. Qodo: F1 35.1%, precision 85.3%, recall 22.1%. Perch with GPT-6 Luna: F1 34.2%, precision 21.7%, recall 81.1%. Codex: F1 30.4%, precision 86%, recall 18.5%. Cubic: F1 27.3%, precision 85.5%, recall 16.3%. Greptile: F1 27.2%, precision 86.1%, recall 16.2%. Perch with Jev 1.14: F1 25.5%, precision 34.7%, recall 20.2%. Cursor: F1 17.3%, precision 87.7%, recall 9.6%.</desc>
+<style>text{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif}.n{font-variant-numeric:tabular-nums}</style>
+<text x="8" y="30" font-size="20" font-weight="600" fill="#1f2328">Perch on ReviewBench</text>
+<text x="8" y="54" font-size="13" fill="#59636e">F1, precision and recall beside the ReviewBench leaderboard, GitHub's benchmark for AI code review</text>
+<rect x="8" y="72" width="10" height="10" rx="2" fill="#c27a12"/><text x="24" y="81" font-size="12" fill="#59636e">Perch</text>
+<rect x="76" y="72" width="10" height="10" rx="2" fill="#b9b8b0"/><text x="92" y="81" font-size="12" fill="#59636e">Leaderboard reviewers</text>
+<text x="214" y="116" font-size="12" font-weight="600" fill="#59636e">F1</text>
+<line x1="214" y1="128" x2="214" y2="518" stroke="#c9cfd6" stroke-width="1"/>
+<text class="n" x="214" y="534" font-size="11" fill="#818b98">0%</text>
+<text class="n" x="384" y="534" font-size="11" text-anchor="end" fill="#818b98">100%</text>
+<text x="434" y="116" font-size="12" font-weight="600" fill="#59636e">Precision</text>
+<line x1="434" y1="128" x2="434" y2="518" stroke="#c9cfd6" stroke-width="1"/>
+<text class="n" x="434" y="534" font-size="11" fill="#818b98">0%</text>
+<text class="n" x="604" y="534" font-size="11" text-anchor="end" fill="#818b98">100%</text>
+<text x="654" y="116" font-size="12" font-weight="600" fill="#59636e">Recall</text>
+<line x1="654" y1="128" x2="654" y2="518" stroke="#c9cfd6" stroke-width="1"/>
+<text class="n" x="654" y="534" font-size="11" fill="#818b98">0%</text>
+<text class="n" x="824" y="534" font-size="11" text-anchor="end" fill="#818b98">100%</text>
+<text x="8" y="147.5" font-size="13" fill="#59636e">Laude RevEngine Prime</text>
+<path d="M214,137h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M214,137h97.32a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-97.32z" fill="#b9b8b0"/>
+<text class="n" x="321.32" y="147" font-size="12" fill="#59636e">59.6%</text>
+<path d="M434,137h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M434,137h138.11999999999998a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-138.11999999999998z" fill="#b9b8b0"/>
+<text class="n" x="582.12" y="147" font-size="12" fill="#59636e">83.6%</text>
+<path d="M654,137h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M654,137h74.71a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-74.71z" fill="#b9b8b0"/>
+<text class="n" x="738.71" y="147" font-size="12" fill="#59636e">46.3%</text>
+<text x="8" y="177.5" font-size="13" fill="#59636e">block/review</text>
+<path d="M214,167h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M214,167h77.09a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-77.09z" fill="#b9b8b0"/>
+<text class="n" x="301.09000000000003" y="177" font-size="12" fill="#59636e">47.7%</text>
+<path d="M434,167h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M434,167h146.79a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-146.79z" fill="#b9b8b0"/>
+<text class="n" x="590.79" y="177" font-size="12" fill="#59636e">88.7%</text>
+<path d="M654,167h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M654,167h51.42a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-51.42z" fill="#b9b8b0"/>
+<text class="n" x="715.42" y="177" font-size="12" fill="#59636e">32.6%</text>
+<text x="8" y="207.5" font-size="13" fill="#59636e">Klaussy</text>
+<path d="M214,197h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M214,197h70.97a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-70.97z" fill="#b9b8b0"/>
+<text class="n" x="294.97" y="207" font-size="12" fill="#59636e">44.1%</text>
+<path d="M434,197h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M434,197h138.96999999999997a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-138.96999999999997z" fill="#b9b8b0"/>
+<text class="n" x="582.97" y="207" font-size="12" fill="#59636e">84.1%</text>
+<path d="M654,197h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M654,197h46.66a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-46.66z" fill="#b9b8b0"/>
+<text class="n" x="710.66" y="207" font-size="12" fill="#59636e">29.8%</text>
+<text x="8" y="237.5" font-size="13" fill="#59636e">Copilot code review</text>
+<path d="M214,227h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M214,227h64.17a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-64.17z" fill="#b9b8b0"/>
+<text class="n" x="288.17" y="237" font-size="12" fill="#59636e">40.1%</text>
+<path d="M434,227h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M434,227h145.26a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-145.26z" fill="#b9b8b0"/>
+<text class="n" x="589.26" y="237" font-size="12" fill="#59636e">87.8%</text>
+<path d="M654,227h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M654,227h40.2a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-40.2z" fill="#b9b8b0"/>
+<text class="n" x="704.2" y="237" font-size="12" fill="#59636e">26.0%</text>
+<text x="8" y="267.5" font-size="13" fill="#59636e">DeepSeek Harness Reviewer</text>
+<path d="M214,257h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M214,257h63.83a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-63.83z" fill="#b9b8b0"/>
+<text class="n" x="287.83" y="267" font-size="12" fill="#59636e">39.9%</text>
+<path d="M434,257h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M434,257h148.15a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-148.15z" fill="#b9b8b0"/>
+<text class="n" x="592.15" y="267" font-size="12" fill="#59636e">89.5%</text>
+<path d="M654,257h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M654,257h39.52a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-39.52z" fill="#b9b8b0"/>
+<text class="n" x="703.52" y="267" font-size="12" fill="#59636e">25.6%</text>
+<text x="8" y="297.5" font-size="13" fill="#59636e">Devin AI</text>
+<path d="M214,287h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M214,287h58.9a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-58.9z" fill="#b9b8b0"/>
+<text class="n" x="282.9" y="297" font-size="12" fill="#59636e">37.0%</text>
+<path d="M434,287h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M434,287h138.8a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-138.8z" fill="#b9b8b0"/>
+<text class="n" x="582.8" y="297" font-size="12" fill="#59636e">84.0%</text>
+<path d="M654,287h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M654,287h36.46a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-36.46z" fill="#b9b8b0"/>
+<text class="n" x="700.46" y="297" font-size="12" fill="#59636e">23.8%</text>
+<text x="8" y="327.5" font-size="13" fill="#59636e">Qodo</text>
+<path d="M214,317h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M214,317h55.67a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-55.67z" fill="#b9b8b0"/>
+<text class="n" x="279.67" y="327" font-size="12" fill="#59636e">35.1%</text>
+<path d="M434,317h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M434,317h141.01a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-141.01z" fill="#b9b8b0"/>
+<text class="n" x="585.01" y="327" font-size="12" fill="#59636e">85.3%</text>
+<path d="M654,317h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M654,317h33.57000000000001a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-33.57000000000001z" fill="#b9b8b0"/>
+<text class="n" x="697.57" y="327" font-size="12" fill="#59636e">22.1%</text>
+<rect x="0" y="340" width="880" height="26" rx="6" fill="#c27a12" fill-opacity="0.09"/>
+<text x="8" y="357.5" font-size="13" fill="#1f2328"><tspan font-weight="600">Perch</tspan> · GPT-6 Luna</text>
+<path d="M214,347h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M214,347h54.14000000000001a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-54.14000000000001z" fill="#c27a12"/>
+<text class="n" x="278.14" y="357" font-size="12" font-weight="600" fill="#1f2328">34.2%</text>
+<path d="M434,347h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M434,347h32.89a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-32.89z" fill="#c27a12"/>
+<text class="n" x="476.89" y="357" font-size="12" font-weight="600" fill="#1f2328">21.7%</text>
+<path d="M654,347h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M654,347h133.86999999999998a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-133.86999999999998z" fill="#c27a12"/>
+<text class="n" x="797.87" y="357" font-size="12" font-weight="600" fill="#1f2328">81.1%</text>
+<text x="8" y="387.5" font-size="13" fill="#59636e">Codex</text>
+<path d="M214,377h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M214,377h47.68a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-47.68z" fill="#b9b8b0"/>
+<text class="n" x="271.68" y="387" font-size="12" fill="#59636e">30.4%</text>
+<path d="M434,377h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M434,377h142.2a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-142.2z" fill="#b9b8b0"/>
+<text class="n" x="586.2" y="387" font-size="12" fill="#59636e">86.0%</text>
+<path d="M654,377h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M654,377h27.45a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-27.45z" fill="#b9b8b0"/>
+<text class="n" x="691.45" y="387" font-size="12" fill="#59636e">18.5%</text>
+<text x="8" y="417.5" font-size="13" fill="#59636e">Cubic</text>
+<path d="M214,407h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M214,407h42.41a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-42.41z" fill="#b9b8b0"/>
+<text class="n" x="266.40999999999997" y="417" font-size="12" fill="#59636e">27.3%</text>
+<path d="M434,407h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M434,407h141.35a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-141.35z" fill="#b9b8b0"/>
+<text class="n" x="585.35" y="417" font-size="12" fill="#59636e">85.5%</text>
+<path d="M654,407h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M654,407h23.71a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-23.71z" fill="#b9b8b0"/>
+<text class="n" x="687.71" y="417" font-size="12" fill="#59636e">16.3%</text>
+<text x="8" y="447.5" font-size="13" fill="#59636e">Greptile</text>
+<path d="M214,437h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M214,437h42.24a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-42.24z" fill="#b9b8b0"/>
+<text class="n" x="266.24" y="447" font-size="12" fill="#59636e">27.2%</text>
+<path d="M434,437h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M434,437h142.36999999999998a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-142.36999999999998z" fill="#b9b8b0"/>
+<text class="n" x="586.37" y="447" font-size="12" fill="#59636e">86.1%</text>
+<path d="M654,437h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M654,437h23.54a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-23.54z" fill="#b9b8b0"/>
+<text class="n" x="687.54" y="447" font-size="12" fill="#59636e">16.2%</text>
+<rect x="0" y="460" width="880" height="26" rx="6" fill="#c27a12" fill-opacity="0.09"/>
+<text x="8" y="477.5" font-size="13" fill="#1f2328"><tspan font-weight="600">Perch</tspan> · Jev 1.14</text>
+<path d="M214,467h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M214,467h39.35a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-39.35z" fill="#c27a12"/>
+<text class="n" x="263.35" y="477" font-size="12" font-weight="600" fill="#1f2328">25.5%</text>
+<path d="M434,467h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M434,467h54.99000000000001a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-54.99000000000001z" fill="#c27a12"/>
+<text class="n" x="498.99" y="477" font-size="12" font-weight="600" fill="#1f2328">34.7%</text>
+<path d="M654,467h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M654,467h30.340000000000003a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-30.340000000000003z" fill="#c27a12"/>
+<text class="n" x="694.34" y="477" font-size="12" font-weight="600" fill="#1f2328">20.2%</text>
+<text x="8" y="507.5" font-size="13" fill="#59636e">Cursor</text>
+<path d="M214,497h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M214,497h25.41a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-25.41z" fill="#b9b8b0"/>
+<text class="n" x="249.41" y="507" font-size="12" fill="#59636e">17.3%</text>
+<path d="M434,497h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M434,497h145.09a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-145.09z" fill="#b9b8b0"/>
+<text class="n" x="589.09" y="507" font-size="12" fill="#59636e">87.7%</text>
+<path d="M654,497h166a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-166z" fill="#f1f2f4"/>
+<path d="M654,497h12.32a4,4 0 0 1 4,4v4a4,4 0 0 1 -4,4h-12.32z" fill="#b9b8b0"/>
+<text class="n" x="676.32" y="507" font-size="12" fill="#59636e">9.6%</text>
+<text x="8" y="568" font-size="11" fill="#818b98">Leaderboard: review-bench.ai, grounded scores, October 17, 2026. Perch: .benchmarks/reviewbench in this repository.</text>
+</svg>

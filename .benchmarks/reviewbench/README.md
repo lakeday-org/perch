@@ -60,6 +60,8 @@ npx vitest run --config .benchmarks/reviewbench/vitest.config.mjs
 
 `score.mjs` will check the saved requests and answers against the hashes in `manifest.json`, score them according to the thresholds, write `summary.json` and print a table. It will not make API requests. As with `run.mjs`, it will not accept a file (as opposed to a method) as a target.
 
+`node .benchmarks/reviewbench/chart.mjs` redraws the chart in the main README from `summary.json` and the leaderboard rows it records.
+
 Set the `TYPESAFE_API_KEY` and/or `OPENAI_API_KEY` env variables to request answers from Jev and/or Luna:
 
 ```sh
