@@ -33,7 +33,7 @@ jobs:
       - run: npm ci
 
       # perch coverage runs a repository's tests itself; its tests run pytest for real against small fixtures.
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -41,11 +41,11 @@ jobs:
 
       # And go test, cargo, dotnet test, Gradle, Maven and sbt, against small projects of their own; the runner image has Go,
       # Rust, Gradle and Maven.
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '21'

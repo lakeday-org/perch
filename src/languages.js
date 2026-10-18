@@ -26,4 +26,14 @@ export const languageOf = (path, header = 'c') => {
 };
 
 /** Every language ID a question's `language` can name. */
-export const LANGUAGES = [...new Set(Object.values(languages))].sort();
+
+/** File review adds document and configuration grammars; these do not claim to have callable code. */
+const fileLanguages = { md: 'markdown', mdx: 'markdown', yaml: 'yaml', yml: 'yaml', json: 'json', toml: 'toml',
+  tf: 'hcl', tfvars: 'hcl', hcl: 'hcl', html: 'html', htm: 'html', css: 'css', scss: 'scss', xml: 'xml', svg: 'xml',
+  ini: 'ini', cfg: 'ini', sql: 'sql', ps1: 'powershell', psm1: 'powershell', psd1: 'powershell',
+  vue: 'vue', svelte: 'svelte', ex: 'elixir', exs: 'elixir', dart: 'dart' };
+const namedFiles = { Dockerfile: 'dockerfile', Makefile: 'make', 'CMakeLists.txt': 'cmake', Gemfile: 'ruby', Rakefile: 'ruby' };
+export const fileLanguageOf = path => namedFiles[path.split('/').at(-1)] ?? fileLanguages[path.split('.').at(-1)];
+
+/** Language IDs usable by questions, including optional file review. */
+export const LANGUAGES = [...new Set([...Object.values(languages), ...Object.values(fileLanguages), ...Object.values(namedFiles)])].sort();
