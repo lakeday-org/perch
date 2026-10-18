@@ -47,7 +47,7 @@ function chart(t) {
     `<desc id="desc">Recall on ReviewBench for perch beside the reviewers on its leaderboard, highest first. ${rows.map(r => `${r.perch ? 'Perch with ' : ''}${r.name}: ${r.recall}%.`).join(' ')}</desc>`,
     `<style>text{font-family:${FONT}}.n{font-variant-numeric:tabular-nums}</style>`,
     `<text x="8" y="30" font-size="20" font-weight="600" fill="${t.primary}">Perch on ReviewBench</text>`,
-    `<text x="8" y="54" font-size="13" fill="${t.secondary}">Recall on GitHub's benchmark for AI code review, beside the reviewers on its leaderboard</text>`,
+    `<text x="8" y="54" font-size="13" fill="${t.secondary}">Recall</text>`,
     `<rect x="8" y="72" width="10" height="10" rx="2" fill="${t.accent}"/><text x="24" y="81" font-size="12" fill="${t.secondary}">Perch</text>`,
     `<rect x="76" y="72" width="10" height="10" rx="2" fill="${t.other}"/><text x="92" y="81" font-size="12" fill="${t.secondary}">Leaderboard reviewers</text>`,
     // No gridlines: they would cross the value labels. The track behind each bar shows the scale.

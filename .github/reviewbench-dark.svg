@@ -3,7 +3,7 @@
 <desc id="desc">Recall on ReviewBench for perch beside the reviewers on its leaderboard, highest first. Perch with GPT-6 Luna: 81.1%. Laude RevEngine Prime: 46.3%. block/review: 32.6%. Klaussy: 29.8%. Copilot code review: 26%. DeepSeek Harness Reviewer: 25.6%. Devin AI: 23.8%. Qodo: 22.1%. Perch with Jev 1.14: 20.2%. Codex: 18.5%. Cubic: 16.3%. Greptile: 16.2%. Cursor: 9.6%.</desc>
 <style>text{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif}.n{font-variant-numeric:tabular-nums}</style>
 <text x="8" y="30" font-size="20" font-weight="600" fill="#f0f6fc">Perch on ReviewBench</text>
-<text x="8" y="54" font-size="13" fill="#9198a1">Recall on GitHub's benchmark for AI code review, beside the reviewers on its leaderboard</text>
+<text x="8" y="54" font-size="13" fill="#9198a1">Recall</text>
 <rect x="8" y="72" width="10" height="10" rx="2" fill="#cc8218"/><text x="24" y="81" font-size="12" fill="#9198a1">Perch</text>
 <rect x="76" y="72" width="10" height="10" rx="2" fill="#5a5e66"/><text x="92" y="81" font-size="12" fill="#9198a1">Leaderboard reviewers</text>
 <line x1="214" y1="112" x2="214" y2="502" stroke="#30363d" stroke-width="1"/>
