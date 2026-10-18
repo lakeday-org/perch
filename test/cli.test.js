@@ -35,6 +35,7 @@ describe('cli', () => {
       flags: { paths: 'src,lib', parallel: '3', json: true }, positional: ['scan', 'owner/repo'] });
     expect(parseArgs(['lint', 'add', 'no-stale', '--ensure_absent', 'a doc for something deleted', '--where', 'docs/**'])).toEqual({ flags: { ensure_absent: 'a doc for something deleted', where: 'docs/**' }, positional: ['lint', 'add', 'no-stale'] });
     expect(parseArgs(['issues', '--closed', '--all']).flags).toEqual({ closed: true, all: true });
+    expect(parseArgs(['scan', '--include-tests', '--include-files']).flags).toEqual({ 'include-tests': true, 'include-files': true });
     expect(() => parseArgs(['scan', '--bogus'])).toThrow('unknown option --bogus');
     // A flag given twice is refused rather than half read.
     expect(() => parseArgs(['scan', '--min', '0.5', '--min', '0.7'])).toThrow('--min is given twice');

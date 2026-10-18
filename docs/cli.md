@@ -49,6 +49,8 @@ or a custom rule that broke.
 | Flag | |
 | --- | --- |
 | `--paths a,b` | Only consider files under these repository paths. |
+| `--include-tests` | Review parsed tests and their support code as well as production methods. |
+| `--include-files` | Also parse documents, configuration, styles and templates using their own grammars. |
 | `--since REF` | Only what changed since this branch or commit. `--since origin/main` is what CI wants. |
 | `--parallel N` | How many methods to read at once. Default 32; files and tests go 32 at a time, alongside the methods. |
 | `--force` | Ask Perch Cloud again instead of using cached answers, and keep the new answers. |
