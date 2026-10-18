@@ -17,7 +17,7 @@ Of the 876 alerts that Jev raised, about a third were correct. It missed 4/5 of 
 
 ## How this differs from the leaderboard
 
-The ReviewBench leaderboard works by asking each reviewer to review each PR, then asking a judge model to compare each review comment to the reference findings, and determining whether the comment matches any findings. Perch does not produce any review comments here. Instead, it asks a set of specific yes/no questions about each method, and the scores are per method. A method is considered buggy if any finding is present within the method. A method is considered to be flagged if any question about that method is above a fixed threshold. As a result, these numbers are not comparable to the leaderboard.
+The ReviewBench leaderboard works by asking each reviewer to review each PR, then asking a judge model to compare each review comment to the reference findings, and determining whether the comment matches any findings. Perch does not produce any review comments here. Instead, it asks a set of specific yes/no questions about each method, and the scores are per method. A method is considered buggy if any finding is present within the method. A method is considered to be flagged if any question about that method is above a fixed threshold.
 
 Of the 219 PRs in ReviewBench, perch read methods in 177 of them, since the other 42 changed none that perch can score. For details on all 219 PRs and how many methods were extracted from each file in each PR, see `coverage.jsonl`.
 
