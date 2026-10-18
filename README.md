@@ -82,10 +82,10 @@ You can extend perch with your own linting rules by adding them to `perch.yaml`:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/reviewbench-dark.svg">
-  <img alt="Recall on ReviewBench: perch with GPT-6 Luna at 81.1% and Jev 1.14 at 20.2%, beside the eleven reviewers on its leaderboard" src=".github/reviewbench-light.svg" width="880">
+  <img alt="Recall on ReviewBench: perch with OpenAI Decisions at 81.1% and Jev 1.14 at 20.2%, beside the eleven reviewers on its leaderboard" src=".github/reviewbench-light.svg" width="880">
 </picture>
 
-[ReviewBench](https://review-bench.ai) is GitHub's benchmark for AI code review. With GPT-6 Luna, perch's recall is 81.1%, higher
+[ReviewBench](https://review-bench.ai) is GitHub's benchmark for AI code review. With OpenAI's Decisions model, perch's recall is 81.1%, higher
 than any reviewer on its leaderboard. The run, both models' answers and how to reproduce them are in
 [`.benchmarks/reviewbench`](.benchmarks/reviewbench).
 
@@ -94,7 +94,7 @@ than any reviewer on its leaderboard. The run, both models' answers and how to r
 
 | Reviewer | Recall |
 | --- | ---: |
-| **Perch · GPT-6 Luna** | **81.1%** |
+| **Perch · OpenAI Decisions** | **81.1%** |
 | Laude RevEngine Prime | 46.3% |
 | block/review | 32.6% |
 | Klaussy | 29.8% |

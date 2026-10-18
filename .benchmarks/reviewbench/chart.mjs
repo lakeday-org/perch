@@ -20,7 +20,7 @@ const LEADERBOARD = [
   { name: 'Greptile', recall: 16.2 },
   { name: 'Cursor', recall: 9.6 },
 ];
-const MODELS = { jev: 'Jev 1.14', luna: 'GPT-6 Luna' };
+const MODELS = { jev: 'Jev 1.14', luna: 'OpenAI Decisions' };
 
 const summary = JSON.parse(await fs.readFile(path.join(root, 'summary.json'), 'utf8'));
 const rows = [...LEADERBOARD, ...summary.map(r => ({ name: MODELS[r.provider], perch: true, recall: Math.round(r.recall * 1000) / 10 }))]
