@@ -11,7 +11,9 @@ if (!value('--repos')) throw Error('Use --repos DIR [--fetch] [--judgments FILE]
 const repos = path.resolve(value('--repos')), fetch = process.argv.includes('--fetch');
 const judgments = await jsonl(value('--judgments') ?? path.join(root, 'judgments.jsonl'));
 const targets = new Map((await jsonl(path.join(root, 'targets.jsonl'))).map(t => [t.id, t]));
-const git = (cwd, args) => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
+// Each command names the target's own repository. Found by looking upward, a repos directory inside a checkout, as the README's is
+// inside perch's, is that checkout: fetches land in it and quotes are read from it.
+const git = (repo, args) => execFileSync('git', ['--git-dir', path.join(repo, '.git'), '-c', 'core.hooksPath=/dev/null', ...args], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
 const ready = new Set(); let checked = 0;
 for (const judgment of judgments) {
   const target = targets.get(judgment.id);
@@ -24,7 +26,7 @@ for (const judgment of judgments) {
   if (!ready.has(key)) {
     if (fetch) {
       await fs.mkdir(repo, { recursive: true });
-      try { git(repo, ['rev-parse', '--git-dir']); } catch { git(repo, ['init', '-q']); }
+      execFileSync('git', ['init', '-q', repo], { stdio: 'ignore' });
       git(repo, ['fetch', '--no-tags', '--depth=1', target.repository, target.head]);
     }
     git(repo, ['cat-file', '-e', target.head + '^{commit}']); ready.add(key);
