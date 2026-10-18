@@ -13,10 +13,13 @@ const config = provider === 'jev'
   ? { key: process.env.TYPESAFE_API_KEY, url: 'https://api.typesafe.ai/v1/systemone', model: 'jev-preview', expected: option('expected-model', 'jev-1.14.0'), price: .042 }
   : { key: process.env.OPENAI_API_KEY, url: 'https://api.openai.com/v1/decisions', model: 'gpt-6-luna', expected: 'gpt-6-luna', price: .1 };
 if (!config.key) throw Error(`Set ${provider === 'jev' ? 'TYPESAFE_API_KEY' : 'OPENAI_API_KEY'}`);
-const packets = (await jsonl(path.join(root, 'requests.jsonl.gz'))).filter(p => ARMS.includes(p.arm)).slice(0, Number(option('limit', Infinity)));
+const limit = Number(option('limit', Infinity));
+if (!(limit > 0)) throw Error('--limit must be a positive number');
+const packets = (await jsonl(path.join(root, 'requests.jsonl.gz'))).filter(p => ARMS.includes(p.arm)).slice(0, limit);
 const out = path.resolve(option('out', path.join(root, 'runs/live'))), cache = path.join(out, provider);
 await fs.mkdir(cache, { recursive: true });
-let next = 0, completed = 0, stop = false, interrupted = false, nextSend = 0;
+// stop holds why the run stopped: an error that every later request would hit too.
+let next = 0, completed = 0, stop = null, interrupted = false, nextSend = 0;
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { interrupted = true; });
 async function work(packet) {
   const input_hash = hash({ provider, expected: config.expected, packet }), file = path.join(cache, `${packet.id}-${packet.arm}.json`);
@@ -39,12 +42,17 @@ async function work(packet) {
       const started = performance.now();
       const response = await fetch(config.url, { method: 'POST', headers: { Authorization: `Bearer ${config.key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) });
       record.seconds += (performance.now() - started) / 1000;
-      if (!response.ok) { await response.arrayBuffer(); if ([401, 402, 403].includes(response.status)) stop = true; throw Error('HTTP ' + response.status); }
+      if (!response.ok) {
+        const detail = (await response.text()).slice(0, 200), reason = `HTTP ${response.status}${detail ? ': ' + detail : ''}`;
+        // A refused key or balance is the account's to fix, not this input's, so the reading stays unfinished for the resumed run.
+        if ([401, 402, 403].includes(response.status)) { stop = reason; record.interrupted = true; break; }
+        throw Error(reason);
+      }
       const raw = await response.json(); record.raw.push(raw); record.model = raw.model;
       if (!Number.isSafeInteger(raw.usage?.input_tokens)) throw Error('Missing input usage');
       record.usage.input_tokens += raw.usage.input_tokens; record.usage.output_tokens += raw.usage.output_tokens ?? 0;
       record.cost_usd = record.usage.input_tokens * config.price / 1e6;
-      if (raw.model !== config.expected) { stop = true; throw Error('Provider model changed; use a new output directory and --expected-model after reviewing its version'); }
+      if (raw.model !== config.expected) { stop = `Provider model changed to ${raw.model}`; throw Error('Provider model changed; use a new output directory and --expected-model after reviewing its version'); }
       const answers = provider === 'luna' ? normalize(raw, questions) : raw.answers;
       if (provider === 'jev') for (const [name, q] of Object.entries(questions)) {
         const a = answers?.[name];
@@ -56,7 +64,9 @@ async function work(packet) {
     record.failure = error.name === 'TimeoutError' ? 'Request timeout' : error.message;
     if (error.failure_counts) record.failure_counts = error.failure_counts;
   }
-  await fs.writeFile(file, JSON.stringify(record) + '\n');
+  // Written beside and moved into place: a run killed partway through a write would leave a file the resumed run cannot parse.
+  await fs.writeFile(file + '.tmp', JSON.stringify(record) + '\n');
+  await fs.rename(file + '.tmp', file);
   completed++;
   if (completed % 100 === 0) console.log(JSON.stringify({ provider, completed, total: packets.length }));
 }

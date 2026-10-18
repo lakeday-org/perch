@@ -6,11 +6,10 @@ import { jsonl } from './core.mjs';
 
 // Verify manual judgments against exact source, without an explanation or judging API.
 const root = path.dirname(fileURLToPath(import.meta.url));
-const at = process.argv.indexOf('--repos');
-if (at < 0) throw Error('Use --repos DIR [--fetch] [--judgments FILE]');
-const repos = path.resolve(process.argv[at + 1]), fetch = process.argv.includes('--fetch');
-const index = process.argv.indexOf('--judgments');
-const judgments = await jsonl(index < 0 ? path.join(root, 'judgments.jsonl') : process.argv[index + 1]);
+const value = name => { const i = process.argv.indexOf(name); if (i >= 0 && !process.argv[i + 1]) throw Error(`${name} needs a value`); return i < 0 ? null : process.argv[i + 1]; };
+if (!value('--repos')) throw Error('Use --repos DIR [--fetch] [--judgments FILE]');
+const repos = path.resolve(value('--repos')), fetch = process.argv.includes('--fetch');
+const judgments = await jsonl(value('--judgments') ?? path.join(root, 'judgments.jsonl'));
 const targets = new Map((await jsonl(path.join(root, 'targets.jsonl'))).map(t => [t.id, t]));
 const git = (cwd, args) => execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
 const ready = new Set(); let checked = 0;

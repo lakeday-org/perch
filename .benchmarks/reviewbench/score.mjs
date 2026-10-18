@@ -20,15 +20,15 @@ for (const provider of ['jev', 'luna']) {
     if (r.interrupted) throw Error('Incomplete interrupted request ' + key);
     seen.add(key);
   }
-    const selected = records.filter(r => ARMS.includes(r.arm));
-    const expected = [...packets.values()];
-    if (selected.length !== expected.length) throw Error(`${provider}: incomplete coverage (${selected.length}/${expected.length})`);
-    const predicted = new Set(), failed = new Set();
-    for (const r of selected) {
-      if (r.failure) failed.add(r.id);
-      for (const id of flagsOf(r)) predicted.add(id);
-    }
-    result.push({ provider, ...metric(targets, predicted, failed), cost_usd: selected.reduce((n, r) => n + (r.cost_usd ?? 0), 0) });
+  const selected = records.filter(r => ARMS.includes(r.arm));
+  const expected = [...packets.values()];
+  if (selected.length !== expected.length) throw Error(`${provider}: incomplete coverage (${selected.length}/${expected.length})`);
+  const predicted = new Set(), failed = new Set();
+  for (const r of selected) {
+    if (r.failure) failed.add(r.id);
+    for (const id of flagsOf(r)) predicted.add(id);
+  }
+  result.push({ provider, ...metric(targets, predicted, failed), cost_usd: selected.reduce((n, r) => n + (r.cost_usd ?? 0), 0) });
 }
 await fs.writeFile(path.join(root, 'summary.json'), JSON.stringify(result, null, 2) + '\n');
 console.log('| Model | TP | FP | FN | Precision | Recall | F1 | Cost |');

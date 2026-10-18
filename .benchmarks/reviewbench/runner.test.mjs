@@ -31,6 +31,7 @@ async function fixture(packets, mode) {
         process.kill(process.pid, 'SIGTERM'); await new Promise(resolve => setTimeout(resolve, 20));
       }
       if (${JSON.stringify(mode)} === 'reject' && calls.length === 1) return new Response('', { status: 400 });
+      if (${JSON.stringify(mode)} === 'unauthorized' && calls.length === 1) return new Response('', { status: 401 });
       return Response.json({ model: 'jev-1.14.0', usage: { input_tokens: 10, output_tokens: 0 },
         answers: { bug: { type: 'noul', noul: .8 } } });
     };
@@ -67,6 +68,17 @@ it('records a rejected input as failed and continues the remaining targets', asy
   expect((await read('out/jev/a-change_current.json')).failure).toBe('HTTP 400');
   expect((await read('out/jev/b-change_current.json')).failure).toBeUndefined();
   expect(await read('calls.json')).toEqual(['rejected', 'accepted']);
+});
+
+it('stops on a refused key and leaves that reading for the resumed run', async () => {
+  const { run, read } = await fixture([{ id: 'target', arm: 'change_current', steps: [step('first')] }], 'unauthorized');
+  expect(run).toThrow();
+  const partial = await read('out/jev/target-change_current.json');
+  expect(partial.failure).toBeUndefined();
+  expect(partial.interrupted).toBe(true);
+  run();
+  expect((await read('out/jev/target-change_current.json')).answers).toHaveLength(1);
+  expect(await read('calls.json')).toEqual(['first', 'first']);
 });
 
 it('rejects whole-file targets before making a model request', async () => {

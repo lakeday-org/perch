@@ -21,14 +21,12 @@ export async function verifyBundle(root) {
 export const SECURITY = new Set(['change_security', 'access_scope', 'security', 'file_security', 'access_boundary', 'execution_boundary']);
 export const ARMS = ['change_current', 'relation'];
 
-/** Preserve criteria as two choices, including when their descriptions are long. */
+/** Preserve criteria as two choices, including when their descriptions are long. A question without both is not sent. */
 export function decisionPayload(state, questions) {
   return { model: 'gpt-6-luna', input: JSON.stringify(state), questions: Object.entries(questions).map(([name, q]) => {
+    if (q.type !== 'noul' || q.criteria?.true === undefined || q.criteria?.false === undefined) throw Error('Unsupported question shape');
     const instructions = typeof q.instructions === 'string' ? q.instructions : JSON.stringify(q.instructions);
-    if (q.type === 'noul') return q.criteria?.true !== undefined && q.criteria?.false !== undefined
-      ? { type: 'choice', name, instructions, choices: ['true', 'false'].map(value => ({ value, description: q.criteria[value] })) }
-      : { type: 'predicate', name, instructions };
-    throw Error('Unsupported question shape');
+    return { type: 'choice', name, instructions, choices: ['true', 'false'].map(value => ({ value, description: q.criteria[value] })) };
   }) };
 }
 export function normalize(reply, questions) {
@@ -40,10 +38,6 @@ export function normalize(reply, questions) {
     if (!q) throw Error('Unexpected answer name');
     if (a.type === 'refusal') { const e = Error('Refusal'); e.failure_counts = Object.fromEntries(entries.filter(x => x.type === 'refusal').map(x => [x.name, 1])); throw e; }
     const probability = p => { if (!Number.isFinite(p) || p < 0 || p > 1) throw Error('Invalid probability'); return p; };
-    if (q.type === 'noul' && q.criteria?.true === undefined) {
-      if (a.type !== 'predicate') throw Error('Expected predicate');
-      out[a.name] = { type: 'noul', noul: probability(a.probability) }; continue;
-    }
     if (a.type !== 'choice') throw Error('Wrong answer type');
     const values = ['true', 'false'];
     const ps = Object.fromEntries((a.probabilities ?? []).map(p => [String(p.value), probability(p.probability)]));
