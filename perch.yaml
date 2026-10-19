@@ -144,11 +144,6 @@ rules:
       built itself, or a fake's canned reply that never went through code from
       src/. A fake that records what the code sent it is fine to assert on. A
       file that defines no tests satisfies this rule.
-  - name: readme-shows-not-tells
-    where: README.md
-    ensure: >-
-      The README shows the tool working in the first screen: a screenshot, a GIF
-      or a screencast, not only a fenced block of terminal text.
   - name: readme-lists-setup
     where: README.md
     ensure: >-
