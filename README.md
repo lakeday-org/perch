@@ -24,7 +24,10 @@
 
 Semantic code linting with decision models.
 
-![Writing a rule, and perch catching this README with it](.github/demo.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/reviewbench-dark.svg">
+  <img alt="Recall on ReviewBench: perch with OpenAI Decisions at 81.1% and Jev 1.14 at 20.2%, beside the eleven reviewers on its leaderboard" src=".github/reviewbench-light.svg" width="880">
+</picture>
 
 ## Getting started
 
@@ -79,11 +82,6 @@ You can extend perch with your own linting rules by adding them to `perch.yaml`:
 ```
 
 ## ReviewBench
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset=".github/reviewbench-dark.svg">
-  <img alt="Recall on ReviewBench: perch with OpenAI Decisions at 81.1% and Jev 1.14 at 20.2%, beside the eleven reviewers on its leaderboard" src=".github/reviewbench-light.svg" width="880">
-</picture>
 
 [ReviewBench](https://review-bench.ai) is GitHub's benchmark for AI code review. With OpenAI's Decisions model, perch's recall is 81.1%, higher
 than any reviewer on its leaderboard. The run, both models' answers and how to reproduce them are in
