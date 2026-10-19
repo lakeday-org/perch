@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -866,6 +866,34 @@ describe.skipIf(!pytest.python)('perch coverage from the command line', () => {
       const page = await readFile(join(root, 'out', 'index.html'), 'utf8');
       expect(page).toMatch(/^<!doctype html>/);
       expect(page).toContain('Run details');
+    } finally {
+      vi.restoreAllMocks();
+      await endpoint.close();
+    }
+  }, 120000);
+
+  it('refuses to write the page through a link the repository commits in .perch', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'perch-cli-'));
+    const elsewhere = await mkdtemp(join(tmpdir(), 'perch-outside-'));
+    cleanups.push(root, elsewhere);
+    const outside = join(elsewhere, 'outside.txt');
+    await writeFile(outside, 'keep\n');
+    await write(root, {
+      'shop/calc.py': 'def add(a, b):\n    return a + b\n',
+      'tests/test_calc.py': 'from shop.calc import add\n\n\ndef test_add():\n    assert add(2, 3) == 5\n',
+      'pytest.ini': '[pytest]\ntestpaths = tests\n',
+    });
+    await mkdir(join(root, '.perch', 'coverage'), { recursive: true });
+    await symlink(outside, join(root, '.perch', 'coverage', 'index.html'));
+    await initRepo(root);
+    const endpoint = await answeringEndpoint();
+    try {
+      vi.spyOn(process, 'cwd').mockReturnValue(root);
+      const err = [];
+      const io = { stdout: () => {}, stderr: text => err.push(text), env: { PERCH_BASE_URL: endpoint.url, PERCH_API_KEY: 'local', HOME: root } };
+      expect(await main(['coverage'], io)).toBe(1);
+      expect(err.join('\n')).toMatch(/index\.html is a symbolic link/);
+      expect(await readFile(outside, 'utf8')).toBe('keep\n');
     } finally {
       vi.restoreAllMocks();
       await endpoint.close();
