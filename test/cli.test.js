@@ -180,6 +180,48 @@ describe('cli', () => {
     expect(asked).toEqual([]);
   });
 
+  it('scan drops what an earlier run said about code ignore now covers', async () => {
+    const repo = await realpath(await makeGraphFixture());
+    cleanups.push(repo);
+    // The branch touches b.js, so --since main covers it, and a rule about the file stands for the checks a run keeps.
+    const rule = 'rules:\n  - name: b-rule\n    where: src/b.js\n    ensure: The file exports a function.\n';
+    await writeFile(join(repo, 'perch.yaml'), rule);
+    await writeFile(join(repo, 'src', 'b.js'), `${await readFile(join(repo, 'src', 'b.js'), 'utf8')}\nexport function m(x) {\n  return h(x) + 1;\n}\n`);
+    await commitAll(repo, 'touch b.js');
+    vi.spyOn(process, 'cwd').mockReturnValue(repo);
+    const service = scriptedSystemOne({ 'src/b.js::h': { has_bug: 0.95 } });
+    vi.stubGlobal('fetch', async (_url, init) => {
+      const { state, questions } = JSON.parse(init.body);
+      return new Response(JSON.stringify(await service.ask(state, questions)));
+    });
+    const scan = async (...args) => {
+      const { out, err, io } = capture();
+      io.env = { HOME: repo, PERCH_API_KEY: 'key', PERCH_BASE_URL: 'https://api.typesafe.ai/v1/systemone' };
+      const code = await main(['scan', repo, ...args], io);
+      return { code, err: err.join('\n'), printed: out.join('\n'), rows: out.join('\n').split('\n').filter(line => /^ {2}[0-9a-f]{8} {2}/.test(line)) };
+    };
+    // One store scanned the branch and one the whole repository, so each case starts from readings about b.js.
+    const since = join(repo, '.perch-since'), whole = join(repo, '.perch-whole');
+    for (const args of [['--since', 'main', '--out', since], ['--out', whole]]) {
+      const before = await scan(...args);
+      expect(before.code, before.err).toBe(3);
+      expect(before.rows.some(line => line.includes('src/b.js'))).toBe(true);
+    }
+    await writeFile(join(repo, 'perch.yaml'), `ignore:\n  - src/b.js\n${rule}`);
+    await commitAll(repo, 'ignore b.js');
+    // Everything the branch changed is ignored.
+    const branch = await scan('--since', 'main', '--out', since);
+    expect(branch.printed).toContain('Nothing was read: ignore in perch.yaml covers all');
+    expect(branch.rows).toEqual([]);
+    expect(branch.code, branch.err).toBe(0);
+    // Part of the repository is ignored, and what is still read is clean.
+    const rest = await scan('--out', whole);
+    expect(rest.rows).toEqual([]);
+    expect(rest.code, rest.err).toBe(0);
+    // Not kept either, so perch issues does not list them afterwards.
+    for (const out of [since, whole]) expect((await openStore(out).issues(0.5)).filter(finding => finding.path === 'src/b.js')).toEqual([]);
+  });
+
   it('check asks a method the questions a scan would, unless --rules names others', async () => {
     const repo = await realpath(await makeFixture());
     cleanups.push(repo);
