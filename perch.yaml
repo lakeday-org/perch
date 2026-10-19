@@ -5,9 +5,11 @@
 # The example applications have deliberate bugs for scanner and workflow verification.
 # Keep it out of ordinary repository scans.
 # scripts/ is dev tooling that regenerates fixture reports and runs live checks; it is not shipped and no test runs it.
+# .benchmarks/ is the harness that scores perch's models against frozen inputs; it is not shipped either.
 ignore:
   - test/fixtures/**/*
   - scripts/**
+  - .benchmarks/**
 
 rules:
   - name: callable-inference-stops-cycles

@@ -8,7 +8,7 @@ import { configuredSystemOne, credentialSource } from './cloud-client.js';
 import { createResultStream, reportFindings, runContext } from './cloud-results.js';
 import { configuredEnvironment } from './config.js';
 import { createSourceAnalyzer } from './analysis.js';
-import { jsonChunks, openStore, resolveOut } from './store.js';
+import { jsonChunks, openStore, resolveOut, writable } from './store.js';
 import { analyzeTree } from './analyze.js';
 import { covers, DEFAULT_PARALLEL, scanRepository } from './scan.js';
 import { BELIEVED, filterKeys, filterStrength, matchesFilters, parseFilters } from './questions.js';
@@ -224,8 +224,9 @@ const narrow = (findings, filters, min) => findings.filter(finding => matchesFil
 const threshold = (value, fallback = BELIEVED * 100) => { const min = value === undefined ? fallback : Number(value); if (!(min >= 0 && min <= 100)) throw new UsageError('--min must be a percentage, 0 to 100: how sure the scan has to be of an issue to list it'); return min; };
 const positiveInteger = (flag, value, fallback) => { const number = value === undefined ? fallback : Number(value); if (!Number.isInteger(number) || number < 1) throw new UsageError(`${flag} must be a positive integer`); return number; };
 /** Write the report's pages: index.html where --html says, and for a report split by file, files/ and its style and script beside it. */
-async function writeCoverageSite(html, site) {
+async function writeCoverageSite(html, site, out) {
   const dir = dirname(html);
+  for (const file of [html, ...[...site.assets, ...site.pages].map(part => join(dir, part.name))]) await writable(out, file);
   await mkdir(dir, { recursive: true });
   if (site.assets.length) await mkdir(join(dir, 'files'), { recursive: true });
   for (const asset of site.assets) await writeFile(join(dir, asset.name), asset.text);
@@ -603,7 +604,7 @@ const commands = {
     report = { ...report, usage: meter.toJSON() };
     // The page is written whether or not anyone asked for JSON: it is the report a person opens, and it is the same run.
     const html = io.flags.html ? resolve(io.flags.html) : join(resolved.out, 'coverage', 'index.html');
-    await writeCoverageSite(html, renderCoverageSite(report));
+    await writeCoverageSite(html, renderCoverageSite(report), resolved.out);
     const all = Boolean(io.flags.all);
     print(io, withoutSource(report), [formatCoverage(report, { min, filters, all }), io.flags.diff ? formatCoverageDiff(report) : ''].filter(Boolean).join('\n\n'));
     for (const unit of report.failed ?? []) io.debug(`could not ask about ${unit.subject} ${unit.name} (${unit.path}): ${unit.error}`);
