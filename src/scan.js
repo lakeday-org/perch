@@ -178,7 +178,8 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const coversNamed = glob => named.some(path => matches(glob, path) || matches(glob, `${path.replace(/\/$/, '')}/file`));
   const ignored = (await readIgnored(root, revision)).filter(glob => !coversNamed(glob));
   const covered = covers(paths);
-  const inScope = path => covered(path) && !ignored.some(glob => matches(glob, path));
+  const ignores = path => ignored.some(glob => matches(glob, path));
+  const inScope = path => covered(path) && !ignores(path);
   const ranked = includeTests ? [...graph.nodes.values()].map(node => ({ id: node.id, score: node.metrics?.risk_score ?? 0 }))
     .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id)) : scan.candidates;
   const candidates = ranked.filter(candidate => graph.nodes.has(candidate.id) && inScope(graph.nodes.get(candidate.id).path));
@@ -409,18 +410,20 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
 
     // What this run did not cover. --paths and --since say which code a run is about, and --filter says which questions it asks;
     // neither says the rest of the repository stopped existing. Writing the file with only what this run touched threw away
-    // every reading outside it, so `perch scan --paths one/file.js` left a store that knew about one file.
+    // every reading outside it, so `perch scan --paths one/file.js` left a store that knew about one file. What ignore covers is
+    // not carried: it is code perch.yaml says not to read, and a reading kept from before it was ignored went on being listed and
+    // failing the run.
     const walked = new Set(read.map(event => event.method));
-    const elsewhere = [...earlier.values()].filter(event => !walked.has(event.method) && graph.nodes.has(event.method));
+    const elsewhere = [...earlier.values()].filter(event => !walked.has(event.method) && graph.nodes.has(event.method) && !ignores(event.path));
     // Rule checks are carried the same way, and only while the rule that produced one is still that rule. A rule reworded,
     // reshaped or deleted since leaves a check describing a question that no longer exists. The unit has to be the same too: a
-    // test deleted or moved, a file removed, or a comment rewritten leaves a check about text this tree does not hold. A search
-    // that found nothing is about the rule and not a unit, so it stands on the rule alone.
+    // test deleted or moved, a file removed, or a comment rewritten leaves a check about text this tree does not hold, and so does
+    // a unit ignore now covers. A search that found nothing is about the rule and not a unit, so it stands on the rule alone.
     const said = new Set(broken.map(check => check.id));
     const byName = new Map(rules.map(rule => [rule.name, rule]));
     const blobs = new Map(tree.map(item => [item.path, item.sha]));
     const unasked = [...checks.values()].filter(check => !said.has(check.id) && byName.get(check.rule)?.hash === check.rule_hash
-      && (String(check.unit).startsWith('search:') || unitHash(check, { graph, files, blobs }) === check.hash));
+      && (String(check.unit).startsWith('search:') || !ignores(check.path) && unitHash(check, { graph, files, blobs }) === check.hash));
     await store.recordScan([...read, ...elsewhere, ...broken, ...unasked]);
     run.remaining = walk.remaining(); run.status = run.incomplete.length ? 'incomplete' : 'complete'; run.completed_at = new Date().toISOString();
     await saveRun(true); await store.prune('runs', id).catch(error => log(`Could not remove earlier runs: ${error.message}`)); return run;

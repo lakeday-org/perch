@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "benchmark": "ReviewBench",
+  "upstream": "https://github.com/review-bench/ReviewBench",
+  "upstream_revision": "c17b05be9c90b85a1fc012ce39e455e2d09a7255",
+  "perch_revision": "67575f846d2b0c1d912fea8e0f0e9ba8941c4a24",
+  "selected_prs": 219,
+  "prs_with_targets": 177,
+  "targets": 16168,
+  "positive_targets": 1506,
+  "failure_policy": "A failed target is a miss if positive and a false alert if clean. Missing requests are incomplete coverage, never scored as clean.",
+  "thresholds": {
+    "functional": "strictly greater than 0.60",
+    "security": "strictly greater than 0.70"
+  },
+  "models": {
+    "jev": "jev-1.14.0",
+    "luna": "gpt-6-luna"
+  },
+  "input_prices_per_million": {
+    "jev": 0.042,
+    "luna": 0.1
+  },
+  "sha256": {
+    "targets.jsonl": "476f46f98e1ca72e8e17e8b65e1867d7a45b94140b72b1d7489c348634164adf",
+    "requests.jsonl.gz": "bb38d8ec68c16004e04a46ff489d072bc5bb036cfc795d53ae5271c34328a05e",
+    "judgments.jsonl": "09add93765a34161597e981da463d30c8998f0e7497a697e38ecd8f8a11be5db",
+    "coverage.jsonl": "a8a33d5fc42d6b5cd4805bcad8091b06153e7ac8d6101e667a472bec3bf530b0",
+    "results/jev.jsonl.gz": "f946f88bdf850f165b0541ca9247c3d3f1a856bcf8666bd20de455709d0d66d7",
+    "results/luna.jsonl.gz": "219d746feaaa2b58ac8a7750913542f9f017123dcaf97e19463ed18252a2bcd7"
+  },
+  "protocol": {
+    "readings": [
+      "change_current",
+      "relation"
+    ],
+    "selection": "The same fixed two-reading protocol for both providers."
+  },
+  "readings_per_model": 30936,
+  "planned_api_calls_per_model": 30945,
+  "completed_at": "2026-10-15T21:03:15.289Z",
+  "graph_revision": "eaf1cc93313cc3329b06e551f0b42922fc7a5f65",
+  "runs": {
+    "jev": {
+      "readings": 30936,
+      "api_calls_attempted": 30945,
+      "failed_readings": 0,
+      "failed_targets": 0
+    },
+    "luna": {
+      "readings": 30936,
+      "api_calls_attempted": 30945,
+      "failed_readings": 1,
+      "failed_targets": 1
+    }
+  },
+  "target_scope": "method",
+  "prs_without_methods": 42
+}
