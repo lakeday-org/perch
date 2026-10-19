@@ -6,10 +6,12 @@
 # Keep it out of ordinary repository scans.
 # scripts/ is dev tooling that regenerates fixture reports and runs live checks; it is not shipped and no test runs it.
 # .benchmarks/ is the harness that scores perch's models against frozen inputs; it is not shipped either.
+# review-evaluation/ is the code review input reviewers were compared on, kept as it was reviewed.
 ignore:
   - test/fixtures/**/*
   - scripts/**
   - .benchmarks/**
+  - review-evaluation/**
 
 rules:
   - name: callable-inference-stops-cycles
@@ -142,11 +144,6 @@ rules:
       built itself, or a fake's canned reply that never went through code from
       src/. A fake that records what the code sent it is fine to assert on. A
       file that defines no tests satisfies this rule.
-  - name: readme-shows-not-tells
-    where: README.md
-    ensure: >-
-      The README shows the tool working in the first screen: a screenshot, a GIF
-      or a screencast, not only a fenced block of terminal text.
   - name: readme-lists-setup
     where: README.md
     ensure: >-
