@@ -6,10 +6,12 @@
 # Keep it out of ordinary repository scans.
 # scripts/ is dev tooling that regenerates fixture reports and runs live checks; it is not shipped and no test runs it.
 # .benchmarks/ is the harness that scores perch's models against frozen inputs; it is not shipped either.
+# review-evaluation/ is the code review input reviewers were compared on, kept as it was reviewed.
 ignore:
   - test/fixtures/**/*
   - scripts/**
   - .benchmarks/**
+  - review-evaluation/**
 
 rules:
   - name: callable-inference-stops-cycles
