@@ -18,13 +18,6 @@ export const speaksDecisions = url => /\/decisions\/?(?:[?#]|$)/.test(String(url
 /** System One's format is perch's own, so it goes out and comes back as it is. */
 const SYSTEM_ONE = { service: 'System One', model: DEFAULT_SYSTEM_ONE_MODEL, body: request => request, reply: answer => answer };
 
-/**
- * System One binds a role named in an instruction to a graph node by its id. A Decisions instruction is one string, so it says
- * which node each role is.
- */
-const spelled = instructions => (instructions == null || typeof instructions === 'string' ? instructions ?? ''
-  : [...Object.entries(instructions).filter(([key]) => key !== 'question').map(([role, id]) => `\`${role}\` is ${id} in graph.nodes.`), instructions.question].join(' '));
-
 /** The option a Decisions choice falls back to. Asked a choice none of whose options fits, the API refuses it; System One never does. */
 const NONE = 'none_of_these';
 
@@ -46,7 +39,7 @@ const DECISIONS = {
     model,
     input: typeof state === 'string' ? state : JSON.stringify(state),
     questions: Object.entries(questions).map(([name, { type, instructions, criteria }]) => {
-      const text = spelled(instructions);
+      const text = instructions ?? '';
       if (type === 'score') return { type, name, instructions: text, levels: criteria.map((description, index) => ({ label: String(index), description })) };
       if (type !== 'choice' && !criteria) return { type: 'predicate', name, instructions: text };
       const options = type === 'choice' ? criteria : { true: criteria.true, false: criteria.false };

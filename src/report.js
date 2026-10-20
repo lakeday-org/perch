@@ -433,10 +433,8 @@ export function formatFinding(finding, { width = WIDTH(), color = COLOR() } = {}
     add('Claims', [finding.does_what_it_claims === undefined ? '' : `does what it claims ${percent(finding.does_what_it_claims)}`,
       finding.documented === undefined ? '' : `documented ${percent(finding.documented)}`].filter(Boolean).join('  '));
     add('Refactor', spread(finding.refactor?.probabilities, 2));
-    add('Calls', [...(finding.callees ?? []).map(shortId),
-      ...(finding.misuse ?? []).filter(item => item.probability > 0.5).map(item => `misuses ${shortId(item.callee)} ${percent(item.probability)}`)].join('  '));
-    add('Called by', [...(finding.callers ?? []).map(shortId),
-      ...(finding.misused_by ?? []).filter(item => item.probability > 0.5).map(item => `misused by ${shortId(item.caller)} ${percent(item.probability)}`)].join('  '));
+    add('Calls', (finding.callees ?? []).map(shortId).join('  '));
+    add('Called by', (finding.callers ?? []).map(shortId).join('  '));
     if (finding.metrics) add('Code', `risk ${number(finding.metrics.risk_score)}  maintainability ${number(finding.metrics.maintainability_index)}  complexity ${number(finding.metrics.cyclomatic_complexity)}  nesting ${number(finding.metrics.max_nesting)}  ${number(finding.metrics.sloc)} lines`);
     const named = Math.max(...said.map(([name]) => name.length));
     lines.push('', ...said.map(([name, value]) => `  ${dim(name.padEnd(named), color)}  ${value}`));

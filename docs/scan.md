@@ -128,8 +128,6 @@ distribution over its levels.
 | `kind` | choice over 8 | `boundary`, `missing_null_handling`, `wrong_return`, `swallowed_error`, `state_mutation`, `ordering`, `resource_leak`, `inverted_condition`. |
 | `severity` | score over 4 levels | The rubric below. |
 | `cwe_*` | Up to 30 nouls | The 2025 MITRE Top 25 CWEs except CWE-20, and six more, filtered by language where needed. |
-| `misuse_N` | noul per callee | Does this call violate the callee's evident contract? |
-| `misused_by_N` | noul per caller | Does the caller violate this method's contract? |
 | `documented` | noul | Could a caller learn what it promises from the comment? |
 | `refactor` | choice over 7 | `split`, `flatten`, `simplify_conditions`, `deduplicate`, `rename`, `remove_dead_code`, `none`. |
 | `follow` | choice over neighbors | Which related method to examine next. |

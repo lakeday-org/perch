@@ -189,7 +189,7 @@ describe('a method whose neighbourhood does not fit', () => {
     expect(alone.calledBy).toEqual([]);
     expect(alone.state.graph).toEqual({ nodes: [], edges: [] });
     expect(alone.state.method.source).toContain('return x + 1');
-    expect(Object.keys(alone.questions).some(name => name.startsWith('misuse'))).toBe(false);
+    expect(Object.keys(alone.questions.follow.criteria)).toEqual(['none']);
   });
 
   it('still refuses when the method itself does not fit', () => {
