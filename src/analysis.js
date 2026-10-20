@@ -3,7 +3,7 @@ import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createAnalyzer, isNamed } from './treesitter/index.ts';
 import { sha256 } from './store.js';
-import { eligibleFile } from './exclusions.js';
+import { eligibleFile, generatedText } from './exclusions.js';
 import { languageOf } from './languages.js';
 import { shownSource } from './questions.js';
 
@@ -219,6 +219,10 @@ const PARALLEL_FROM = 200;
  * Each file's result, in file order. Sources are read in order, since they stream from one git process, and handed to the next free
  * process; with no workers, or from source, or for a few files, each is parsed here in turn.
  */
+/** A file whose text says a tool wrote it (exclusions.js generatedText) is not parsed, unless the repository's .gitattributes say
+ * it is authored. */
+const generatedBy = (file, source) => !file.authored && generatedText(file.path, source) !== null;
+
 async function readAll(files, { analyzer, readSource, workers, progress }) {
   const results = new Array(files.length);
   let functions = 0;
@@ -227,6 +231,7 @@ async function readAll(files, { analyzer, readSource, workers, progress }) {
     for (const [index, file] of files.entries()) {
       const source = await readSource(file, index);
       progress(functions, null);
+      if (generatedBy(file, source)) { done(index, { generated: true }); continue; }
       // Parsing is synchronous, so a whole tree of it holds the loop and nothing on a clock runs. One yield per file is the
       // difference between a counter that looks alive and one that looks hung.
       await new Promise(resolve => setImmediate(resolve));
@@ -240,8 +245,9 @@ async function readAll(files, { analyzer, readSource, workers, progress }) {
     await Promise.all(pool.map(child => new Promise((resolve, reject) => {
       const send = async () => {
         if (next >= files.length) { resolve(); return; }
-        const index = next++;
-        child.send({ index, file: files[index], source: await readSource(files[index], index) });
+        const index = next++, source = await readSource(files[index], index);
+        if (generatedBy(files[index], source)) { done(index, { generated: true }); await send(); return; }
+        child.send({ index, file: files[index], source });
       };
       child.on('message', ({ index, result }) => { done(index, result); send().catch(reject); });
       child.on('error', reject);
@@ -261,6 +267,8 @@ export async function analyzeFiles(files, { analyzer, readSource, progress = () 
   let functions = 0;
   const analyzed = [], candidates = [];
   for (const result of await readAll(files, { analyzer, readSource, workers, progress })) {
+    // A minified bundle or a generator's output is counted, not parsed: perch reads what people wrote.
+    if (result.generated) { coverage.generated = (coverage.generated ?? 0) + 1; continue; }
     // The parser being unavailable for one file is that file's failure. It used to end the run with zero requests, so one
     // generated file too large to walk cost every other file its reading. perch doctor lists it with the others.
     if (result.failed) {

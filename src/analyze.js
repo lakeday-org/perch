@@ -3,7 +3,7 @@ import { availableParallelism } from 'node:os';
 import { git, listTree, readBlobs } from './git.js';
 import { analyzeFiles, languageOf, METHOD_HASH, sourceFile } from './analysis.js';
 import { fileLanguageOf, headerLanguage } from './languages.js';
-import { createFileSelector, EXCLUSIONS_PROFILE } from './exclusions.js';
+import { attributeRules, createFileSelector, declaredGenerated, EXCLUSIONS_PROFILE } from './exclusions.js';
 import { PARSE_VERSION } from './treesitter/types.ts';
 import { identity, openStore, readScan, writable, writeScan } from './store.js';
 import { markTestSupport } from './test-scope.js';
@@ -63,8 +63,11 @@ export async function analyzeTree({ root, revision, out, analyzer, label = root,
   await store.exclude(root);
   const tree = await listTree(root, revision);
   const header = headerLanguage(tree.map(item => item.path));
-  const sources = tree.filter(createFileSelector(tree)).filter(file => sourceFile(file) || (includeFiles && fileLanguageOf(file.path) && selected(filePaths)(file)))
-    .filter(selected(paths)).map(file => ({ ...file, language: languageOf(file.path, header) ?? fileLanguageOf(file.path) }));
+  // The repository's own .gitattributes say what is generated or vendored, before perch's defaults and before any text is read.
+  const attributes = await attributeRules(tree, item => git(['show', `${revision}:${item.path}`], root));
+  const sources = tree.filter(createFileSelector(tree, attributes)).filter(file => sourceFile(file) || (includeFiles && fileLanguageOf(file.path) && selected(filePaths)(file)))
+    .filter(selected(paths)).map(file => ({ ...file, language: languageOf(file.path, header) ?? fileLanguageOf(file.path),
+      ...(declaredGenerated(attributes, file.path) === false ? { authored: true } : {}) }));
   // A repository with no code still has files a rule can be about: a docs-only repository scans zero methods, not an error.
   debug(`analyzing ${sources.length} source files`);
   // Blobs stream from one git process while the analyzer works through them in order.
