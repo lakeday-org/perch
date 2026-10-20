@@ -171,7 +171,7 @@ export function matches(glob, path) {
  * them. It also takes two selectors over what perch already knows: `callers of <method>` from the call graph, and
  * `mentions <text>`, which is a text match and finds the methods worth asking rather than the methods that are guilty.
  */
-export function selectUnits(rule, { scan, graph, files, tree, inScope = () => true }) {
+export function selectUnits(rule, { scan, graph, files, tree, eligible = null, inScope = () => true }) {
   const source = rule.where;
   // The rule file is not code. A rule over `**/*` would otherwise be asked about the file that declares it, and answer about the
   // wording of its own question.
@@ -201,7 +201,7 @@ export function selectUnits(rule, { scan, graph, files, tree, inScope = () => tr
     return scan.files.filter(file => (SEARCHES(rule.kind) || !file.test) && matches(source, file.path))
       .flatMap(file => file.methods.filter(method => SEARCHES(rule.kind) || !(method.test || method.support)).map(method => methodUnit({ ...method, path: file.path }))).filter(spared);
   }
-  return tree.filter(createFileSelector(tree)).filter(item => matches(source, item.path))
+  return tree.filter(eligible ?? createFileSelector(tree)).filter(item => matches(source, item.path))
     .map(item => ({ id: item.path, path: item.path, name: item.path, line: 1, hash: item.sha })).filter(spared);
 }
 
@@ -443,13 +443,13 @@ const failedCheck = (rule, unit, error, revision) => ({
  * Every rule that is not about a method, asked of every unit it selects. One question, one unit, one request, `parallel` of them
  * at a time, and a second question to a file that failed about which line failed on it.
  */
-export async function askUnits({ rules, scan, graph, files, tree, revision, systemOne, inScope, min = BELIEVED,
+export async function askUnits({ rules, scan, graph, files, tree, eligible, revision, systemOne, inScope, min = BELIEVED,
   parallel = UNIT_PARALLEL, progress = () => {}, debug = () => {} }) {
   // One request per context. Two rules about the same file that want to see the same thing are one reading, since every question
   // in a request is scored against the state by itself.
   const contexts = new Map();
   for (const rule of rules) {
-    for (const unit of selectUnits(rule, { scan, graph, files, tree, inScope }).slice(0, MAX_UNITS)) {
+    for (const unit of selectUnits(rule, { scan, graph, files, tree, eligible, inScope }).slice(0, MAX_UNITS)) {
       const key = `${unit.id}\u0000${rule.sees}`;
       if (!contexts.has(key)) contexts.set(key, { unit, sees: rule.sees, rules: [] });
       contexts.get(key).rules.push(rule);
@@ -502,12 +502,12 @@ export async function askUnits({ rules, scan, graph, files, tree, revision, syst
  * each is to hold the answer, and stops at the first that answers. Word overlap is a poor judge of that and a free one, which
  * beats a request spent on ranking. One search need not wait on another.
  */
-export async function searchUnits({ rules, scan, graph, files, tree, revision, systemOne, inScope, min = BELIEVED,
+export async function searchUnits({ rules, scan, graph, files, tree, eligible, revision, systemOne, inScope, min = BELIEVED,
   parallel = UNIT_PARALLEL, progress = () => {}, debug = () => {} }) {
   // What each search would read, worked out before anything is sent, so the run can say how much there is to get through. A
   // search stops at its answer, so this is the most it will read and not what it will read.
   const plans = rules.map(rule => {
-    const units = rank(rule, selectUnits(rule, { scan, graph, files, tree, inScope }).slice(0, MAX_UNITS));
+    const units = rank(rule, selectUnits(rule, { scan, graph, files, tree, eligible, inScope }).slice(0, MAX_UNITS));
     const id = findingId(`${rule.name}::search`);
     return { rule, units, id };
   });
