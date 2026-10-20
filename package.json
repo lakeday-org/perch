@@ -44,7 +44,6 @@
   },
   "dependencies": {
     "@xberg-io/tree-sitter-language-pack": "1.22.1",
-    "gpt-tokenizer": "4.0.3",
     "yaml": "^2.9.1"
   },
   "devDependencies": {

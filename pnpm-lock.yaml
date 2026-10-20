@@ -11,9 +11,6 @@ importers:
       '@xberg-io/tree-sitter-language-pack':
         specifier: 1.22.1
         version: 1.22.1
-      gpt-tokenizer:
-        specifier: 4.0.3
-        version: 4.0.3
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
@@ -690,9 +687,6 @@ packages:
   globals@17.12.0:
     resolution: {integrity: sha512-cezEd/DTyyht9cvSSURyygXPfy04GtWO/5e6ZPvH7fCtjKz9PYOmuawphw1Ctd1f6C+5JypXfGD7ahNMXvevBA==}
     engines: {node: '>=18'}
-
-  gpt-tokenizer@4.0.3:
-    resolution: {integrity: sha512-GrrPDreSy2c3ZgM/u+5JN+lnHTLrJKm7QAFfTD5J+vgcSP69C+fFIUaJWiey/QQ8lS5u79OvluKuEmGBAbOS4A==}
 
   hashery@1.5.1:
     resolution: {integrity: sha512-iZyKG96/JwPz1N55vj2Ie2vXbhu440zfUfJvSwEqEbeLluk7NnapfGqa7LH0mOsnDxTF85Mx8/dyR6HfqcbmbQ==}
@@ -1600,8 +1594,6 @@ snapshots:
       is-glob: 4.0.3
 
   globals@17.12.0: {}
-
-  gpt-tokenizer@4.0.3: {}
 
   hashery@1.5.1:
     dependencies:

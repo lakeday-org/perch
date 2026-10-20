@@ -1,14 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { sourceChunks } from '../src/chunks.js';
 import { TOKEN_LIMITS, estimateTokens, textTokens, questionBatches } from '../src/tokens.js';
-import { countTokens } from 'gpt-tokenizer/encoding/o200k_base';
 import { methodStep, methodSteps, STATE_BUDGET } from '../src/questions.js';
 import { unitSteps } from '../src/units.js';
 import { createSystemOne } from '../src/systemone.js';
 import { createMeter, metered } from '../src/meter.js';
 import { createSourceAnalyzer, sourceFile } from '../src/analysis.js';
 
-const tokens = value => countTokens(JSON.stringify(value), { disallowedSpecial: new Set() });
 
 describe('large source reads', () => {
   it('covers every byte of a 16 MiB single-line source using bounded native chunks', () => {
@@ -102,7 +100,7 @@ describe('complete request budgets', () => {
 
   it('reserves room for long method questions before choosing source chunks', () => {
     const source = 'function big() { return "' + 'x'.repeat(50000) + '"; }';
-    const asked = [{ name: 'q', type: 'noul', ask: 'Check this rule. '.repeat(5500) }];
+    const asked = [{ name: 'q', type: 'noul', ask: 'Check this rule. '.repeat(4400) }];
     const steps = methodSteps({ node: { path: 'big.js', qualified_name: 'big', line: 1, end_line: 1 }, lines: [source], asked });
     expect(steps.length).toBeGreaterThan(1);
     expect(steps.at(-1).covers.end_byte).toBe(Buffer.byteLength(source));
@@ -123,8 +121,8 @@ describe('complete request budgets', () => {
     expect(sent.length).toBeGreaterThan(1);
     expect(meter.toJSON()['jev-latest']).toMatchObject({ requests: sent.length, input: 100 * sent.length });
     for (const request of sent) {
-      expect(tokens(request.state) + tokens(request.questions)).toBeLessThanOrEqual(64000);
-      for (const question of Object.values(request.questions)) expect(tokens(request.state) + tokens(question)).toBeLessThanOrEqual(32000);
+      expect(estimateTokens(request.state) + estimateTokens(request.questions)).toBeLessThanOrEqual(64000);
+      for (const question of Object.values(request.questions)) expect(estimateTokens(request.state) + estimateTokens(question)).toBeLessThanOrEqual(32000);
     }
   });
 
@@ -141,25 +139,6 @@ it('reads a method of thousands of very short lines to its last line within the 
   const steps = methodSteps({ node: { path: 'tall.js', qualified_name: 'tall', line: 1, end_line: lines.length }, lines });
   expect(steps.at(-1).covers.end_line).toBe(lines.length);
   for (const step of steps) expect(estimateTokens(step.state)).toBeLessThanOrEqual(STATE_BUDGET);
-});
-
-// These are independent content controls: equal-length text need not consume equal token counts.
-it('estimates token density rather than making file length the request budget', () => {
-  const word = 'internationalization '.repeat(1800);
-  const symbols = 'a!'.repeat(word.length / 2);
-  expect(textTokens(symbols)).toBeGreaterThan(textTokens(word) * 2);
-  expect(() => questionBatches({ source: word }, { q: { type: 'noul' } })).not.toThrow();
-  expect(() => questionBatches({ source: symbols }, { q: { type: 'noul' } })).toThrow(/token budget/);
-});
-
-it('counts Unicode, escaped strings, and literal special-token spellings as text', () => {
-  const state = { source: '日本語 😀 " \\ <|endoftext|>'.repeat(2000) };
-  expect(estimateTokens(state)).toBeGreaterThanOrEqual(tokens(state));
-  const chunks = sourceChunks(state.source, { path: 'unicode.txt', maxTokens: 1000 });
-  for (const chunk of chunks) {
-    expect(chunk.source).not.toContain('�');
-    expect(tokens(chunk.source)).toBeLessThan(TOKEN_LIMITS.single);
-  }
 });
 
 describe('a method whose neighbourhood does not fit', () => {

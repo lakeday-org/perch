@@ -1,21 +1,12 @@
 /** The language pack selects syntax boundaries; token estimates decide how much source fits. */
 import pack from '@xberg-io/tree-sitter-language-pack';
 import { downloading } from './treesitter/languages.ts';
-import { textTokens, TOKEN_LIMITS, IncompleteCheckError } from './tokens.js';
+import { textTokens, TOKEN_LIMITS, IncompleteCheckError, BYTES_PER_TOKEN } from './tokens.js';
 
-/** A suffix bounded in estimated tokens, without splitting a Unicode character. */
+/** A suffix bounded in estimated tokens, without splitting a Unicode character: it starts at the first character boundary on or
+ * after the byte the budget allows. */
 function overlapStart(bytes, end, tokens) {
-  let low = 0, high = end;
-  while (low < high) {
-    let mid = Math.floor((low + high) / 2);
-    // Back up to the character's lead byte. Skipping forward could land on `high` itself, and then neither branch moved the
-    // range: an emoji or CJK character straddling the midpoint hung the search for good.
-    while (mid > low && (bytes[mid] & 0xc0) === 0x80) mid--;
-    if (textTokens(bytes.subarray(mid, end).toString('utf8')) <= tokens) high = mid;
-    else low = mid + 1;
-    if (high - low < 4) break;
-  }
-  let start = high;
+  let start = Math.max(0, end - tokens * BYTES_PER_TOKEN);
   while (start < end && (bytes[start] & 0xc0) === 0x80) start++;
   return start;
 }
