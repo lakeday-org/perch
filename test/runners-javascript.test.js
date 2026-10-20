@@ -1,9 +1,10 @@
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { promisify } from 'node:util';
+import { afterAll, describe, expect, it } from 'vitest';
 import { revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { coverageRepository } from '../src/coverage.js';
@@ -11,8 +12,9 @@ import { TOKEN_LIMITS } from '../src/tokens.js';
 import { initRepo } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
+// The tests run at once, each mostly waiting on the framework it started, so their repositories go when the last is done.
 const cleanups = [];
-afterEach(async () => { for (const dir of cleanups.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterAll(async () => { for (const dir of cleanups.splice(0)) await rm(dir, { recursive: true, force: true }); });
 
 /** A model that says every survivor matters, and records what it was asked about. */
 function model() {
@@ -32,7 +34,7 @@ async function repository(files, { modules = false, install = false } = {}) {
   }
   // perch's own installed Vitest stands in for the repository's; any other framework is installed, as the repository's would be.
   if (modules) await symlink(join(process.cwd(), 'node_modules'), join(root, 'node_modules'));
-  if (install) execFileSync('npm', ['install', '--no-audit', '--no-fund', '--silent'], { cwd: root, stdio: 'ignore' });
+  if (install) await promisify(execFile)('npm', ['install', '--no-audit', '--no-fund', '--silent'], { cwd: root });
   await initRepo(root);
   return root;
 }
@@ -51,7 +53,7 @@ async function covered(root, runner, test) {
 
 const SOURCE = 'export function add(a: number, b: number): number {\n  return a + b;\n}\n\nexport function scale(a: number, factor: number): number {\n  return a * factor;\n}\n';
 
-describe('running JavaScript tests', () => {
+describe.concurrent('running JavaScript tests', () => {
   it('runs Vitest with every mutant switched in, and knows which test reaches which mutant', async () => {
     const root = await repository({
       'package.json': JSON.stringify({ name: 'shop', private: true, type: 'module', devDependencies: { vitest: '*' } }),
@@ -85,25 +87,24 @@ describe('running JavaScript tests', () => {
 
   it('runs Jest, Mocha and Jasmine kept loaded, each from its own install', async () => {
     const spec = "describe('applyDiscount', () => {\n  it('takes 10 percent off', () => {\n    if (applyDiscount(100, 10) !== 90) throw new Error('wrong');\n  });\n});\n";
-    const jest = await repository({
-      'package.json': JSON.stringify({ name: 'shop', private: true, devDependencies: { jest: '^30.0.0' } }),
-      'src/cart.js': `${CART}module.exports = { applyDiscount };\n`,
-      'test/cart.test.js': `const { applyDiscount } = require('../src/cart');\n${spec}`,
-    }, { install: true });
-    await covered(jest, 'jest', 'test/cart.test.js::applyDiscount > takes 10 percent off');
-    const mocha = await repository({
-      'package.json': JSON.stringify({ name: 'shop', private: true, scripts: { test: 'mocha test/' }, devDependencies: { mocha: '^11.0.0' } }),
-      'src/cart.js': `${CART}module.exports = { applyDiscount };\n`,
-      'test/cart.test.js': `const { applyDiscount } = require('../src/cart');\n${spec}`,
-    }, { install: true });
-    await covered(mocha, 'mocha', 'test/cart.test.js::applyDiscount > takes 10 percent off');
-    const jasmine = await repository({
-      'package.json': JSON.stringify({ name: 'shop', private: true, devDependencies: { jasmine: '^5.5.0' } }),
-      'spec/support/jasmine.json': JSON.stringify({ spec_dir: 'spec', spec_files: ['**/*[sS]pec.js'] }),
-      'src/cart.js': `${CART}module.exports = { applyDiscount };\n`,
-      'spec/cart.spec.js': `const { applyDiscount } = require('../src/cart');\n${spec}`,
-    }, { install: true });
-    await covered(jasmine, 'jasmine', 'spec/cart.spec.js::applyDiscount > takes 10 percent off');
+    await Promise.all([
+      repository({
+        'package.json': JSON.stringify({ name: 'shop', private: true, devDependencies: { jest: '^30.0.0' } }),
+        'src/cart.js': `${CART}module.exports = { applyDiscount };\n`,
+        'test/cart.test.js': `const { applyDiscount } = require('../src/cart');\n${spec}`,
+      }, { install: true }).then(root => covered(root, 'jest', 'test/cart.test.js::applyDiscount > takes 10 percent off')),
+      repository({
+        'package.json': JSON.stringify({ name: 'shop', private: true, scripts: { test: 'mocha test/' }, devDependencies: { mocha: '^11.0.0' } }),
+        'src/cart.js': `${CART}module.exports = { applyDiscount };\n`,
+        'test/cart.test.js': `const { applyDiscount } = require('../src/cart');\n${spec}`,
+      }, { install: true }).then(root => covered(root, 'mocha', 'test/cart.test.js::applyDiscount > takes 10 percent off')),
+      repository({
+        'package.json': JSON.stringify({ name: 'shop', private: true, devDependencies: { jasmine: '^5.5.0' } }),
+        'spec/support/jasmine.json': JSON.stringify({ spec_dir: 'spec', spec_files: ['**/*[sS]pec.js'] }),
+        'src/cart.js': `${CART}module.exports = { applyDiscount };\n`,
+        'spec/cart.spec.js': `const { applyDiscount } = require('../src/cart');\n${spec}`,
+      }, { install: true }).then(root => covered(root, 'jasmine', 'spec/cart.spec.js::applyDiscount > takes 10 percent off')),
+    ]);
   }, 600000);
 
   it.skipIf(!chrome)('runs Karma in headless Chrome, its sources and tests read from the Karma config', async () => {
