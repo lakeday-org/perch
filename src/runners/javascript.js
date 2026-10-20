@@ -613,8 +613,9 @@ export function javascriptRunner(framework) {
       for (const line of (await readFile(hits, 'utf8')).split('\n').filter(Boolean)) {
         const [raw, seen] = JSON.parse(line);
         const [file, name] = JSON.parse(raw);
-        // What a file's suite hooks reached is every test in that file's.
-        const owners = name === '' ? (inFile.get(relative(copy, file)) ?? []) : [idOf(copy, raw)];
+        // What a file's suite hooks reached is every test in that file's. A browser knows no file: what its suites reached is
+        // every test the run ran.
+        const owners = name !== '' ? [idOf(copy, raw)] : file === '' ? [...results.keys()] : (inFile.get(relative(copy, file)) ?? []);
         for (const test of owners) {
           if (!reached.has(test)) { reached.set(test, new Set()); executed.set(test, new Map()); }
           for (const id of seen) {
