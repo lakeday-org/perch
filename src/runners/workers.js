@@ -85,7 +85,13 @@ export async function startWorkers({ script, command = null, count, scratch, wri
     launch(worker.index).then(fresh => (closing ? kill(fresh) : give(fresh)), error => { broken = error; for (const { reject } of waiting.splice(0)) reject(error); });
   };
 
-  for (let at = 0; at < count; at++) free.push(await launch(at));
+  // The workers start together: each loads its framework before it is ready, and one after another is that wait times the count
+  // before any mutant runs. One that will not start takes the rest with it, started or still starting, and its error is the run's.
+  const starting = Array.from({ length: count }, (_, at) => launch(at));
+  try { free.push(...(await Promise.all(starting))); } catch (error) {
+    for (const worker of live) kill(worker);
+    throw error;
+  }
   return {
     async run(message, timeout) {
       let worker = await take();

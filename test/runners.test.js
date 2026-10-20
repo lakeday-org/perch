@@ -95,6 +95,49 @@ for await (const line of __perch_commands) {
     } finally { await workers.close(); }
   });
 
+  it('starts its workers together', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'perch-workers-'));
+    cleanups.push(dir);
+    // No worker is ready until all of them have started: started one at a time, the first would wait forever.
+    const script = `${WORKER_IO}
+import { existsSync, writeFileSync } from 'node:fs';
+writeFileSync(process.env.PERCH_DIR + '/started-' + process.env.PERCH_INDEX, '');
+while (![0, 1, 2].every(at => existsSync(process.env.PERCH_DIR + '/started-' + at))) await new Promise(done => setTimeout(done, 20));
+__perch_ready();
+for await (const line of __perch_commands) await __perch_done({ id: JSON.parse(line).id });
+`;
+    const workers = await startWorkers({ script, count: 3, scratch: dir, writable: [dir], cwd: dir, env: index => ({ PERCH_DIR: dir, PERCH_INDEX: String(index) }) });
+    try {
+      expect(await Promise.all([1, 2, 3].map(id => workers.run({ id })))).toMatchObject([{ id: 1 }, { id: 2 }, { id: 3 }]);
+    } finally { await workers.close(); }
+  }, 10000);
+
+  it('stops the workers that started when one will not, and says why that one would not', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'perch-workers-'));
+    cleanups.push(dir);
+    // Worker 1 fails once the others are ready, as a browser that will not open fails one Karma worker. It waits without
+    // yielding: a worker that has begun reading its commands does not exit.
+    const script = `${WORKER_IO}
+import { existsSync, writeFileSync } from 'node:fs';
+const file = at => process.env.PERCH_DIR + '/ready-' + at;
+if (process.env.PERCH_INDEX === '1') {
+  while (!existsSync(file(0)) || !existsSync(file(2))) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+  process.stderr.write('no browser\\n');
+  process.exit(1);
+}
+__perch_ready();
+writeFileSync(file(process.env.PERCH_INDEX), String(process.pid));
+for await (const line of __perch_commands) await __perch_done({ id: JSON.parse(line).id });
+`;
+    await expect(startWorkers({ script, count: 3, scratch: dir, writable: [dir], cwd: dir, env: index => ({ PERCH_DIR: dir, PERCH_INDEX: String(index) }) }))
+      .rejects.toThrow('a test worker would not start (exit 1): no browser');
+    const pids = await Promise.all([0, 2].map(async at => Number(await readFile(join(dir, `ready-${at}`), 'utf8'))));
+    // A killed process is gone once Node has collected it.
+    const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
+    for (const deadline = Date.now() + 5000; pids.some(alive) && Date.now() < deadline;) await new Promise(done => setTimeout(done, 20));
+    expect(pids.filter(alive)).toEqual([]);
+  }, 10000);
+
 });
 
 describe('the pytest runner', () => {
