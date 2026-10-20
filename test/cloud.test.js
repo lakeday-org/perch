@@ -65,6 +65,7 @@ describe('Perch Cloud', () => {
     const held = new Promise(resolve => { release = resolve; });
     const client = start => createCloudClient({
       origin: 'https://example.com', getToken: async () => 'token', organizationId: 'org', repositoryId: 'repo', reports: true,
+      retryDelayMs: 0,
       fetchImpl: async (url, options) => {
         if (url.endsWith('/v1/scans/start')) { await held; return start(); }
         named.push(options.headers['x-perch-scan']);
@@ -355,11 +356,49 @@ describe('Perch Cloud', () => {
     };
     const client = createCloudClient({
       origin: 'https://dash.perchscan.com', organizationId: 'org', repositoryId: null, reports: true,
-      getToken: actionsToken(env, 'https://dash.perchscan.com', fetchImpl), fetchImpl, reportTimeoutMs: 20,
+      getToken: actionsToken(env, 'https://dash.perchscan.com', fetchImpl), fetchImpl, reportTimeoutMs: 20, retryDelayMs: 0,
     });
 
+    // Each try is bounded on its own, and a try that timed out is sent again like any other that did not complete.
     await expect(client.startScan({ scope: 'full' })).rejects.toThrow();
-    expect(requests).toEqual(['https://actions.example/token?audience=https%3A%2F%2Fdash.perchscan.com']);
+    expect(requests).toEqual(Array(4).fill('https://actions.example/token?audience=https%3A%2F%2Fdash.perchscan.com'));
+  });
+  it('sends a scan report again when the Cloud could not complete it, and takes a repeated finish as the first one landing', async () => {
+    const calls = [];
+    const replies = { start: [500, 200], append: ['network', 200], progress: [503, 200], finish: [502, 404] };
+    const client = createCloudClient({
+      origin: 'https://example.com', getToken: async () => 'token', organizationId: 'org', repositoryId: 'repo', reports: true,
+      retryDelayMs: 0,
+      fetchImpl: async url => {
+        const path = String(url).split('/').pop(), reply = replies[path].shift();
+        calls.push(path);
+        if (reply === 'network') throw new TypeError('fetch failed');
+        return new Response(JSON.stringify(reply === 200 ? { id: 'scan' } : { error: 'busy' }), { status: reply });
+      },
+    });
+
+    expect(await client.startScan({ scope: 'full' })).toEqual({ id: 'scan' });
+    await client.appendFindings('scan', [{ id: 'one', kind: 'defect' }]);
+    await client.updateScan('scan', { phase: 'reading', completed: 1, total: 2, failed: 0 });
+    expect(await client.finishScan('scan', { exit_code: 3 })).toEqual({ id: 'scan' });
+    expect(calls).toEqual(['start', 'start', 'append', 'append', 'progress', 'progress', 'finish', 'finish']);
+  });
+  it('does not send a refused scan report again, and gives up after four tries', async () => {
+    const calls = [];
+    const client = status => createCloudClient({
+      origin: 'https://example.com', getToken: async () => 'token', organizationId: 'org', repositoryId: 'repo', reports: true,
+      retryDelayMs: 0,
+      fetchImpl: async url => { calls.push(String(url).split('/').pop()); return new Response('{"error":"no"}', { status }); },
+    });
+
+    await expect(client(400).finishScan('scan', { exit_code: 3 })).rejects.toThrow('no');
+    // A finish refused on its first try was finished by something else, not by this run.
+    await expect(client(404).finishScan('scan', { exit_code: 3 })).rejects.toThrow('no');
+    await expect(client(409).finishScan('scan', { exit_code: 3 })).rejects.toThrow('no');
+    expect(calls).toEqual(['finish', 'finish', 'finish']);
+    calls.length = 0;
+    await expect(client(500).appendFindings('scan', [])).rejects.toThrow('no');
+    expect(calls).toEqual(Array(4).fill('append'));
   });
   it('PERCH_BASE_URL is the one setting that sends questions somewhere other than Perch Cloud', async () => {
     const root = await mkdtemp(join(tmpdir(), 'perch-key-'));
