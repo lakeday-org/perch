@@ -8,7 +8,7 @@ import { mergeAnswers, scanRepository, typesAsked } from '../src/scan.js';
 import { parseQuestions, parseScanTypes, questionSet } from '../src/ask.js';
 import { securities, securityOf } from '../src/questions.js';
 import { methodSteps, issueWeight, STATE_BUDGET } from '../src/questions.js';
-import { countTokens } from 'gpt-tokenizer/encoding/o200k_base';
+import { estimateTokens } from '../src/tokens.js';
 import { openStore } from '../src/store.js';
 import { createSystemOne } from '../src/systemone.js';
 import { formatDoctor, formatScanReport, gating, scanCount } from '../src/report.js';
@@ -455,7 +455,7 @@ describe('perch hunt', () => {
     const steps = methodSteps({ node, lines, callees: [], callers: [] });
     expect(steps.length).toBeGreaterThan(1);
     // Every pass fits, they run in order, and each overlaps the last so a defect on the seam is whole in one of them.
-    for (const step of steps) expect(countTokens(JSON.stringify(step.state), { disallowedSpecial: new Set() })).toBeLessThanOrEqual(STATE_BUDGET);
+    for (const step of steps) expect(estimateTokens(step.state)).toBeLessThanOrEqual(STATE_BUDGET);
     for (const [index, step] of steps.slice(1).entries()) expect(step.covers.line).toBeLessThan(steps[index].covers.end_line);
     expect(steps.at(-1).covers.end_line).toBe(3000);
     // Only the first pass carries the neighborhood: callers and callees are about the method, not about a slice of it.

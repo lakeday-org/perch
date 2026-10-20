@@ -8,7 +8,7 @@
 import { listTree, readBlob } from './git.js';
 import { analyzeTree } from './analyze.js';
 import { AuthenticationError } from './systemone.js';
-import { createFileSelector } from './exclusions.js';
+import { attributeRules, createFileSelector, declaredGenerated, generatedText } from './exclusions.js';
 import { buildGraph } from './graph.js';
 import { createLineReader, methodNeighbours } from './context.js';
 import { appliesToLanguage, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES } from './ask.js';
@@ -295,19 +295,27 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // length of both. The tree is only read when a file rule or a search is in the set; all rules, not the filtered ones, since a
     // rule filtered out is still counted in coverage, and counting a file rule's units needs the tree.
     const files = new Map();
-    let tree = [];
+    let tree = [], eligible = () => false;
     const kept = new Set(questionsFor(rules, filters, kindLabel).map(rule => rule.name));
     const asking = rules.filter(rule => kept.has(rule.name));
     const checking = (async () => {
       if (rules.some(rule => SEARCHES(rule.kind) || rule.each !== 'method')) {
         for (const file of scan.files) files.set(file.path, (await linesOf({ id: file.path, path: file.path })).join('\n'));
         tree = await listTree(root, revision);
-        const eligible = createFileSelector(tree);
-        for (const item of tree) if (eligible(item) && !files.has(item.path)) files.set(item.path, await readBlob(root, item.sha).catch(() => ''));
+        const attributes = await attributeRules(tree, item => readBlob(root, item.sha).catch(() => ''));
+        const selector = createFileSelector(tree, attributes), generated = new Set();
+        for (const item of tree) {
+          if (!selector(item) || files.has(item.path)) continue;
+          const text = await readBlob(root, item.sha).catch(() => '');
+          // A minified bundle or a generator's output stays out of file rules and searches, as it stays out of the method scan.
+          if (declaredGenerated(attributes, item.path) !== false && generatedText(item.path, text) !== null) generated.add(item.path);
+          else files.set(item.path, text);
+        }
+        eligible = item => selector(item) && !generated.has(item.path);
       }
       // What is left is every rule that is not about a method, and every claim about the codebase rather than about one file. The
       // source they are asked about comes from the revision, not from disk, so a finding is still about a commit.
-      const over = { scan, graph, files, tree, revision, systemOne: gated, inScope, min, debug };
+      const over = { scan, graph, files, tree, eligible, revision, systemOne: gated, inScope, min, debug };
       return Promise.all([
         askUnits({ ...over, rules: asking.filter(rule => !SEARCHES(rule.kind) && rule.each !== 'method'), parallel: unitParallel, progress: unitProgress }),
         searchUnits({ ...over, rules: asking.filter(rule => SEARCHES(rule.kind)), parallel: unitParallel, progress: searchProgress }),
@@ -402,7 +410,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
         where: rule.where,
         units: rule.each === 'method' && !SEARCHES(rule.kind)
           ? candidates.filter(candidate => rulesForMethod([rule], graph.nodes.get(candidate.id)).length).length
-          : selectUnits(rule, { scan, graph, files, tree, inScope }).length,
+          : selectUnits(rule, { scan, graph, files, tree, eligible, inScope }).length,
         broken: run.broken.filter(finding => finding.rule === rule.name).length,
       })),
     ];
