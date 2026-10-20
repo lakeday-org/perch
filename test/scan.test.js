@@ -282,7 +282,8 @@ describe('perch hunt', () => {
     expect(first.state.method.metrics.risk_score).toBeTypeOf('number');
     expect(first.state.graph.nodes.map(node => node.id).sort()).toEqual(['src/a.js::g', 'src/b.js::h', 'test/a.test.js::f']);
     expect(first.state.graph.edges).toEqual(expect.arrayContaining(['src/a.js::f -> src/a.js::g', 'src/a.js::f -> src/b.js::h', 'src/b.js::h -> src/b.js::k', 'test/a.test.js::f -> src/a.js::f']));
-    expect(first.questions.misuse_0.instructions.callee).toBe(first.state.graph.nodes[0].id);
+    // Its neighbours are read as context and offered to follow, not each asked about in a question of its own.
+    expect(Object.keys(first.questions).filter(name => /^misuse/.test(name))).toEqual([]);
     expect(first.questions.kind.type).toBe('choice');
     expect(Object.keys(first.questions.kind.criteria)).toHaveLength(9);
     expect(first.questions.severity.type).toBe('score');
@@ -293,7 +294,7 @@ describe('perch hunt', () => {
     const h = systemOne.calls.find(call => call.method === 'src/b.js::h');
     expect(h.state.graph.nodes.find(node => node.id === 'src/a.js::f').source).toContain('return g(x) + h(x);');
     expect(h.state.graph.edges).toContain('src/a.js::f -> src/b.js::h');
-    expect(h.questions.misused_by_0.instructions.caller).toBe('src/a.js::f');
+    expect(Object.keys(h.questions.follow.criteria)).toContain('src/a.js::f');
 
     // Every hunted method is one line in the events log, and nothing touched the working tree.
     const events = await openStore(repo.out).readLines(openStore(repo.out).scanPath);
@@ -459,7 +460,7 @@ describe('perch hunt', () => {
     expect(steps.at(-1).covers.end_line).toBe(3000);
     // Only the first pass carries the neighborhood: callers and callees are about the method, not about a slice of it.
     expect(Object.keys(steps[0].questions)).toContain('follow');
-    expect(Object.keys(steps[1].questions)).not.toContain('misuse_0');
+    expect(Object.keys(steps[1].questions.follow.criteria)).toEqual(['none']);
     expect(steps[1].state.graph).toEqual({ nodes: [], edges: [] });
     // A pass says it holds part of the method, and where its part starts, counted from the method's own first line.
     expect(steps[1].state.reading.partial).toBe(true);

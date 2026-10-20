@@ -210,16 +210,6 @@ describe("OpenAI's Decisions API", () => {
     expect(answers.kind.probabilities.wrong_return).toBeCloseTo(0.25);
   });
 
-  it('says which graph node a role in an instruction is, since an instruction is one string', async () => {
-    let sent;
-    const client = createSystemOne({ apiKey: 'sk', baseUrl: url, fetchImpl: async (_, init) => {
-      sent = JSON.parse(init.body);
-      return reply(200, { model: 'gpt-6-luna', answers: [{ type: 'predicate', name: 'misuse_0', probability: 0.2 }] });
-    } });
-    await client.ask({}, { misuse_0: { type: 'noul', instructions: { callee: 'src/a.js::parse', question: 'Does `method` misuse `callee`?' } } });
-    expect(sent.questions[0].instructions).toBe('`callee` is src/a.js::parse in graph.nodes. Does `method` misuse `callee`?');
-  });
-
   it('fails a reading the model declined, naming the question', async () => {
     const client = createSystemOne({ apiKey: 'sk', baseUrl: url,
       fetchImpl: async () => reply(200, { model: 'gpt-6-luna', answers: [{ type: 'choice', name: 'has_bug', choice: 'false', probabilities: [{ value: 'true', probability: 0.4 }, { value: 'false', probability: 0.6 }] }, { type: 'refusal', name: 'kind' }] }) });

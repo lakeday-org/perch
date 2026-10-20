@@ -303,21 +303,16 @@ export function methodStep({ node, lines, callees, callers, edges = [], budget =
   const { state, calls, calledBy } = built;
   if (chunk?.partial) state.reading = { start_byte: chunk.startByte, end_byte: chunk.endByte, partial: true };
   if (over()) throw new ContextLimitError(`${node.path}: method metadata exceeds the token budget`, budget / 2);
-  const neighbors = [...calls, ...calledBy].filter((item, index, all) => all.findIndex(other => other.id === item.id) === index);
+  // A method that both calls this one and is called by it is one neighbour, listed where it first appears.
+  const seen = new Set(), neighbors = [...calls, ...calledBy].filter(item => !seen.has(item.id) && seen.add(item.id));
   // The questions themselves are declared, not written here: what perch asks of a method is data, so a repository can reword a
   // class or add one without this function hearing about it. What stays is what is not a question about your code — which
-  // method to read next, and how each neighbour uses this one — because both are built from this method's own neighbourhood.
+  // method to read next — because it is built from this method's own neighbourhood.
   const questions = {
     ...compile(asked),
     follow: { type: 'choice', instructions: 'Which related method most likely holds or reveals a defect connected to `method`, and is worth examining next?',
       criteria: { ...Object.fromEntries(neighbors.map(item => [item.id, `${item.name} in ${item.path}`])), none: 'No related method is worth following' } },
   };
-  for (const [index, call] of calls.entries())
-    questions[`misuse_${index}`] = { type: 'noul', instructions: { callee: call.id, question: 'Does `method` call `callee` in a way that violates the contract evident from the callee\'s source: wrong argument order, type, or shape, an unchecked result, or an ignored error?' },
-      criteria: { true: 'At least one call from method to callee breaks what the callee visibly expects or returns', false: 'Every call matches what the callee expects and handles what it returns' } };
-  for (const [index, caller] of calledBy.entries())
-    questions[`misused_by_${index}`] = { type: 'noul', instructions: { caller: caller.id, question: 'Does `caller` call `method` in a way that violates the contract evident from the method\'s source, or rely on behavior the method does not guarantee?' },
-      criteria: { true: 'The caller passes something the method does not handle, or depends on a result or side effect the method does not reliably provide', false: 'The caller uses the method as its source intends' } };
   // What this pass read, in the file's own line numbers, which are kept here and never sent.
   const first = span.findIndex(text => text !== null), last = span.findLastIndex(text => text !== null);
   return { state, questions, asked, calls, calledBy, neighbors, covers: { line: first < 0 ? node.line : start + first, end_line: last < 0 ? node.end_line : start + last, ...(chunk ? { start_byte: chunk.startByte, end_byte: chunk.endByte } : {}) } };
@@ -346,18 +341,16 @@ export function methodSteps({ node, lines, callees = [], callers = [], edges = [
 
 /**
  * Typed answers reduced to what the walk and the log use. Every declared question is kept under its own name, whatever it is, so
- * a class added to the question set is recorded without this function being told. The rest are the machinery's own answers: which
- * method to read next, and what the neighbours look like from here.
+ * a class added to the question set is recorded without this function being told. The rest is the machinery's own answer: which
+ * method to read next.
  */
-export function readAnswers(answers, { calls, calledBy, neighbors, asked = questionSet().filter(question => question.each === 'method') }) {
+export function readAnswers(answers, { neighbors, asked = questionSet().filter(question => question.each === 'method') }) {
   const follow = answers.follow.choice;
   const read = { answers_set: setHash(asked) };
   for (const question of asked) read[question.name] = readAnswer(question, answers[question.name]);
   return {
     ...read,
     severity: { ...read.severity, level: severityOf(read.severity)?.band ?? null, predicted: severityOf(read.severity)?.predicted ?? null },
-    misuse: calls.map((call, index) => ({ callee: call.id, probability: answers[`misuse_${index}`].noul })),
-    misused_by: calledBy.map((caller, index) => ({ caller: caller.id, probability: answers[`misused_by_${index}`].noul })),
     follow: { method: neighbors.some(item => item.id === follow) ? follow : null, confidence: answers.follow.confidence, probabilities: answers.follow.probabilities },
   };
 }
