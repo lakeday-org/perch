@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.6](https://github.com/lakeday-org/perch/compare/v0.4.5...v0.4.6) (2026-10-20)
+
+
+### Bug Fixes
+
+* retry scan reports to Perch Cloud ([#402](https://github.com/lakeday-org/perch/issues/402)) ([381c065](https://github.com/lakeday-org/perch/commit/381c065b3f6f2bdc2122e635916af2812ffd6bae))
+
 ## [0.4.5](https://github.com/lakeday-org/perch/compare/v0.4.4...v0.4.5) (2026-10-20)
 
 
