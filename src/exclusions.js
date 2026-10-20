@@ -1,5 +1,5 @@
 /** Tracked dependencies and generated output are excluded regardless of the language or rule reading them. */
-export const EXCLUSIONS_PROFILE = 'default-exclusions-v2';
+export const EXCLUSIONS_PROFILE = 'default-exclusions-v1';
 
 // Tool-specific names apply at any depth. Ambiguous names belong to a project below.
 const directories = new Set([
