@@ -149,6 +149,53 @@ for await (const line of __perch_commands) {
 }
 `;
 
+/**
+ * Karma kept loaded: one server started from perch's config on a port of its own, its browser launched and captured once, and
+ * each mutant a run of that server with the mutant and the name filter as client arguments. Each run loads the page afresh,
+ * which reads them as it loads, and the hooks' records come back as the browser's console lines. What a mutant leaves going in
+ * the browser goes with the page, so a worker is replaced only when its browser is lost.
+ */
+const KARMA_WORKER = `${WORKER_IO}
+import { createRequire } from 'node:module';
+import { join } from 'node:path';
+const require = createRequire(process.env.PERCH_ROOT + '/package.json');
+const karma = require('karma');
+const config = await karma.config.parseConfig(join(process.env.PERCH_ROOT, '.perch-karma.conf.js'),
+  { port: 0, singleRun: false, autoWatch: false, browserConsoleLogOptions: { level: 'log', format: '%m', terminal: false } }, { promiseConfig: true, throwErrors: true });
+const own = config.client.args;
+let logged = [], errors = [];
+const server = new karma.Server(config, code => process.exit(code));
+server.on('browser_log', (browser, message) => logged.push(String(message)));
+server.on('browser_error', (browser, error) => errors.push(String(error && error.message || error)));
+server.on('browser_process_failure', launcher => { process.stderr.write('karma could not start ' + launcher.name + ': ' + launcher.error + '\\n'); process.exit(1); });
+const captured = new Promise(done => server.once('browsers_ready', done));
+await server.start();
+await captured;
+const browsers = server.get('capturedBrowsers'), executor = server.get('executor');
+__perch_ready();
+for await (const line of __perch_commands) {
+  const { id, mutant, pattern } = JSON.parse(line);
+  // karma-jasmine and karma-mocha read a filter in slashes as a regular expression, and any other as plain text.
+  config.client.args = own.concat(['--perch-mutant=' + mutant], pattern ? ['--grep=/' + pattern + '/'] : []);
+  logged = [];
+  errors = [];
+  if (!browsers.length) { __perch_say({ id, results: [['', '', 'error', 'karma lost its browser between runs']] }); continue; }
+  const complete = new Promise(done => server.once('run_complete', (collection, result) => done(result)));
+  executor.schedule();
+  const result = await complete;
+  const results = [];
+  // Base64, as the hooks print it.
+  for (const message of logged) for (const [, data] of message.matchAll(/@@perch([A-Za-z0-9+/=]+)/g)) {
+    const record = JSON.parse(Buffer.from(data, 'base64').toString('utf8'));
+    if (record.result && record.status !== 'skipped') results.push([...JSON.parse(record.result), record.status]);
+  }
+  if (result.error) results.push(['', '', 'crashed', errors.join('\\n') || 'karma reported an error']);
+  __perch_say({ id, results, left: Boolean(result.disconnected) || !browsers.length });
+}
+// Once perch stops sending, the server goes and takes its browser with it, rather than keeping the worker alive.
+await server.stop();
+`;
+
 /** Each framework: how it is run, the hooks that name the test running, and how it reports what passed. */
 const FRAMEWORKS = {
   vitest: {
@@ -350,16 +397,14 @@ async function karmaConfig(dir) {
 
 /**
  * The config perch runs Karma with: the project's own, with perch's hooks loaded before its files, headless Chrome run once, and
- * the browser's console passed back, the mutant, the coverage flag and the name filter given to the page as client arguments.
+ * the browser's console passed back, the coverage flag given to the page as a client argument. A worker that keeps the server
+ * going adds each mutant's own.
  */
 const KARMA_CONFIG = base => `const path = require('path');
 const base = require(${JSON.stringify(base)});
 module.exports = function (config) {
   base(config);
-  const env = process.env, args = ['--perch-mutant=' + (env.PERCH_MUTANT || '-1')];
-  if (env.PERCH_COVERAGE) args.push('--perch-coverage');
-  // karma-jasmine and karma-mocha read a filter in slashes as a regular expression, and any other as plain text.
-  if (env.PERCH_GREP) args.push('--grep=/' + env.PERCH_GREP + '/');
+  const args = process.env.PERCH_COVERAGE ? ['--perch-coverage'] : [];
   const client = config.client || {};
   // Karma finds its plugins beside itself, which, linked in from the repository, is not where it looks: they are named here.
   const modules = path.join(__dirname, 'node_modules');
@@ -632,10 +677,10 @@ export function javascriptRunner(framework) {
 
     /**
      * Each mutant run with its number set, over the files of the tests that run it and only those tests: in a worker that keeps
-     * Mocha or Jest loaded, or by starting Vitest, Jasmine or node:test.
+     * Mocha, Jest, Vitest or Karma loaded, or by starting Jasmine, Cucumber or node:test.
      */
     async session({ copies: [copy], parallel = 1 }) {
-      const warm = { mocha: MOCHA_WORKER, jest: JEST_WORKER, vitest: VITEST_WORKER }[framework];
+      const warm = { mocha: MOCHA_WORKER, jest: JEST_WORKER, vitest: VITEST_WORKER, karma: KARMA_WORKER }[framework];
       const workers = warm ? await startWorkers({ script: warm, count: parallel, scratch: copy.scratch, writable: [copy.dir, copy.scratch], cwd: copy.dir,
         env: index => ({ PERCH_ROOT: copy.dir, PERCH_FLAGS: JSON.stringify(flags), PERCH_ACTIVE: join(copy.scratch, `active-${index}`), PERCH_CACHE: join(copy.scratch, `cache-${index}`), FORCE_COLOR: '0' }) }) : null;
       const driver = warm ? null : await startDriver({ scratch: copy.scratch, writable: [copy.dir, copy.scratch] });
@@ -651,7 +696,8 @@ export function javascriptRunner(framework) {
           // The framework itself failing is perch's environment, not the mutant: the run stops and says so.
           if (status === 'error') throw new Error(`${framework} failed running a mutant: ${String(error).split('\n').slice(0, 4).join(' | ')}`);
           if (status === 'crashed') { crashed = error; continue; }
-          const test = resolve(relative(copy.dir, file), name);
+          // A browser knows no file.
+          const test = resolve(file && relative(copy.dir, file), name);
           results.set(test, { test, status: results.get(test)?.status === 'failed' ? 'failed' : status });
         }
         return { code: crashed ? 1 : 0, results: results.size ? results : null, output: crashed ?? '' };
@@ -659,10 +705,10 @@ export function javascriptRunner(framework) {
       const runCold = async ({ id, files, pattern, bail, timeout, nodes }) => {
         const out = join(copy.scratch, `run-${framework.replace(':', '-')}-${count++}.${spec.results === 'json' ? 'json' : 'jsonl'}`);
         if (spec.results !== 'json') await writeFile(out, '');
-        const ran = await driver.exec(command({ root }), spec.args({ files, pattern, out, bail, flags, reporter, config: join(copy.dir, '.perch-karma.conf.js') }),
-          { cwd: copy.dir, env: { PERCH_MUTANT: String(id), PERCH_RESULTS: out, PERCH_GREP: pattern ?? '', FORCE_COLOR: '0' }, timeout, whole: spec.results === 'console' });
+        const ran = await driver.exec(command({ root }), spec.args({ files, pattern, out, bail, flags, reporter }),
+          { cwd: copy.dir, env: { PERCH_MUTANT: String(id), PERCH_RESULTS: out, FORCE_COLOR: '0' }, timeout });
         if (ran.timedOut) return { timedOut: true };
-        const results = await readResults(copy.dir, out, nodes, ran.output);
+        const results = await readResults(copy.dir, out, nodes);
         await rm(out, { force: true });
         return { code: ran.code, results, output: ran.output };
       };

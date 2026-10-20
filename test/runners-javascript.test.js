@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -106,14 +106,20 @@ describe('running JavaScript tests', () => {
     await covered(jasmine, 'jasmine', 'spec/cart.spec.js::applyDiscount > takes 10 percent off');
   }, 600000);
 
-  it.skipIf(!chrome)('runs Karma in headless Chrome, its sources and tests read from the Karma config', async () => {
+  it.skipIf(!chrome)('runs Karma in headless Chrome, its sources and tests read from the Karma config, started once per worker', async () => {
+    // A framework Karma sets up once for each server it starts, and so for each browser it launches.
+    const starts = join(await mkdtemp(join(tmpdir(), 'perch-karma-starts-')), 'starts');
+    cleanups.push(dirname(starts));
+    await writeFile(starts, '');
     const root = await repository({
       'package.json': JSON.stringify({ name: 'shop', private: true, devDependencies: { karma: '^6.4.4', 'karma-jasmine': '^5.1.0', 'jasmine-core': '^5.5.0', 'karma-chrome-launcher': '^3.2.0' } }),
-      'karma.conf.js': "module.exports = config => config.set({ frameworks: ['jasmine'], files: ['src/**/*.js', 'test/**/*.spec.js'], browsers: ['ChromeHeadless'], singleRun: true });\n",
+      'karma.conf.js': `const counted = { 'framework:counted': ['factory', function () { require('fs').appendFileSync(${JSON.stringify(starts)}, '.'); }] };\nmodule.exports = config => config.set({ plugins: ['karma-jasmine', 'karma-chrome-launcher', counted], frameworks: ['jasmine', 'counted'], files: ['src/**/*.js', 'test/**/*.spec.js'], browsers: ['ChromeHeadless'], singleRun: true });\n`,
       'src/cart.js': CART,
       'test/cart.spec.js': "describe('applyDiscount', () => {\n  it('takes 10 percent off', () => {\n    expect(applyDiscount(100, 10)).toBe(90);\n  });\n});\n",
     }, { install: true });
-    await covered(root, 'karma', 'test/cart.spec.js::applyDiscount > takes 10 percent off');
+    const report = await covered(root, 'karma', 'test/cart.spec.js::applyDiscount > takes 10 percent off');
+    // The suite once, then a server and a browser for each worker that every one of its mutants runs in.
+    expect((await readFile(starts, 'utf8')).length).toBeLessThan(report.measured.mutants_run);
   }, 600000);
 
   it('runs Cucumber, its scenarios the tests', async () => {
