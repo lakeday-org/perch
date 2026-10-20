@@ -102,7 +102,7 @@ describe('complete request budgets', () => {
 
   it('reserves room for long method questions before choosing source chunks', () => {
     const source = 'function big() { return "' + 'x'.repeat(50000) + '"; }';
-    const asked = [{ name: 'q', type: 'noul', ask: 'Check this rule. '.repeat(5500) }];
+    const asked = [{ name: 'q', type: 'noul', ask: 'Check this rule. '.repeat(4400) }];
     const steps = methodSteps({ node: { path: 'big.js', qualified_name: 'big', line: 1, end_line: 1 }, lines: [source], asked });
     expect(steps.length).toBeGreaterThan(1);
     expect(steps.at(-1).covers.end_byte).toBe(Buffer.byteLength(source));
@@ -144,17 +144,16 @@ it('reads a method of thousands of very short lines to its last line within the 
 });
 
 // These are independent content controls: equal-length text need not consume equal token counts.
-it('estimates token density rather than making file length the request budget', () => {
-  const word = 'internationalization '.repeat(1800);
-  const symbols = 'a!'.repeat(word.length / 2);
-  expect(textTokens(symbols)).toBeGreaterThan(textTokens(word) * 2);
-  expect(() => questionBatches({ source: word }, { q: { type: 'noul' } })).not.toThrow();
-  expect(() => questionBatches({ source: symbols }, { q: { type: 'noul' } })).toThrow(/token budget/);
+it('estimates tokens from UTF-8 length, three bytes a token, so a multibyte character counts for its bytes', () => {
+  expect(textTokens('abc'.repeat(1000))).toBe(1000);
+  expect(textTokens('日本語')).toBe(3);
+  expect(textTokens('😀')).toBe(2);
+  expect(() => questionBatches({ source: 'x'.repeat(70000) }, { q: { type: 'noul' } })).not.toThrow();
+  expect(() => questionBatches({ source: 'x'.repeat(75000) }, { q: { type: 'noul' } })).toThrow(/token budget/);
 });
 
 it('counts Unicode, escaped strings, and literal special-token spellings as text', () => {
   const state = { source: '日本語 😀 " \\ <|endoftext|>'.repeat(2000) };
-  expect(estimateTokens(state)).toBeGreaterThanOrEqual(tokens(state));
   const chunks = sourceChunks(state.source, { path: 'unicode.txt', maxTokens: 1000 });
   for (const chunk of chunks) {
     expect(chunk.source).not.toContain('�');

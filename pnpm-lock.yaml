@@ -11,9 +11,6 @@ importers:
       '@xberg-io/tree-sitter-language-pack':
         specifier: 1.22.1
         version: 1.22.1
-      gpt-tokenizer:
-        specifier: 4.0.3
-        version: 4.0.3
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
@@ -33,6 +30,9 @@ importers:
       globals:
         specifier: ^17.12.0
         version: 17.12.0
+      gpt-tokenizer:
+        specifier: 4.0.3
+        version: 4.0.3
       typescript:
         specifier: ^6.0.3
         version: 6.0.3

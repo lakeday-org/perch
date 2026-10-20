@@ -1,5 +1,4 @@
 /** Request sizes are token estimates. Jev does not publish its tokenizer. */
-import { countTokens } from 'gpt-tokenizer/encoding/o200k_base';
 
 /** Perch Cloud's bug model takes at most 128 options in one Choice; a longer list is narrowed through windows first. */
 export const MAX_CHOICES = 128;
@@ -9,20 +8,14 @@ export const MAX_CHOICES = 128;
  * that fit; another model may take fewer, and says so in `_meta.max_questions`, which `createSystemOne` puts in `questions`.
  */
 export const TOKEN_LIMITS = Object.freeze({ state: 24000, single: 30000, request: 60000, questions: Infinity, options: MAX_CHOICES });
-const literal = { disallowedSpecial: new Set() };
-
-/** o200k plus 20% headroom is an estimate, not Jev's exact tokenization. */
-export function textTokens(text) {
-  let count = 0;
-  // Bounded tokenizer inputs avoid quadratic BPE work on enormous single words or literals.
-  for (let start = 0; start < text.length;) {
-    let end = Math.min(text.length, start + 4096);
-    if (end < text.length && /[\uD800-\uDBFF]/.test(text[end - 1])) end--;
-    count += countTokens(text.slice(start, end), literal);
-    start = end;
-  }
-  return Math.ceil(count * 1.2);
-}
+/**
+ * Bytes counted as one token. An estimate from a request's length costs nothing to make, where counting it with a tokenizer was
+ * most of a scan's CPU. Three bytes a token is about what the o200k tokenizer plus 20% headroom gave the largest method readings,
+ * the ones that reach the budget. An endpoint that still finds a request too big says so, and the reading is rebuilt smaller
+ * (withTokenRetries).
+ */
+export const BYTES_PER_TOKEN = 3;
+export const textTokens = text => Math.ceil(Buffer.byteLength(text) / BYTES_PER_TOKEN);
 export const estimateTokens = value => textTokens(JSON.stringify(value));
 export class IncompleteCheckError extends Error {
   constructor(message) { super(`Check incomplete: ${message}`); this.name = 'IncompleteCheckError'; }
