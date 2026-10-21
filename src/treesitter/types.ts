@@ -1,7 +1,7 @@
 import type { LanguageId } from "./languages";
 
 /** Part of a saved parse's id. Bump it when a change alters parse output, so saved parses are redone. */
-export const PARSE_VERSION = "language-pack-1.20-v34" as const;
+export const PARSE_VERSION = "language-pack-1.20-v35" as const;
 
 export interface SourcePoint {
   /** One-based source line. */
@@ -211,6 +211,8 @@ export interface SourceAnalysis {
   declarations: Declaration[];
   /** Line numbers outside every named function, ascending. */
   top_level: number[];
+  /** The file contains collected tests, including placeholder-only tests omitted from declarations. */
+  has_tests?: boolean;
   /** The name a JavaScript module's default export is defined under, when it has one. */
   default_export?: string | null;
   /** The byte spans of a test file's suite callbacks, whose setup runs for each test inside them. */

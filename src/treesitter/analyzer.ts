@@ -102,6 +102,23 @@ function decoratorsOf(node: Node, language: string): string[] {
   return node.parent.namedChildren.filter(item => item.type === 'decorator').map(item => item.text.replace(/^@/, '').split('(')[0].trim()).filter(Boolean);
 }
 
+/** A Python docstring is a plain string, possibly concatenated or parenthesized, but never an f-string or byte string. */
+function pythonDocstring(node: Node): boolean {
+  if (node.type === 'string') return /^[ru]?["']/i.test(node.text);
+  const parts = node.namedChildren.filter(item => !isComment(item));
+  return ['expression_statement', 'parenthesized_expression', 'concatenated_string'].includes(node.type) && parts.length > 0 && parts.every(pythonDocstring);
+}
+
+/** Overloads describe signatures, not implementations. A body of only a docstring, pass or ellipsis has nothing to ask about. */
+function pythonStub(node: Node): boolean {
+  if (node.type !== 'function_definition') return false;
+  if (decoratorsOf(node, 'python').some(name => name === 'overload' || name === 'typing.overload')) return true;
+  const body = node.childForFieldName('body')?.namedChildren.filter(item => !isComment(item)) ?? [];
+  return body.length > 0 && body.every((item, index) => item.type === 'pass_statement' || item.type === 'ellipsis'
+    || (item.type === 'expression_statement' && item.namedChildren.length === 1 && item.namedChildren[0].type === 'ellipsis')
+    || (index === 0 && pythonDocstring(item)));
+}
+
 /** The 1-based number of a node's last line. A node that ends at the start of a line ends on the line before it. */
 const lastLine = (node: Node): number => node.endPosition.row + (node.endPosition.column > 0 ? 1 : 0);
 
@@ -126,12 +143,14 @@ function onlyCloses(root: Node, line: number, around: Set<string>): boolean {
  * class declaration, is left out too, since it only opens it, and so is its last line when that only closes it. A Python class
  * has nothing to close it, so its last line is a statement of the class and stays.
  */
-function topLevelLines(root: Node, declarations: Declaration[], nodes: Map<string, Node>, lines: number): number[] {
+function topLevelLines(root: Node, declarations: Declaration[], nodes: Map<string, Node>, lines: number, stubs: Node[]): number[] {
   const held = new Set<number>(), around = new Set<string>(), ends = new Set<number>();
-  for (const declaration of declarations) {
-    if (!isNamed(declaration.qualified_name)) continue;
-    for (let line = declaration.line; line <= declaration.end_line; line++) held.add(line);
-    let parent = nodes.get(`${declaration.location.start.byte}:${declaration.location.end.byte}`)?.parent ?? null;
+  const covered = declarations.filter(item => isNamed(item.qualified_name)).map(item => nodes.get(`${item.location.start.byte}:${item.location.end.byte}`)!);
+  // Excluding a stub from declarations must not offer its source again as top-level code, including all of its decorators.
+  covered.push(...stubs.map(node => node.parent?.type === 'decorated_definition' ? node.parent : node));
+  for (const node of covered) {
+    for (let line = node.startPosition.row + 1; line <= lastLine(node); line++) held.add(line);
+    let parent = node.parent;
     // A node seen before had everything above it seen with it.
     for (; parent && parent.id !== root.id && !around.has(parent.id); parent = parent.parent) {
       around.add(parent.id);
@@ -168,7 +187,11 @@ function analysisOf(root: Node, language: string, built: ProcessResult, path: st
   const syntaxError = hasSyntaxError(root, tests.blockMacros, index);
   const nonblank = nonblankRows(root);
   const held = testHolders(root, tests.cases, tests.suites, index);
-  const declarations = declarationsOf(structure, nodes, language, nonblank, tests.cases, tests.blockMacros, held, index).sort((a, b) => a.location.start.byte - b.location.start.byte);
+  const stubs = language === 'python' ? functions.filter(pythonStub) : [];
+  // Nothing declared inside an overload body runs either. Keep its references from falling back to an enclosing method.
+  const stubIds = new Set(stubs.flatMap(node => index.within(node).filter(isFunction).map(item => `function:${item.startIndex}`)));
+  const declarations = declarationsOf(structure, nodes, language, nonblank, tests.cases, tests.blockMacros, held, index)
+    .filter(item => !stubIds.has(item.id)).sort((a, b) => a.location.start.byte - b.location.start.byte);
   const diagnostics = (syntaxError ? built.diagnostics ?? [] : []).map(item => ({ kind: 'syntax' as const, message: item.message!,
     location: item.span ? { start: { line: item.span.startLine! + 1, column: item.span.startColumn! + 1, byte: item.span.startByte! },
       end: { line: item.span.endLine! + 1, column: item.span.endColumn! + 1, byte: item.span.endByte! } } : null }));
@@ -183,11 +206,12 @@ function analysisOf(root: Node, language: string, built: ProcessResult, path: st
     parser_message: diagnostics[0]?.message ?? null,
     metrics: qualityMetrics(measurement, measureComplexity(root, language, false, index)),
     declarations,
-    top_level: topLevelLines(root, declarations, nodes, root.endPosition.row + 1),
+    top_level: topLevelLines(root, declarations, nodes, root.endPosition.row + 1, stubs),
     // The pack's import records do not expose every binding/alias or call site. This extractor adds those graph edges.
-    references: references.finish(index), diagnostics,
+    references: references.finish(index).filter(item => !stubIds.has(item.source)), diagnostics,
     truncated: { declarations: false, references: false, diagnostics: false },
-    package: tests.package, mocks: tests.mocks satisfies Mock[], default_export: defaultExport(root, language), suites: tests.suites };
+    has_tests: tests.cases.size > 0,
+    package: tests.package, mocks: tests.mocks.filter(item => !stubIds.has(item.owner)) satisfies Mock[], default_export: defaultExport(root, language), suites: tests.suites };
 }
 
 const DEFAULT_EXPORTERS = new Set(['javascript', 'typescript', 'tsx']);
