@@ -16,12 +16,13 @@ import { killGroup, sandboxed } from './sandbox.js';
  * the run left anything going, or the worker could not clean up after it: a server, a socket or a timer the tests started and never closed, as a mutant that hangs a request
  * leaves one. What it does later would land in the next mutant's run, so the pool replaces that worker.
  */
-export const WORKER_IO = `import { createReadStream, writeSync } from 'node:fs';
+export const WORKER_IO = `import { writeSync } from 'node:fs';
+import { Socket } from 'node:net';
 import { createInterface } from 'node:readline';
 const __perch_say = message => writeSync(4, JSON.stringify(message).replace(/\\u2028/g, '\\\\u2028').replace(/\\u2029/g, '\\\\u2029') + '\\n');
-const __perch_commands = createInterface({ input: createReadStream(null, { fd: 3 }) });
-// The read waiting on the command channel is the worker's own.
-const __perch_open = () => { const counts = {}; for (const kind of process.getActiveResourcesInfo()) if (kind !== 'FSReqCallback') counts[kind] = (counts[kind] || 0) + 1; return counts; };
+// Read as a socket, not a file: a file read on a pipe blocks a libuv thread, and a worker waiting on one cannot exit when it fails.
+const __perch_commands = createInterface({ input: new Socket({ fd: 3, readable: true, writable: false }) });
+const __perch_open = () => { const counts = {}; for (const kind of process.getActiveResourcesInfo()) counts[kind] = (counts[kind] || 0) + 1; return counts; };
 let __perch_before = {};
 const __perch_ready = () => { __perch_before = __perch_open(); __perch_say({ ready: true }); };
 const __perch_done = async (message, dirty = false) => {

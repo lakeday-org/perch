@@ -95,6 +95,17 @@ for await (const line of __perch_commands) {
     } finally { await workers.close(); }
   });
 
+  it('says a worker would not start when it fails after it has begun waiting for commands', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'perch-workers-'));
+    cleanups.push(dir);
+    // As a framework that fails while it loads, after an await: the command channel is already being read by then.
+    const script = `${WORKER_IO}
+await new Promise(done => setTimeout(done, 50));
+throw new Error('the framework would not load');
+`;
+    await expect(startWorkers({ script, count: 1, scratch: dir, writable: [dir], cwd: dir })).rejects.toThrow(/would not start \(exit 1\).*the framework would not load/);
+  }, 10000);
+
 });
 
 describe('the pytest runner', () => {
