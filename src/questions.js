@@ -346,11 +346,11 @@ export function methodSteps({ node, lines, callees = [], callers = [], edges = [
  */
 export function readAnswers(answers, { neighbors, asked = questionSet().filter(question => question.each === 'method') }) {
   const follow = answers.follow.choice;
-  const read = { answers_set: setHash(asked) };
+  const read = { answers_set: setHash(asked), answer_hashes: Object.fromEntries(asked.map(question => [question.name, question.hash])) };
   for (const question of asked) read[question.name] = readAnswer(question, answers[question.name]);
   return {
     ...read,
-    severity: { ...read.severity, level: severityOf(read.severity)?.band ?? null, predicted: severityOf(read.severity)?.predicted ?? null },
+    ...(read.severity ? { severity: { ...read.severity, level: severityOf(read.severity)?.band ?? null, predicted: severityOf(read.severity)?.predicted ?? null } } : {}),
     follow: { method: neighbors.some(item => item.id === follow) ? follow : null, confidence: answers.follow.confidence, probabilities: answers.follow.probabilities },
   };
 }

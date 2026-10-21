@@ -11,7 +11,7 @@ import { AuthenticationError } from './systemone.js';
 import { attributeRules, createFileSelector, declaredGenerated, generatedText } from './exclusions.js';
 import { buildGraph } from './graph.js';
 import { createLineReader, methodNeighbours } from './context.js';
-import { appliesToLanguage, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES } from './ask.js';
+import { appliesToLanguage, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES, setHash } from './ask.js';
 import { issuesOf, label as kindLabel, methodSteps, readAnswers } from './questions.js';
 import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL, unitHash } from './units.js';
 import { findingId, identity, openStore } from './store.js';
@@ -127,9 +127,9 @@ const createWalk = (graph, candidates, inScope = () => true) => {
  * reads: a number that stops partway through leaves a report that looks complete and is not.
  */
 /**
- * perch's own questions for a method, narrowed to its language and to the issue types this run asks about. A question raising
- * no issue comes along only when a kept one needs it, the way `kind` names a defect and `severity` ranks it. `perch check` asks
- * the same set, so a scan and a check of one method agree about what was asked.
+ * perch's own questions for a method, narrowed to its language and, when given, the issue types this run asks about. A question
+ * raising no issue comes along only when a kept one needs it, the way `kind` names a defect and `severity` ranks it. `perch check`
+ * asks the same set, so a scan and a check of one method agree about what was asked.
  */
 /** Questions about what a method's name and leading comment claim. A top-level unit has neither, so it is not asked them. */
 const ABOUT_A_NAME = new Set(['does_what_it_claims', 'documented']);
@@ -137,7 +137,21 @@ const ABOUT_A_NAME = new Set(['does_what_it_claims', 'documented']);
 export const methodQuestions = (kinds, language, { topLevel = false } = {}) => questionsFor(
   questionSet().filter(question => question.each === 'method' && !question.kind && appliesToLanguage(question, language)
     && !(topLevel && ABOUT_A_NAME.has(question.name))),
-  [...kinds].map(value => ({ key: 'type', value })));
+  kinds ? [...kinds].map(value => ({ key: 'type', value })) : []);
+
+/** The row's own fields, apart from answers whose question may no longer exist. */
+const READING_FIELDS = new Set(['type', 'at', 'id', 'run_id', 'root', 'github', 'revision', 'method', 'path', 'name', 'line', 'end_line', 'hash', 'risk', 'model', 'callees', 'callers', 'passes', 'read']);
+
+/** Only an unchanged question still covering this method can keep an earlier answer. Legacy rows cannot establish that. */
+const carryAnswers = (before, questions) => {
+  const kept = questions.filter(question => before.answer_hashes?.[question.name] === question.hash && before[question.name] !== undefined);
+  return {
+    ...Object.fromEntries(Object.entries(before).filter(([key]) => READING_FIELDS.has(key))),
+    answers_set: setHash(kept),
+    answer_hashes: Object.fromEntries(kept.map(question => [question.name, question.hash])),
+    ...Object.fromEntries(kept.map(question => [question.name, before[question.name]])),
+  };
+};
 
 /**
  * The issue types a scan asks about. `scan_types` in `perch.yaml` decides; omitted, it is defects and rules.
@@ -254,13 +268,16 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     for (const { node, calleeIds, callerIds, rules: own, response, answers, skipped } of results) {
       // A filter narrows which questions are asked, not which code the run is about, so what it did not ask about is what the
       // last run said rather than nothing at all. Rewriting the file whole with only the answers this run happened to want threw
-      // away every other answer on the same method.
-      const before = filters.length ? earlier.get(node.id) : null;
+      // away every other answer on the same method. Only unchanged questions still covering it can keep those answers.
+      const applicable = [...methodQuestions(null, node.language, { topLevel: Boolean(node.lines) }), ...rulesForMethod(rules, node)];
+      const previous = filters.length ? earlier.get(node.id) : null;
+      const before = previous ? carryAnswers(previous, applicable) : null;
       if (skipped) { run.skipped++; if (before) read.push(before); continue; }
       run.calls++;
       run.usage.input_tokens += response?.usage?.input_tokens ?? 0; run.usage.output_tokens += response?.usage?.output_tokens ?? 0;
       const fresh = readEvent({ node, answers, response, runId: id, root, github, revision, calleeIds, callerIds });
-      const event = before ? { ...before, ...fresh } : fresh;
+      const event = before ? { ...before, ...fresh, answer_hashes: { ...before.answer_hashes, ...fresh.answer_hashes } } : fresh;
+      event.answers_set = setHash(applicable.filter(question => event.answer_hashes[question.name] === question.hash));
       read.push(event); run.visited.push({ ...event, status: 'read' });
       onFinding(withClosure(event));
       finish(node.path, event);
