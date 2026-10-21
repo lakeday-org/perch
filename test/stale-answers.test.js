@@ -6,8 +6,10 @@ import { analyzeTree } from '../src/analyze.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { splitStale } from '../src/context.js';
 import { scanRepository } from '../src/scan.js';
+import { issuesOf } from '../src/questions.js';
+import { questionSet, setHash } from '../src/ask.js';
 import { openStore } from '../src/store.js';
-import { commitAll, makeGraphFixture } from './helpers.js';
+import { commitAll, makeGraphFixture, scriptedSystemOne } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
 const cleanups = [];
@@ -50,6 +52,128 @@ export function k(x) {
   return x - 1;
 }
 `;
+
+describe('method answers carried by a filtered scan', () => {
+  const retained = '- name: retained\n  where: src/a.js\n  each: method\n  ensure: Returns a number.\n';
+  const other = '- name: other\n  where: src/b.js\n  each: method\n  ensure: Returns a number.\n';
+  const defect = [{ key: 'type', value: 'defect' }];
+  const skipped = [{ key: 'rule', value: 'other' }];
+  const reading = async out => (await openStore(out).indexes()).latest.get('src/a.js::f');
+
+  it.each([
+    ['reworded', retained.replace('Returns a number.', 'Returns a positive number.')],
+    ['deleted', ''],
+    ['disabled', '- name: retained\n  disabled: true\n'],
+    ['for another language', retained + '  language: python\n'],
+    ['for another path', retained.replace('src/a.js', 'src/b.js')],
+    ['excluding this path', retained + '  except: src/a.js\n'],
+    ['about files instead', retained.replace('each: method', 'each: file')],
+  ])('drops an answer when its question is %s', async (_, changed) => {
+    const repo = await repoWith(retained + other);
+    const options = { ...repo, revision: await revision(repo.root), analyzer };
+    await scanRepository({ ...options, systemOne: scriptedSystemOne({ 'src/a.js::f': { retained: 0.1 } }) });
+    expect(issuesOf(await reading(repo.out))).toContainEqual(expect.objectContaining({ label: 'retained', probability: 0.9 }));
+
+    await writeFile(join(repo.root, 'perch.yaml'), changed + other);
+    const systemOne = scriptedSystemOne();
+    const run = await scanRepository({ ...options, systemOne, filters: defect });
+    expect(systemOne.calls.every(call => !('retained' in call.questions))).toBe(true);
+    const row = await reading(repo.out);
+    expect(row).not.toHaveProperty('retained');
+    expect(row.answer_hashes).not.toHaveProperty('retained');
+    expect(run.visited.find(event => event.method === row.method)).not.toHaveProperty('retained');
+    expect(issuesOf(row).some(issue => issue.label === 'retained')).toBe(false);
+    expect((await openStore(repo.out).issues()).filter(event => event.method === row.method)
+      .some(event => issuesOf(event).some(issue => issue.label === 'retained'))).toBe(false);
+  });
+
+  it('prunes answers even when the filter asks nothing about the method', async () => {
+    const repo = await repoWith(retained + other);
+    const options = { ...repo, revision: await revision(repo.root), analyzer };
+    await scanRepository({ ...options, systemOne: scriptedSystemOne({ 'src/a.js::f': { retained: 0.1, has_bug: 0.9 } }) });
+    await writeFile(join(repo.root, 'perch.yaml'), retained.replace('Returns a number.', 'Returns a positive number.') + other);
+    const systemOne = scriptedSystemOne();
+    const run = await scanRepository({ ...options, systemOne, filters: skipped });
+    expect(run.skipped).toBe(2);
+    expect(systemOne.calls.every(call => call.method.startsWith('src/b.js::'))).toBe(true);
+    const row = await reading(repo.out);
+    expect(row).not.toHaveProperty('retained');
+    expect(row.answer_hashes).not.toHaveProperty('retained');
+    expect(row.has_bug).toBe(0.9);
+    expect(issuesOf(row).some(issue => issue.label === 'retained')).toBe(false);
+  });
+
+  it('drops a language-specific answer when the method changes language without changing its identity or body', async () => {
+    const repo = await repoWith(retained.replace('src/a.js', 'src/value.h') + '  language: cpp\n');
+    await writeFile(join(repo.root, 'src/value.h'), 'int read_value(int *p) { return *p; }\n');
+    await writeFile(join(repo.root, 'src/value.cc'), 'int value() { return 1; }\n');
+    await commitAll(repo.root, 'C++ header');
+    const options = { ...repo, analyzer, paths: ['src/value.h'] };
+    await scanRepository({ ...options, revision: await revision(repo.root), systemOne: scriptedSystemOne({ 'src/value.h::read_value': { retained: 0.1 } }) });
+    const store = openStore(repo.out);
+    const before = (await store.indexes()).latest.get('src/value.h::read_value');
+    expect(before.retained).toBe(0.1);
+
+    // Headers are parsed as C++ only while the repository has a C++ source file.
+    await git(['rm', '-q', 'src/value.cc'], repo.root);
+    await commitAll(repo.root, 'C header');
+    await scanRepository({ ...options, revision: await revision(repo.root), systemOne: scriptedSystemOne(), filters: defect });
+    const after = (await store.indexes()).latest.get(before.method);
+    expect(after.hash).toBe(before.hash);
+    expect(after).not.toHaveProperty('retained');
+    expect(after.answer_hashes).not.toHaveProperty('retained');
+    expect(issuesOf(after).some(issue => issue.label === 'retained')).toBe(false);
+  });
+
+  it('replaces an old answer when the changed question is asked again', async () => {
+    const repo = await repoWith(retained);
+    const options = { ...repo, revision: await revision(repo.root), analyzer };
+    await scanRepository({ ...options, systemOne: scriptedSystemOne({ 'src/a.js::f': { retained: 0.1 } }) });
+    const before = await reading(repo.out);
+    await writeFile(join(repo.root, 'perch.yaml'), retained.replace('Returns a number.', 'Returns a positive number.'));
+    await scanRepository({ ...options, systemOne: scriptedSystemOne({ 'src/a.js::f': { retained: 0.9 } }), filters: [{ key: 'rule', value: 'retained' }] });
+    const after = await reading(repo.out);
+    expect(after.retained).toBe(0.9);
+    expect(after.answer_hashes.retained).not.toBe(before.answer_hashes.retained);
+    expect(issuesOf(after).some(issue => issue.label === 'retained')).toBe(false);
+    expect(after.has_bug).toBe(before.has_bug);
+    expect(after.kind).toEqual(before.kind);
+    expect(after.severity).toEqual(before.severity);
+  });
+
+  it('keeps unchanged unasked answers and their fingerprints across successive filtered scans', async () => {
+    const repo = await repoWith(retained + other);
+    const options = { ...repo, revision: await revision(repo.root), analyzer };
+    await scanRepository({ ...options, systemOne: scriptedSystemOne({ 'src/a.js::f': { retained: 0.1, has_bug: 0.9 } }) });
+    const before = await reading(repo.out);
+    for (const filters of [defect, [{ key: 'type', value: 'security' }], [{ key: 'type', value: 'docs' }], skipped, defect]) {
+      const systemOne = scriptedSystemOne();
+      await scanRepository({ ...options, systemOne, filters });
+      expect(systemOne.calls.every(call => !('retained' in call.questions))).toBe(true);
+      const row = await reading(repo.out);
+      expect(row.retained).toBe(0.1);
+      expect(row.answer_hashes.retained).toBe(before.answer_hashes.retained);
+      expect(row.answers_set).toBe(setHash(questionSet().filter(question => row.answer_hashes[question.name] === question.hash)));
+      expect(row.kind).toEqual(before.kind);
+      expect(row.severity).toEqual(before.severity);
+      expect(issuesOf(row)).toContainEqual(expect.objectContaining({ label: 'retained', probability: 0.9 }));
+    }
+  });
+
+  it.each([['reading', defect], ['skipping', skipped]])('discards legacy answers without fingerprints when %s the method', async (_, filters) => {
+    const repo = await repoWith(retained + other);
+    const options = { ...repo, revision: await revision(repo.root), analyzer };
+    await scanRepository({ ...options, systemOne: scriptedSystemOne({ 'src/a.js::f': { retained: 0.1 } }) });
+    const store = openStore(repo.out);
+    const rows = await store.readLines(store.scanPath);
+    for (const row of rows) delete row.answer_hashes;
+    await store.recordScan(rows);
+
+    await scanRepository({ ...options, systemOne: scriptedSystemOne(), filters });
+    expect(await reading(repo.out)).not.toHaveProperty('retained');
+    expect((await store.issues()).some(event => issuesOf(event).some(issue => issue.label === 'retained'))).toBe(false);
+  });
+});
 
 describe('an answer about text the model was shown', () => {
   it('is stale once the comment above a method changes, since the comment was part of the question', async () => {
