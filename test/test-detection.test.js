@@ -51,7 +51,7 @@ describe('Python', () => {
       '',
       'class CartChecks:',
       '    def test_not_collected(self):',
-      '        pass',
+      '        return None',
     ]),
   };
 
@@ -65,6 +65,22 @@ describe('Python', () => {
     expect(method('tests/test_cart.py::CartChecks.test_not_collected').test).toBeUndefined();
     // A module-level test_ function in a file pytest does not collect is an ordinary function.
     expect(method('shop/cart.py::test_helper_in_source').test).toBeUndefined();
+  });
+
+  it.each(['pass', '...', '"""Not implemented yet."""'])('keeps helpers beside a placeholder test out of scan candidates: %s', async body => {
+    const { scan, file, method, graph } = await repository({
+      'tests/test_imports.py': source(['def helper():', '    return 42', 'def test_imports():', `    ${body}`]),
+      'tests/test_class.py': source(['class TestImports:', '    def helper(self):', '        return 42', '    def test_imports(self):', `        ${body}`]),
+      'tests/test_empty.py': source(['def test_empty():', `    ${body}`]),
+    });
+    expect(scan.candidates).toEqual([]);
+    expect(file('tests/test_empty.py')).toMatchObject({ test: true, methods: [] });
+    for (const [path, name] of [['tests/test_imports.py', 'helper'], ['tests/test_class.py', 'TestImports.helper']]) {
+      expect(file(path).test).toBe(true);
+      expect(file(path).methods.map(item => item.qualified_name)).toEqual([name]);
+      expect(method(`${path}::${name}`).support).toBe(true);
+      expect(graph.nodes.get(`${path}::${name}`).test).toBe(true);
+    }
   });
 
   it('resolves patch targets', async () => {
@@ -626,7 +642,7 @@ describe('test titles', () => {
     const { analyzeFiles, createSourceAnalyzer } = await import('../src/analysis.js');
     const sources = {
       'a.test.ts': "import { describe, it } from 'vitest';\nit('reads the file\\'s \\x41\\u0042', () => {});\nit.each([[1, 2]])('adds %i and %i', (a, b) => {});\ndescribe.each([{ n: 1 }])('with $n', () => { it('works', () => {}); });\n",
-      'test_raw.py': "import pytest\n\n@pytest.mark.parametrize('x', [1])\ndef test_x(x):\n    pass\n",
+      'test_raw.py': "import pytest\n\n@pytest.mark.parametrize('x', [1])\ndef test_x(x):\n    assert x == 1\n",
     };
     const scan = await analyzeFiles(Object.keys(sources).map(path => ({ path, sha: path })), { analyzer: createSourceAnalyzer(), readSource: async file => sources[file.path] });
     const cases = scan.files.flatMap(file => file.methods.filter(method => method.test).map(method => method.test));
