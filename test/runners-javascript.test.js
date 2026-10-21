@@ -116,10 +116,17 @@ describe('running JavaScript tests', () => {
       'karma.conf.js': `const counted = { 'framework:counted': ['factory', function () { require('fs').appendFileSync(${JSON.stringify(starts)}, '.'); }] };\nmodule.exports = config => config.set({ plugins: ['karma-jasmine', 'karma-chrome-launcher', counted], frameworks: ['jasmine', 'counted'], files: ['src/**/*.js', 'test/**/*.spec.js'], browsers: ['ChromeHeadless'], singleRun: true });\n`,
       'src/cart.js': CART,
       'test/cart.spec.js': "describe('applyDiscount', () => {\n  it('takes 10 percent off', () => {\n    expect(applyDiscount(100, 10)).toBe(90);\n  });\n});\n",
+      'src/make.js': 'function makeList() { return [1, 2, 3]; }\n',
+      'test/make.spec.js': "describe('makeList', () => {\n  const list = makeList();\n  it('has three', () => {\n    expect(list.length).toBe(3);\n  });\n});\n",
     }, { install: true });
     const report = await covered(root, 'karma', 'test/cart.spec.js::applyDiscount > takes 10 percent off');
     // The suite once, then a server and a browser for each worker that every one of its mutants runs in.
     expect((await readFile(starts, 'utf8')).length).toBeLessThan(report.measured.mutants_run);
+    // What a describe body reaches, in a browser that knows no file, is every test's: makeList's mutants are run, and emptying
+    // its list is caught.
+    const make = report.methods.find(item => item.name === 'makeList');
+    expect(make.mutants.filter(mutant => mutant.no_coverage)).toEqual([]);
+    expect(make.mutants.some(mutant => mutant.killed_by.includes('test/make.spec.js::makeList > has three'))).toBe(true);
   }, 600000);
 
   it('runs Cucumber, its scenarios the tests', async () => {
