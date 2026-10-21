@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.7](https://github.com/lakeday-org/perch/compare/v0.4.6...v0.4.7) (2026-10-21)
+
+
+### Bug Fixes
+
+* write the scan log one write at a time ([#409](https://github.com/lakeday-org/perch/issues/409)) ([95cc72a](https://github.com/lakeday-org/perch/commit/95cc72ab0374de441fc09e0eec3a4eeb602715f1))
+
 ## [0.4.6](https://github.com/lakeday-org/perch/compare/v0.4.5...v0.4.6) (2026-10-20)
 
 

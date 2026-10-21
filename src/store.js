@@ -258,10 +258,22 @@ export function openStore(out) {
       await writeFile(store.logPath, `${new Date().toISOString()} perch\n`);
       // A line the log could not take must not end the run it describes, so it is said once on stderr and the run goes on.
       let warned = false;
-      return line => appendFile(store.logPath, `${new Date().toISOString()} ${line}\n`).catch(error => {
-        if (!warned) process.stderr.write(`perch: could not write ${store.logPath}: ${error.message}; the run goes on without its log\n`);
-        warned = true;
-      });
+      // One write at a time, taking every line that arrived while the last one was being written. A large repository logs
+      // hundreds of lines a second while it is parsed, and a write each, all open at once, used every file the process may open:
+      // the scan then failed on the next file it read (EMFILE, 2026-10-21).
+      let queued = '', writing = Promise.resolve(), next = null;
+      return line => {
+        queued += `${new Date().toISOString()} ${line}\n`;
+        next ??= writing = writing.then(() => {
+          const text = queued;
+          queued = ''; next = null;
+          return appendFile(store.logPath, text).catch(error => {
+            if (!warned) process.stderr.write(`perch: could not write ${store.logPath}: ${error.message}; the run goes on without its log\n`);
+            warned = true;
+          });
+        });
+        return next;
+      };
     },
     /** Enough of the end to show what a run was doing when it stopped, which is what doctor prints when one did not finish. */
     async tail(count = 20) {
