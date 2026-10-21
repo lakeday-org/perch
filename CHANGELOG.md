@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.6](https://github.com/lakeday-org/perch/compare/v0.4.5...v0.4.6) (2026-10-20)
+
+
+### Bug Fixes
+
+* retry scan reports to Perch Cloud ([#402](https://github.com/lakeday-org/perch/issues/402)) ([381c065](https://github.com/lakeday-org/perch/commit/381c065b3f6f2bdc2122e635916af2812ffd6bae))
+
+## [0.4.5](https://github.com/lakeday-org/perch/compare/v0.4.4...v0.4.5) (2026-10-20)
+
+
+### Bug Fixes
+
+* minified bundles and generated code were read as source ([#392](https://github.com/lakeday-org/perch/issues/392)) ([7b35492](https://github.com/lakeday-org/perch/commit/7b35492d9e77eff65b949f86f49eb7dd888b566d))
+* perch asked a misuse question per neighbour that nothing used ([#390](https://github.com/lakeday-org/perch/issues/390)) ([6731dbe](https://github.com/lakeday-org/perch/commit/6731dbe354f55322bfb565d68ac506431b3c53da))
+* perch scan spent most of its CPU counting tokens ([#388](https://github.com/lakeday-org/perch/issues/388)) ([bbe1993](https://github.com/lakeday-org/perch/commit/bbe19939eca24af46a4d3cf44ffdb36c7e4c8fa1))
+
 ## [0.4.4](https://github.com/lakeday-org/perch/compare/v0.4.3...v0.4.4) (2026-10-19)
 
 

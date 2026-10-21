@@ -29,6 +29,7 @@ export async function withCurrentToken(getToken, signal, send) {
 export function createCloudClient({
   origin, getToken, organizationId, repositoryId, reports,
   model = 'jev-latest', force = false, log, fetchImpl = globalThis.fetch, reportTimeoutMs = 30000,
+  retryDelayMs = 2000, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
 }) {
   // The Cloud scan this run reports to, once it has been started. A question names it so the Cloud can add up what a scan cost,
   // and one asked while the scan is starting waits to know it. A scan that could not start leaves the questions unnamed.
@@ -51,7 +52,7 @@ export function createCloudClient({
   });
 
   if (!reports) return gateway;
-  const sendScan = async (path, input) => {
+  const sendOnce = async (path, input) => {
     const signal = AbortSignal.timeout(reportTimeoutMs);
     const send = token => cloudRequest(fetchImpl, `${origin}/v1/scans/${path}`, { ...jsonBody(token, { organizationId, repositoryId, ...input }), signal }, reportTimeoutMs);
     const token = await getToken(signal);
@@ -61,6 +62,23 @@ export function createCloudClient({
       const next = await getToken(signal);
       if (next === token) throw error;
       return send(next);
+    }
+  };
+  // A report that fails on the way, or that the Cloud could not complete (a 429 or 5xx: a deploy restarts what was serving it), is
+  // sent again, four tries in all, as questions are. One lost finish or batch of findings would otherwise fail a scan that read
+  // every method. The Cloud takes a report twice: a repeated start returns the scan the first one started, findings are kept by id,
+  // and a repeated finish is refused because the scan is no longer open (404, or 409 in a race), which after a failed try means
+  // that try landed.
+  const sendScan = async (path, input) => {
+    for (let attempt = 0; ; attempt++) {
+      try { return await sendOnce(path, input); }
+      catch (error) {
+        if (attempt > 0 && path === 'finish' && (error.status === 404 || error.status === 409)) return { id: input.scanId };
+        const transient = error.status === undefined || error.status === 429 || error.status >= 500;
+        if (!transient || attempt >= 3) throw error;
+        log?.(`Perch Cloud did not take the scan's ${path} report (${error.message}); retrying`);
+        await sleep(retryDelayMs * 2 ** attempt);
+      }
     }
   };
   return {
