@@ -50,13 +50,15 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      # The repository allows only GitHub's own actions, so sbt comes from its own apt repository.
+      # The repository allows only GitHub's own actions, so sbt's launcher comes from its GitHub release, checked against the
+      # release's checksum. sbt's apt repository stopped answering GitHub's runners on October 21, 2026. The launcher fetches the
+      # sbt each test project names.
       - name: Install sbt
         run: |
-          echo "deb https://repo.scala-sbt.org/scalasbt/debian all main" | sudo tee /etc/apt/sources.list.d/sbt.list
-          curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x2EE0EA64E40A89B84B2DF73499E82A75642AC823" | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/scalasbt-release.gpg
-          sudo apt-get update -q
-          sudo apt-get install -y -q sbt
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/sbt.tgz" https://github.com/sbt/sbt/releases/download/v1.13.0/sbt-1.13.0.tgz
+          echo "06806805ffd26232727326216766ed4793b549f8c1e6ffeef2e610db7245b698  $RUNNER_TEMP/sbt.tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/sbt.tgz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/sbt/bin" >> "$GITHUB_PATH"
 
       - name: Lint
         run: npm run lint
