@@ -63,6 +63,13 @@ it('counts input usage from every pass rather than only the last response', asyn
   const result = await questionMethod({ systemOne, node, steps: [pass, pass] });
   expect(result.response.usage).toEqual({ input_tokens: 20, output_tokens: 4 });
 });
+it('records the question hashes of every pass, not only the first', async () => {
+  const node = { path: 'a.js', qualified_name: 'run', line: 1, end_line: 1 };
+  const pass = asked => ({ state: {}, questions: {}, asked, calls: [], calledBy: [], neighbors: [], covers: { end_line: 1 } });
+  const systemOne = { id: 'test', ask: async () => ({ answers: { broad: { noul: .1 }, focused: { noul: .2 } }, usage: { input_tokens: 1, output_tokens: 1 } }) };
+  const result = await questionMethod({ systemOne, node, steps: [pass([{ name: 'broad', type: 'noul', hash: 'b1' }]), pass([{ name: 'focused', type: 'noul', hash: 'f1' }])] });
+  expect(result.answers.answer_hashes).toEqual({ broad: 'b1', focused: 'f1' });
+});
 it('uses the fixed change and contract readings without adding broad scan questions', () => {
   const node = { id: 'a.js::run', path: 'a.js', qualified_name: 'run', line: 1, end_line: 1 };
   const callers = [{ node: { id: 'a.js::invoke', path: 'a.js', qualified_name: 'invoke', line: 1, end_line: 1 }, lines: ['function invoke() { return run(0); }'] }];
