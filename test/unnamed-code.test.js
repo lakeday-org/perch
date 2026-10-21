@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { revision } from '../src/git.js';
+import { buildGraph } from '../src/graph.js';
 import { analyzeFiles, createSourceAnalyzer } from '../src/analysis.js';
 import { methodQuestions, scanRepository } from '../src/scan.js';
 import { methodSteps } from '../src/questions.js';
@@ -111,6 +112,74 @@ describe('code no function holds', () => {
     expect(step.state.method.source).toContain('sys.exit(main(sys.argv))');
     expect(step.state.method.source).toContain('LIMIT = 3');
     expect(step.state.method.source).not.toContain('return len(argv[:LIMIT])');
+  });
+});
+
+describe('Python stubs', () => {
+  it('offers only the implementation and resolves calls to it, not its overloads', async () => {
+    const units = await unitsOf('convert.py', [
+      'import typing',
+      'from typing import overload',
+      '@overload',
+      'def convert(value: int) -> int: ...',
+      '@typing.overload',
+      'def convert(value: str) -> str: pass',
+      'def convert(value):',
+      '    return value',
+      'def run():',
+      '    return convert(1)',
+    ].join('\n'));
+    expect(units.candidates.sort()).toEqual(['convert.py::convert', 'convert.py::run']);
+    expect(named(units.file, 'convert')).toMatchObject({ id: 'convert.py::convert', line: 7 });
+    expect(buildGraph([units.file]).callees('convert.py::run')).toEqual(['convert.py::convert']);
+  });
+
+  it.each(['overload', 'typing.overload'])('does not attribute calls in a nested @%s body to its enclosing method', async decorator => {
+    const units = await unitsOf('nested.py', [
+      'def never_called():',
+      '    return 42',
+      'def outer():',
+      `    @${decorator}`,
+      '    def inner(value: int) -> int:',
+      '        def nested():',
+      '            return never_called()',
+      '        return never_called()',
+      '    def inner(value):',
+      '        return value',
+      '    return inner(1)',
+    ].join('\n'));
+    expect(units.candidates.sort()).toEqual(['nested.py::never_called', 'nested.py::outer', 'nested.py::outer.inner']);
+    expect(units.file.calls.filter(call => call.from === 'nested.py::outer').map(call => call.name)).toEqual(['inner']);
+    expect(buildGraph([units.file]).callees('nested.py::outer')).toEqual(['nested.py::outer.inner']);
+  });
+
+  it('does not offer a file of class, async and decorated placeholders as top-level code', async () => {
+    const units = await unitsOf('interfaces.py', [
+      'from abc import abstractmethod',
+      'class API:',
+      '    @abstractmethod',
+      '    def read(self):',
+      '        """Read a value."""',
+      '    async def write(self):',
+      '        # not implemented yet',
+      '        ...',
+      'def placeholder():',
+      '    pass',
+    ].join('\n'));
+    expect(units.file.methods).toEqual([]);
+    expect(units.candidates).toEqual([]);
+  });
+
+  it('keeps real top-level code without showing the excluded stubs to the model', async () => {
+    const units = await unitsOf('module.py', 'LIMIT = 3\n@overload\ndef placeholder(value):\n    ...\nprint(LIMIT)\n');
+    expect(units.candidates).toEqual(['module.py::<top-level>']);
+    const node = { ...named(units.file, '<top-level>'), path: 'module.py' };
+    const [step] = methodSteps({ node, lines: units.lines });
+    expect(step.state.method.source).toContain('LIMIT = 3');
+    expect(step.state.method.source).toContain('print(LIMIT)');
+    expect(step.state.method.source).not.toContain('overload');
+    expect(step.state.method.source).not.toContain('placeholder');
+    expect(node.lines).toEqual([1, 5]);
   });
 });
 

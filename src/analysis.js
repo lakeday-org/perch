@@ -20,7 +20,7 @@ export const sourceFile = item => eligibleFile(item) && Boolean(languageOf(item.
  * file is named says nothing; `CartTest.java`, `cart_test.go` and `test_cart.py` are test files for what is in them, and a Rust
  * source file with a test module in it is still a source file.
  */
-export const holdsOnlyTests = methods => methods.some(method => method.test) && methods.every(method => method.node === null || method.test || method.support);
+export const holdsOnlyTests = (methods, hasTests = methods.some(method => method.test)) => hasTests && methods.every(method => method.node === null || method.test || method.support);
 
 /** Five of the thirty tree-sitter returns. These are the ones read back: the risk a walk orders by, and the line a finding
  * shows under the code. Keeping the rest would carry a metrics object nothing looks at onto every row of every scan. */
@@ -181,7 +181,7 @@ export function fileRecord(file, source, analysis) {
   // A mock inside an anonymous callback belongs to the method around it, as a call there does. One outside every method, a
   // module-level `vi.mock`, a `@Mock` field, or a `beforeEach` callback, applies to every test in the file.
   const mocks = (analysis.mocks ?? []).map(mock => ({ owner: mock.owner === 'file' ? 'file' : ownerOf(mock.owner, null, null) ?? 'file', target: mock.target, line: mock.line }));
-  const test = holdsOnlyTests(methods);
+  const test = holdsOnlyTests(methods, analysis.has_tests);
   return { path: file.path, blob: file.sha, language: file.language ?? languageOf(file.path), test, metrics: trim(analysis.metrics), methods, calls, values, reads, imports, package: analysis.package ?? null, mocks,
     ...(analysis.default_export ? { default_export: analysis.default_export } : {}), ...(binds.length ? { binds } : {}), ...(Object.keys(extended).length ? { bases: extended } : {}) };
 }
