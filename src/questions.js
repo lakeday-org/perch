@@ -8,6 +8,12 @@ import { TOKEN_LIMITS, estimateTokens, questionBatches, IncompleteCheckError, Co
 export const SEVERITY_BANDS = ['P3', 'P2', 'P1', 'P0'];
 
 /**
+ * A score's distribution, or null when it has none. A reply that carries no probabilities is read as `{}`, and an empty
+ * distribution has no likeliest level to name, so it reads as a score with no spread rather than one that throws.
+ */
+const distribution = severity => (Object.keys(severity?.probabilities ?? {}).length ? severity.probabilities : null);
+
+/**
  * Where the score actually lands, on the P scale the bands are written in. A score carries its whole distribution, and naming a
  * method by the band holding the most of it throws that away: a spread of 33/31/30/6 is called P0 on the strength of a third of
  * the mass, and reads as worse than a method with 54% on P1 and 29% on P0 that is in fact expected to do more damage.
@@ -17,7 +23,7 @@ export const SEVERITY_BANDS = ['P3', 'P2', 'P1', 'P0'];
  * beside it. The band a method files under is that number rounded, and `likeliest` is still the single band holding the most.
  */
 export function severityOf(severity) {
-  const probabilities = severity?.probabilities;
+  const probabilities = distribution(severity);
   if (!probabilities) return severity?.level ? { band: severity.level, likeliest: severity.level, predicted: null, probability: null, expected: null } : null;
   const entries = Object.entries(probabilities).map(([level, p]) => [Number(level), p]);
   const [likeliest, probability] = entries.sort((a, b) => b[1] - a[1])[0];
@@ -133,8 +139,15 @@ const ALSO_KNOWN = { bug: 'defect' };
 export const meaning = value => ALSO_KNOWN[canon(value)] ?? canon(value);
 /** The other words for a type, so a listing of what a filter takes can say them rather than let you find out by being wrong. */
 export const alsoKnownAs = type => Object.keys(ALSO_KNOWN).filter(word => ALSO_KNOWN[word] === type);
-/** How much of the score's mass sits in the band the method files under: how sure the filter's answer is. */
-const bandWeight = severity => severity?.probabilities?.[SEVERITY_BANDS.indexOf(severityBand(severity))] ?? 1;
+/**
+ * How much of the score's mass sits in the band the method files under: how sure the filter's answer is. A level a distribution
+ * leaves out holds none of it, and a band named by the mean can be one of those: 50% on P3 and 50% on P0 files under P1. Only a
+ * score with no distribution at all is taken at its word.
+ */
+const bandWeight = severity => {
+  const probabilities = distribution(severity);
+  return probabilities ? probabilities[SEVERITY_BANDS.indexOf(severityBand(severity))] ?? 0 : 1;
+};
 
 /** `type=security,kind=too big` as a list of tests; an unknown key or value is an error naming what is allowed. */
 export function parseFilters(text, rules = []) {

@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { main, parseArgs, VERSION } from '../src/cli.js';
-import { filterStrength, parseFilters } from '../src/questions.js';
+import { filterStrength, parseFilters, severityOf } from '../src/questions.js';
 import { parseQuestions, questionSet, questionsFor } from '../src/ask.js';
 import { readLint } from '../src/units.js';
 import { gating, shownIssues } from '../src/report.js';
@@ -834,5 +834,16 @@ describe('ranking what a filter keeps', () => {
     expect([lessSure, surer].sort((a, b) => filterStrength(b, filters) - filterStrength(a, filters))).toEqual([surer, lessSure]);
     // No filter, no ranking of its own: the scan's order stands.
     expect(filterStrength(surer, [])).toBe(null);
+  });
+
+  it('weighs a severity band by the mass it holds, and reads a score with no distribution', () => {
+    // Half on P3 and half on P0 averages to P1, a band the distribution leaves out. It files there with none of the mass, not all.
+    const filters = parseFilters('severity=P1');
+    expect(filterStrength({ has_bug: 1, severity: { probabilities: { 0: 0.5, 3: 0.5 } } }, filters)).toBe(0);
+    expect(filterStrength({ has_bug: 1, severity: { probabilities: { 2: 0.8, 3: 0.2 } } }, filters)).toBe(0.8);
+    expect(filterStrength({ has_bug: 1, severity: { level: 'P1' } }, filters)).toBe(1);
+    // A reply with no probabilities is read as an empty distribution, which has no likeliest level and must not throw.
+    expect(severityOf({ probabilities: {} })).toBe(null);
+    expect(severityOf({ probabilities: {}, level: 'P2' })).toMatchObject({ band: 'P2', expected: null });
   });
 });
