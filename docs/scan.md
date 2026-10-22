@@ -127,7 +127,7 @@ distribution over its levels.
 | `bug_edge_case` | noul | A wrong result for a valid empty, zero, first, last, or missing input. |
 | `kind` | choice over 8 | `boundary`, `missing_null_handling`, `wrong_return`, `swallowed_error`, `state_mutation`, `ordering`, `resource_leak`, `inverted_condition`. |
 | `severity` | score over 4 levels | The rubric below. |
-| `cwe_*` | Up to 30 nouls | The 2025 MITRE Top 25 CWEs except CWE-20, and six more, filtered by language where needed. |
+| `cwe_*` | Up to 32 nouls | The 2025 MITRE Top 25 CWEs except CWE-20, and eight more, filtered by language where needed. |
 | `documented` | noul | Could a caller learn what it promises from the comment? |
 | `refactor` | choice over 7 | `split`, `flatten`, `simplify_conditions`, `deduplicate`, `rename`, `remove_dead_code`, `none`. |
 | `follow` | choice over neighbors | Which related method to examine next. |

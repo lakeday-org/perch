@@ -10,15 +10,16 @@ describe('the question grammar', () => {
     expect(new Set(names).size).toBe(names.length);
     expect(names).toEqual(expect.arrayContaining(['has_bug', 'kind', 'severity', 'refactor', 'cwe_79', 'cwe_416']));
     expect(names.filter(name => name.startsWith('bug_'))).toEqual(['bug_edge_case']);
-    expect(names.filter(name => name.startsWith('cwe_'))).toHaveLength(30);
+    expect(names.filter(name => name.startsWith('cwe_'))).toHaveLength(32);
   });
 
   it('labels each specific check with a name a reader knows without a lookup', () => {
     // An ID says which check it was; the label is what a row prints.
     const specific = BUILTIN.filter(question => /^(bug|cwe)_/.test(question.name));
     expect(specific.filter(question => /^(bug|cwe)_|^self$/.test(question.issue.label))).toEqual([]);
-    expect(Object.fromEntries(specific.filter(question => ['cwe_89', 'cwe_862', 'cwe_327'].includes(question.name))
-      .map(question => [question.name, question.issue.label]))).toEqual({ cwe_89: 'sql_injection', cwe_862: 'missing_authorization', cwe_327: 'weak_crypto' });
+    expect(Object.fromEntries(specific.filter(question => ['cwe_89', 'cwe_862', 'cwe_327', 'cwe_116', 'cwe_185'].includes(question.name))
+      .map(question => [question.name, question.issue.label]))).toEqual({ cwe_89: 'sql_injection', cwe_862: 'missing_authorization', cwe_327: 'weak_crypto',
+      cwe_116: 'improper_escaping', cwe_185: 'incorrect_regex' });
   });
 
   it('ships only questions about a method, in all three shapes', () => {

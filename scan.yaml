@@ -2,8 +2,9 @@
 # language is optional: a name or a list of parser language IDs. Omit it to ask in every language.
 # Each method is asked only the questions enabled for its parsed language.
 # The CWE checks are the 2025 MITRE Top 25, less CWE-20, whose every case is a more specific CWE here and which otherwise
-# fires on any unchecked parameter. Six classes it leaves out are added, since one method can still show them: weak crypto,
-# disabled certificate checks, hard-coded credentials, integer overflow, uninitialized reads and open redirects.
+# fires on any unchecked parameter. Eight classes it leaves out are added, since one method can still show them: weak crypto,
+# disabled certificate checks, hard-coded credentials, integer overflow, uninitialized reads, open redirects, incomplete escaping
+# and incorrect regular expressions.
 # Memory-safety checks are limited to languages with reachable native memory operations.
 # Each specific check files under a readable label, such as sql_injection for cwe_89.
 
@@ -469,6 +470,28 @@
   issue:
     type: security
     label: open_redirect
+    pick: strongest
+  min: 70
+- name: cwe_116
+  each: method
+  where: "**/*"
+  ask: "Does `method` escape or encode text incompletely for where it is sent?"
+  "true": "It escapes or encodes text for a regular expression, HTML, a shell command, a URL or another format and misses characters or cases that format treats specially, such as replacing only the first occurrence, or escaping a quote but not the backslash in front of it."
+  "false": "Its escaping covers every character the target format treats specially, it calls the format's own escaper, or it escapes nothing."
+  issue:
+    type: security
+    label: improper_escaping
+    pick: strongest
+  min: 70
+- name: cwe_185
+  each: method
+  where: "**/*"
+  ask: "Does a regular expression in `method` match something other than what it is used to check?"
+  "true": "A pattern that validates, filters or sanitizes text misses cases it is meant to catch or accepts ones it is meant to reject, such as a missing anchor, an unescaped dot in a host name, or an HTML tag filter that misses uppercase or unclosed tags."
+  "false": "Its patterns match exactly what they are used to check, or it decides nothing with a regular expression."
+  issue:
+    type: security
+    label: incorrect_regex
     pick: strongest
   min: 70
 
