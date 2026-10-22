@@ -98,8 +98,8 @@ changed files, with callers and callees in view.
 
 ## One kind of problem
 
-`--filter` reports one type, kind or severity. A scan asks about defects and rules by default, and
-`--filter type=security` asks about vulnerabilities as well:
+`--filter` decides what a scan asks. A scan asks about defects and rules by default, and
+`--filter type=security` asks about vulnerabilities instead:
 
 ```console
 $ perch scan --filter type=security

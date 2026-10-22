@@ -327,25 +327,34 @@ function labelsOf(question, questions, rename = kind => kind) {
   return [rename(wanted === 'self' ? question.name : wanted)];
 }
 
+/** Filter keys that name the questions able to raise what they match. `rule` names one question directly. */
+const NAMING = new Set(['type', 'kind', 'rule']);
+
+/**
+ * Whether a filter decides which questions a run asks. Clauses on different keys must all hold of a finding, so a run asks the
+ * union of what each clause could list. A type, a kind or a rule names the questions that raise it. A severity names none:
+ * every issue on a P1 method is listed, whichever question raised it, so a filter with one asks the whole set.
+ */
+export const narrows = filters => filters.length > 0 && filters.every(clause => NAMING.has(clause.key));
+
 /**
  * The questions worth asking for a given filter. A filter that narrows a report to one kind of problem should narrow the run to
  * the questions that can raise it: asking thirty questions per method and printing two is paying for twenty-eight answers nobody
  * reads. What a kept question depends on comes with it — the gate it multiplies by, the choice that names it, and the severity
- * rubric when it is a correctness issue, since that is what ranks it.
+ * rubric when it is a correctness issue, since that is what ranks it. A filter that does not narrow keeps every question.
  */
 export function questionsFor(questions, filters = [], rename = kind => kind) {
-  // `rule` names one question directly. It narrows like `kind` does, because a rule's issue is filed under its own name.
-  const named = filters.filter(clause => clause.key === 'type' || clause.key === 'kind' || clause.key === 'rule');
-  if (!named.length) return questions;
+  if (!narrows(filters)) return questions;
   const canon = value => String(value).toLowerCase().replace(/[_-]+/g, ' ');
   const wanted = new Set();
   for (const question of questions) {
-    // `rule` names the question itself, so it selects one that raises no issue of its own. An ensure_present rule is exactly
-    // that: it declares no issue, and matching on labels alone dropped it from every filtered run without saying so.
-    if (named.some(clause => clause.key === 'rule' && canon(question.name) === clause.value)) { wanted.add(question.name); continue; }
-    if (!question.issue) continue;
-    const labels = labelsOf(question, questions, rename);
-    if (named.some(clause => (clause.key === 'type' ? question.issue.type === clause.value : labels.some(label => canon(label) === clause.value)))) wanted.add(question.name);
+    // `rule` names the question itself, so it selects one that raises no issue of its own.
+    if (filters.some(clause => clause.key === 'rule' && canon(question.name) === clause.value)) { wanted.add(question.name); continue; }
+    // A search declares no issue, because whether it is broken is decided over every unit. It is listed as a lint issue under
+    // its own name, as vocabulary says, so `type=lint` and `kind=<its name>` ask it.
+    if (!question.issue && !SEARCHES(question.kind)) continue;
+    const type = question.issue?.type ?? 'lint', labels = labelsOf(question, questions, rename);
+    if (filters.some(clause => (clause.key === 'type' ? type === clause.value : labels.some(label => canon(label) === clause.value)))) wanted.add(question.name);
   }
   for (const name of [...wanted]) {
     const question = questions.find(other => other.name === name);

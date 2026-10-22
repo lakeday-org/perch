@@ -58,6 +58,7 @@ questions. Custom rules keep their usual request, with callers and callees.
 | `--include-tests` | Review parsed tests and their support code as well as production methods. |
 | `--include-files` | Also parse documents, configuration, styles and templates using their own grammars. |
 | `--since REF` | Only what changed since this branch or commit. `--since origin/main` is what CI wants. |
+| `--filter k=v` | Decides what is asked: only the questions that can raise a matching issue. For example `type=security`, `kind=off_by_one` or `rule=no-silent-failure`; `severity=` asks everything. Exits 3 only on what it lists. |
 | `--parallel N` | How many methods to read at once. Default 32; files and tests go 32 at a time, alongside the methods. |
 | `--force` | Ask Perch Cloud again instead of using cached answers, and keep the new answers. |
 | `--all` | List every row instead of the top 10. |
