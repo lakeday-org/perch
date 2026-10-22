@@ -1,10 +1,10 @@
 # Perch on ReviewBench
 
-[ReviewBench](https://github.com/review-bench/ReviewBench) is a benchmark created by GitHub, containing a set of 219 PRs, each with a list of reference findings from a human code review. This directory contains two runs of perch on this dataset, both scored per method against the same labels. In short, perch asks bug-related questions about the methods each PR changed, and a method counts as flagged when an answer is above a cutoff.
+[ReviewBench](https://github.com/review-bench/ReviewBench) is a benchmark created by GitHub, containing a set of 219 PRs, each with a list of reference findings from a human code review. This directory contains a run of perch on this dataset. In short, perch asks a set of bug-related questions about every method each PR changed, and scores two models (Jev 1.14 and GPT-6 Luna Decisions) based on their answers, as compared to the list of findings from ReviewBench.
 
-The frozen run asked up to seven questions in two readings of each method, on Jev 1.14 and GPT-6 Luna Decisions. The [rerun](#the-rerun) is `perch scan --since` from perch#418, which asks two, on GPT-6 Luna. The requests, answers, labels, and scoring scripts are all stored in this directory, so you can rerun the scoring or verify any part of it if you like. Scoring needs no API key.
+The requests, answers, labels, and scoring scripts are all stored in this directory, so you can rerun the scoring or verify any part of it if you like. Scoring needs no API key.
 
-## Frozen run
+## Results
 
 In total, perch asked questions about 16,168 methods in 177 PRs, of which 1,506 were labelled as buggy.
 
@@ -23,7 +23,7 @@ Of the 219 PRs in ReviewBench, perch read methods in 177 of them, since the othe
 
 ## Two readings per method
 
-In the frozen run, each method was read twice, and both models were asked the same set of questions:
+Each method was read twice, and both models were asked the same set of questions:
 
 1. The method was read in the context of the change: its current source code, a window of its source code from before the change, the diff hunks affecting the method, and the PR title. It was asked whether the method contains a functional bug, whether it mishandles empty or boundary values, and whether it has any security issues that could be exploited by an attacker.
 2. The method was read in the context of its callers and callees: its source code, along with a selection of its callers, callees, relevant type definitions, and configuration. It was asked whether a caller could provide a valid input that the method fails to handle correctly, whether the method could return a value that is not handled correctly by its callers, whether the method could fail to perform necessary cleanup operations in the case of a failure, and whether the method could allow a caller to bypass tenant or permission checks. Only the relevant questions were asked, based on the content of the method, regardless of the answers to the first reading.
@@ -48,47 +48,6 @@ Precision was the ratio of correct alerts to all alerts, recall was the ratio of
 
 Note that only code and context are provided to the models, never labels or judgments. Evidence that had to be cut short is marked as truncated.
 
-## The rerun
-
-The frozen run replays requests in perch#407's two-reading format, which perch no longer sends. The rerun is what perch does now. It ran `perch scan --since <base> --include-tests` from perch#418 on GPT-6 Luna Decisions, over 171 of the 177 PRs. The other six could not be checked out, because their repository or base commit no longer exists. Tests are read because ReviewBench's targets include test methods.
-
-Each PR's answers are in `results/rerun-luna.jsonl.gz`. A target is matched to the method perch read in the same file whose lines overlap it most, and a target perch did not read counts as not flagged. A method is flagged when `has_bug` or `bug_edge_case` is above the cutoff. All 1,506 labels count, as in the frozen run.
-
-| Cutoff | Precision | Recall | F1 | Flag rate | Correct alerts | False alerts | Missed bugs |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| 60% | 28.8% | 40.0% | 33.5% | 13.0% | 603 | 1,491 | 903 |
-| 70% | 35.2% | 31.9% | 33.4% | 8.4% | 480 | 884 | 1,026 |
-| 80% | 41.7% | 23.2% | 29.8% | 5.2% | 349 | 487 | 1,157 |
-
-60% is perch's floor for both questions on every model. By split:
-
-| Split | Cutoff | Precision | Recall | F1 | Flag rate | Correct alerts | False alerts | Missed bugs |
-|---|---|---:|---:|---:|---:|---:|---:|---:|
-| Development | 60% | 29.2% | 48.2% | 36.4% | 15.1% | 455 | 1,103 | 489 |
-| Development | 70% | 36.2% | 38.7% | 37.4% | 9.8% | 365 | 642 | 579 |
-| Development | 80% | 44.0% | 28.5% | 34.6% | 5.9% | 269 | 342 | 675 |
-| Validation | 60% | 27.6% | 26.3% | 27.0% | 9.2% | 148 | 388 | 414 |
-| Validation | 70% | 32.2% | 20.5% | 25.0% | 6.1% | 115 | 242 | 447 |
-| Validation | 80% | 35.6% | 14.2% | 20.3% | 3.9% | 80 | 145 | 482 |
-
-The rerun's recall is lower than the frozen run's for three reasons:
-
-1. `perch scan --since` asks only about methods the diff changed. 292 labelled bugs sit in targets the diff left untouched, so the rerun never read them. One more is in a file perch does not parse, and 80 are in the six PRs that could not be checked out.
-2. It asks two questions of each method, where the frozen run asked up to seven.
-3. 645 of the 1,506 labels came from judging the frozen run's own alerts, so they favour it.
-
-Against the 861 labels from ReviewBench's reference findings alone:
-
-| Run | Precision | Recall | F1 | Correct alerts | False alerts | Missed bugs |
-|---|---:|---:|---:|---:|---:|---:|
-| Rerun at 60% | 20.2% | 49.0% | 28.6% | 422 | 1,672 | 439 |
-| Rerun at 70% | 25.0% | 39.6% | 30.7% | 341 | 1,023 | 520 |
-| Rerun at 80% | 30.0% | 29.2% | 29.6% | 251 | 585 | 610 |
-| Frozen run, Jev 1.14 | 17.8% | 18.1% | 18.0% | 156 | 720 | 705 |
-| Frozen run, GPT-6 Luna Decisions | 10.6% | 69.6% | 18.4% | 599 | 5,036 | 262 |
-
-The rerun cost $4.1569 in input tokens.
-
 ## Reproduce
 
 To reproduce the benchmark from this repository with Node.js 22+:
@@ -101,13 +60,7 @@ npx vitest run --config .benchmarks/reviewbench/vitest.config.mjs
 
 `score.mjs` will check the saved requests and answers against the hashes in `manifest.json`, score them according to the thresholds, write `summary.json` and print a table. It will not make API requests. As with `run.mjs`, it will not accept a file (as opposed to a method) as a target.
 
-To score the rerun from its saved answers:
-
-```sh
-node .benchmarks/reviewbench/rerun-score.mjs
-```
-
-`rerun-score.mjs` prints the tables above and writes `rerun-summary.json`. `node .benchmarks/reviewbench/chart.mjs` redraws the recall chart in the main README from `rerun-summary.json` and the leaderboard rows it records.
+`node .benchmarks/reviewbench/chart.mjs` redraws the recall chart in the main README from `summary.json` and the leaderboard rows it records.
 
 Set the `TYPESAFE_API_KEY` and/or `OPENAI_API_KEY` env variables to request answers from Jev and/or Luna:
 
@@ -118,14 +71,6 @@ node .benchmarks/reviewbench/score.mjs --results .benchmarks/reviewbench/runs/li
 ```
 
 Pass `--limit 2 --out /tmp/perch-reviewbench-smoke` for a smoke test. Partial runs cannot be scored. Answers are cached by input and model, even if the model refuses to answer. Re-running with the same `--out` will resume the run, reading already-completed requests from disk and re-requesting incomplete ones. Requests to either model will time out after 30 seconds. If your API key has been refused, has no balance, or the model version has changed, the run stops; any other rejected request is recorded and the run will continue.
-
-To rerun the rerun, build perch and set `PERCH_BASE_URL` and the key for it, as for any `perch scan`. `rerun.mjs` scans each PR with this checkout's `bin/perch.mjs` and writes one line a PR to `runs/rerun.jsonl`. A finished PR is not scanned again, so running it again resumes.
-
-```sh
-npm run build
-PERCH_BASE_URL=https://api.openai.com/v1/decisions node .benchmarks/reviewbench/rerun.mjs --parallel 6
-node .benchmarks/reviewbench/rerun-score.mjs --results .benchmarks/reviewbench/runs/rerun.jsonl --summary /tmp/rerun-summary.json
-```
 
 Jev's preview alias must respond as `jev-1.14.0`. If it doesn't, use a new output directory and pass the new model name with `--expected-model`. When asking Luna, each question is sent as a choice between true and false without changing its criteria. Luna's score for each question is its probability for true.
 
