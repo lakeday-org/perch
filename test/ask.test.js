@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appliesToLanguage, BUILTIN, check, compile, issues, merge, parseQuestions, setHash, vocabulary } from '../src/ask.js';
+import { appliesToLanguage, BUILTIN, check, compile, floorFor, floorText, issues, merge, parseQuestions, setHash, vocabulary } from '../src/ask.js';
 
 const at = 'test.yaml question 1';
 const noul = (name, extra = {}) => check({ name, where: '**/*', ask: 'Is it?', true: 'Yes', false: 'No', ...extra }, at);
@@ -114,6 +114,34 @@ describe('the question grammar', () => {
     const plain = check({ name: 'plain', where: 'src/**', ensure: 'x' }, at);
     expect(issues({ plain: 0.4 }, 0.5, [plain])).toHaveLength(1);
     expect(() => check({ name: 'q', where: 'src/**', min: 140, ensure: 'x' }, at)).toThrow('min is a percentage, 0 to 100');
+  });
+
+  it('reads each bug question against the floor of the model that answered it', () => {
+    const set = BUILTIN.filter(question => ['has_bug', 'bug_edge_case', 'kind'].includes(question.name));
+    const defects = (model, answer, min = 0.5) => issues({ model, has_bug: 0.1, bug_edge_case: 0.1, kind: { choice: 'boundary', probability: 0.8 }, ...answer }, min, set);
+    for (const name of ['has_bug', 'bug_edge_case']) {
+      expect(defects('gpt-6-luna', { [name]: 0.7 }), name).toEqual([]);
+      expect(defects('gpt-6-luna', { [name]: 0.85 }), name).toEqual([expect.objectContaining({ from: name, floor: 0.8 })]);
+      expect(defects('jev-1.13.0', { [name]: 0.65 }), name).toEqual([expect.objectContaining({ from: name, floor: 0.6 })]);
+      // A model the map does not name, or a reading that does not say which model gave it, takes the default.
+      expect(defects('d1:free', { [name]: 0.65 }), name).toHaveLength(1);
+      expect(defects(undefined, { [name]: 0.65 }), name).toHaveLength(1);
+      // --min raises every floor, and --min 0 lists everything.
+      expect(defects('jev-1.13.0', { [name]: 0.65 }, 0.7), name).toEqual([]);
+      expect(defects('gpt-6-luna', { [name]: 0.85 }, 0.9), name).toEqual([]);
+      expect(defects('gpt-6-luna', { [name]: 0.3 }, 0), name).toEqual([expect.objectContaining({ from: name, floor: 0 })]);
+    }
+  });
+
+  it('takes a floor per model id prefix, the longest that matches, with a default for the rest', () => {
+    const question = check({ name: 'q', where: 'src/**', min: { 'gpt-6': 70, 'gpt-6-luna': 80, default: 55 }, ensure: 'x' }, at);
+    expect(floorFor(question, 0.5, 'gpt-6-luna-2026-10-01')).toBe(0.8);
+    expect(floorFor(question, 0.5, 'gpt-6-sol')).toBe(0.7);
+    expect(floorFor(question, 0.5, 'jev-latest')).toBe(0.55);
+    expect(floorFor(question, 0.9, 'gpt-6-luna')).toBe(0.9);
+    expect(floorText(question.min)).toBe('55%, gpt-6 70%, gpt-6-luna 80%');
+    expect(() => check({ name: 'q', where: 'src/**', min: { 'gpt-6-luna': 80 }, ensure: 'x' }, at)).toThrow('a min map needs a default');
+    expect(() => check({ name: 'q', where: 'src/**', min: { 'gpt-6-luna': 180, default: 60 }, ensure: 'x' }, at)).toThrow('min for gpt-6-luna is not a percentage');
   });
 
   it('picks the strongest issue that clears its own floor', () => {

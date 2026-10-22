@@ -46,12 +46,9 @@ perch scan [target] [options]
 `--paths` and `--since` narrow it further. Exits 3 on a defect, a vulnerability,
 or a custom rule that broke.
 
-With `--since`, defect and security scans use two focused readings: current code
-with previous source and the relevant diff, then applicable caller-contract,
-cleanup and access questions. Custom method rules join the contract reading.
-Previous source comes from the merge base with `REF`. The questions ask about
-bugs in the current code; they do not require proving that the branch introduced
-the bug. Defect and security filters apply to these readings too.
+`--since` adds the previous code and the diff to the reading of each method the
+branch changed. The previous code comes from the merge base with `REF`. The
+questions are the same as a scan without it.
 
 | Flag | |
 | --- | --- |

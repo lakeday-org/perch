@@ -12,7 +12,6 @@ import { attributeRules, createFileSelector, declaredGenerated, generatedText } 
 import { buildGraph } from './graph.js';
 import { createLineReader, methodNeighbours } from './context.js';
 import { createChangeReader } from './change-context.js';
-import { isReviewQuestion, reviewQuestions, reviewSteps } from './review.js';
 import { appliesToLanguage, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES, setHash } from './ask.js';
 import { issuesOf, label as kindLabel, methodSteps, readAnswers } from './questions.js';
 import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL, unitHash } from './units.js';
@@ -43,7 +42,6 @@ export function mergeAnswers(readings, questions = questionSet().filter(question
   const grows = questions.filter(question => question.type === 'noul' && (CORRECTNESS.has(question.issue?.type) || gates.has(question.name))
     && readings.some(reading => reading[question.name] !== undefined));
   for (const later of readings.slice(1)) {
-    for (const question of questions) if (merged[question.name] === undefined && later[question.name] !== undefined) merged[question.name] = later[question.name];
     if (later.has_bug > merged.has_bug) Object.assign(merged, { has_bug: later.has_bug, kind: later.kind, severity: later.severity });
     for (const question of grows) merged[question.name] = Math.max(merged[question.name] ?? 0, later[question.name] ?? 0);
   }
@@ -66,9 +64,6 @@ export async function questionMethod({ systemOne, node, step, steps = [step], ru
       readings.push(readAnswers(response.answers, pass));
     }
     const answers = mergeAnswers(readings, [...questionSet().filter(question => question.each === 'method' && !question.kind), ...rules]);
-    const asked = [...new Map(active.flatMap(pass => pass.asked).map(question => [question.name, question])).values()];
-    answers.answers_set = setHash(asked);
-    answers.answer_hashes = Object.fromEntries(asked.map(question => [question.name, question.hash]));
     // A partial source reading must remain visible instead of looking like a complete method check.
     const to = active.at(-1).covers.end_line;
     if (to < node.end_line) answers.read = { passes: active.length, to_line: to, of_line: node.end_line };
@@ -143,7 +138,7 @@ const createWalk = (graph, candidates, inScope = () => true) => {
 const ABOUT_A_NAME = new Set(['does_what_it_claims', 'documented']);
 
 export const methodQuestions = (kinds, language, { topLevel = false } = {}) => questionsFor(
-  questionSet().filter(question => question.each === 'method' && !question.kind && !isReviewQuestion(question) && appliesToLanguage(question, language)
+  questionSet().filter(question => question.each === 'method' && !question.kind && appliesToLanguage(question, language)
     && !(topLevel && ABOUT_A_NAME.has(question.name))),
   kinds ? [...kinds].map(value => ({ key: 'type', value })) : []);
 
@@ -257,20 +252,13 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // not six.
     // A filter narrows what is asked, not just what is printed. Asking thirty questions about a method to print two is paying
     // for twenty-eight answers nobody reads, and a method no kept question covers is not read at all.
-    const lines = await linesOf(node), change = await changeOf(node);
-    const applicable = rulesForMethod(rules, node);
-    const extra = since ? questionsFor(reviewQuestions({ language: node.language, source: lines.slice(node.line - 1, node.end_line).join('\n'), callers, callees, change,
-      filters: [...kinds].map(value => ({ key: 'type', value })), rules: applicable }), filters, kindLabel) : [];
-    const ordinaryTypes = since ? new Set([...kinds].filter(type => !CORRECTNESS.has(type))) : kinds;
-    const base = questionsFor([...(ordinaryTypes.size ? methodQuestions(ordinaryTypes, node.language, { topLevel: Boolean(node.lines) }) : []),
-      ...(!since ? applicable.filter(q => !isReviewQuestion(q)) : [])], filters, kindLabel);
-    const focused = questionsFor([...extra, ...(since ? applicable.filter(q => !isReviewQuestion(q)) : [])], filters, kindLabel);
-    const asked = [...base, ...focused];
+    const asked = questionsFor([...methodQuestions(kinds, node.language, { topLevel: Boolean(node.lines) }), ...rulesForMethod(rules, node)], filters, kindLabel);
     askedByMethod.set(node.id, asked);
     const own = asked.filter(question => question.kind);
     if (!asked.length) return { node, calleeIds, callerIds, rules: own, skip: true };
-    const prepare = budget => [...(base.length ? methodSteps({ node, lines, callees, callers, edges, asked: base, budget }) : []),
-      ...reviewSteps({ node, lines, callees, callers, change, asked: focused, budget })];
+    // --since asks the same questions in the same reading, and adds what the method was at the merge base and the diff over it.
+    const lines = await linesOf(node), change = await changeOf(node);
+    const prepare = budget => methodSteps({ node, lines, callees, callers, edges, asked, change, budget });
     const steps = prepare(systemOne.limits?.state);
     return { node, calleeIds, callerIds, rules: own, steps, prepare };
   };
@@ -304,7 +292,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
       // keeps its own tally, which is what the exit code and the summary read.
       for (const rule of own) {
         const failed = 1 - (event[rule.name] ?? 1);
-        if (failed > floorFor(rule, min) && !setAside(findingId(node.id), rule.name)) run.broken.push({ rule: rule.name, path: node.path, name: node.qualified_name, line: node.line, broken: failed, said: rule.text });
+        if (failed > floorFor(rule, min, event.model) && !setAside(findingId(node.id), rule.name)) run.broken.push({ rule: rule.name, path: node.path, name: node.qualified_name, line: node.line, broken: failed, said: rule.text });
       }
       const follow = event.follow?.method;
       walk.enqueue([...calleeIds, ...callerIds].filter(other => other !== follow));
@@ -428,7 +416,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // or broken, since a pass is what lets the next run skip asking it; only the broken ones are anything to report.
     broken.push(...units.results, ...searches.results);
     run.broken.push(...[...units.results, ...searches.results]
-      .filter(result => result.broken > floorFor(rules.find(rule => rule.name === result.rule), min) && !setAside(result.id, result.rule)));
+      .filter(result => result.broken > floorFor(rules.find(rule => rule.name === result.rule), min, result.model) && !setAside(result.id, result.rule)));
     // Every question the run asked, yours and perch's alike. A question perch ships can cover nothing and raise nothing for the
     // same reasons one you wrote can, and a report of a run that names only half of what it asked is half a report.
     const raised = new Map();

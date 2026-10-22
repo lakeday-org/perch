@@ -24,7 +24,7 @@ export const EACH = ['file', 'method', 'test'];
  * What a file or a test is shown besides itself. A method needs no such key: it is always asked with its callers and callees in
  * view, because that is the context a scan builds for it and every question about it is asked over that one context.
  */
-export const SEES = ['self', 'file', 'calls', 'callers', 'neighbors', 'change', 'contracts'];
+export const SEES = ['self', 'file', 'calls', 'callers', 'neighbors'];
 /**
  * `ensure` is asked of every unit and every unit has to satisfy it. The other two are asked of units in turn until one answers,
  * because the claim is about the codebase and not about any one file: `ensure_present` passes at the first unit that has the
@@ -76,6 +76,24 @@ function expand(rule) {
  */
 const gates = question => (question.gate === undefined ? Boolean(question.issue) || SEARCHES(question.kind) : question.gate);
 
+const percentage = value => typeof value !== 'object' && Number(value) >= 0 && Number(value) <= 100;
+
+/**
+ * A floor as written: a percentage, or a map from model id prefix to a percentage with a `default` for every other model. The
+ * same wording reads at different confidences on different models, so a question can set its line for each.
+ */
+function floorsOf(min, where) {
+  if (min === undefined || min === null) return null;
+  if (typeof min !== 'object' || Array.isArray(min)) {
+    if (!percentage(min)) throw new Error(`${where}: min is a percentage, 0 to 100, or a map of model id prefixes to one, not ${min}`);
+    return Number(min);
+  }
+  if (!Object.hasOwn(min, 'default')) throw new Error(`${where}: a min map needs a default for the models it does not name`);
+  const wrong = Object.entries(min).filter(([, value]) => !percentage(value)).map(([prefix]) => prefix);
+  if (wrong.length) throw new Error(`${where}: min for ${wrong.join(', ')} is not a percentage, 0 to 100`);
+  return Object.fromEntries(Object.entries(min).map(([prefix, value]) => [prefix, Number(value)]));
+}
+
 /** A question that cannot be understood is a mistake to fix now, not a question to skip quietly at the point it would have mattered. */
 export function check(question, at, noun = 'question') {
   if (!question?.name) throw new Error(`${at}: every ${noun} needs a name`);
@@ -103,22 +121,21 @@ export function check(question, at, noun = 'question') {
   const each = full.each ?? (full.kind ? 'file' : 'method');
   if (full.sees && !SEES.includes(full.sees)) throw new Error(`${where}: sees is ${SEES.join(', ')}, not ${full.sees}`);
   // Silently ignoring it would let a rule read as though it had asked for something it never got.
-  if (full.sees && each === 'method' && !['change', 'contracts'].includes(full.sees)) throw new Error(`${where}: a method is always asked with its callers and callees in view, so sees says nothing here`);
-  if (['change', 'contracts'].includes(full.sees) && each !== 'method') throw new Error(`${where}: sees ${full.sees} requires each method`);
+  if (full.sees && each === 'method') throw new Error(`${where}: a method is always asked with its callers and callees in view, so sees says nothing here`);
   if (!full.ask) throw new Error(`${where}: needs ask, or one of ${ENSURES.join(', ')}`);
   if (type === 'noul' && (full.true === undefined || full.false === undefined)) throw new Error(`${where}: a noul needs true and false`);
   if (type === 'choice' && !full.options) throw new Error(`${where}: a choice needs options`);
   if (type === 'score' && !Array.isArray(full.levels)) throw new Error(`${where}: a score needs levels, weakest first`);
   // How sure this one has to be before it is worth saying. A question the model hedges on fills a report with coin flips, and
   // where that line sits is a judgement about the question rather than about the run, so it is set beside the question.
-  if (full.min !== undefined && !(Number(full.min) >= 0 && Number(full.min) <= 100)) throw new Error(`${where}: min is a percentage, 0 to 100, not ${full.min}`);
+  const min = floorsOf(full.min, where);
   if (full.gate !== undefined && typeof full.gate !== 'boolean') throw new Error(`${where}: gate is true or false, not ${full.gate}`);
   if (full.issue) {
     const unknown = Object.keys(full.issue).filter(key => !ISSUE_KEYS.has(key));
     if (unknown.length) throw new Error(`${where}: issue takes ${[...ISSUE_KEYS].join(', ')}, not ${unknown.join(', ')}`);
     if (!full.issue.type) throw new Error(`${where}: an issue needs a type`);
   }
-  return { ...full, type, each, sees: full.sees ?? 'self', min: full.min === undefined ? null : Number(full.min), gate: gates(full),
+  return { ...full, type, each, sees: full.sees ?? 'self', min, gate: gates(full),
     kind: full.kind ?? null, text: full.text ?? null, at,
     // As it was written, so a question perch ships can be copied into your own file and changed from there.
     declared: question,
@@ -212,14 +229,32 @@ export const installQuestions = set => { installed = set; return set; };
 export const setHash = (questions = questionSet()) => sha(questions.map(question => `${question.name}:${question.hash}`).sort().join('\n')).slice(0, 16);
 
 /**
+ * A question's own floor, as a fraction, for the model that answered it. In a map the longest prefix of the model's id wins, and
+ * a model none of them names, or an answer that does not say which model gave it, takes the default.
+ */
+export function ownFloor(question, model = null) {
+  const min = question?.min;
+  if (min == null) return 0;
+  if (typeof min !== 'object') return min / 100;
+  const named = Object.keys(min).filter(prefix => prefix !== 'default' && typeof model === 'string' && model.startsWith(prefix));
+  const longest = named.sort((a, b) => b.length - a.length)[0];
+  return (longest === undefined ? min.default : min[longest]) / 100;
+}
+
+/** A floor as `perch rules` prints it: `60%`, or the default followed by each model's own. */
+export const floorText = min => (typeof min !== 'object' || min === null ? `${min}%`
+  : [`${min.default}%`, ...Object.entries(min).filter(([prefix]) => prefix !== 'default').map(([prefix, value]) => `${prefix} ${value}%`)].join(', '));
+
+/**
  * How sure this one has to be before it counts. Both floors apply and the higher wins: a question that hedges sets its own, and
- * `--min` sets one for the run, so asking for 90% does not get you back a 73% because some rule said 70 was enough.
+ * `--min` sets one for the run, so asking for 90% does not get you back a 73% because some rule said 70 was enough. `model` is
+ * the one that gave the answer, for a question whose floor differs by model.
  *
  * `--min 0` is the exception, and means what zero says: every answer, floors and all, which is how you see what a question is
  * really doing before deciding where its floor belongs. Everything that decides whether something is broken reads this, so a run
  * cannot report one number and count another.
  */
-export const floorFor = (question, min) => (min === 0 ? 0 : Math.max(min, question?.min == null ? 0 : question.min / 100));
+export const floorFor = (question, min, model = null) => (min === 0 ? 0 : Math.max(min, ownFloor(question, model)));
 
 /** The questions asked of a method, as System One takes them. Only the shape; the state they are asked over is built elsewhere. */
 export function compile(questions) {
@@ -261,6 +296,7 @@ function labelOf(question, questions, answers) {
  * Every issue a set of answers carries, strongest first. Nothing is filtered out beyond `min`: an issue at 8% is listed at 8% and
  * sorts to the bottom, where it belongs. Where two answers are both needed for a problem to be real they multiply, and where
  * several answers are the same kind of problem only the likeliest is listed, since one method has one worst vulnerability.
+ * Each question's floor is the one it sets for `answers.model`, the model that gave these answers.
  */
 export function issues(answers, min = 0, questions = questionSet(), rename = kind => kind) {
   const found = [], strongest = new Map();
@@ -273,7 +309,7 @@ export function issues(answers, min = 0, questions = questionSet(), rename = kin
     // `from` is the question, which is what says whether the issue fails a run. The label cannot: it is often an answer rather
     // than a name, and a model that picks a word outside the options it was offered would walk straight past a gate.
     const issue = { type: question.issue.type, label: rename(label), from: question.name, probability: raised,
-      floor: floorFor(question, min), text: `${rename(label)} ${Math.round(raised * 100)}%` };
+      floor: floorFor(question, min, answers.model), text: `${rename(label)} ${Math.round(raised * 100)}%` };
     if (issue.probability <= issue.floor) continue;
     if (question.issue.pick !== 'strongest') { found.push(issue); continue; }
     const held = strongest.get(question.issue.type);

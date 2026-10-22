@@ -358,8 +358,10 @@ export async function askUnitSteps({ systemOne, steps, rules, prepare }) {
     if (budget < (systemOne.limits?.state ?? TOKEN_LIMITS.state) && !prepare) throw new IncompleteCheckError('source cannot be rebuilt for a smaller token budget');
     const active = steps?.[0] && budget === (systemOne.limits?.state ?? TOKEN_LIMITS.state) ? steps : prepare ? prepare(budget) : steps;
     const answers = {}, evidence = {};
+    let model = null;
     for (const step of active) {
       const response = await systemOne.ask(step.state, step.questions);
+      model = response.model ?? model;
       for (const rule of rules) {
         const answer = response.answers[rule.name];
         if (!answer || typeof answer.noul !== 'number') throw new Error(`Missing rule answer: ${rule.name}`);
@@ -369,7 +371,7 @@ export async function askUnitSteps({ systemOne, steps, rules, prepare }) {
         }
       }
     }
-    return { answers, evidence };
+    return { answers, evidence, model };
   }, systemOne.limits?.state);
 }
 
@@ -422,10 +424,10 @@ export const rulesForMethod = (rules, node) => rules.filter(rule => rule.kind ==
  * the scan read, and as the record of a rule having been asked. A check that passed is written down as well, so perch issues
  * can tell a rule that passed from one that was never asked.
  */
-const checkOf = (rule, unit, { broken, line, text, revision }) => ({
+const checkOf = (rule, unit, { broken, line, text, revision, model = null }) => ({
   type: 'checked', at: new Date().toISOString(), id: findingId(`${rule.name}::${unit.id}`), rule: rule.name, rule_hash: rule.hash,
   unit: unit.id, method: unit.method ? unit.id : null, path: unit.path, name: unit.name, line, end_line: unit.end_line ?? null,
-  text, hash: unit.hash, revision, said: rule.text, broken,
+  text, hash: unit.hash, revision, said: rule.text, broken, model,
   lint: { rule: rule.name, broken, text: rule.text, said: rule.text },
 });
 
@@ -463,16 +465,16 @@ export async function askUnits({ rules, scan, graph, files, tree, eligible, revi
     const prepare = budget => unitSteps({ rules: over, unit, source: body, seen: neighbourhood(sees, unit, { graph, files }), budget });
     const steps = prepare(systemOne.limits?.state);
     debug(`${over.map(rule => rule.name).join(', ')}: ${unit.name}`);
-    const { answers, evidence } = await askUnitSteps({ systemOne, steps, prepare, rules: over });
+    const { answers, evidence, model } = await askUnitSteps({ systemOne, steps, prepare, rules: over });
     // A file that failed is asked which line failed; a method or a test block already has one. One question per broken rule,
     // since two rules broken in one file are rarely broken on the same line.
     const results = await Promise.all(over.map(async rule => {
       const broken = readLint(rule, answers).broken;
-      const failing = broken > floorFor(rule, min);
+      const failing = broken > floorFor(rule, min, model);
       const chunk = evidence[rule.name];
       const line = failing && !unit.part ? await locateBreak({ systemOne, rule, unit: { ...unit, line: unit.line + chunk.line - 1 }, body: chunk.source }) : unit.line;
       const onLine = failing && !unit.part ? (source.split('\n')[line - 1] ?? '').trim() : '';
-      return checkOf(rule, unit, { broken, line, text: onLine.length > 110 ? `${onLine.slice(0, 110)}…` : onLine || null, revision });
+      return checkOf(rule, unit, { broken, line, text: onLine.length > 110 ? `${onLine.slice(0, 110)}…` : onLine || null, revision, model });
     }));
     return { results };
   };
@@ -521,11 +523,11 @@ export async function searchUnits({ rules, scan, graph, files, tree, eligible, r
     const prepare = budget => unitSteps({ rules: [rule], unit, source: body, seen: neighbourhood(rule.sees, unit, { graph, files }), budget });
     const steps = prepare(systemOne.limits?.state);
     debug(`${rule.name}: ${unit.name}`);
-    const { answers } = await askUnitSteps({ systemOne, steps, prepare, rules: [rule] });
+    const { answers, model } = await askUnitSteps({ systemOne, steps, prepare, rules: [rule] });
     // The rule's own floor decides, the one perch check reads this unit by. The run's alone called a min: 80 rule broken on a
     // unit answering 60%, and under --min 0 took any answer as found, so a present rule could never fail. A present rule is read
     // the way a check reads it: this unit lacks the thing when its lacking it clears the floor.
-    const { here } = readLint(rule, answers), floor = floorFor(rule, min);
+    const { here } = readLint(rule, answers), floor = floorFor(rule, min, model);
     return rule.kind === 'ensure_present' ? 1 - here <= floor : here > floor;
   };
 

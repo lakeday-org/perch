@@ -78,7 +78,7 @@ export function issuesOf(answers, min = BELIEVED, questions = questionSet()) {
   // and a report of it must read the same whether or not the rule is still in the set that declared it.
   if (answers.lint) {
     const rule = questions.find(question => question.name === answers.lint.rule);
-    const floor = floorFor(rule, min);
+    const floor = floorFor(rule, min, answers.model);
     if (answers.lint.broken > floor) {
       found.push({ type: 'lint', label: answers.lint.rule, probability: answers.lint.broken, floor, text: `${answers.lint.rule} ${percent(answers.lint.broken)}` });
       found.sort((a, b) => b.probability - a.probability);
@@ -262,6 +262,16 @@ export function shownSource(lines, line, endLine) {
 const HANDED_ON = 'does not call the method here: it passes it on to be called later, so the call itself is not in view';
 
 /**
+ * What `--since` adds to a method's reading: its previous source and the diff hunks over it, from the merge base. Each is cut to
+ * a quarter of the budget in characters, so a long diff is shortened, and says so, rather than leaving no room for the method.
+ */
+const changeShown = (change, budget) => {
+  const room = Math.max(32, Math.floor(budget / 4));
+  const cut = part => (part.source.length > room ? { ...part, source: part.source.slice(0, room), partial: true } : part);
+  return { before: cut(change.before), diff: cut(change.diff) };
+};
+
+/**
  * The state and questions for one method.
  *
  * The state is the method and its call graph, and nothing else: the method's source under the comment above it and the metrics
@@ -271,9 +281,10 @@ const HANDED_ON = 'does not call the method here: it passes it on to be called l
  *
  * `node` is the graph node and `lines` its file's lines. `callees` and `callers` are [{ node, lines, site, handover }] with the
  * neighbor's file lines and, for a caller, the calling line, which is where its excerpt is centered. `edges` are [from, to]
- * pairs of method ids.
+ * pairs of method ids. `change`, on a `--since` scan of a method the branch touched, is its previous source and diff, which go
+ * in the state beside it. The questions are the same either way.
  */
-export function methodStep({ node, lines, callees, callers, edges = [], budget = STATE_BUDGET, limits = [40, 20, 8, 3], maxCallees = MAX_CALLEES, maxCallers = MAX_CALLERS, chunk = null, asked = questionSet().filter(question => question.each === 'method') }) {
+export function methodStep({ node, lines, callees, callers, edges = [], change = null, budget = STATE_BUDGET, limits = [40, 20, 8, 3], maxCallees = MAX_CALLEES, maxCallers = MAX_CALLERS, chunk = null, asked = questionSet().filter(question => question.each === 'method') }) {
   const id = node.id ?? `${node.path}::${node.qualified_name}`;
   // One pass of a method read in several holds a slice of it, and for a top-level unit the lines of the methods inside it are
   // left out. `span` is the lines this pass is about, null where a line is another unit's, and `start` is the first one's number.
@@ -281,6 +292,7 @@ export function methodStep({ node, lines, callees, callers, edges = [], budget =
   const start = chunk ? chunk.line + node.line - 1 : node.line;
   const source = [leadingComment(lines, node.line), chunk && chunk.line > 1 ? `... (${chunk.line - 1} lines above)` : '', shownLines(span)].filter(Boolean).join('\n');
   const named = ({ node: neighbor }) => ({ id: neighbor.id, name: neighbor.qualified_name, path: neighbor.path });
+  const changed = change ? { change: changeShown(change, budget) } : {};
   const build = (limit, [fewerCallees, fewerCallers] = [maxCallees, maxCallers]) => {
     const calls = callees.slice(0, fewerCallees), calledBy = callers.slice(0, fewerCallers);
     // A method that both calls this one and is called by it is one node, shown as the callee it is.
@@ -290,7 +302,7 @@ export function methodStep({ node, lines, callees, callers, edges = [], budget =
     // An edge is drawn from code in view, so the edges go when the neighbourhood does, and one from a method not shown is left
     // out: it would change the state when code nothing here shows changed.
     const drawn = nodes.size ? edges.filter(([from]) => from === id || nodes.has(from)).map(([from, to]) => `${from} -> ${to}`) : [];
-    return { state: { method: { path: node.path, name: node.qualified_name, metrics: node.metrics ?? null, source }, graph: { nodes: [...nodes.values()], edges: drawn } }, calls: calls.map(named), calledBy: calledBy.map(named) };
+    return { state: { method: { path: node.path, name: node.qualified_name, metrics: node.metrics ?? null, source }, ...changed, graph: { nodes: [...nodes.values()], edges: drawn } }, calls: calls.map(named), calledBy: calledBy.map(named) };
   };
   const over = () => estimateTokens(built.state) > budget;
   let built = build(limits[0] === Infinity ? Infinity : 80);
@@ -318,7 +330,10 @@ export function methodStep({ node, lines, callees, callers, edges = [], budget =
   return { state, questions, asked, calls, calledBy, neighbors, covers: { line: first < 0 ? node.line : start + first, end_line: last < 0 ? node.end_line : start + last, ...(chunk ? { start_byte: chunk.startByte, end_byte: chunk.endByte } : {}) } };
 }
 
-/** Native syntax chunks overlap in source bytes, including when one line spans multiple requests. */
+/**
+ * Native syntax chunks overlap in source bytes, including when one line spans multiple requests. The callers and callees go in
+ * the first pass only; a `change` goes in every pass, since the diff can fall in any of them.
+ */
 export function methodSteps({ node, lines, callees = [], callers = [], edges = [], ...options }) {
   // Blank the lines that belong to other methods instead of removing them, so a chunk's line still counts from the unit's first.
   const source = spanOf(node, lines).map(text => text ?? '').join('\n');
@@ -345,13 +360,12 @@ export function methodSteps({ node, lines, callees = [], callers = [], edges = [
  * method to read next.
  */
 export function readAnswers(answers, { neighbors, asked = questionSet().filter(question => question.each === 'method') }) {
-  const followAnswer = answers.follow ?? { choice: 'none', confidence: 1, probabilities: { none: 1 } };
-  const follow = followAnswer.choice;
+  const follow = answers.follow.choice;
   const read = { answers_set: setHash(asked), answer_hashes: Object.fromEntries(asked.map(question => [question.name, question.hash])) };
   for (const question of asked) read[question.name] = readAnswer(question, answers[question.name]);
   return {
     ...read,
     ...(read.severity ? { severity: { ...read.severity, level: severityOf(read.severity)?.band ?? null, predicted: severityOf(read.severity)?.predicted ?? null } } : {}),
-    follow: { method: neighbors.some(item => item.id === follow) ? follow : null, confidence: followAnswer.confidence, probabilities: followAnswer.probabilities },
+    follow: { method: neighbors.some(item => item.id === follow) ? follow : null, confidence: answers.follow.confidence, probabilities: answers.follow.probabilities },
   };
 }

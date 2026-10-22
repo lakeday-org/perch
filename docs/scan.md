@@ -99,9 +99,13 @@ the comment above it, with its metrics. The graph is up to 8 callees and up to
 lines around its call. When they do not fit, each neighbour is shortened, then
 fewer are shown, down to none, before the method is given up on.
 
-Nothing in a request says where in its file the method sits. Adding a line
-above a method does not change what is asked about it, so its cached answers
-are still used.
+With `--since`, a request for a method the branch changed also carries the
+previous code and the diff. Both come from the merge base, with their line
+numbers. The questions are the same as without `--since`.
+
+Apart from that diff, nothing in a request says where in its file the method
+sits. Adding a line above a method does not change what is asked about it, so
+its cached answers are still used.
 
 A method too long for one request is read in **overlapping passes**, each sized
 to what the budget actually holds. Only lines a pass can see are offered to its
@@ -123,8 +127,8 @@ distribution over its levels.
 
 | Question | Primitive | |
 | --- | --- | --- |
-| `has_bug` | noul | A concrete behavioral defect a caller can reach. |
-| `bug_edge_case` | noul | A wrong result for a valid empty, zero, first, last, or missing input. |
+| `has_bug` | noul | A functional bug: a wrong result or state, a failed operation, or a false success. |
+| `bug_edge_case` | noul | A supported empty value, boundary value or alternate branch handled wrongly. |
 | `kind` | choice over 8 | `boundary`, `missing_null_handling`, `wrong_return`, `swallowed_error`, `state_mutation`, `ordering`, `resource_leak`, `inverted_condition`. |
 | `severity` | score over 4 levels | The rubric below. |
 | `cwe_*` | Up to 30 nouls | The 2025 MITRE Top 25 CWEs except CWE-20, and six more, filtered by language where needed. |
@@ -175,8 +179,9 @@ only with `--filter type=security` or `security` in `scan_types`.
 ### The floor
 
 An issue is listed only when its score exceeds both the question's floor and
-the run's `--min`. Both bug checks use a **60%** floor. Most security checks use 70%;
-XSS, SQL injection, and out-of-bounds reads use 60%.
+the run's `--min`. Both bug checks use an **80%** floor on answers from `gpt-6-luna`,
+OpenAI's Decisions model, and **60%** on Jev and other models. Most security
+checks use 70%; XSS, SQL injection, and out-of-bounds reads use 60%.
 These scores rank answers but are not calibrated probabilities that a reported
 issue is real. Higher floors produce fewer alerts and miss more issues.
 

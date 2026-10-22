@@ -102,8 +102,8 @@ as well.
 ## Floors
 
 An issue is listed when its score exceeds both its question's floor and the
-run's `--min`. The default floor for both bug checks is 50 percent; see
-[the question floors](/rules/#floors).
+run's `--min`. Both bug checks have an 80 percent floor on answers from
+`gpt-6-luna` and 60 percent on other models; see [the question floors](/rules/#floors).
 
 ```sh
 perch issues --min 80     # only what it is very sure of
