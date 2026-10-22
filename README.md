@@ -83,12 +83,9 @@ You can extend perch with your own linting rules by adding them to `perch.yaml`:
 
 ## ReviewBench
 
-[ReviewBench](https://review-bench.ai) is GitHub's benchmark for AI code review. At perch's 60% floor, `perch scan --since` on OpenAI's
-Decisions model finds 40.0% of the labelled bugs, at 28.8% precision. At an 80% cutoff, precision rises to 41.7% and recall falls to 23.2%.
-
-Perch is scored per method: a labelled bug counts as found when perch flags the method holding it. The leaderboard has a judge
-model match each reviewer's comments to the reference findings. The runs, the answers and how to reproduce them are in
-[`.benchmarks/reviewbench`](.benchmarks/reviewbench).
+[ReviewBench](https://review-bench.ai) is GitHub's benchmark for AI code review. Perch is credited when it flags the method holding
+a labelled bug; the leaderboard credits a review comment that a judge model matches to one. The runs, the answers and how to
+reproduce them are in [`.benchmarks/reviewbench`](.benchmarks/reviewbench).
 
 <details>
 <summary>The numbers</summary>
