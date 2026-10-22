@@ -26,7 +26,7 @@ Semantic code linting with decision models.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/reviewbench-dark.svg">
-  <img alt="Recall on ReviewBench: perch with OpenAI Decisions at 81.1% and Jev 1.14 at 20.2%, beside the eleven reviewers on its leaderboard" src=".github/reviewbench-light.svg" width="880">
+  <img alt="Recall on ReviewBench: perch with OpenAI Decisions at 40.0%, 31.9% and 23.2% for cutoffs of 60%, 70% and 80%, beside the eleven reviewers on its leaderboard" src=".github/reviewbench-light.svg" width="880">
 </picture>
 
 ## Getting started
@@ -83,8 +83,11 @@ You can extend perch with your own linting rules by adding them to `perch.yaml`:
 
 ## ReviewBench
 
-[ReviewBench](https://review-bench.ai) is GitHub's benchmark for AI code review. With OpenAI's Decisions model, perch's recall is 81.1%, higher
-than any reviewer on its leaderboard. The run, both models' answers and how to reproduce them are in
+[ReviewBench](https://review-bench.ai) is GitHub's benchmark for AI code review. At perch's 60% floor, `perch scan --since` on OpenAI's
+Decisions model finds 40.0% of the labelled bugs, at 28.8% precision. At an 80% cutoff, precision rises to 41.7% and recall falls to 23.2%.
+
+Perch is scored per method: a labelled bug counts as found when perch flags the method holding it. The leaderboard has a judge
+model match each reviewer's comments to the reference findings. The runs, the answers and how to reproduce them are in
 [`.benchmarks/reviewbench`](.benchmarks/reviewbench).
 
 <details>
@@ -92,21 +95,37 @@ than any reviewer on its leaderboard. The run, both models' answers and how to r
 
 | Reviewer | Recall |
 | --- | ---: |
-| **Perch · OpenAI Decisions** | **81.1%** |
 | Laude RevEngine Prime | 46.3% |
+| **Perch · OpenAI at 60%, 28.8% precision** | **40.0%** |
 | block/review | 32.6% |
+| **Perch · OpenAI at 70%, 35.2% precision** | **31.9%** |
 | Klaussy | 29.8% |
 | Copilot code review | 26.0% |
 | DeepSeek Harness Reviewer | 25.6% |
 | Devin AI | 23.8% |
+| **Perch · OpenAI at 80%, 41.7% precision** | **23.2%** |
 | Qodo | 22.1% |
-| **Perch · Jev 1.14** | **20.2%** |
 | Codex | 18.5% |
 | Cubic | 16.3% |
 | Greptile | 16.2% |
 | Cursor | 9.6% |
 
 </details>
+
+## Greptile benchmark
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/greptile-dark.svg">
+  <img alt="Pull requests caught on the Greptile benchmark: perch with OpenAI Decisions at 84%, 78% and 78% for cutoffs of 60%, 70% and 80%, beside Greptile at 82%, Cursor Bugbot at 58%, GitHub Copilot at 54%, CodeRabbit at 44% and Graphite at 6%" src=".github/greptile-light.svg" width="880">
+</picture>
+
+[Greptile's benchmark](https://www.greptile.com/benchmarks) runs code reviewers on 50 pull requests with known bugs. At perch's 60% floor,
+OpenAI's Decisions model catches 42 of them, flagging a median of 7 functions in each. The runs and their labels are in
+[`.benchmarks/greptile`](.benchmarks/greptile).
+
+Perch is credited when it flags a function holding one of the bugs in
+[Martian's golden comments](https://github.com/withmartian/code-review-benchmark). The published tools were credited for a line
+comment identifying the pull request's known bug.
 
 ## Models
 
