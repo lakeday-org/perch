@@ -85,7 +85,7 @@ You can extend perch with your own linting rules by adding them to `perch.yaml`:
 
 [ReviewBench](https://review-bench.ai) is GitHub's benchmark for AI code review. Perch is credited when it flags the method holding
 a labelled bug; the leaderboard credits a review comment that a judge model matches to one. The runs, the answers and how to
-reproduce them are in [`.benchmarks/reviewbench`](.benchmarks/reviewbench).
+reproduce them are linked from [`.benchmarks/reviewbench`](.benchmarks/reviewbench).
 
 <details>
 <summary>The numbers</summary>
@@ -116,7 +116,7 @@ reproduce them are in [`.benchmarks/reviewbench`](.benchmarks/reviewbench).
 </picture>
 
 [Greptile's benchmark](https://www.greptile.com/benchmarks) runs code reviewers on 50 pull requests, each with one known bug.
-The runs and their labels are in [`.benchmarks/greptile`](.benchmarks/greptile).
+The runs and their labels are linked from [`.benchmarks/greptile`](.benchmarks/greptile).
 
 Perch is credited when it flags the function holding the known bug. The published tools were credited for a line comment
 identifying it.
