@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { main, parseArgs, VERSION } from '../src/cli.js';
-import { filterStrength, parseFilters } from '../src/questions.js';
+import { filterStrength, parseFilters, severityOf } from '../src/questions.js';
 import { parseQuestions, questionSet, questionsFor } from '../src/ask.js';
 import { readLint } from '../src/units.js';
 import { gating, shownIssues } from '../src/report.js';
@@ -461,6 +461,18 @@ describe('cli', () => {
     expect(gating([finding], 0, questions)).toHaveLength(1);
   });
 
+  it('fails the run on a broken file rule whether or not it declares a label', () => {
+    // A broken rule's issue is filed under the rule's name, and a rule that declares `issue.label` raises that label instead. The
+    // gate matched on labels, so the same rule broken at 100% failed the run without a label and passed it with one.
+    const plain = '- name: demo-rule\n  where: "src/**/*.js"\n  ensure: Every exported function has a comment.\n';
+    const finding = { id: 'bbbb2222', unit: 'src/a.js', path: 'src/a.js', name: 'src/a.js', line: 1,
+      lint: { rule: 'demo-rule', broken: 1, text: 'demo-rule 100%', said: 'Every exported function has a comment.' } };
+    for (const text of [plain, `${plain}  issue: { type: lint, label: docs_claim }\n`]) {
+      const questions = [...questionSet(), ...parseQuestions(text, 'fixture', 'rule')];
+      expect(gating([finding], 0, questions)).toHaveLength(1);
+    }
+  });
+
   it('takes several values for one key, and names a rule as one of them', () => {
     // A part with no `=` belongs to the key before it. Without this, type=defect,security read `security` as a key and the form
     // the docs showed was an error.
@@ -822,5 +834,16 @@ describe('ranking what a filter keeps', () => {
     expect([lessSure, surer].sort((a, b) => filterStrength(b, filters) - filterStrength(a, filters))).toEqual([surer, lessSure]);
     // No filter, no ranking of its own: the scan's order stands.
     expect(filterStrength(surer, [])).toBe(null);
+  });
+
+  it('weighs a severity band by the mass it holds, and reads a score with no distribution', () => {
+    // Half on P3 and half on P0 averages to P1, a band the distribution leaves out. It files there with none of the mass, not all.
+    const filters = parseFilters('severity=P1');
+    expect(filterStrength({ has_bug: 1, severity: { probabilities: { 0: 0.5, 3: 0.5 } } }, filters)).toBe(0);
+    expect(filterStrength({ has_bug: 1, severity: { probabilities: { 2: 0.8, 3: 0.2 } } }, filters)).toBe(0.8);
+    expect(filterStrength({ has_bug: 1, severity: { level: 'P1' } }, filters)).toBe(1);
+    // A reply with no probabilities is read as an empty distribution, which has no likeliest level and must not throw.
+    expect(severityOf({ probabilities: {} })).toBe(null);
+    expect(severityOf({ probabilities: {}, level: 'P2' })).toMatchObject({ band: 'P2', expected: null });
   });
 });
