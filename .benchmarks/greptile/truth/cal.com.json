@@ -1,0 +1,428 @@
+[
+ {
+  "pr": 2,
+  "index": 0,
+  "methods": [
+   "packages/app-store/_utils/getCalendar.ts::getCalendar"
+  ],
+  "file": "packages/app-store/_utils/getCalendar.ts",
+  "line": 15,
+  "why": "The new await on the dynamic appStore import has no try/catch, so a failed import rejects instead of returning null; ambiguous because the same unguarded await of appStore[...] also appears in getVideoAdapters, handlePayment, deletePayment and confirm, and getCalendar is the most central one."
+ },
+ {
+  "pr": 2,
+  "index": 1,
+  "methods": [
+   "packages/app-store/vital/lib/reschedule.ts::Reschedule",
+   "packages/app-store/wipemycalother/lib/reschedule.ts::Reschedule",
+   "packages/trpc/server/routers/viewer/bookings.tsx::requestReschedule",
+   "packages/features/bookings/lib/handleCancelBooking.ts::handler"
+  ],
+  "file": "packages/app-store/vital/lib/reschedule.ts",
+  "line": 125,
+  "why": "bookingRefsFiltered.forEach(async ...) now awaits getCalendar inside an unawaited async callback, so calendar/video deletions run fire-and-forget and the surrounding try/catch cannot see their rejections; the same pattern is in wipemycalother/lib/reschedule.ts:125, bookings.tsx:553 and handleCancelBooking.ts:460."
+ },
+ {
+  "pr": 3,
+  "index": 0,
+  "methods": [
+   "apps/web/components/auth/BackupCode.tsx::TwoFactor"
+  ],
+  "file": "apps/web/components/auth/BackupCode.tsx",
+  "line": 7,
+  "why": "The backup-code component in BackupCode.tsx is exported as a function named TwoFactor, duplicating the TwoFactor component's name."
+ },
+ {
+  "pr": 3,
+  "index": 1,
+  "methods": [
+   "apps/web/pages/api/auth/two-factor/totp/disable.ts::handler"
+  ],
+  "file": "apps/web/pages/api/auth/two-factor/totp/disable.ts",
+  "line": 50,
+  "why": "The disable endpoint logs 'cannot proceed with backup code login', copied from the login path."
+ },
+ {
+  "pr": 3,
+  "index": 2,
+  "methods": [
+   "packages/features/auth/lib/next-auth-options.ts::authorize",
+   "apps/web/pages/api/auth/two-factor/totp/disable.ts::handler"
+  ],
+  "file": "packages/features/auth/lib/next-auth-options.ts",
+  "line": 144,
+  "why": "backupCodes.indexOf(credentials.backupCode.replaceAll('-', '')) is an exact, case-sensitive match against lowercase hex codes; the disable endpoint repeats it at disable.ts:61."
+ },
+ {
+  "pr": 3,
+  "index": 3,
+  "methods": [
+   "packages/features/auth/lib/next-auth-options.ts::authorize"
+  ],
+  "file": "packages/features/auth/lib/next-auth-options.ts",
+  "line": 148,
+  "why": "The code is checked against a decrypted in-memory copy, nulled and written back with a plain update, so two concurrent logins with the same backup code can both succeed."
+ },
+ {
+  "pr": 3,
+  "index": 4,
+  "methods": [
+   "apps/web/components/settings/EnableTwoFactorModal.tsx::EnableTwoFactorModal.handleSetup",
+   "apps/web/components/settings/EnableTwoFactorModal.tsx::EnableTwoFactorModal"
+  ],
+  "file": "apps/web/components/settings/EnableTwoFactorModal.tsx",
+  "line": 99,
+  "why": "URL.createObjectURL for the backup-codes download is only revoked on the next setup call; the component has no unmount cleanup that revokes backupCodesUrl."
+ },
+ {
+  "pr": 4,
+  "index": 0,
+  "methods": [
+   "packages/app-store/googlecalendar/lib/CalendarService.ts::GoogleCalendarService.createEvent",
+   "packages/app-store/googlecalendar/lib/CalendarService.ts::GoogleCalendarService.updateEvent",
+   "packages/core/EventManager.ts::EventManager.create"
+  ],
+  "file": "packages/app-store/googlecalendar/lib/CalendarService.ts",
+  "line": 100,
+  "why": "mainHostDestinationCalendar is destructured from an empty/absent destinationCalendar array and is undefined (Google createEvent:100, updateEvent:198, as the comment says); there its uses are optional-chained, and the actual unguarded dereference is EventManager.create at EventManager.ts:119 (mainHostDestinationCalendar.integration)."
+ },
+ {
+  "pr": 4,
+  "index": 1,
+  "methods": [
+   "packages/emails/src/templates/BrokenIntegrationEmail.tsx::BrokenIntegrationEmail"
+  ],
+  "file": "packages/emails/src/templates/BrokenIntegrationEmail.tsx",
+  "line": 90,
+  "why": "mainHostDestinationCalendar?.integration uses optional chaining inside the branch of a ternary that already checked mainHostDestinationCalendar."
+ },
+ {
+  "pr": 4,
+  "index": 2,
+  "methods": [
+   "packages/app-store/googlecalendar/lib/CalendarService.ts::GoogleCalendarService.updateEvent",
+   "packages/app-store/googlecalendar/lib/CalendarService.ts::GoogleCalendarService.deleteEvent"
+  ],
+  "file": "packages/app-store/googlecalendar/lib/CalendarService.ts",
+  "line": 256,
+  "why": "In the branch where externalCalendarId is falsy, it searches destinationCalendar for externalId === externalCalendarId, which can never match; deleteEvent repeats this at line 317."
+ },
+ {
+  "pr": 4,
+  "index": 3,
+  "methods": [
+   "packages/trpc/server/routers/viewer/organizations/create.handler.ts::createHandler"
+  ],
+  "file": "packages/trpc/server/routers/viewer/organizations/create.handler.ts",
+  "line": 151,
+  "why": "The slug spread changed from !IS_TEAM_BILLING_ENABLED to IS_TEAM_BILLING_ENABLED, so with billing enabled both slug and requestedSlug are set and with billing disabled neither is."
+ },
+ {
+  "pr": 4,
+  "index": 4,
+  "methods": [
+   "packages/app-store/larkcalendar/lib/CalendarService.ts::LarkCalendarService.createEvent",
+   "packages/app-store/office365calendar/lib/CalendarService.ts::Office365CalendarService.createEvent"
+  ],
+  "file": "packages/app-store/larkcalendar/lib/CalendarService.ts",
+  "line": 125,
+  "why": "The Calendar interface (packages/types/Calendar.d.ts:221, a type declaration) now declares createEvent(event, credentialId), but the Lark (line 125) and Office365 (line 72) implementations still declare createEvent(event)."
+ },
+ {
+  "pr": 4,
+  "index": 5,
+  "methods": [
+   "packages/core/EventManager.ts::EventManager.updateAllCalendarEvents"
+  ],
+  "file": "packages/core/EventManager.ts",
+  "line": 542,
+  "why": "When reference.credentialId is set but the credential is neither in calendarCredentials nor found in the DB, the undefined credential is still passed to updateEvent."
+ },
+ {
+  "pr": 5,
+  "index": 0,
+  "methods": [
+   "packages/lib/server/service/insightsBooking.ts::InsightsBookingService.getBaseConditions",
+   "packages/lib/server/service/insightsBooking.ts::InsightsBookingService.getAuthorizationConditions"
+  ],
+  "file": "packages/lib/server/service/insightsBooking.ts",
+  "line": 76,
+  "why": "getAuthorizationConditions always returns a Prisma.Sql (NOTHING_CONDITION at worst), so authConditions is always truthy and the filter-only and NOTHING_CONDITION branches of getBaseConditions are unreachable."
+ },
+ {
+  "pr": 5,
+  "index": 1,
+  "methods": [
+   "packages/lib/server/service/insightsBooking.ts::InsightsBookingService.buildOrgAuthorizationCondition"
+  ],
+  "file": "packages/lib/server/service/insightsBooking.ts",
+  "line": 158,
+  "why": "Org member user IDs are only fetched when teamsFromOrg.length > 0, so an org with no child teams loses its members' personal bookings even though teamIds includes orgId."
+ },
+ {
+  "pr": 6,
+  "index": 0,
+  "methods": [
+   "packages/features/bookings/lib/handleCancelBooking.ts::handler",
+   "packages/features/bookings/lib/handleNewBooking.ts::handler",
+   "packages/trpc/server/routers/viewer/bookings.tsx::requestReschedule",
+   "packages/trpc/server/routers/viewer/workflows.tsx::delete",
+   "packages/trpc/server/routers/viewer/workflows.tsx::update"
+  ],
+  "file": "packages/features/bookings/lib/handleCancelBooking.ts",
+  "line": 488,
+  "why": "deleteScheduledEmailReminder/deleteScheduledSMSReminder are called without await inside forEach (handleCancelBooking:488, handleNewBooking:966, bookings.tsx:489, workflows.tsx:213/377/520/575), so cancellations may not complete."
+ },
+ {
+  "pr": 6,
+  "index": 1,
+  "methods": [
+   "packages/features/ee/workflows/lib/reminders/emailReminderManager.ts::deleteScheduledEmailReminder"
+  ],
+  "file": "packages/features/ee/workflows/lib/reminders/emailReminderManager.ts",
+  "line": 213,
+  "why": "The immediateDelete branch cancels the SendGrid batch and returns without deleting the WorkflowReminder row or calling the scheduled_sends DELETE."
+ },
+ {
+  "pr": 6,
+  "index": 2,
+  "methods": [],
+  "file": "packages/prisma/schema.prisma",
+  "line": 644,
+  "why": "WorkflowReminder.cancelled is added as Boolean? with no default (migration adds a nullable BOOLEAN), so existing rows are null instead of false; schema/migration, not a method."
+ },
+ {
+  "pr": 7,
+  "index": 0,
+  "methods": [
+   "packages/trpc/server/routers/viewer/slots.ts::checkIfIsAvailable"
+  ],
+  "file": "packages/trpc/server/routers/viewer/slots.ts",
+  "line": 142,
+  "why": "The working-hours check computes end from slotStartTime instead of slotEndTime, so slots that run past the end of working hours pass."
+ },
+ {
+  "pr": 7,
+  "index": 1,
+  "methods": [
+   "packages/trpc/server/routers/viewer/slots.ts::checkIfIsAvailable"
+  ],
+  "file": "packages/trpc/server/routers/viewer/slots.ts",
+  "line": 114,
+  "why": "Two dayjs objects are compared with ===, which compares references and is always false; it should use isSame."
+ },
+ {
+  "pr": 8,
+  "index": 0,
+  "methods": [
+   "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts::parseRefreshTokenResponse"
+  ],
+  "file": "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts",
+  "line": 26,
+  "why": "A missing refresh_token is replaced with the literal string 'refresh_token', which is then persisted and breaks later refreshes."
+ },
+ {
+  "pr": 8,
+  "index": 1,
+  "methods": [
+   "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts::<top-level>"
+  ],
+  "file": "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts",
+  "line": 8,
+  "why": "minimumTokenResponseSchema uses computed keys [z.string().toString()] and [z.string().optional().toString()], which become literal '[object Object]'-style keys, not wildcards; module-level const (used by parseRefreshTokenResponse at line 16), not inside a listed method. (mapped to the file's <top-level> unit, which perch reads)"
+ },
+ {
+  "pr": 8,
+  "index": 2,
+  "methods": [
+   "packages/app-store/googlecalendar/lib/CalendarService.ts::GoogleCalendarService.<anonymous>.refreshAccessToken",
+   "packages/app-store/_utils/oauth/parseRefreshTokenResponse.ts::parseRefreshTokenResponse"
+  ],
+  "file": "packages/app-store/googlecalendar/lib/CalendarService.ts",
+  "line": 97,
+  "why": "key = parseRefreshTokenResponse(...) is the safeParse wrapper ({success, data}) and is persisted as the credential key instead of .data."
+ },
+ {
+  "pr": 8,
+  "index": 3,
+  "methods": [
+   "packages/app-store/_utils/oauth/refreshOAuthTokens.ts::refreshOAuthTokens",
+   "packages/app-store/googlecalendar/lib/CalendarService.ts::GoogleCalendarService.<anonymous>.refreshAccessToken",
+   "packages/app-store/hubspot/lib/CalendarService.ts::HubspotCalendarService.<anonymous>.refreshAccessToken"
+  ],
+  "file": "packages/app-store/_utils/oauth/refreshOAuthTokens.ts",
+  "line": 15,
+  "why": "In the sync-endpoint branch refreshOAuthTokens returns the raw fetch Response, while callers such as Google (res.data) and Hubspot (HubspotToken) expect the integration's token object."
+ },
+ {
+  "pr": 8,
+  "index": 4,
+  "methods": [
+   "packages/app-store/googlecalendar/lib/CalendarService.ts::GoogleCalendarService.<anonymous>.refreshAccessToken",
+   "packages/app-store/_utils/oauth/refreshOAuthTokens.ts::refreshOAuthTokens"
+  ],
+  "file": "packages/app-store/googlecalendar/lib/CalendarService.ts",
+  "line": 94,
+  "why": "On the sync path res is a fetch Response, so res?.data is undefined and token.access_token on line 95 throws."
+ },
+ {
+  "pr": 8,
+  "index": 5,
+  "methods": [
+   "packages/app-store/zoho-bigin/lib/CalendarService.ts::BiginCalendarService.refreshAccessToken"
+  ],
+  "file": "packages/app-store/zoho-bigin/lib/CalendarService.ts",
+  "line": 93,
+  "why": "refreshOAuthTokens is passed credentialId where it expects the userId, so the sync endpoint receives the wrong calcomUserId."
+ },
+ {
+  "pr": 8,
+  "index": 6,
+  "methods": [
+   "packages/app-store/salesforce/lib/CalendarService.ts::<top-level>"
+  ],
+  "file": "packages/app-store/salesforce/lib/CalendarService.ts",
+  "line": 86,
+  "why": "The Salesforce token refresh checks response.statusText !== 'OK' instead of response.ok; this is in the getClient class-property arrow function, which methods_read does not list. (mapped to the file's <top-level> unit, which perch reads)"
+ },
+ {
+  "pr": 8,
+  "index": 7,
+  "methods": [
+   "packages/app-store/salesforce/lib/CalendarService.ts::<top-level>"
+  ],
+  "file": "packages/app-store/salesforce/lib/CalendarService.ts",
+  "line": 106,
+  "why": "After refreshing and saving new tokens, jsforce.Connection is still built from the stale credentialKey.access_token/instance_url (lines 105-106); this is in getClient, which methods_read does not list. (mapped to the file's <top-level> unit, which perch reads)"
+ },
+ {
+  "pr": 8,
+  "index": 8,
+  "methods": [
+   "apps/web/pages/api/webhook/app-credential.ts::handler"
+  ],
+  "file": "apps/web/pages/api/webhook/app-credential.ts",
+  "line": 31,
+  "why": "appCredentialWebhookRequestBodySchema.parse throws on an invalid body, producing a 500 instead of a 400."
+ },
+ {
+  "pr": 9,
+  "index": 0,
+  "methods": [
+   "packages/features/ee/workflows/api/scheduleSMSReminders.ts::handler"
+  ],
+  "file": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+  "line": 184,
+  "why": "retryCount: reminder.retryCount + 1 writes a value read earlier instead of an atomic increment; the catch block repeats it at line 195."
+ },
+ {
+  "pr": 9,
+  "index": 1,
+  "methods": [
+   "packages/features/ee/workflows/api/scheduleSMSReminders.ts::handler"
+  ],
+  "file": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+  "line": 38,
+  "why": "The OR branch { retryCount: { gt: 1 } } has no method: SMS filter, so deleteMany removes email/WhatsApp reminders with retryCount > 1."
+ },
+ {
+  "pr": 10,
+  "index": 0,
+  "methods": [
+   "packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts::addGuestsHandler"
+  ],
+  "file": "packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts",
+  "line": 77,
+  "why": "The blacklist is lowercased but guest emails are not, so blacklistedGuestEmails.includes(guest) is bypassed by uppercase input."
+ },
+ {
+  "pr": 10,
+  "index": 1,
+  "methods": [
+   "packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts::addGuestsHandler"
+  ],
+  "file": "packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts",
+  "line": 47,
+  "why": "isTeamAdminOrOwner requires isTeamAdmin && isTeamOwner; it should be ||."
+ },
+ {
+  "pr": 10,
+  "index": 2,
+  "methods": [
+   "packages/emails/email-manager.ts::sendAddGuestsEmails",
+   "packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts::addGuestsHandler"
+  ],
+  "file": "packages/emails/email-manager.ts",
+  "line": 541,
+  "why": "sendAddGuestsEmails decides which attendees are new with newGuests.includes(attendee.email), but the handler passes the raw input guests (addGuests.handler.ts:168), not the filtered uniqueGuests."
+ },
+ {
+  "pr": 10,
+  "index": 3,
+  "methods": [
+   "packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts::addGuestsHandler"
+  ],
+  "file": "packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts",
+  "line": 74,
+  "why": "uniqueGuests removes existing attendees and blacklisted emails but not duplicates within the input, so createMany can insert duplicate attendees."
+ },
+ {
+  "pr": 10,
+  "index": 4,
+  "methods": [
+   "apps/web/components/dialog/AddGuestsDialog.tsx::AddGuestsDialog"
+  ],
+  "file": "apps/web/components/dialog/AddGuestsDialog.tsx",
+  "line": 32,
+  "why": "multiEmailValue starts as [\"\"] (and is reset to it), so an empty string is submitted and fails email validation."
+ },
+ {
+  "pr": 10,
+  "index": 5,
+  "methods": [
+   "packages/emails/email-manager.ts::sendAddGuestsEmails"
+  ],
+  "file": "packages/emails/email-manager.ts",
+  "line": 529,
+  "why": "sendAddGuestsEmails sends organizer, team and attendee emails without checking the event type's disableStandardEmails metadata."
+ },
+ {
+  "pr": 11,
+  "index": 0,
+  "methods": [
+   "packages/app-store/googlecalendar/lib/CalendarService.ts::GoogleCalendarService.fetchAvailabilityAndSetCache",
+   "packages/lib/server/repository/selectedCalendar.ts::SelectedCalendarRepository.updateManyByCredentialId"
+  ],
+  "file": "packages/app-store/googlecalendar/lib/CalendarService.ts",
+  "line": 1024,
+  "why": "updateManyByCredentialId(this.credential.id, {}) passes empty data, so updatedAt is not reliably bumped and the cache status timestamp is stale."
+ },
+ {
+  "pr": 11,
+  "index": 1,
+  "methods": [],
+  "file": "scripts/test-gcal-webhooks.sh",
+  "line": 68,
+  "why": "sed -i '' is BSD/macOS syntax and fails with GNU sed on Linux; shell script, not a method."
+ },
+ {
+  "pr": 11,
+  "index": 2,
+  "methods": [
+   "packages/trpc/server/routers/viewer/calendars/deleteCache.handler.ts::deleteCacheHandler"
+  ],
+  "file": "packages/trpc/server/routers/viewer/calendars/deleteCache.handler.ts",
+  "line": 25,
+  "why": "A plain Error is thrown for a missing or unauthorized credential, which tRPC returns as a 500 instead of a TRPCError FORBIDDEN/NOT_FOUND."
+ },
+ {
+  "pr": 11,
+  "index": 3,
+  "methods": [
+   "packages/features/apps/components/CredentialActionsDropdown.tsx::CredentialActionsDropdown"
+  ],
+  "file": "packages/features/apps/components/CredentialActionsDropdown.tsx",
+  "line": 89,
+  "why": "The cache timestamp is formatted with a hardcoded 'en-US' Intl.DateTimeFormat instead of the user's locale."
+ }
+]

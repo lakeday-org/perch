@@ -1,0 +1,261 @@
+[
+ {
+  "pr": 1,
+  "index": 0,
+  "methods": [
+   "pkg/services/anonymous/anonimpl/anonstore/database.go::AnonDBStore.CreateOrUpdateDevice"
+  ],
+  "file": "pkg/services/anonymous/anonimpl/anonstore/database.go",
+  "line": 110,
+  "why": "CountDevices is read and the insert happens afterwards with no transaction or lock, so concurrent requests can all pass the count >= deviceLimit check and exceed the limit."
+ },
+ {
+  "pr": 1,
+  "index": 1,
+  "methods": [
+   "pkg/services/anonymous/anonimpl/client.go::Anonymous.Authenticate",
+   "pkg/services/anonymous/anonimpl/impl.go::AnonDeviceService.TagDevice"
+  ],
+  "file": "pkg/services/anonymous/anonimpl/client.go",
+  "line": 44,
+  "why": "Authenticate now calls TagDevice synchronously and returns ErrDeviceLimitReached as an auth failure (lines 44-47); TagDevice was changed to propagate the tagging error (impl.go line 147)."
+ },
+ {
+  "pr": 1,
+  "index": 2,
+  "methods": [
+   "pkg/services/anonymous/anonimpl/anonstore/database.go::AnonDBStore.updateDevice"
+  ],
+  "file": "pkg/services/anonymous/anonimpl/anonstore/database.go",
+  "line": 95,
+  "why": "rowsAffected == 0 is mapped to ErrDeviceLimitReached, although it only means no existing device matched the id/time window."
+ },
+ {
+  "pr": 1,
+  "index": 3,
+  "methods": [
+   "pkg/services/anonymous/anonimpl/anonstore/database.go::AnonDBStore.updateDevice"
+  ],
+  "file": "pkg/services/anonymous/anonimpl/anonstore/database.go",
+  "line": 81,
+  "why": "The BETWEEN bounds are computed from device.UpdatedAt rather than time.Now(), unlike the CountDevices window in CreateOrUpdateDevice."
+ },
+ {
+  "pr": 1,
+  "index": 4,
+  "methods": [
+   "pkg/services/anonymous/anonimpl/impl.go::AnonDeviceService.tagDeviceUI"
+  ],
+  "file": "pkg/services/anonymous/anonimpl/impl.go",
+  "line": 87,
+  "why": "localCache.SetDefault runs before CreateOrUpdateDevice, so a device rejected with ErrDeviceLimitReached stays cached and skips the limit check for 29 minutes."
+ },
+ {
+  "pr": 2,
+  "index": 0,
+  "methods": [
+   "pkg/services/authz/rbac/service.go::Service.Check"
+  ],
+  "file": "pkg/services/authz/rbac/service.go",
+  "line": 131,
+  "why": "Cached permissions are trusted only when they allow (lines 123-136); a cached deny falls through to a fresh DB lookup, so a stale cached grant still allows access after revocation."
+ },
+ {
+  "pr": 2,
+  "index": 1,
+  "methods": [],
+  "file": "pkg/services/authz/rbac/service_test.go",
+  "line": 981,
+  "why": "Test file (not in methods_read): the comment says the cached permissions allow access but the map stores false for dashboards:uid:dash1."
+ },
+ {
+  "pr": 2,
+  "index": 2,
+  "methods": [
+   "pkg/services/authz/rbac/cache.go::userPermDenialCacheKey"
+  ],
+  "file": "pkg/services/authz/rbac/cache.go",
+  "line": 31,
+  "why": "The denial key joins namespace, user, action, name and parent with underscores, so values containing underscores or empty parts can collide."
+ },
+ {
+  "pr": 3,
+  "index": 0,
+  "methods": [
+   "pkg/services/pluginsintegration/clientmiddleware/contextual_logger_middleware.go::ContextualLoggerMiddleware.QueryData",
+   "pkg/services/pluginsintegration/clientmiddleware/contextual_logger_middleware.go::ContextualLoggerMiddleware.CallResource",
+   "pkg/services/pluginsintegration/clientmiddleware/contextual_logger_middleware.go::ContextualLoggerMiddleware.CheckHealth",
+   "pkg/services/pluginsintegration/clientmiddleware/contextual_logger_middleware.go::ContextualLoggerMiddleware.CollectMetrics"
+  ],
+  "file": "pkg/services/pluginsintegration/clientmiddleware/contextual_logger_middleware.go",
+  "line": 40,
+  "why": "Each method dereferences req.PluginContext (lines 40, 45, 50, 55) with no req == nil guard, unlike LoggerMiddleware, so a nil request panics."
+ },
+ {
+  "pr": 3,
+  "index": 1,
+  "methods": [
+   "pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go::LoggerMiddleware.logRequest",
+   "pkg/services/pluginsintegration/clientmiddleware/contextual_logger_middleware.go::instrumentContext"
+  ],
+  "file": "pkg/services/pluginsintegration/clientmiddleware/logger_middleware.go",
+  "line": 49,
+  "why": "logRequest no longer adds traceID to logParams, and the new instrumentContext does not add it either, so plugin request logs lose the trace ID."
+ },
+ {
+  "pr": 3,
+  "index": 2,
+  "methods": [
+   "pkg/plugins/log/fake.go::TestLogger.FromContext"
+  ],
+  "file": "pkg/plugins/log/fake.go",
+  "line": 47,
+  "why": "FromContext returns NewTestLogger() instead of the receiver, so logs written through it are lost to test assertions."
+ },
+ {
+  "pr": 4,
+  "index": 0,
+  "methods": [
+   "public/app/plugins/datasource/loki/shardQuerySplitting.ts::runShardSplitQuery",
+   "public/app/plugins/datasource/loki/querySplitting.ts::runSplitQuery"
+  ],
+  "file": "public/app/plugins/datasource/loki/shardQuerySplitting.ts",
+  "line": 52,
+  "why": "applyTemplateVariables is called with request.filters, but the shardQuerySplitting tests mock it as a one-argument function, so the filters path is untested; the same call is in runSplitQuery line 299 (file choice is ambiguous)."
+ },
+ {
+  "pr": 5,
+  "index": 0,
+  "methods": [
+   "public/app/features/alerting/unified/rule-list/FilterView.tsx::FilterViewResults"
+  ],
+  "file": "public/app/features/alerting/unified/rule-list/FilterView.tsx",
+  "line": 157,
+  "why": "The grafana case renders GrafanaRuleListItem inside rules.map without key={key} (the other cases keep it)."
+ },
+ {
+  "pr": 5,
+  "index": 1,
+  "methods": [
+   "public/app/features/alerting/unified/rule-list/components/RuleActionsButtons.V2.tsx::RuleActionsButtons",
+   "public/app/features/alerting/unified/rule-list/GrafanaRuleListItem.tsx::GrafanaRuleListItem"
+  ],
+  "file": "public/app/features/alerting/unified/rule-list/components/RuleActionsButtons.V2.tsx",
+  "line": 104,
+  "why": "SilenceGrafanaRuleDrawer renders only when rulerRuleType.grafana.alertingRule(rule), but GrafanaRuleListItem (line 47) now passes only promRule, so 'Silence notifications' sets state and shows nothing."
+ },
+ {
+  "pr": 6,
+  "index": 0,
+  "methods": [
+   "pkg/apiserver/rest/dualwriter_mode3.go::DualWriterMode3.Delete"
+  ],
+  "file": "pkg/apiserver/rest/dualwriter_mode3.go",
+  "line": 97,
+  "why": "klog.NewContext(ctx, d.Log) uses the base logger instead of the enriched log with name/kind/method."
+ },
+ {
+  "pr": 6,
+  "index": 1,
+  "methods": [
+   "pkg/apiserver/rest/dualwriter_mode3.go::DualWriterMode3.DeleteCollection"
+  ],
+  "file": "pkg/apiserver/rest/dualwriter_mode3.go",
+  "line": 166,
+  "why": "In DeleteCollection the legacy DeleteCollection duration is recorded with recordStorageDuration instead of recordLegacyDuration; the comment's wording is garbled, and Create (line 45) and Update (line 129) have the inverse mix-up."
+ },
+ {
+  "pr": 6,
+  "index": 2,
+  "methods": [
+   "pkg/apiserver/rest/dualwriter_mode3.go::DualWriterMode3.Delete"
+  ],
+  "file": "pkg/apiserver/rest/dualwriter_mode3.go",
+  "line": 106,
+  "why": "recordStorageDuration is passed name instead of options.Kind as the kind label."
+ },
+ {
+  "pr": 7,
+  "index": 0,
+  "methods": [
+   "pkg/services/annotations/annotationsimpl/xorm_store.go::xormRepositoryImpl.CleanAnnotations",
+   "pkg/services/annotations/annotationsimpl/xorm_store.go::xormRepositoryImpl.CleanOrphanedAnnotationTags"
+  ],
+  "file": "pkg/services/annotations/annotationsimpl/xorm_store.go",
+  "line": 534,
+  "why": "Debug output (ids, counts, cond) is logged with r.log.Error on every batch (lines 534, 537, 554, 557 and 576, 579)."
+ },
+ {
+  "pr": 7,
+  "index": 1,
+  "methods": [
+   "pkg/services/cleanup/cleanup.go::CleanUpService.Run"
+  ],
+  "file": "pkg/services/cleanup/cleanup.go",
+  "line": 77,
+  "why": "The cleanup ticker changed from 10 minutes to 1 minute, running every cleanup job ten times as often."
+ },
+ {
+  "pr": 8,
+  "index": 0,
+  "methods": [
+   "pkg/api/webassets/webassets.go::GetWebAssets"
+  ],
+  "file": "pkg/api/webassets/webassets.go",
+  "line": 48,
+  "why": "After acquiring the write lock it does not re-check entryPointAssetsCache, so goroutines that queued on the lock all re-read the assets."
+ },
+ {
+  "pr": 8,
+  "index": 1,
+  "methods": [
+   "pkg/api/webassets/webassets.go::GetWebAssets"
+  ],
+  "file": "pkg/api/webassets/webassets.go",
+  "line": 69,
+  "why": "entryPointAssetsCache = result runs even when the read failed, overwriting a valid cache with nil."
+ },
+ {
+  "pr": 9,
+  "index": 0,
+  "methods": [
+   "pkg/expr/reader.go::enableSqlExpressions"
+  ],
+  "file": "pkg/expr/reader.go",
+  "line": 195,
+  "why": "Both branches return false (lines 195-199), so ReadQuery always rejects SQL expressions."
+ },
+ {
+  "pr": 9,
+  "index": 1,
+  "methods": [
+   "pkg/expr/sql/db.go::DB.RunCommands",
+   "pkg/expr/sql/db.go::DB.QueryFramesInto",
+   "pkg/expr/sql/db.go::DB.TablesList"
+  ],
+  "file": "pkg/expr/sql/db.go",
+  "line": 17,
+  "why": "The replacement for go-duck is stubs that return 'not implemented' (lines 13, 17, 21), so TablesList and SQLCommand.Execute always fail."
+ },
+ {
+  "pr": 10,
+  "index": 0,
+  "methods": [
+   "pkg/storage/unified/search/bleve.go::bleveBackend.BuildIndex"
+  ],
+  "file": "pkg/storage/unified/search/bleve.go",
+  "line": 137,
+  "why": "cacheMu now guards only the final b.cache[key] assignment, so concurrent BuildIndex calls for the same key both build the index."
+ },
+ {
+  "pr": 10,
+  "index": 1,
+  "methods": [
+   "pkg/storage/unified/resource/search.go::searchSupport.init",
+   "pkg/storage/unified/search/bleve.go::bleveBackend.TotalDocs"
+  ],
+  "file": "pkg/storage/unified/resource/search.go",
+  "line": 216,
+  "why": "init calls s.search.TotalDocs() after starting the event watcher goroutine; TotalDocs (bleve.go line 146) ranges over b.cache without cacheMu while BuildIndex can write it."
+ }
+]

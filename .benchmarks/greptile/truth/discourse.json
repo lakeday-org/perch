@@ -1,0 +1,390 @@
+[
+ {
+  "pr": 1,
+  "index": 0,
+  "methods": [
+   "app/models/optimized_image.rb::OptimizedImage.downsize#2",
+   "app/models/optimized_image.rb::OptimizedImage.downsize"
+  ],
+  "file": "app/models/optimized_image.rb",
+  "line": 149,
+  "why": "A second self.downsize(from, to, dimensions, opts) is defined right after the four-argument one at line 145, so Ruby keeps only the three-argument version and any caller passing max_width and max_height separately gets the wrong arguments."
+ },
+ {
+  "pr": 1,
+  "index": 1,
+  "methods": [
+   "app/assets/javascripts/discourse/lib/utilities.js::Discourse.Utilities.validateUploadedFile",
+   "app/assets/javascripts/discourse/lib/utilities.js::Discourse.Utilities.displayErrorForUpload"
+  ],
+  "file": "app/assets/javascripts/discourse/lib/utilities.js",
+  "line": 182,
+  "why": "validateUploadedFile hardcodes maxSizeKB = 10 * 1024 instead of reading Discourse.SiteSettings['max_' + type + '_size_kb']; the 413 branch of displayErrorForUpload (line 246) does the same."
+ },
+ {
+  "pr": 1,
+  "index": 2,
+  "methods": [
+   "app/controllers/uploads_controller.rb::UploadsController.create_upload",
+   "app/models/optimized_image.rb::OptimizedImage.resize_instructions_animated"
+  ],
+  "file": "app/controllers/uploads_controller.rb",
+  "line": 67,
+  "why": "create_upload passes \"80%\" as the dimensions with allow_animation set; for GIFs downsize_instructions_animated delegates to resize_instructions_animated, whose gifsicle --resize-fit (line 120) expects WxH, so the downsize fails silently."
+ },
+ {
+  "pr": 1,
+  "index": 3,
+  "methods": [
+   "app/controllers/uploads_controller.rb::UploadsController.create_upload"
+  ],
+  "file": "app/controllers/uploads_controller.rb",
+  "line": 66,
+  "why": "The while loop tests tempfile.size after convert has rewritten the file at tempfile.path, so the size read through the open Tempfile can be stale and the loop does not reliably see the shrink."
+ },
+ {
+  "pr": 2,
+  "index": 0,
+  "methods": [
+   "app/controllers/topics_controller.rb::TopicsController.unsubscribe"
+  ],
+  "file": "app/controllers/topics_controller.rb",
+  "line": 107,
+  "why": "TopicUser.find_by on line 105 returns nil when the user has no TopicUser row for the topic, and line 107 calls tu.notification_level on it."
+ },
+ {
+  "pr": 2,
+  "index": 1,
+  "methods": [],
+  "file": "app/assets/javascripts/discourse/controllers/topic-unsubscribe.js.es6",
+  "line": 5,
+  "why": "The computed property is spelled stopNotificiationsText (also used that way in templates/topic/unsubscribe.hbs line 3); it is in an ES6 controller that methods_read does not list, and the misspelling is consistent so it is cosmetic."
+ },
+ {
+  "pr": 3,
+  "index": 0,
+  "methods": [
+   "app/models/blocked_email.rb::BlockedEmail.should_block?"
+  ],
+  "file": "app/models/blocked_email.rb",
+  "line": 14,
+  "why": "should_block? increments match_count, sets last_match_at and saves the record (lines 14-16) every time it is asked, so a validation check writes to the database with a non-atomic read-modify-write."
+ },
+ {
+  "pr": 3,
+  "index": 1,
+  "methods": [
+   "lib/validators/email_validator.rb::EmailValidator.email_in_restriction_setting?"
+  ],
+  "file": "lib/validators/email_validator.rb",
+  "line": 20,
+  "why": "Regexp.new(\"@(#{domains})\", true) has no end anchor or boundary, so the whitelist/blacklist match accepts addresses whose domain only contains the listed domain rather than equalling it."
+ },
+ {
+  "pr": 3,
+  "index": 2,
+  "methods": [
+   "app/models/blocked_email.rb::BlockedEmail.should_block?"
+  ],
+  "file": "app/models/blocked_email.rb",
+  "line": 12,
+  "why": "BlockedEmail.where(email: email) compares case-sensitively, so a differently-cased address bypasses a block."
+ },
+ {
+  "pr": 4,
+  "index": 0,
+  "methods": [
+   "app/jobs/scheduled/poll_feed.rb::Jobs.PollFeed.poll_feed"
+  ],
+  "file": "app/jobs/scheduled/poll_feed.rb",
+  "line": 29,
+  "why": "poll_feed calls Kernel#open on SiteSetting.feed_polling_url with no scheme or host validation, so the server fetches (or open-uri pipes) whatever URL the setting holds."
+ },
+ {
+  "pr": 4,
+  "index": 1,
+  "methods": [
+   "app/assets/javascripts/embed.js::<anonymous>.postMessageReceived"
+  ],
+  "file": "app/assets/javascripts/embed.js",
+  "line": 17,
+  "why": "discourseUrl.indexOf(e.origin) is a substring test, not an exact origin comparison, so other origins that appear inside discourseUrl pass the check."
+ },
+ {
+  "pr": 4,
+  "index": 2,
+  "methods": [],
+  "file": "app/views/layouts/embed.html.erb",
+  "line": 11,
+  "why": "In the layout template (no method), postMessage uses the full request.referer URL as targetOrigin instead of the referer's scheme+host+port."
+ },
+ {
+  "pr": 4,
+  "index": 3,
+  "methods": [
+   "app/controllers/embed_controller.rb::EmbedController.ensure_embeddable"
+  ],
+  "file": "app/controllers/embed_controller.rb",
+  "line": 28,
+  "why": "ensure_embeddable sets X-Frame-Options to ALLOWALL after only a Referer host check (line 26), which also maps a missing referer to ''."
+ },
+ {
+  "pr": 4,
+  "index": 4,
+  "methods": [
+   "app/models/topic_embed.rb::TopicEmbed.import"
+  ],
+  "file": "app/models/topic_embed.rb",
+  "line": 13,
+  "why": "import appends to contents with << (NoMethodError when contents is nil, and it mutates the caller's string) and interpolates url unescaped into the <a href> HTML."
+ },
+ {
+  "pr": 4,
+  "index": 5,
+  "methods": [],
+  "file": "app/views/embed/best.html.erb",
+  "line": 6,
+  "why": "The ERB template closes the if/else with '<%- end if %>' instead of '<%- end %>'; it is in a view template, not a method."
+ },
+ {
+  "pr": 4,
+  "index": 6,
+  "methods": [
+   "app/jobs/scheduled/poll_feed.rb::Jobs.PollFeed.poll_feed"
+  ],
+  "file": "app/jobs/scheduled/poll_feed.rb",
+  "line": 35,
+  "why": "i.content.scrub raises NoMethodError for feed items that have no content element; there is no fallback to i.description."
+ },
+ {
+  "pr": 4,
+  "index": 7,
+  "methods": [],
+  "file": "app/views/layouts/embed.html.erb",
+  "line": 11,
+  "why": "In the layout template (no method), request.referer is interpolated into a JavaScript string literal with only HTML escaping, not JavaScript escaping."
+ },
+ {
+  "pr": 5,
+  "index": 0,
+  "methods": [],
+  "file": "app/assets/stylesheets/common/base/topic.scss",
+  "line": 34,
+  "why": "SCSS, no methods: .extra-info-wrapper becomes a flex item (order(2)) but its .badge-wrapper keeps float: left; the PR also drops float: right from .d-header .panel (header.scss lines 35-39), relying on margin-left: auto, which only works when .panel is a flex item."
+ },
+ {
+  "pr": 5,
+  "index": 1,
+  "methods": [],
+  "file": "app/assets/stylesheets/common/foundation/mixins.scss",
+  "line": 121,
+  "why": "SCSS, no methods: the align-items mixin emits -ms-align-items, which is not a real property; -ms-flex-align (line 120) is the IE one."
+ },
+ {
+  "pr": 5,
+  "index": 2,
+  "methods": [],
+  "file": "app/assets/stylesheets/common/foundation/mixins.scss",
+  "line": 126,
+  "why": "SCSS, no methods: the order mixin passes $val straight to -webkit-box-ordinal-group and -moz-box-ordinal-group (lines 126-127), which start at 1, so they do not get the same ordering as order: $val."
+ },
+ {
+  "pr": 6,
+  "index": 0,
+  "methods": [
+   "app/serializers/user_serializer.rb::UserSerializer.include_website_name",
+   "app/serializers/user_serializer.rb::UserSerializer.website_name"
+  ],
+  "file": "app/serializers/user_serializer.rb",
+  "line": 153,
+  "why": "The conditional is named include_website_name without the trailing ?, so ActiveModel::Serializers never treats it as the include check; website_name also builds \".\" << website_host (line 149), mutating a string literal."
+ },
+ {
+  "pr": 7,
+  "index": 0,
+  "methods": [],
+  "file": "app/assets/stylesheets/desktop/topic-post.scss",
+  "line": 291,
+  "why": "SCSS, no methods: .topic-meta-data h5 a went from scale-color($primary, 30%) to dark-light-choose(scale-color($primary, 70%), ...), so the light-theme value is inverted rather than kept."
+ },
+ {
+  "pr": 7,
+  "index": 1,
+  "methods": [],
+  "file": "app/assets/stylesheets/desktop/user.scss",
+  "line": 522,
+  "why": "SCSS, no methods: .group-member-info .name changes the light-theme $primary lightness from 30% to 50% instead of keeping 30% (same change in mobile/user.scss line 497)."
+ },
+ {
+  "pr": 7,
+  "index": 2,
+  "methods": [],
+  "file": "app/assets/stylesheets/desktop/topic-post.scss",
+  "line": 291,
+  "why": "SCSS, no methods. Ambiguous: no topic-post file has a light-theme 70% -> 30% change; the only topic-post line where a 30/70 pair was swapped is desktop/topic-post.scss 291 (30% -> 70%). The only literal 70% -> 30% change is mobile/modal.scss line 102 (.custom-message-length)."
+ },
+ {
+  "pr": 7,
+  "index": 3,
+  "methods": [],
+  "file": "app/assets/stylesheets/desktop/topic-post.scss",
+  "line": 291,
+  "why": "SCSS, no methods: same line as golden 0; the light-theme lightness for .topic-meta-data h5 a moved from 30% to 70%, which lowers contrast."
+ },
+ {
+  "pr": 7,
+  "index": 4,
+  "methods": [],
+  "file": "app/assets/stylesheets/mobile/user.scss",
+  "line": 497,
+  "why": "SCSS, no methods: .group-member-info .name became dark-light-choose(50%, 50%) instead of keeping $primary 30% with the $secondary 70% complement."
+ },
+ {
+  "pr": 8,
+  "index": 0,
+  "methods": [
+   "app/assets/javascripts/admin/routes/admin_group_route.js::setupController"
+  ],
+  "file": "app/assets/javascripts/admin/routes/admin_group_route.js",
+  "line": 13,
+  "why": "afterModel was removed and setupController now calls model.findMembers() without returning or waiting for its promise, so the page renders before members load (same in routes/group-members.js.es6 line 11, which methods_read does not list)."
+ },
+ {
+  "pr": 8,
+  "index": 1,
+  "methods": [],
+  "file": "app/assets/javascripts/admin/controllers/admin-group.js.es6",
+  "line": 33,
+  "why": "The next action caps offset at user_count with Math.min, so offset can equal the total and the page fetched is empty; it is in the ES6 admin-group controller, which methods_read does not list."
+ },
+ {
+  "pr": 8,
+  "index": 2,
+  "methods": [],
+  "file": "spec/controllers/admin/groups_controller_spec.rb",
+  "line": 115,
+  "why": "The spec calls xhr :put, :remove_member although the route is delete \"members\"; spec code, not in methods_read."
+ },
+ {
+  "pr": 8,
+  "index": 3,
+  "methods": [],
+  "file": "app/assets/javascripts/admin/controllers/admin-group.js.es6",
+  "line": 13,
+  "why": "totalPages is Math.floor(user_count / limit) + 1, which adds a page when user_count is an exact multiple of limit; it is in the ES6 admin-group controller, which methods_read does not list."
+ },
+ {
+  "pr": 8,
+  "index": 4,
+  "methods": [
+   "app/assets/javascripts/discourse/models/group.js::<top-level>"
+  ],
+  "file": "app/assets/javascripts/discourse/models/group.js",
+  "line": 17,
+  "why": "userCountDisplay (in the Discourse.Group extend body that the <top-level> entry covers) returns c only when c > 0 and falls off the end otherwise. Ambiguous: findMembers line 21 now does a bare 'return ;' where it used to return a resolved promise."
+ },
+ {
+  "pr": 8,
+  "index": 5,
+  "methods": [
+   "app/controllers/admin/groups_controller.rb::Admin::GroupsController.add_members",
+   "app/controllers/admin/groups_controller.rb::Admin::GroupsController.remove_member"
+  ],
+  "file": "app/controllers/admin/groups_controller.rb",
+  "line": 66,
+  "why": "add_members (line 66) and remove_member (line 85) read params.require(:group_id); the comment says the route supplies :id. Rails routes declared inside a resources block normally pass :group_id, so the claim is doubtful, but these are the lines it refers to."
+ },
+ {
+  "pr": 9,
+  "index": 0,
+  "methods": [
+   "lib/freedom_patches/translate_accelerator.rb::I18n.ensure_loaded!"
+  ],
+  "file": "lib/freedom_patches/translate_accelerator.rb",
+  "line": 63,
+  "why": "ensure_loaded! lazily initializes @loaded_locales with ||= and reads it outside LOAD_MUTEX, with no synchronization between threads."
+ },
+ {
+  "pr": 9,
+  "index": 1,
+  "methods": [
+   "lib/freedom_patches/translate_accelerator.rb::I18n.ensure_loaded!",
+   "config/initializers/i18n.rb::FallbackLocaleList.[]"
+  ],
+  "file": "lib/freedom_patches/translate_accelerator.rb",
+  "line": 64,
+  "why": "ensure_loaded! checks @loaded_locales.include?(locale) without normalizing to a symbol, so 'en' and :en load twice; FallbackLocaleList#[] (i18n.rb line 17) mixes the raw locale with symbols, so uniq does not dedupe them."
+ },
+ {
+  "pr": 10,
+  "index": 0,
+  "methods": [
+   "app/models/embeddable_host.rb::<top-level>"
+  ],
+  "file": "app/models/embeddable_host.rb",
+  "line": 6,
+  "why": "The class-level before_validation block calls self.host.sub! without a nil guard, so NoMethodError is raised when host is nil."
+ },
+ {
+  "pr": 10,
+  "index": 1,
+  "methods": [
+   "app/controllers/admin/embeddable_hosts_controller.rb::Admin::EmbeddableHostsController.update",
+   "app/controllers/admin/embeddable_hosts_controller.rb::Admin::EmbeddableHostsController.destroy"
+  ],
+  "file": "app/controllers/admin/embeddable_hosts_controller.rb",
+  "line": 10,
+  "why": "update (line 10) and destroy (line 15) use EmbeddableHost.where(id:).first and then call save_host or host.destroy on a possibly nil record."
+ },
+ {
+  "pr": 10,
+  "index": 2,
+  "methods": [
+   "app/models/embeddable_host.rb::EmbeddableHost.record_for_host"
+  ],
+  "file": "app/models/embeddable_host.rb",
+  "line": 17,
+  "why": "record_for_host compares lower(host) = ? with uri.host as given, without downcasing, so mixed-case referer hosts do not match."
+ },
+ {
+  "pr": 10,
+  "index": 3,
+  "methods": [
+   "db/migrate/20150818190757_create_embeddable_hosts.rb::CreateEmbeddableHosts.change"
+  ],
+  "file": "db/migrate/20150818190757_create_embeddable_hosts.rb",
+  "line": 25,
+  "why": "The migration inserts each old embeddable_hosts value with raw SQL, skipping the model's scheme/path stripping, so migrated hosts with http:// or a path never match record_for_host."
+ },
+ {
+  "pr": 10,
+  "index": 4,
+  "methods": [
+   "spec/fabricators/category_fabricator.rb::<top-level>",
+   "spec/fabricators/embeddable_host_fabricator.rb::<top-level>"
+  ],
+  "file": "spec/fabricators/category_fabricator.rb",
+  "line": 1,
+  "why": "category_fabricator.rb now holds the :embeddable_host fabricator and embeddable_host_fabricator.rb holds the category fabricators; the contents are swapped between the two files."
+ },
+ {
+  "pr": 10,
+  "index": 5,
+  "methods": [
+   "db/migrate/20150818190757_create_embeddable_hosts.rb::CreateEmbeddableHosts.change"
+  ],
+  "file": "db/migrate/20150818190757_create_embeddable_hosts.rb",
+  "line": 25,
+  "why": "The '#{h}' interpolation is in the migration's INSERT, not in the controller the comment names; host values are put into SQL unquoted."
+ },
+ {
+  "pr": 10,
+  "index": 6,
+  "methods": [
+   "db/migrate/20150818190757_create_embeddable_hosts.rb::CreateEmbeddableHosts.change"
+  ],
+  "file": "db/migrate/20150818190757_create_embeddable_hosts.rb",
+  "line": 11,
+  "why": "execute(...)[0]['id'] (statement starting line 9) indexes the first row with no check, which raises when no embed_category setting row exists; line 15 does the same for uncategorized_category_id."
+ }
+]
