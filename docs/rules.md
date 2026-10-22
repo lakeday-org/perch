@@ -243,25 +243,18 @@ Fails column, and a custom rule is read no differently from perch's own:
 
 ```console
 $ perch rules list
-Question       From     Asks                       Fails  Over  Description
-has_bug        builtin  noul >60%, gpt-6-luna 80%  yes    **/*  Does `method` contain a
-                                                                functional bug?
-bug_edge_case  builtin  noul >60%, gpt-6-luna 80%  yes    **/*  Does `method` mishandle a
-                                                                supported empty value,
-                                                                boundary value or alternate
-                                                                branch?
-refactor       builtin  choice >60%                yes    **/*  Judging from `method`, its
-                                                                `metrics` (risk_score and
-                                                                maintainability_index run
-                                                                0-100, cyclomatic_complexity
-                                                                and max_nesting are counts),
-                                                                and how its callers use it,
-                                                                what does it most need?
-documented     builtin  noul >75%                  yes    **/*  Could a caller learn what
-                                                                `method` promises from the
-                                                                comment above it, or from the
-                                                                code itself where it is small
-                                                                enough to read?
+Question       From     Asks         Fails  Over  Description
+has_bug        builtin  noul >60%    yes    **/*  Does `method` contain a functional bug?
+bug_edge_case  builtin  noul >60%    yes    **/*  Does `method` mishandle a supported empty
+                                                  value, boundary value or alternate branch?
+refactor       builtin  choice >60%  yes    **/*  Judging from `method`, its `metrics`
+                                                  (risk_score and maintainability_index run
+                                                  0-100, cyclomatic_complexity and max_nesting
+                                                  are counts), and how its callers use it,
+                                                  what does it most need?
+documented     builtin  noul >75%    yes    **/*  Could a caller learn what `method` promises
+                                                  from the comment above it, or from the code
+                                                  itself where it is small enough to read?
 ```
 
 There is no type that gets asked about and cannot fail. A run that reports
@@ -427,15 +420,13 @@ Every question carries a floor, in percent. Below it, an answer is not listed.
 
 | Floor | Question |
 | --- | --- |
-| 80% from `gpt-6-luna`, 60% from other models | `has_bug`, `bug_edge_case` |
 | 75% | `documented` |
 | 70% | Most security checks |
-| 60% | `refactor`, `cwe_79` (XSS), `cwe_89` (SQL injection), `cwe_125` (out-of-bounds read) |
+| 60% | `has_bug`, `bug_edge_case`, `refactor`, `cwe_79` (XSS), `cwe_89` (SQL injection), `cwe_125` (out-of-bounds read) |
 
-A score near 50% is a weak signal, not a calibrated probability of a bug. From
-Jev and other models, the bug checks list nothing at 60% or below. From
-`gpt-6-luna`, OpenAI's Decisions model, they list nothing at 80% or below. A
-higher floor misses more bugs; use `--min` to choose a stricter floor for a run.
+A score near 50% is a weak signal, not a calibrated probability of a bug. The
+bug checks list nothing at 60% or below, from every model. A higher floor misses
+more bugs; use `--min` to choose a stricter floor for a run.
 XSS, SQL injection, and out-of-bounds reads have 60% floors; the other security
 checks use 70%. These are alert cutoffs, not calibrated probabilities that a
 vulnerability exists.

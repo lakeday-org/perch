@@ -116,8 +116,20 @@ describe('the question grammar', () => {
     expect(() => check({ name: 'q', where: 'src/**', min: 140, ensure: 'x' }, at)).toThrow('min is a percentage, 0 to 100');
   });
 
-  it('reads each bug question against the floor of the model that answered it', () => {
+  it('lists a bug answer over 60% from every model', () => {
     const set = BUILTIN.filter(question => ['has_bug', 'bug_edge_case', 'kind'].includes(question.name));
+    const defects = (model, answer) => issues({ model, has_bug: 0.1, bug_edge_case: 0.1, kind: { choice: 'boundary', probability: 0.8 }, ...answer }, 0.5, set);
+    for (const name of ['has_bug', 'bug_edge_case']) for (const model of ['gpt-6-luna', 'jev-1.13.0', undefined]) {
+      expect(defects(model, { [name]: 0.6 }), `${name} ${model}`).toEqual([]);
+      expect(defects(model, { [name]: 0.65 }), `${name} ${model}`).toEqual([expect.objectContaining({ from: name, floor: 0.6 })]);
+    }
+  });
+
+  it('reads each bug question against the floor of the model that answered it, when its min maps models', () => {
+    // has_bug and bug_edge_case as a perch.yaml rule can override them, with a floor for gpt-6-luna and one for the rest.
+    const perModel = question => check({ ...question.declared, min: { 'gpt-6-luna': 80, default: 60 } }, at);
+    const set = BUILTIN.filter(question => ['has_bug', 'bug_edge_case', 'kind'].includes(question.name))
+      .map(question => (question.name === 'kind' ? question : perModel(question)));
     const defects = (model, answer, min = 0.5) => issues({ model, has_bug: 0.1, bug_edge_case: 0.1, kind: { choice: 'boundary', probability: 0.8 }, ...answer }, min, set);
     for (const name of ['has_bug', 'bug_edge_case']) {
       expect(defects('gpt-6-luna', { [name]: 0.7 }), name).toEqual([]);

@@ -2,6 +2,8 @@ import { mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { stringify } from 'yaml';
+import { BUILTIN } from '../src/ask.js';
 import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer } from '../src/analysis.js';
 import { createChangeReader } from '../src/change-context.js';
@@ -120,29 +122,48 @@ describe('perch scan --since', () => {
 });
 
 describe('a bug question floor per model', () => {
-  const defects = async (model, has_bug, min = 0.5) => {
+  /** b.js changed on a branch whose perch.yaml gives has_bug a floor of 80% from gpt-6-luna and 60% from every other model. */
+  async function perModel() {
     const options = await branch();
-    const run = await scanRepository({ ...options, out: join(options.root, '.perch'), since: 'main', min, systemOne: service(model, { 'src/b.js::h': { has_bug } }) });
+    const has_bug = { ...BUILTIN.find(question => question.name === 'has_bug').declared, min: { 'gpt-6-luna': 80, default: 60 } };
+    await writeFile(join(options.root, 'perch.yaml'), stringify({ rules: [has_bug] }));
+    await commitAll(options.root, 'has_bug floors by model');
+    return { ...options, revision: await revision(options.root) };
+  }
+  const defects = async (model, has_bug, min = 0.5, options = null) => {
+    options ??= await branch();
+    const run = await scanRepository({ ...options, out: join(options.root, `.perch-${model}-${min}`), since: 'main', min, systemOne: service(model, { 'src/b.js::h': { has_bug } }) });
     const h = run.visited.find(event => event.name === 'h');
     // The reading keeps the model that answered it, which is what its floor is read by.
     expect(h.model).toBe(model);
     return issuesOf(h, min).filter(issue => issue.type === 'defect');
   };
 
-  it('lists a gpt-6-luna answer over 80% and a Jev answer over 60%', async () => {
-    expect(await defects('gpt-6-luna', 0.7)).toEqual([]);
-    expect(await defects('gpt-6-luna', 0.85)).toEqual([expect.objectContaining({ from: 'has_bug', probability: 0.85, floor: 0.8 })]);
+  it('lists a bug answer over 60% from gpt-6-luna and from Jev, as perch ships it', async () => {
+    expect(await defects('gpt-6-luna', 0.6)).toEqual([]);
+    expect(await defects('gpt-6-luna', 0.65)).toEqual([expect.objectContaining({ from: 'has_bug', probability: 0.65, floor: 0.6 })]);
     expect(await defects('jev-1.13.0', 0.65)).toEqual([expect.objectContaining({ from: 'has_bug', probability: 0.65, floor: 0.6 })]);
   });
 
+  it('lists a gpt-6-luna answer over 80% and a Jev answer over 60% when perch.yaml maps has_bug\'s floor by model', async () => {
+    const options = await perModel();
+    expect(await defects('gpt-6-luna', 0.7, 0.5, options)).toEqual([]);
+    expect(await defects('gpt-6-luna', 0.85, 0.5, options)).toEqual([expect.objectContaining({ from: 'has_bug', probability: 0.85, floor: 0.8 })]);
+    expect(await defects('jev-1.13.0', 0.65, 0.5, options)).toEqual([expect.objectContaining({ from: 'has_bug', probability: 0.65, floor: 0.6 })]);
+  });
+
   it('still raises every floor to --min, and --min 0 shows everything', async () => {
-    expect(await defects('jev-1.13.0', 0.65, 0.7)).toEqual([]);
-    expect(await defects('gpt-6-luna', 0.85, 0.9)).toEqual([]);
-    expect(await defects('gpt-6-luna', 0.3, 0)).toEqual([expect.objectContaining({ probability: 0.3, floor: 0 })]);
+    const options = await perModel();
+    expect(await defects('jev-1.13.0', 0.65, 0.7, options)).toEqual([]);
+    expect(await defects('gpt-6-luna', 0.85, 0.9, options)).toEqual([]);
+    expect(await defects('gpt-6-luna', 0.3, 0, options)).toEqual([expect.objectContaining({ probability: 0.3, floor: 0 })]);
   });
 
   it('reads a perch check by the model that answered it', async () => {
     const root = await makeGraphFixture(); roots.push(root);
+    const has_bug = { ...BUILTIN.find(question => question.name === 'has_bug').declared, min: { 'gpt-6-luna': 80, default: 60 } };
+    await writeFile(join(root, 'perch.yaml'), stringify({ rules: [has_bug] }));
+    await commitAll(root, 'has_bug floors by model');
     const options = { root, revision: await revision(root), out: join(root, '.perch'), analyzer };
     await scanRepository({ ...options, systemOne: service(), paths: [] });
     const check = async model => (await checkTarget({ ...options, target: 'src/b.js::h', systemOne: service(model, { 'src/b.js::h': { has_bug: 0.7 } }) })).issues;
