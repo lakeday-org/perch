@@ -15,10 +15,9 @@ probability, and the ranking is arithmetic over all of them. The only cutoff is
 ## 1. tree-sitter
 
 Every file tracked at `HEAD` with a known extension is parsed. A scan narrowed
-by `--paths` or `--since` parses the languages of the files it reads, and any
-other language whose code reaches them, so each method's callers and callees are
-the ones a scan of everything finds. A change to a Python backend does not parse
-the TypeScript front end beside it.
+by `--paths` or `--since` parses only the languages it needs. A change to a
+Python backend does not parse the TypeScript front end beside it. Each method
+still has the callers and callees a full scan finds.
 [Dependency, build, and cache directories](rules.md#ignored-paths) are excluded.
 So are two languages whose methods cannot be spliced
 back as one region. Dart splits a signature from its body. Elixir's functions
