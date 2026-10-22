@@ -23,6 +23,14 @@ describe('the Greptile benchmark score', () => {
     expect(score(manifest, labels, runs, 0.5)).toMatchObject({ caught: 2, golden: 2 });
   });
 
+  it('grades the known bug as Greptile did: out of every pull request, a failed scan or a bug in no function a miss', () => {
+    const known = [{ repo: 'app', pr: 1, methods: ['a.js::h'] }, { repo: 'app', pr: 2, methods: ['b.js::k'] }, { repo: 'app', pr: 3, methods: [] }];
+    const runs = new Map([run(1, [{ method: 'a.js::h', has_bug: 0.7 }]), run(2, [{ method: 'b.js::k', has_bug: 0.6 }], 1), run(3, [{ method: 'c.js::m', has_bug: 0.99 }])]);
+    // Pull request 2's scan failed and pull request 3's known bug sits in no function, so only pull request 1 can count.
+    expect(score(manifest, [], runs, 0.6, known)).toMatchObject({ known: 1, known_of: 3 });
+    expect(score(manifest, [], runs, 0.7, known)).toMatchObject({ known: 0, known_of: 3 });
+  });
+
   it('counts a failed scan as missing rather than as a pull request with nothing flagged', () => {
     const runs = new Map([run(1, [], 1), run(2, [{ method: 'b.js::g', has_bug: 0.9 }])]);
     expect(score(manifest, [{ repo: 'app', pr: 2, methods: ['b.js::g'] }], runs, 0.6)).toMatchObject({ prs: 1, missing: ['app-1', 'app-3'], caught: 1, of: 1 });

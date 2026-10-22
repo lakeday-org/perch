@@ -1,0 +1,565 @@
+[
+ {
+  "repo": "sentry",
+  "pr": 1,
+  "bug": "Pagination for audit logs imports a nonexistent OptimizedCursorPaginator / negative slice offsets",
+  "methods": [
+   "src/sentry/api/paginator.py::OptimizedCursorPaginator.get_result"
+  ],
+  "file": "src/sentry/api/paginator.py",
+  "line": 880,
+  "why": "Matches golden 0/3: the negative-offset branch assigns start_offset = cursor.offset and slices the queryset with it (line 882); the import named in the description is real at head."
+ },
+ {
+  "repo": "sentry",
+  "pr": 2,
+  "bug": "Negative offset cursor bypasses pagination bounds during span buffer insert",
+  "methods": [
+   "src/sentry/api/paginator.py::OptimizedCursorPaginator.get_result"
+  ],
+  "file": "src/sentry/api/paginator.py",
+  "line": 880,
+  "why": "The described negative-offset bypass is the paginator change, not the span buffer insert: the span-buffer files (add-buffer.lua, buffer.py, factory.py) have no cursor or offset logic; the defect is start_offset = cursor.offset fed to queryset slicing."
+ },
+ {
+  "repo": "sentry",
+  "pr": 3,
+  "bug": "Upsampled error count skips sample_rate of 0.0 because it is treated as falsy",
+  "methods": [
+   "src/sentry/testutils/factories.py::_set_sample_rate_from_error_sampling"
+  ],
+  "file": "src/sentry/testutils/factories.py",
+  "line": 353,
+  "why": "Same as golden 0: the truthiness check `if client_sample_rate:` drops a 0.0 sample rate."
+ },
+ {
+  "repo": "sentry",
+  "pr": 4,
+  "bug": "Null reference when github_authenticated_user state is missing (OAuth change)",
+  "methods": [
+   "src/sentry/integrations/github/integration.py::GitHubInstallation.dispatch"
+  ],
+  "file": "src/sentry/integrations/github/integration.py",
+  "line": 502,
+  "why": "Same as golden 0: the github_authenticated_user state is fetched and compared with no presence check."
+ },
+ {
+  "repo": "sentry",
+  "pr": 5,
+  "bug": "Replays bulk delete changes the error response format, breaking clients",
+  "methods": [
+   "src/sentry/issues/endpoints/browser_reporting_collector.py::BrowserReportingCollectorEndpoint.post"
+  ],
+  "file": "src/sentry/issues/endpoints/browser_reporting_collector.py",
+  "line": 115,
+  "why": "The description does not match the replays bulk-delete code (replays/usecases/delete.py only adds a None max_segment_id guard); the error response change in this PR is the browser reporting collector, which now answers an invalid report with a 422 JSON body {'error', 'details'} where the base code raised a TypeError (500) from BrowserReport(**report)."
+ },
+ {
+  "repo": "sentry",
+  "pr": 6,
+  "bug": "Inconsistent metric tag names ('shard' vs 'shards') in span buffer monitoring",
+  "methods": [
+   "src/sentry/spans/consumers/process/flusher.py::SpanFlusher.main"
+  ],
+  "file": "src/sentry/spans/consumers/process/flusher.py",
+  "line": 199,
+  "why": "Same as golden 0: 'shards' tag on wait_produce versus 'shard' on the other flusher metrics."
+ },
+ {
+  "repo": "sentry",
+  "pr": 7,
+  "bug": "Dataclass uses a shared mutable default for a timestamp",
+  "methods": [
+   "src/sentry/integrations/services/assignment_source.py::<top-level>"
+  ],
+  "file": "src/sentry/integrations/services/assignment_source.py",
+  "line": 18,
+  "why": "Same as golden 0: the dataclass default timezone.now() is evaluated once at class definition and shared by all instances."
+ },
+ {
+  "repo": "sentry",
+  "pr": 8,
+  "bug": "Incident creation reads a stale config variable instead of the updated one",
+  "methods": [
+   "src/sentry/monitors/logic/incident_occurrence.py::get_monitor_environment_context"
+  ],
+  "file": "src/sentry/monitors/logic/incident_occurrence.py",
+  "line": 168,
+  "why": "Same as golden 0: the context returns the original monitor.config instead of the updated config copy."
+ },
+ {
+  "repo": "sentry",
+  "pr": 9,
+  "bug": "Queue-based parallelism mishandles the queue.ShutDown exception",
+  "methods": [
+   "src/sentry/remote_subscriptions/consumers/queue_consumer.py::OrderedQueueWorker.run"
+  ],
+  "file": "src/sentry/remote_subscriptions/consumers/queue_consumer.py",
+  "line": 142,
+  "why": "The second except queue.ShutDown wraps result_processor, which never raises it, so it is dead code; ShutDown only comes from work_queue.get() (line 132), and FixedQueuePool.shutdown sets worker.shutdown = True before q.shutdown(immediate=False), so workers leave the loop without draining queued items. It is unclear which part the description means; line 142 is the misplaced handler."
+ },
+ {
+  "repo": "sentry",
+  "pr": 10,
+  "bug": "Occurrence hook in stateful detector is an incomplete stub (only pass)",
+  "methods": [
+   "src/sentry/incidents/grouptype.py::<top-level>"
+  ],
+  "file": "src/sentry/incidents/grouptype.py",
+  "line": 11,
+  "why": "Same as golden 0: MetricAlertDetectorHandler is a stub containing only `pass`."
+ },
+ {
+  "repo": "grafana",
+  "pr": 1,
+  "bug": "Race condition in device creation/update (anonymous device limit), CreateOrUpdateDevice",
+  "methods": [
+   "pkg/services/anonymous/anonimpl/anonstore/database.go::AnonDBStore.CreateOrUpdateDevice"
+  ],
+  "file": "pkg/services/anonymous/anonimpl/anonstore/database.go",
+  "line": 110,
+  "why": "Check-then-insert race: the device count and the upsert are separate, unsynchronized DB operations."
+ },
+ {
+  "repo": "grafana",
+  "pr": 2,
+  "bug": "Authz cache entries lack expiration, causing permanent permission denials",
+  "methods": [
+   "pkg/services/authz/rbac/service.go::Service.Check",
+   "pkg/services/authz/rbac/service.go::NewService"
+  ],
+  "file": "pkg/services/authz/rbac/service.go",
+  "line": 117,
+  "why": "Denials written to permDenialCache (line 154) short-circuit Check at line 117 and are never invalidated when permissions change; note the cache does get shortCacheTTL (30s) in NewService line 85, so 'no expiration' is overstated and the defensible defect is the stale-denial short-circuit in Check."
+ },
+ {
+  "repo": "grafana",
+  "pr": 3,
+  "bug": "Undefined endpoint constants after middleware rename cause compile errors",
+  "methods": [
+   "pkg/services/pluginsintegration/clientmiddleware/contextual_logger_middleware.go::ContextualLoggerMiddleware.QueryData",
+   "pkg/services/pluginsintegration/clientmiddleware/contextual_logger_middleware.go::ContextualLoggerMiddleware.CallResource",
+   "pkg/services/pluginsintegration/clientmiddleware/contextual_logger_middleware.go::ContextualLoggerMiddleware.CheckHealth",
+   "pkg/services/pluginsintegration/clientmiddleware/contextual_logger_middleware.go::ContextualLoggerMiddleware.CollectMetrics"
+  ],
+  "file": "pkg/services/pluginsintegration/clientmiddleware/contextual_logger_middleware.go",
+  "line": 40,
+  "why": "Unsure: the endpoint constants used by the new middleware (lines 40, 45, 50, 55) are in fact defined in clientmiddleware/utils.go at head, so no compile error is visible; these uses are the closest match to the described defect."
+ },
+ {
+  "repo": "grafana",
+  "pr": 4,
+  "bug": "Double interpolation risk in query processing",
+  "methods": [
+   "public/app/plugins/datasource/loki/querySplitting.ts::runSplitQuery",
+   "public/app/plugins/datasource/loki/shardQuerySplitting.ts::runShardSplitQuery"
+  ],
+  "file": "public/app/plugins/datasource/loki/querySplitting.ts",
+  "line": 299,
+  "why": "Queries are interpolated with applyTemplateVariables before splitting, then interpolated again when datasource.runQuery calls super.query (DataSourceWithBackend applies template variables); same pattern in shardQuerySplitting.ts line 52."
+ },
+ {
+  "repo": "grafana",
+  "pr": 5,
+  "bug": "Missing key prop causes React rendering issues in notification rules",
+  "methods": [
+   "public/app/features/alerting/unified/rule-list/FilterView.tsx::FilterViewResults"
+  ],
+  "file": "public/app/features/alerting/unified/rule-list/FilterView.tsx",
+  "line": 157,
+  "why": "GrafanaRuleListItem in the mapped list is missing its key prop."
+ },
+ {
+  "repo": "grafana",
+  "pr": 6,
+  "bug": "Wrong metrics recording methods produce misleading performance data",
+  "methods": [
+   "pkg/apiserver/rest/dualwriter_mode3.go::DualWriterMode3.Create",
+   "pkg/apiserver/rest/dualwriter_mode3.go::DualWriterMode3.Update",
+   "pkg/apiserver/rest/dualwriter_mode3.go::DualWriterMode3.DeleteCollection"
+  ],
+  "file": "pkg/apiserver/rest/dualwriter_mode3.go",
+  "line": 45,
+  "why": "Wrong recorder used: storage failures recorded via recordLegacyDuration in Create (45) and Update (129), and legacy DeleteCollection recorded via recordStorageDuration (166)."
+ },
+ {
+  "repo": "grafana",
+  "pr": 7,
+  "bug": "Incorrect error log level in database optimizations",
+  "methods": [
+   "pkg/services/annotations/annotationsimpl/xorm_store.go::xormRepositoryImpl.CleanAnnotations",
+   "pkg/services/annotations/annotationsimpl/xorm_store.go::xormRepositoryImpl.CleanOrphanedAnnotationTags"
+  ],
+  "file": "pkg/services/annotations/annotationsimpl/xorm_store.go",
+  "line": 534,
+  "why": "Error log level used for routine debug information in the annotation cleanup batches."
+ },
+ {
+  "repo": "grafana",
+  "pr": 8,
+  "bug": "Possible deadlock during concurrent annotation deletion",
+  "methods": [],
+  "file": null,
+  "line": null,
+  "why": "Unsure: this PR only changes GetWebAssets locking (no annotation deletion code, and the RLock/Lock sequence cannot deadlock); the description matches PR 7's annotation cleanup, so there is no location in this PR."
+ },
+ {
+  "repo": "grafana",
+  "pr": 9,
+  "bug": "enableSqlExpressions always returns false, disabling SQL functionality",
+  "methods": [
+   "pkg/expr/reader.go::enableSqlExpressions"
+  ],
+  "file": "pkg/expr/reader.go",
+  "line": 195,
+  "why": "enableSqlExpressions returns false whether or not the feature flag is enabled."
+ },
+ {
+  "repo": "grafana",
+  "pr": 10,
+  "bug": "Race condition in cache locking (unified storage)",
+  "methods": [
+   "pkg/storage/unified/search/bleve.go::bleveBackend.BuildIndex"
+  ],
+  "file": "pkg/storage/unified/search/bleve.go",
+  "line": 137,
+  "why": "Narrowing the cacheMu lock in BuildIndex to the cache write leaves index construction unsynchronized."
+ },
+ {
+  "repo": "cal.com",
+  "pr": 2,
+  "bug": "Async callbacks in forEach cause unhandled promise rejections (appStore import)",
+  "methods": [
+   "packages/app-store/vital/lib/reschedule.ts::Reschedule",
+   "packages/app-store/wipemycalother/lib/reschedule.ts::Reschedule",
+   "packages/trpc/server/routers/viewer/bookings.tsx::requestReschedule",
+   "packages/features/bookings/lib/handleCancelBooking.ts::handler"
+  ],
+  "file": "packages/app-store/vital/lib/reschedule.ts",
+  "line": 125,
+  "why": "forEach(async (bookingRef) => { await getCalendar(...) }) leaves the promises unawaited, causing unhandled rejections (same as golden 1; also wipemycalother reschedule.ts:125, bookings.tsx:553, handleCancelBooking.ts:460)."
+ },
+ {
+  "repo": "cal.com",
+  "pr": 3,
+  "bug": "2FA backup codes are not invalidated after use",
+  "methods": [
+   "packages/features/auth/lib/next-auth-options.ts::authorize"
+  ],
+  "file": "packages/features/auth/lib/next-auth-options.ts",
+  "line": 148,
+  "why": "A used backup code is invalidated only by a non-atomic read-modify-write of the encrypted list, so it is not reliably invalidated after use (concurrent reuse, as in golden 3); the disable endpoint clears all codes, so login is the only place this applies."
+ },
+ {
+  "repo": "cal.com",
+  "pr": 4,
+  "bug": "Null reference when destinationCalendar host array is empty",
+  "methods": [
+   "packages/core/EventManager.ts::EventManager.create",
+   "packages/app-store/googlecalendar/lib/CalendarService.ts::GoogleCalendarService.createEvent",
+   "packages/app-store/googlecalendar/lib/CalendarService.ts::GoogleCalendarService.updateEvent"
+  ],
+  "file": "packages/core/EventManager.ts",
+  "line": 119,
+  "why": "const [mainHostDestinationCalendar] = evt.destinationCalendar ?? [] is undefined for an empty array, and mainHostDestinationCalendar.integration is then read without a guard; the Google createEvent/updateEvent destructuring named in golden 0 is listed too."
+ },
+ {
+  "repo": "cal.com",
+  "pr": 5,
+  "bug": "SQL injection risk in raw Prisma.sql query construction (InsightsBookingService)",
+  "methods": [
+   "packages/lib/server/service/insightsBooking.ts::InsightsBookingService.buildFilterConditions",
+   "packages/lib/server/service/insightsBooking.ts::InsightsBookingService.buildAuthorizationConditions",
+   "packages/lib/server/service/insightsBooking.ts::InsightsBookingService.buildOrgAuthorizationCondition",
+   "packages/lib/server/service/insightsBooking.ts::InsightsBookingService.buildTeamAuthorizationCondition"
+  ],
+  "file": "packages/lib/server/service/insightsBooking.ts",
+  "line": 106,
+  "why": "WHERE fragments are now built as raw Prisma.sql strings from filter and option values (first at line 106); Prisma.sql binds the interpolated values as parameters, so the injection risk is nominal, and the location is ambiguous across all four build* methods."
+ },
+ {
+  "repo": "cal.com",
+  "pr": 6,
+  "bug": "Workflow reminders not cleaned up from DB when immediateDelete is true",
+  "methods": [
+   "packages/features/ee/workflows/lib/reminders/emailReminderManager.ts::deleteScheduledEmailReminder"
+  ],
+  "file": "packages/features/ee/workflows/lib/reminders/emailReminderManager.ts",
+  "line": 213,
+  "why": "With immediateDelete true, the function returns after the SendGrid cancel and never removes the WorkflowReminder from the DB."
+ },
+ {
+  "repo": "cal.com",
+  "pr": 7,
+  "bug": "End time computed from slotStartTime instead of slotEndTime",
+  "methods": [
+   "packages/trpc/server/routers/viewer/slots.ts::checkIfIsAvailable"
+  ],
+  "file": "packages/trpc/server/routers/viewer/slots.ts",
+  "line": 142,
+  "why": "const end = slotStartTime.hour() * 60 + slotStartTime.minute() uses the slot start time where the slot end time is needed."
+ },
+ {
+  "repo": "cal.com",
+  "pr": 8,
+  "bug": "Timing attack from direct string comparison in OAuth credential sync",
+  "methods": [
+   "apps/web/pages/api/webhook/app-credential.ts::handler"
+  ],
+  "file": "apps/web/pages/api/webhook/app-credential.ts",
+  "line": 25,
+  "why": "The webhook secret header is compared to CALCOM_WEBHOOK_SECRET with !==, a non-constant-time comparison open to timing attacks."
+ },
+ {
+  "repo": "cal.com",
+  "pr": 9,
+  "bug": "OR condition in SMS reminder logic deletes all workflow reminders",
+  "methods": [
+   "packages/features/ee/workflows/api/scheduleSMSReminders.ts::handler"
+  ],
+  "file": "packages/features/ee/workflows/api/scheduleSMSReminders.ts",
+  "line": 38,
+  "why": "The retryCount OR condition in deleteMany is not limited to SMS reminders, so it deletes workflow reminders of every method."
+ },
+ {
+  "repo": "cal.com",
+  "pr": 10,
+  "bug": "Email blacklist is case-sensitive, allowing bypass (guest management)",
+  "methods": [
+   "packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts::addGuestsHandler"
+  ],
+  "file": "packages/trpc/server/routers/viewer/bookings/addGuests.handler.ts",
+  "line": 77,
+  "why": "The guest email is compared case-sensitively against the lowercased blacklist, allowing a bypass."
+ },
+ {
+  "repo": "cal.com",
+  "pr": 11,
+  "bug": "Unreliable updatedAt field produces inaccurate calendar cache status",
+  "methods": [
+   "packages/app-store/googlecalendar/lib/CalendarService.ts::GoogleCalendarService.fetchAvailabilityAndSetCache",
+   "packages/lib/server/repository/selectedCalendar.ts::SelectedCalendarRepository.updateManyByCredentialId"
+  ],
+  "file": "packages/app-store/googlecalendar/lib/CalendarService.ts",
+  "line": 1024,
+  "why": "The updatedAt refresh relies on an updateMany with empty data, so the timestamp shown as cache status is unreliable (same as golden 0)."
+ },
+ {
+  "repo": "keycloak",
+  "pr": 1,
+  "bug": "Passkey re-auth calls ConditionalPasskeysEnabled() without UserModel",
+  "methods": [
+   "services/src/main/java/org/keycloak/authentication/authenticators/browser/UsernameForm.java::UsernameForm.authenticate"
+  ],
+  "file": "services/src/main/java/org/keycloak/authentication/authenticators/browser/UsernameForm.java",
+  "line": 47,
+  "why": "Re-authentication check calls isConditionalPasskeysEnabled() without the UserModel parameter it requires (should pass context.getUser())."
+ },
+ {
+  "repo": "keycloak",
+  "pr": 2,
+  "bug": "Recursive caching call uses session instead of delegate (getForLogin)",
+  "methods": [
+   "model/infinispan/src/main/java/org/keycloak/models/cache/infinispan/idp/InfinispanIdentityProviderStorageProvider.java::InfinispanIdentityProviderStorageProvider.getForLogin"
+  ],
+  "file": "model/infinispan/src/main/java/org/keycloak/models/cache/infinispan/idp/InfinispanIdentityProviderStorageProvider.java",
+  "line": 246,
+  "why": "getForLogin loads each cached IdP via session.identityProviders().getById (the caching layer itself) rather than idpDelegate.getById."
+ },
+ {
+  "repo": "keycloak",
+  "pr": 3,
+  "bug": "Returns default keystore provider instead of BouncyCastle (AuthzClientCryptoProvider)",
+  "methods": [
+   "authz/client/src/main/java/org/keycloak/authorization/client/util/crypto/AuthzClientCryptoProvider.java::AuthzClientCryptoProvider.getBouncyCastleProvider"
+  ],
+  "file": "authz/client/src/main/java/org/keycloak/authorization/client/util/crypto/AuthzClientCryptoProvider.java",
+  "line": 63,
+  "why": "Returns KeyStore.getInstance(KeyStore.getDefaultType()).getProvider() (default keystore provider) instead of a BouncyCastle provider."
+ },
+ {
+  "repo": "keycloak",
+  "pr": 4,
+  "bug": "Incorrect method call for exit codes in rolling-updates framework",
+  "methods": [
+   "quarkus/runtime/src/main/java/org/keycloak/quarkus/runtime/cli/command/UpdateCompatibilityCheck.java::UpdateCompatibilityCheck.run",
+   "quarkus/runtime/src/main/java/org/keycloak/quarkus/runtime/cli/command/UpdateCompatibilityMetadata.java::UpdateCompatibilityMetadata.run"
+  ],
+  "file": "quarkus/runtime/src/main/java/org/keycloak/quarkus/runtime/cli/command/UpdateCompatibilityCheck.java",
+  "line": 48,
+  "why": "Exit code for the disabled rolling-updates feature is returned with picocli.exit(...), which hard-exits via System.exit; same call duplicated in UpdateCompatibilityMetadata.run."
+ },
+ {
+  "repo": "keycloak",
+  "pr": 5,
+  "bug": "Inconsistent feature flag causes orphaned permissions (Client scopes)",
+  "methods": [
+   "services/src/main/java/org/keycloak/services/resources/admin/permissions/AdminPermissions.java::AdminPermissions.registerListener.onEvent",
+   "services/src/main/java/org/keycloak/services/resources/admin/permissions/AdminPermissions.java::AdminPermissions.registerListener"
+  ],
+  "file": "services/src/main/java/org/keycloak/services/resources/admin/permissions/AdminPermissions.java",
+  "line": 77,
+  "why": "Permission cleanup listener checks the V1 ADMIN_FINE_GRAINED_AUTHZ flag while the rest of the code uses V2, leaving orphaned permissions when only V2 is on."
+ },
+ {
+  "repo": "keycloak",
+  "pr": 6,
+  "bug": "Incorrect permission check in canManage() (Groups scopes)",
+  "methods": [
+   "services/src/main/java/org/keycloak/services/resources/admin/permissions/GroupPermissionsV2.java::GroupPermissionsV2.canManage"
+  ],
+  "file": "services/src/main/java/org/keycloak/services/resources/admin/permissions/GroupPermissionsV2.java",
+  "line": 70,
+  "why": "canManage() accepts the VIEW scope as well as MANAGE when falling back to the all-groups permission."
+ },
+ {
+  "repo": "keycloak",
+  "pr": 7,
+  "bug": "Lithuanian translation files contain Italian text",
+  "methods": [],
+  "file": "themes/src/main/resources-community/theme/base/account/messages/messages_lt.properties",
+  "line": 101,
+  "why": "Translation file (no method): Lithuanian totpStep1 set to Italian text; also login/messages/messages_lt.properties line 71."
+ },
+ {
+  "repo": "keycloak",
+  "pr": 8,
+  "bug": "Wrong parameter in null check (grantType vs. rawTokenId)",
+  "methods": [
+   "services/src/main/java/org/keycloak/protocol/oidc/encode/AccessTokenContext.java::AccessTokenContext.AccessTokenContext"
+  ],
+  "file": "services/src/main/java/org/keycloak/protocol/oidc/encode/AccessTokenContext.java",
+  "line": 73,
+  "why": "Null check passes grantType where rawTokenId was intended, so a null rawTokenId is accepted."
+ },
+ {
+  "repo": "keycloak",
+  "pr": 9,
+  "bug": "Unsafe raw List deserialization in recovery key support",
+  "methods": [
+   "testsuite/integration-arquillian/servers/auth-server/services/testsuite-providers/src/main/java/org/keycloak/testsuite/federation/BackwardsCompatibilityUserStorage.java::BackwardsCompatibilityUserStorage.getCredentials",
+   "testsuite/integration-arquillian/servers/auth-server/services/testsuite-providers/src/main/java/org/keycloak/testsuite/federation/BackwardsCompatibilityUserStorage.java::BackwardsCompatibilityUserStorage.isValid"
+  ],
+  "file": "testsuite/integration-arquillian/servers/auth-server/services/testsuite-providers/src/main/java/org/keycloak/testsuite/federation/BackwardsCompatibilityUserStorage.java",
+  "line": 238,
+  "why": "JsonSerialization.readValue(..., List.class) yields a raw List passed unchecked to createFromValues(List<String>...); isValid repeats it with a raw `List generatedKeys` at line 332-334."
+ },
+ {
+  "repo": "keycloak",
+  "pr": 10,
+  "bug": "Missing null check causes NullPointerException in concurrent group access",
+  "methods": [
+   "model/infinispan/src/main/java/org/keycloak/models/cache/infinispan/GroupAdapter.java::GroupAdapter.getSubGroupsCount"
+  ],
+  "file": "model/infinispan/src/main/java/org/keycloak/models/cache/infinispan/GroupAdapter.java",
+  "line": 275,
+  "why": "Concurrent-deletion path in getSubGroupsCount; this PR's head equals upstream commit 332c9b6e so nothing was injected, and the closest match is this null return (sibling getSubGroupsStream overloads at 256/262/268 still call modelSupplier.get() unchecked)."
+ },
+ {
+  "repo": "discourse",
+  "pr": 1,
+  "bug": "Method overwriting causes parameter mismatch (image downsizing)",
+  "methods": [
+   "app/models/optimized_image.rb::OptimizedImage.downsize#2",
+   "app/models/optimized_image.rb::OptimizedImage.downsize"
+  ],
+  "file": "app/models/optimized_image.rb",
+  "line": 149,
+  "why": "Same defect as golden 0: the second downsize definition overwrites the max_width/max_height one, so the parameter lists no longer match the callers."
+ },
+ {
+  "repo": "discourse",
+  "pr": 2,
+  "bug": "Nil reference to a nonexistent TopicUser (per-topic unsubscribe)",
+  "methods": [
+   "app/controllers/topics_controller.rb::TopicsController.unsubscribe"
+  ],
+  "file": "app/controllers/topics_controller.rb",
+  "line": 107,
+  "why": "Same as golden 0: unsubscribe dereferences tu without checking that the TopicUser record exists."
+ },
+ {
+  "repo": "discourse",
+  "pr": 3,
+  "bug": "BlockedEmail.should_block? writes to the DB during a read",
+  "methods": [
+   "app/models/blocked_email.rb::BlockedEmail.should_block?"
+  ],
+  "file": "app/models/blocked_email.rb",
+  "line": 14,
+  "why": "Same as golden 0: should_block? saves match statistics during what callers use as a read-only check."
+ },
+ {
+  "repo": "discourse",
+  "pr": 4,
+  "bug": "SSRF via open(url) without validation (embed URLs)",
+  "methods": [
+   "app/jobs/scheduled/poll_feed.rb::Jobs.PollFeed.poll_feed"
+  ],
+  "file": "app/jobs/scheduled/poll_feed.rb",
+  "line": 29,
+  "why": "Matches golden 0: open(SiteSetting.feed_polling_url) with no validation. TopicEmbed.import_remote also calls open(url) on the embed URL (topic_embed.rb line 48), but TopicRetriever.invalid_host? checks that host first."
+ },
+ {
+  "repo": "discourse",
+  "pr": 5,
+  "bug": "float: left mixed with flexbox causes header layout issues",
+  "methods": [],
+  "file": "app/assets/stylesheets/common/base/topic.scss",
+  "line": 34,
+  "why": "Same as golden 0: float: left kept inside the new flexbox header layout (.extra-info-wrapper .badge-wrapper); SCSS, no methods."
+ },
+ {
+  "repo": "discourse",
+  "pr": 6,
+  "bug": "String mutation via the << operator in URL display",
+  "methods": [
+   "app/serializers/user_serializer.rb::UserSerializer.website_name"
+  ],
+  "file": "app/serializers/user_serializer.rb",
+  "line": 149,
+  "why": "website_name uses \".\" << website_host, which mutates the string literal in place instead of concatenating with + or interpolation."
+ },
+ {
+  "repo": "discourse",
+  "pr": 7,
+  "bug": "scale-color $lightness should use $secondary for dark themes",
+  "methods": [],
+  "file": "app/assets/stylesheets/desktop/topic-post.scss",
+  "line": 291,
+  "why": "The greptile line restates the PR title rather than a defect; the most defensible bug is the light-theme value inverted to 70% at .topic-meta-data h5 a (golden 0/3). SCSS, no methods."
+ },
+ {
+  "repo": "discourse",
+  "pr": 8,
+  "bug": "Race conditions in async group member loading",
+  "methods": [
+   "app/assets/javascripts/admin/routes/admin_group_route.js::setupController"
+  ],
+  "file": "app/assets/javascripts/admin/routes/admin_group_route.js",
+  "line": 13,
+  "why": "Same as golden 0: findMembers is fired asynchronously from setupController with no promise handling."
+ },
+ {
+  "repo": "discourse",
+  "pr": 9,
+  "bug": "Thread-safety issue with lazy @loaded_locales",
+  "methods": [
+   "lib/freedom_patches/translate_accelerator.rb::I18n.ensure_loaded!"
+  ],
+  "file": "lib/freedom_patches/translate_accelerator.rb",
+  "line": 63,
+  "why": "Same as golden 0: @loaded_locales ||= [] in ensure_loaded! is not thread-safe."
+ },
+ {
+  "repo": "discourse",
+  "pr": 10,
+  "bug": "NoMethodError in before_validation of EmbeddableHost",
+  "methods": [
+   "app/models/embeddable_host.rb::<top-level>"
+  ],
+  "file": "app/models/embeddable_host.rb",
+  "line": 6,
+  "why": "Same as golden 0: host.sub! in before_validation raises NoMethodError when host is nil."
+ }
+]

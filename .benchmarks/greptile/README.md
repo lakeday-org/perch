@@ -6,24 +6,26 @@ This directory contains four perch runs on those pull requests, the labels they 
 
 ## Results
 
-Perch's floor for both bug questions is 60%. On OpenAI's Decisions model, perch#418 catches 42 of the 50 pull requests at that floor, with a median of 7 functions flagged in each.
+Greptile graded each tool on the one known bug in each pull request. Graded the same way, perch#418 on OpenAI's Decisions model catches 38 of the 50 at perch's 60% floor, with a median of 7 functions flagged in each.
 
-| Configuration | Cutoff | PRs caught | By chance | Golden comments caught | Flags | Median flags a PR | Model cost |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| perch#418, OpenAI Decisions | 60% | 42 (84%) | 32.0 | 116 | 490 | 7 | $0.335 |
-| perch#418, OpenAI Decisions | 70% | 39 (78%) | 27.3 | 105 | 383 | 6 | $0.335 |
-| perch#418, OpenAI Decisions | 80% | 39 (78%) | 21.5 | 86 | 264 | 4 | $0.335 |
-| perch#407, OpenAI Decisions | 60% | 44 (88%) | 28.3 | 122 | 918 | 14 | $0.640 |
-| perch#407, OpenAI Decisions | 70% | 42 (84%) | 23.8 | 110 | 684 | 10 | $0.640 |
-| perch#407, OpenAI Decisions | 80% | 40 (80%) | 18.3 | 98 | 472 | 6 | $0.640 |
-| perch 0.4.7, Jev | 60% | 27 (54%) | 12.8 | 61 | 418 | 4 | $0.760 |
-| perch 0.4.7, Jev | 70% | 17 (34%) | 6.9 | 40 | 176 | 1 | $0.760 |
-| perch 0.4.7, Jev | 80% | 7 (14%) | 2.7 | 13 | 50 | 0 | $0.760 |
-| perch 0.4.7, OpenAI Decisions | 60% | 37 (74%) | 22.6 | 92 | 914 | 10 | $1.555 |
-| perch 0.4.7, OpenAI Decisions | 70% | 33 (66%) | 19.8 | 81 | 760 | 8 | $1.555 |
-| perch 0.4.7, OpenAI Decisions | 80% | 31 (62%) | 16.6 | 68 | 596 | 7 | $1.555 |
+| Configuration | Cutoff | Known bugs caught | By chance | PRs with a golden bug caught | Golden comments caught | Flags | Median flags a PR | Model cost |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| perch#418, OpenAI Decisions | 60% | 38 (76%) | 20.2 | 42 | 116 | 490 | 7 | $0.335 |
+| perch#418, OpenAI Decisions | 70% | 33 (66%) | 16.3 | 39 | 105 | 383 | 6 | $0.335 |
+| perch#418, OpenAI Decisions | 80% | 28 (56%) | 11.8 | 39 | 86 | 264 | 4 | $0.335 |
+| perch#407, OpenAI Decisions | 60% | 39 (78%) | 16.8 | 44 | 122 | 918 | 14 | $0.640 |
+| perch#407, OpenAI Decisions | 70% | 36 (72%) | 13.1 | 42 | 110 | 684 | 10 | $0.640 |
+| perch#407, OpenAI Decisions | 80% | 33 (66%) | 9.4 | 40 | 98 | 472 | 6 | $0.640 |
+| perch 0.4.7, Jev | 60% | 18 (36%) | 6.1 | 27 | 61 | 418 | 4 | $0.760 |
+| perch 0.4.7, Jev | 70% | 10 (20%) | 3.2 | 17 | 40 | 176 | 1 | $0.760 |
+| perch 0.4.7, Jev | 80% | 4 (8%) | 1.0 | 7 | 13 | 50 | 0 | $0.760 |
+| perch 0.4.7, OpenAI Decisions | 60% | 28 (56%) | 11.6 | 37 | 92 | 914 | 10 | $1.555 |
+| perch 0.4.7, OpenAI Decisions | 70% | 24 (48%) | 10.0 | 33 | 81 | 760 | 8 | $1.555 |
+| perch 0.4.7, OpenAI Decisions | 80% | 20 (40%) | 8.0 | 31 | 68 | 596 | 7 | $1.555 |
 
-Percentages are of all 50 pull requests. In three of them no golden bug sits in a function, so perch can catch at most 47. Golden comments caught are out of the 140 that sit in a function. Flags are functions flagged, out of 1,568 functions read by perch#418, 4,205 by perch#407 and 4,617 by perch 0.4.7. By chance is how many pull requests the same number of flags would catch if each pull request's flags fell on functions picked at random from the ones perch read there.
+Known bugs caught are out of all 50 pull requests. In four of them the known bug sits in no function perch reads, so perch can catch at most 46. By chance is how many known bugs the same number of flags would catch if each pull request's flags fell on functions picked at random from the ones perch read there.
+
+The last two counts use Martian's golden comments, a looser measure. A pull request counts when a flagged function holds any of its golden bugs, out of the 47 that have one in a function. Golden comments caught are out of the 140 that sit in a function. Flags are functions flagged, out of 1,568 functions read by perch#418, 4,205 by perch#407 and 4,617 by perch 0.4.7.
 
 Greptile published these catch rates for the same 50 pull requests, as read on October 22, 2026:
 
@@ -35,7 +37,7 @@ Greptile published these catch rates for the same 50 pull requests, as read on O
 | CodeRabbit | 44% |
 | Graphite | 6% |
 
-Perch is credited when it flags the function that holds the bug. The published tools were credited for a line comment that identifies the bug and explains its impact. Greptile also graded each tool on the one known bug in each pull request, while perch is credited for any of the pull request's golden comments. The numbers sit side by side, but they are not graded the same way.
+Both are graded on the known bug. The published tools were credited for a line comment that identifies it and explains its impact. Perch is credited when it flags the function that holds it, which is a lower bar.
 
 ## Configurations
 
@@ -49,13 +51,15 @@ Every run is `perch scan --since <base> --json` at the pull request's head commi
 
 `manifest.json` matches each of Martian's golden-comment entries to its pull request in the fork, with its base and head commits and the golden comments. `node .benchmarks/greptile/manifest.mjs` rebuilds it from GitHub and Martian's repository at a pinned commit.
 
+`known.json` gives each pull request's known bug, in Greptile's words, and the functions that hold it, with the file, the line and a sentence saying why. Four known bugs sit outside any function perch reads.
+
 `truth/<repo>.json` gives each golden comment the functions it is about, by pull request and comment index, with the file, the line and a sentence saying why. The labels were made from each pull request's diff, its golden comments, and the list of functions perch read, never from perch's answers. A comment about code outside any function perch reads has no function: a stylesheet, a template, a schema, a constant, or a test. 140 of the 173 golden comments sit in a function.
 
 Three labels were made before perch read `.es6` files, so they name no function: comment 1 of discourse-2 and comments 1 and 3 of discourse-8. perch#418 reads those files, and flags `actions.next`, the subject of discourse-8's comment 1, at 92%. Those comments count as outside any function here, as they did for the older builds.
 
 ## Scoring
 
-A function is flagged when any of its bug questions is answered above the cutoff: `has_bug` or `bug_edge_case`, or for perch#407, any `review_` question. An answer exactly at the cutoff is not a flag. A pull request is caught when a flagged function holds one of its golden bugs. A golden comment is caught when its function is flagged. Model cost is what perch's meter reported for the run's input tokens.
+A function is flagged when any of its bug questions is answered above the cutoff: `has_bug` or `bug_edge_case`, or for perch#407, any `review_` question. An answer exactly at the cutoff is not a flag. A known bug is caught when a flagged function holds it. A pull request with a golden bug caught has a flagged function holding one of its golden bugs. A golden comment is caught when its function is flagged. Model cost is what perch's meter reported for the run's input tokens.
 
 ## Reproduce
 

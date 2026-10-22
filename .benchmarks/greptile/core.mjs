@@ -57,12 +57,15 @@ export function chance(read, buggy, flags) {
 }
 
 /**
- * Scores one configuration's runs at one cutoff. `runs` maps `<repo>-<pr>` to a results line and `labels` holds each golden
- * comment with the functions it is about. A pull request is caught when a flagged function holds one of its golden bugs; one
- * whose golden comments sit in no function cannot be caught and is left out of `of`.
+ * Scores one configuration's runs at one cutoff. `runs` maps `<repo>-<pr>` to a results line, `known` holds each pull request's
+ * known bug and `labels` each golden comment, both with the functions they are about.
+ *
+ * `known` is Greptile's grading: a pull request counts when a flagged function holds its one known bug, out of every pull request,
+ * so one whose known bug sits in no function, or whose scan failed, is a miss. `caught` is the looser count over golden comments:
+ * a flagged function holding any of them, out of the pull requests that have one inside a function.
  */
-export function score(manifest, labels, runs, cutoff) {
-  let read = 0, flags = 0, caught = 0, of = 0, golden = 0, goldenOf = 0, expected = 0, cost = 0;
+export function score(manifest, labels, runs, cutoff, known = []) {
+  let read = 0, flags = 0, caught = 0, of = 0, golden = 0, goldenOf = 0, expected = 0, cost = 0, knownCaught = 0, knownExpected = 0;
   const perPr = [], missing = [];
   for (const item of manifest) {
     const name = `${item.repo}-${item.pr}`, run = runs.get(name);
@@ -70,6 +73,11 @@ export function score(manifest, labels, runs, cutoff) {
     const ids = run.methods.map(m => m.method), byId = new Map(run.methods.map(m => [m.method, m]));
     const hits = new Set(ids.filter(id => flagged(answersOf(byId.get(id)), cutoff)));
     read += ids.length; flags += hits.size; perPr.push(hits.size); cost += run.cost;
+    const bug = known.find(entry => entry.repo === item.repo && entry.pr === item.pr);
+    if (bug?.methods.length) {
+      if (bug.methods.some(id => hits.has(id))) knownCaught++;
+      knownExpected += chance(ids.length, bug.methods.filter(id => ids.includes(id)).length, hits.size);
+    }
     const inside = labels.filter(label => label.repo === item.repo && label.pr === item.pr && label.methods.length);
     if (!inside.length) continue;
     let any = false;
@@ -78,9 +86,13 @@ export function score(manifest, labels, runs, cutoff) {
     const buggy = new Set(inside.flatMap(label => label.methods).filter(id => ids.includes(id)));
     expected += chance(ids.length, buggy.size, hits.size);
   }
-  return { cutoff, prs: manifest.length - missing.length, missing, caught, of, chance: +expected.toFixed(1), golden, golden_of: goldenOf,
+  return { cutoff, prs: manifest.length - missing.length, missing, known: knownCaught, known_of: manifest.length, known_chance: +knownExpected.toFixed(1),
+    caught, of, chance: +expected.toFixed(1), golden, golden_of: goldenOf,
     flags, read, flag_rate: read ? +(flags / read).toFixed(3) : null, median_flags: median(perPr), cost: +cost.toFixed(3) };
 }
+
+/** Each pull request's known bug, from known.json: Greptile's description of it and the functions that hold it. */
+export const readKnown = async root => JSON.parse(await fs.readFile(path.join(root, 'known.json'), 'utf8'));
 
 /** Every golden comment's label, from truth/<repo>.json, with its repository. */
 export async function readLabels(root, manifest) {

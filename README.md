@@ -115,16 +115,14 @@ model match each reviewer's comments to the reference findings. The runs, the an
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/greptile-dark.svg">
-  <img alt="Pull requests caught on the Greptile benchmark: perch with OpenAI Decisions at 84% and 78% for cutoffs of 60% and 80%, beside Greptile at 82%, Cursor Bugbot at 58%, GitHub Copilot at 54%, CodeRabbit at 44% and Graphite at 6%" src=".github/greptile-light.svg" width="880">
+  <img alt="Known bugs caught on the Greptile benchmark: perch with OpenAI Decisions at 76% and 56% for cutoffs of 60% and 80%, beside Greptile at 82%, Cursor Bugbot at 58%, GitHub Copilot at 54%, CodeRabbit at 44% and Graphite at 6%" src=".github/greptile-light.svg" width="880">
 </picture>
 
-[Greptile's benchmark](https://www.greptile.com/benchmarks) runs code reviewers on 50 pull requests with known bugs. At perch's 60% floor,
-OpenAI's Decisions model catches 42 of them, flagging a median of 7 functions in each. The runs and their labels are in
-[`.benchmarks/greptile`](.benchmarks/greptile).
+[Greptile's benchmark](https://www.greptile.com/benchmarks) runs code reviewers on 50 pull requests, each with one known bug.
+The runs and their labels are in [`.benchmarks/greptile`](.benchmarks/greptile).
 
-Perch is credited when it flags a function holding one of the bugs in
-[Martian's golden comments](https://github.com/withmartian/code-review-benchmark). The published tools were credited for a line
-comment identifying the pull request's known bug.
+Perch is credited when it flags the function holding the known bug. The published tools were credited for a line comment
+identifying it.
 
 ## Models
 
