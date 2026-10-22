@@ -186,7 +186,8 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   // The whole tree is parsed however narrow the run is. Parsing is free next to a request, and a method's callers matter whether
   // or not they are in the diff: a graph cut down to what a branch touched cannot say who calls into it.
   const scan = await analyzeTree({ root, revision, out, analyzer, label, github, includeFiles, filePaths: paths, progress: scanProgress, log, debug });
-  const graph = buildGraph(scan.files, { crates: scan.crates, modules: scan.modules });
+  // A narrowed run reads only the methods it covers, so its graph places only the calls into, out of and around them.
+  const graph = buildGraph(scan.files, { crates: scan.crates, modules: scan.modules, focus: paths.length ? covers(paths) : null });
   const changeOf = since ? await createChangeReader(root, since, revision) : async () => null;
   const rules = asRules(await readRules(root, revision));
   // Which issue types this run asks about, and so which of perch's own questions ride in every request.
