@@ -26,7 +26,7 @@ Semantic code linting with decision models.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/reviewbench-dark.svg">
-  <img alt="Recall on ReviewBench: perch with OpenAI Decisions at 40.0%, 31.9% and 23.2% for cutoffs of 60%, 70% and 80%, beside the eleven reviewers on its leaderboard" src=".github/reviewbench-light.svg" width="880">
+  <img alt="Recall on ReviewBench: perch with OpenAI Decisions at 40.0% and 23.2% for cutoffs of 60% and 80%, beside the eleven reviewers on its leaderboard" src=".github/reviewbench-light.svg" width="880">
 </picture>
 
 ## Getting started
@@ -98,7 +98,6 @@ model match each reviewer's comments to the reference findings. The runs, the an
 | Laude RevEngine Prime | 46.3% |
 | **Perch · OpenAI at 60%, 28.8% precision** | **40.0%** |
 | block/review | 32.6% |
-| **Perch · OpenAI at 70%, 35.2% precision** | **31.9%** |
 | Klaussy | 29.8% |
 | Copilot code review | 26.0% |
 | DeepSeek Harness Reviewer | 25.6% |
@@ -116,7 +115,7 @@ model match each reviewer's comments to the reference findings. The runs, the an
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/greptile-dark.svg">
-  <img alt="Pull requests caught on the Greptile benchmark: perch with OpenAI Decisions at 84%, 78% and 78% for cutoffs of 60%, 70% and 80%, beside Greptile at 82%, Cursor Bugbot at 58%, GitHub Copilot at 54%, CodeRabbit at 44% and Graphite at 6%" src=".github/greptile-light.svg" width="880">
+  <img alt="Pull requests caught on the Greptile benchmark: perch with OpenAI Decisions at 84% and 78% for cutoffs of 60% and 80%, beside Greptile at 82%, Cursor Bugbot at 58%, GitHub Copilot at 54%, CodeRabbit at 44% and Graphite at 6%" src=".github/greptile-light.svg" width="880">
 </picture>
 
 [Greptile's benchmark](https://www.greptile.com/benchmarks) runs code reviewers on 50 pull requests with known bugs. At perch's 60% floor,

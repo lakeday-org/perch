@@ -26,7 +26,8 @@ const summary = JSON.parse(await fs.readFile(path.join(root, 'rerun-summary.json
 const pct = x => `${(Math.round(x * 1000) / 10).toFixed(1)}%`;
 const rows = [
   ...LEADERBOARD.map(r => ({ name: r.name, value: r.recall, text: `${r.recall.toFixed(1)}%` })),
-  ...summary.cutoffs.map(c => ({ name: `OpenAI at ${Math.round(100 * c.cutoff)}%`, perch: true, value: Math.round(c.total.recall * 1000) / 10,
+  // 60% and 80%, the two cutoffs worth choosing between: 70% sits between them on every measure.
+  ...summary.cutoffs.filter(c => [0.6, 0.8].includes(c.cutoff)).map(c => ({ name: `OpenAI at ${Math.round(100 * c.cutoff)}%`, perch: true, value: Math.round(c.total.recall * 1000) / 10,
     text: pct(c.total.recall), note: `${pct(c.total.precision)} precision` })),
 ].sort((a, b) => b.value - a.value);
 

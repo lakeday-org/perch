@@ -17,7 +17,8 @@ const PUBLISHED = [
 ];
 
 const summary = JSON.parse(await fs.readFile(path.join(root, 'summary.json'), 'utf8'));
-const perch = summary.filter(r => r.config === 'oai2q').map(r => {
+// 60% and 80%, the two cutoffs worth choosing between, as on the ReviewBench chart.
+const perch = summary.filter(r => r.config === 'oai2q' && [0.6, 0.8].includes(r.cutoff)).map(r => {
   const value = 100 * r.caught / (r.prs + r.missing.length);
   return { name: `OpenAI at ${Math.round(100 * r.cutoff)}%`, perch: true, value, text: `${Math.round(value)}%`, note: `${r.median_flags} flags a PR` };
 });
