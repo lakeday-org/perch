@@ -185,8 +185,18 @@ const basesOf = (file, name) => (file?.bases && Object.hasOwn(file.bases, name) 
  * an import path names a directory of this repository.
  */
 export function buildGraph(files, { crates = [], modules = [] } = {}) {
-  const resolveIn = (from, module, language, known) => resolveModule(from, module, language, known, crates);
   const nodes = new Map(), byPath = new Map(), paths = new Set(files.map(file => file.path));
+  // A graph asks where the same import leads from the same place once for every call, member and parameter type that names
+  // it. On Sentry, working each out again (dozens of candidate paths, each normalized) held a scan in path normalization for
+  // most of half an hour (October 21, 2026), so each is worked out once. A Python import depends only on the importing
+  // file's directory, so every file in a directory shares its answers.
+  const resolved = new Map();
+  const resolveIn = (from, module, language, known) => {
+    if (known !== paths) return resolveModule(from, module, language, known, crates);
+    const key = `${language}\0${language === 'python' ? dirname(from) : from}\0${module}`;
+    if (!resolved.has(key)) resolved.set(key, resolveModule(from, module, language, paths, crates));
+    return resolved.get(key);
+  };
   for (const file of files) {
     const byQualified = new Map(), sameName = new Map();
     for (const method of file.methods) {
