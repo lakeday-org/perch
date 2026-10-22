@@ -24,7 +24,7 @@ export const EACH = ['file', 'method', 'test'];
  * What a file or a test is shown besides itself. A method needs no such key: it is always asked with its callers and callees in
  * view, because that is the context a scan builds for it and every question about it is asked over that one context.
  */
-export const SEES = ['self', 'file', 'calls', 'callers', 'neighbors'];
+export const SEES = ['self', 'file', 'calls', 'callers', 'neighbors', 'change', 'contracts'];
 /**
  * `ensure` is asked of every unit and every unit has to satisfy it. The other two are asked of units in turn until one answers,
  * because the claim is about the codebase and not about any one file: `ensure_present` passes at the first unit that has the
@@ -103,7 +103,8 @@ export function check(question, at, noun = 'question') {
   const each = full.each ?? (full.kind ? 'file' : 'method');
   if (full.sees && !SEES.includes(full.sees)) throw new Error(`${where}: sees is ${SEES.join(', ')}, not ${full.sees}`);
   // Silently ignoring it would let a rule read as though it had asked for something it never got.
-  if (full.sees && each === 'method') throw new Error(`${where}: a method is always asked with its callers and callees in view, so sees says nothing here`);
+  if (full.sees && each === 'method' && !['change', 'contracts'].includes(full.sees)) throw new Error(`${where}: a method is always asked with its callers and callees in view, so sees says nothing here`);
+  if (['change', 'contracts'].includes(full.sees) && each !== 'method') throw new Error(`${where}: sees ${full.sees} requires each method`);
   if (!full.ask) throw new Error(`${where}: needs ask, or one of ${ENSURES.join(', ')}`);
   if (type === 'noul' && (full.true === undefined || full.false === undefined)) throw new Error(`${where}: a noul needs true and false`);
   if (type === 'choice' && !full.options) throw new Error(`${where}: a choice needs options`);

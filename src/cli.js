@@ -520,7 +520,7 @@ const commands = {
     let run, lastProgress = { completed: 0, total: 0 };
     try {
       run = await scanRepository({ root: resolved.root, revision, label: resolved.label, github: resolved.github, out: resolved.out,
-        systemOne, analyzer: createSourceAnalyzer(), paths, named: [resolved.scope, ...parsePaths(io.flags)].filter(Boolean), parallel, min, filters,
+        systemOne, analyzer: createSourceAnalyzer(), since: io.flags.since ?? null, paths, named: [resolved.scope, ...parsePaths(io.flags)].filter(Boolean), parallel, min, filters,
         includeTests: Boolean(io.flags['include-tests']), includeFiles: Boolean(io.flags['include-files']),
         onFinding: finding => stream?.add(reportFindings(visibleFindings([finding]), min)),
         onProgress: value => { lastProgress = value; stream?.progress(value); },
