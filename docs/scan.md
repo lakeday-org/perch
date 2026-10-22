@@ -68,8 +68,9 @@ Up to `--parallel` methods are in flight at once, 32 by default. The next
 method is sent as soon as any one answers, after that answer has pushed its
 neighbors. Rules about files and searches are asked alongside the walk.
 
-Every method in scope is read. Scope comes from `--paths` or `--since`, and
-nothing else. There is no cap on how many methods a run reads.
+Scope comes from `--paths` or `--since`, and nothing else. Every method in scope
+is read, unless `--since` leaves it nothing to ask. There is no cap on how many
+methods a run reads.
 
 Every reading goes into `scan.jsonl`, rewritten whole each run. What it holds is
 what this run says about this commit. A reading carries forward when the request
@@ -99,12 +100,15 @@ the comment above it, with its metrics. The graph is up to 8 callees and up to
 lines around its call. When they do not fit, each neighbour is shortened, then
 fewer are shown, down to none, before the method is given up on.
 
-With `--since`, a request for a method the branch changed also carries the
-previous code and the diff. Both come from the merge base, with their line
-numbers. The questions are the same as without `--since`.
+With `--since`, the bug questions go in a request of their own: `has_bug`,
+`bug_edge_case`, `kind` and `severity`. Only a method the branch changed is
+asked them. That request holds the method, its code at the merge base and the
+diff, all with line numbers, and no callers or callees. Custom rules and other
+issue types keep the request above, for every method in the changed files. It
+carries `follow` too. A method with both is two requests.
 
-Apart from that diff, nothing in a request says where in its file the method
-sits. Adding a line above a method does not change what is asked about it, so
+Apart from that `--since` request, nothing in a request says where in its file
+the method sits. Adding a line above a method does not change what is asked about it, so
 its cached answers are still used.
 
 A method too long for one request is read in **overlapping passes**, each sized

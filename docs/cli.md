@@ -46,9 +46,11 @@ perch scan [target] [options]
 `--paths` and `--since` narrow it further. Exits 3 on a defect, a vulnerability,
 or a custom rule that broke.
 
-`--since` adds the previous code and the diff to the reading of each method the
-branch changed. The previous code comes from the merge base with `REF`. The
-questions are the same as a scan without it.
+With `--since`, each method the branch changed gets its own request for the bug
+questions: `has_bug`, `bug_edge_case`, `kind` and `severity`. That request holds
+the method, its previous code from the merge base with `REF`, and the diff. It
+has no callers or callees. A method no diff hunk touches is not asked the bug
+questions. Custom rules keep their usual request, with callers and callees.
 
 | Flag | |
 | --- | --- |

@@ -262,16 +262,6 @@ export function shownSource(lines, line, endLine) {
 const HANDED_ON = 'does not call the method here: it passes it on to be called later, so the call itself is not in view';
 
 /**
- * What `--since` adds to a method's reading: its previous source and the diff hunks over it, from the merge base. Each is cut to
- * a quarter of the budget in characters, so a long diff is shortened, and says so, rather than leaving no room for the method.
- */
-const changeShown = (change, budget) => {
-  const room = Math.max(32, Math.floor(budget / 4));
-  const cut = part => (part.source.length > room ? { ...part, source: part.source.slice(0, room), partial: true } : part);
-  return { before: cut(change.before), diff: cut(change.diff) };
-};
-
-/**
  * The state and questions for one method.
  *
  * The state is the method and its call graph, and nothing else: the method's source under the comment above it and the metrics
@@ -281,10 +271,9 @@ const changeShown = (change, budget) => {
  *
  * `node` is the graph node and `lines` its file's lines. `callees` and `callers` are [{ node, lines, site, handover }] with the
  * neighbor's file lines and, for a caller, the calling line, which is where its excerpt is centered. `edges` are [from, to]
- * pairs of method ids. `change`, on a `--since` scan of a method the branch touched, is its previous source and diff, which go
- * in the state beside it. The questions are the same either way.
+ * pairs of method ids.
  */
-export function methodStep({ node, lines, callees, callers, edges = [], change = null, budget = STATE_BUDGET, limits = [40, 20, 8, 3], maxCallees = MAX_CALLEES, maxCallers = MAX_CALLERS, chunk = null, asked = questionSet().filter(question => question.each === 'method') }) {
+export function methodStep({ node, lines, callees, callers, edges = [], budget = STATE_BUDGET, limits = [40, 20, 8, 3], maxCallees = MAX_CALLEES, maxCallers = MAX_CALLERS, chunk = null, asked = questionSet().filter(question => question.each === 'method') }) {
   const id = node.id ?? `${node.path}::${node.qualified_name}`;
   // One pass of a method read in several holds a slice of it, and for a top-level unit the lines of the methods inside it are
   // left out. `span` is the lines this pass is about, null where a line is another unit's, and `start` is the first one's number.
@@ -292,7 +281,6 @@ export function methodStep({ node, lines, callees, callers, edges = [], change =
   const start = chunk ? chunk.line + node.line - 1 : node.line;
   const source = [leadingComment(lines, node.line), chunk && chunk.line > 1 ? `... (${chunk.line - 1} lines above)` : '', shownLines(span)].filter(Boolean).join('\n');
   const named = ({ node: neighbor }) => ({ id: neighbor.id, name: neighbor.qualified_name, path: neighbor.path });
-  const changed = change ? { change: changeShown(change, budget) } : {};
   const build = (limit, [fewerCallees, fewerCallers] = [maxCallees, maxCallers]) => {
     const calls = callees.slice(0, fewerCallees), calledBy = callers.slice(0, fewerCallers);
     // A method that both calls this one and is called by it is one node, shown as the callee it is.
@@ -302,7 +290,7 @@ export function methodStep({ node, lines, callees, callers, edges = [], change =
     // An edge is drawn from code in view, so the edges go when the neighbourhood does, and one from a method not shown is left
     // out: it would change the state when code nothing here shows changed.
     const drawn = nodes.size ? edges.filter(([from]) => from === id || nodes.has(from)).map(([from, to]) => `${from} -> ${to}`) : [];
-    return { state: { method: { path: node.path, name: node.qualified_name, metrics: node.metrics ?? null, source }, ...changed, graph: { nodes: [...nodes.values()], edges: drawn } }, calls: calls.map(named), calledBy: calledBy.map(named) };
+    return { state: { method: { path: node.path, name: node.qualified_name, metrics: node.metrics ?? null, source }, graph: { nodes: [...nodes.values()], edges: drawn } }, calls: calls.map(named), calledBy: calledBy.map(named) };
   };
   const over = () => estimateTokens(built.state) > budget;
   let built = build(limits[0] === Infinity ? Infinity : 80);
@@ -330,10 +318,7 @@ export function methodStep({ node, lines, callees, callers, edges = [], change =
   return { state, questions, asked, calls, calledBy, neighbors, covers: { line: first < 0 ? node.line : start + first, end_line: last < 0 ? node.end_line : start + last, ...(chunk ? { start_byte: chunk.startByte, end_byte: chunk.endByte } : {}) } };
 }
 
-/**
- * Native syntax chunks overlap in source bytes, including when one line spans multiple requests. The callers and callees go in
- * the first pass only; a `change` goes in every pass, since the diff can fall in any of them.
- */
+/** Native syntax chunks overlap in source bytes, including when one line spans multiple requests. */
 export function methodSteps({ node, lines, callees = [], callers = [], edges = [], ...options }) {
   // Blank the lines that belong to other methods instead of removing them, so a chunk's line still counts from the unit's first.
   const source = spanOf(node, lines).map(text => text ?? '').join('\n');
@@ -355,17 +340,39 @@ export function methodSteps({ node, lines, callees = [], callers = [], edges = [
 }
 
 /**
+ * The reading `--since` gives a method the branch changed: its own lines, what they were at the merge base, and the diff hunks
+ * over them, with no callers, callees or graph. Each part of the change is cut to as many characters as a quarter of the token
+ * budget, and the method is read in chunks of a third of the budget, each with the change beside it. `change` is what
+ * createChangeReader returned for the method.
+ */
+export function changeSteps({ node, lines, change, asked, budget = STATE_BUDGET }) {
+  const source = spanOf(node, lines).map(text => text ?? '').join('\n');
+  const clip = text => text.slice(0, Math.max(32, Math.floor(budget / 4)));
+  const shown = Object.fromEntries(Object.entries(change).map(([key, part]) => [key, { ...part, source: clip(part.source), partial: part.partial || clip(part.source) !== part.source }]));
+  const questions = compile(asked);
+  return sourceChunks(source, { path: node.path, maxTokens: Math.max(128, Math.floor(budget / 3)) }).map(chunk => {
+    const start = node.line + chunk.line - 1;
+    const state = { method: { path: node.path, name: node.qualified_name, source: chunk.source, start_line: start }, change: shown,
+      reading: { start_byte: chunk.startByte, end_byte: chunk.endByte, partial: chunk.startByte !== 0 || chunk.endByte < Buffer.byteLength(source) } };
+    if (estimateTokens(state) > budget) throw new ContextLimitError(`${node.path}: change context exceeds the token budget`, budget / 2);
+    questionBatches(state, questions);
+    return { state, questions, asked, calls: [], calledBy: [], neighbors: [], covers: { line: start, end_line: start + chunk.source.split('\n').length - 1 } };
+  });
+}
+
+/**
  * Typed answers reduced to what the walk and the log use. Every declared question is kept under its own name, whatever it is, so
  * a class added to the question set is recorded without this function being told. The rest is the machinery's own answer: which
  * method to read next.
  */
 export function readAnswers(answers, { neighbors, asked = questionSet().filter(question => question.each === 'method') }) {
-  const follow = answers.follow.choice;
   const read = { answers_set: setHash(asked), answer_hashes: Object.fromEntries(asked.map(question => [question.name, question.hash])) };
   for (const question of asked) read[question.name] = readAnswer(question, answers[question.name]);
+  const follow = answers.follow?.choice;
   return {
     ...read,
     ...(read.severity ? { severity: { ...read.severity, level: severityOf(read.severity)?.band ?? null, predicted: severityOf(read.severity)?.predicted ?? null } } : {}),
-    follow: { method: neighbors.some(item => item.id === follow) ? follow : null, confidence: answers.follow.confidence, probabilities: answers.follow.probabilities },
+    // A --since reading of the diff is not asked which method to read next. The ordinary reading beside it, when there is one, is.
+    ...(answers.follow ? { follow: { method: neighbors.some(item => item.id === follow) ? follow : null, confidence: answers.follow.confidence, probabilities: answers.follow.probabilities } } : {}),
   };
 }

@@ -13,7 +13,7 @@ import { buildGraph } from './graph.js';
 import { createLineReader, methodNeighbours } from './context.js';
 import { createChangeReader } from './change-context.js';
 import { appliesToLanguage, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES, setHash } from './ask.js';
-import { issuesOf, label as kindLabel, methodSteps, readAnswers } from './questions.js';
+import { changeSteps, issuesOf, label as kindLabel, methodSteps, readAnswers } from './questions.js';
 import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL, unitHash } from './units.js';
 import { findingId, identity, openStore } from './store.js';
 import { TOKEN_LIMITS, IncompleteCheckError, withTokenRetries } from './tokens.js';
@@ -49,23 +49,31 @@ export function mergeAnswers(readings, questions = questionSet().filter(question
   return merged;
 }
 
-/** One System One reading of a method, in as many passes as its length takes. */
+/**
+ * One System One reading of a method, in as many passes as its length takes. On `--since` a method can have two readings, the
+ * diff and the ordinary one, asking different questions: each merges its own passes, and together they hold every answer.
+ */
 export async function questionMethod({ systemOne, node, step, steps = [step], rules = [], debug = () => {}, prepare }) {
   return withTokenRetries(async budget => {
     if (budget < (systemOne.limits?.state ?? TOKEN_LIMITS.state) && !prepare) throw new IncompleteCheckError('source cannot be rebuilt for a smaller token budget');
     const active = steps?.[0] && budget === (systemOne.limits?.state ?? TOKEN_LIMITS.state) ? steps : prepare ? prepare(budget) : steps;
     debug(`asking ${systemOne.id} about ${node.qualified_name} in ${node.path}:${node.line} (${Object.keys(active[0].questions).length} questions${active.length > 1 ? ` over ${active.length} passes` : ''})`);
-    const readings = [], usage = { input_tokens: 0, output_tokens: 0 };
+    const readings = new Map(), usage = { input_tokens: 0, output_tokens: 0 };
     let response;
     for (const pass of active) {
       response = await systemOne.ask(pass.state, pass.questions);
       usage.input_tokens += response.usage?.input_tokens ?? 0;
       usage.output_tokens += response.usage?.output_tokens ?? 0;
-      readings.push(readAnswers(response.answers, pass));
+      const set = setHash(pass.asked);
+      readings.set(set, [...(readings.get(set) ?? []), { pass, answers: readAnswers(response.answers, pass) }]);
     }
-    const answers = mergeAnswers(readings, [...questionSet().filter(question => question.each === 'method' && !question.kind), ...rules]);
+    const questions = [...questionSet().filter(question => question.each === 'method' && !question.kind), ...rules];
+    const answers = Object.assign({}, ...[...readings.values()].map(passes => mergeAnswers(passes.map(item => item.answers), questions)));
+    const asked = [...new Map(active.flatMap(pass => pass.asked).map(question => [question.name, question])).values()];
+    answers.answers_set = setHash(asked);
+    answers.answer_hashes = Object.fromEntries(asked.map(question => [question.name, question.hash]));
     // A partial source reading must remain visible instead of looking like a complete method check.
-    const to = active.at(-1).covers.end_line;
+    const to = Math.min(...[...readings.values()].map(passes => passes.at(-1).pass.covers.end_line));
     if (to < node.end_line) answers.read = { passes: active.length, to_line: to, of_line: node.end_line };
     return { response: { ...response, usage }, answers };
   }, systemOne.limits?.state);
@@ -141,6 +149,21 @@ export const methodQuestions = (kinds, language, { topLevel = false } = {}) => q
   questionSet().filter(question => question.each === 'method' && !question.kind && appliesToLanguage(question, language)
     && !(topLevel && ABOUT_A_NAME.has(question.name))),
   kinds ? [...kinds].map(value => ({ key: 'type', value })) : []);
+
+/**
+ * How `--since` splits what a method is asked. perch's own defect questions, with the kind that names a defect and the severity
+ * that ranks it, are asked over the diff, and only of a method a hunk touched. Custom rules and any other type the run asks keep
+ * the ordinary reading, with callers and callees. The two ask nothing in common.
+ */
+export function sinceQuestions(asked, changed) {
+  const bugs = questionsFor(asked.filter(question => !question.kind), [{ key: 'type', value: 'defect' }]);
+  const rest = asked.filter(question => question.kind || question.issue?.type !== 'defect');
+  // What the rest raises, with what that needs: a vulnerability is ranked by severity too.
+  const types = [...new Set(rest.filter(question => question.issue).map(question => question.issue.type))];
+  const ordinary = types.length ? questionsFor(rest, types.map(value => ({ key: 'type', value }))) : [];
+  const diff = changed ? bugs : [];
+  return { diff, ordinary: ordinary.filter(question => !diff.some(other => other.name === question.name)) };
+}
 
 /** The row's own fields, apart from answers whose question may no longer exist. */
 const READING_FIELDS = new Set(['type', 'at', 'id', 'run_id', 'root', 'github', 'revision', 'method', 'path', 'name', 'line', 'end_line', 'hash', 'risk', 'model', 'callees', 'callers', 'passes', 'read']);
@@ -252,13 +275,16 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // not six.
     // A filter narrows what is asked, not just what is printed. Asking thirty questions about a method to print two is paying
     // for twenty-eight answers nobody reads, and a method no kept question covers is not read at all.
+    // On --since, the bug questions are asked over the diff, and only of a method a hunk touched; the rest keep this reading.
     const asked = questionsFor([...methodQuestions(kinds, node.language, { topLevel: Boolean(node.lines) }), ...rulesForMethod(rules, node)], filters, kindLabel);
-    askedByMethod.set(node.id, asked);
-    const own = asked.filter(question => question.kind);
-    if (!asked.length) return { node, calleeIds, callerIds, rules: own, skip: true };
-    // --since asks the same questions in the same reading, and adds what the method was at the merge base and the diff over it.
-    const lines = await linesOf(node), change = await changeOf(node);
-    const prepare = budget => methodSteps({ node, lines, callees, callers, edges, asked, change, budget });
+    const change = since ? await changeOf(node) : null;
+    const { diff, ordinary } = since ? sinceQuestions(asked, Boolean(change)) : { diff: [], ordinary: asked };
+    askedByMethod.set(node.id, [...diff, ...ordinary]);
+    const own = ordinary.filter(question => question.kind);
+    if (!diff.length && !ordinary.length) return { node, calleeIds, callerIds, rules: own, skip: true };
+    const lines = await linesOf(node);
+    const prepare = budget => [...(diff.length ? changeSteps({ node, lines, change, asked: diff, budget }) : []),
+      ...(ordinary.length ? methodSteps({ node, lines, callees, callers, edges, asked: ordinary, budget }) : [])];
     const steps = prepare(systemOne.limits?.state);
     return { node, calleeIds, callerIds, rules: own, steps, prepare };
   };

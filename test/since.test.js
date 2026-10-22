@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -14,16 +14,25 @@ const analyzer = createSourceAnalyzer();
 const roots = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 
-/** The graph fixture with h changed on the branch: it multiplied k(x) by 2 on main and adds 2 here. */
+/**
+ * A branch that changed h. f in a.js calls h, and h calls k, which sits far enough below h in b.js that no diff hunk reaches it.
+ * Only b.js changed, so a --since scan reads h and k, with f in view as h's caller.
+ */
 async function branch() {
-  const root = await makeGraphFixture(); roots.push(root);
+  const root = await mkdtemp(join(tmpdir(), 'perch-since-')); roots.push(root);
+  await mkdir(join(root, 'src'));
+  await writeFile(join(root, 'package.json'), '{ "name": "since", "type": "module" }\n');
+  await writeFile(join(root, 'src', 'a.js'), "import { h } from './b.js';\n\nexport function f(x) {\n  return h(x) + 1;\n}\n");
+  const apart = Array.from({ length: 12 }, (_, index) => `// ${index}`).join('\n');
+  await writeFile(join(root, 'src', 'b.js'), `export function h(x) {\n  return k(x) * 2;\n}\n\n${apart}\n\nexport function k(x) {\n  return x - 1;\n}\n`);
+  await initRepo(root);
   const path = join(root, 'src', 'b.js');
   await writeFile(path, (await readFile(path, 'utf8')).replace('return k(x) * 2;', 'return k(x) + 2;'));
   await commitAll(root, 'h adds');
   return { root, revision: await revision(root), analyzer, paths: ['src/b.js'] };
 }
 
-/** A scripted System One that records each request and answers as `model`, with `has_bug` set per method. */
+/** A scripted System One that records each request and answers as `model`, with answers set per method. */
 function service(model = 'scripted-jev', overrides = {}) {
   const script = scriptedSystemOne(overrides), calls = [];
   return { calls, id: model, async ask(state, questions) {
@@ -31,53 +40,82 @@ function service(model = 'scripted-jev', overrides = {}) {
     return { ...await script.ask(state, questions), model };
   } };
 }
-const byMethod = calls => new Map(calls.filter(call => call.state.method).map(call => [`${call.state.method.path}::${call.state.method.name}`, call]));
+/** Every request about one method, in the order they were sent. */
+const requests = (calls, method) => calls.filter(call => call.state.method && `${call.state.method.path}::${call.state.method.name}` === method);
+const BUGS = ['bug_edge_case', 'has_bug', 'kind', 'severity'];
+const RULE = 'rules:\n  - name: h-doubles\n    each: method\n    where: src/b.js\n    ensure: The method returns a number.\n';
 
 describe('perch scan --since', () => {
-  it('asks the questions a full scan asks, in one reading with the previous source and the diff added', async () => {
+  it('asks a function the diff changed the bug questions over the function and the diff, with no graph', async () => {
     const options = await branch();
     const full = service(), since = service();
     await scanRepository({ ...options, out: join(options.root, '.perch-full'), systemOne: full });
     await scanRepository({ ...options, out: join(options.root, '.perch-since'), systemOne: since, since: 'main' });
-    const [whole, branched] = [byMethod(full.calls), byMethod(since.calls)];
-    expect([...branched.keys()].sort()).toEqual([...whole.keys()].sort());
-    // One request per method either way, with the same question names, has_bug and bug_edge_case among them.
-    expect(since.calls).toHaveLength(full.calls.length);
-    for (const [method, call] of branched) expect(Object.keys(call.questions).sort(), method).toEqual(Object.keys(whole.get(method).questions).sort());
-    expect(Object.keys(branched.get('src/b.js::h').questions)).toEqual(expect.arrayContaining(['has_bug', 'bug_edge_case', 'follow']));
-    // The method, its callers and callees, and the calls between them, are what a full scan sends.
-    const h = branched.get('src/b.js::h').state;
-    expect(h.method).toEqual(whole.get('src/b.js::h').state.method);
-    expect(h.graph).toEqual(whole.get('src/b.js::h').state.graph);
-    expect(h.graph.edges).toEqual(expect.arrayContaining(['src/a.js::f -> src/b.js::h']));
-    // And the method as it was at the merge base, with the diff over it.
-    expect(h.change.before.source).toContain('return k(x) * 2;');
-    expect(h.change.before.source).not.toContain('return k(x) + 2;');
-    expect(h.change.diff.source).toContain('-  return k(x) * 2;');
-    expect(h.change.diff.source).toContain('+  return k(x) + 2;');
+    const [h] = requests(since.calls, 'src/b.js::h');
+    expect(requests(since.calls, 'src/b.js::h')).toHaveLength(1);
+    // The four questions a full scan asks, worded and shaped as it asks them, and no follow.
+    expect(Object.keys(h.questions).sort()).toEqual(BUGS);
+    const [whole] = requests(full.calls, 'src/b.js::h');
+    for (const name of BUGS) expect(h.questions[name], name).toEqual(whole.questions[name]);
+    // The function and its change, and no callers, callees or graph.
+    expect(Object.keys(h.state).sort()).toEqual(['change', 'method', 'reading']);
+    expect(h.state.method).toMatchObject({ path: 'src/b.js', name: 'h', start_line: 1 });
+    expect(h.state.method.source).toContain('return k(x) + 2;');
+    expect(JSON.stringify(h.state)).not.toContain('src/a.js');
+    expect(h.state.change.before.source).toContain('return k(x) * 2;');
+    expect(h.state.change.before.source).not.toContain('return k(x) + 2;');
+    expect(h.state.change.diff.source).toContain('-  return k(x) * 2;');
+    expect(h.state.change.diff.source).toContain('+  return k(x) + 2;');
   });
 
-  it('sends a full scan neither the previous source nor the diff', async () => {
+  it('does not ask the bug questions of a function in a changed file that no hunk touches', async () => {
     const options = await branch();
-    const full = service();
-    await scanRepository({ ...options, out: join(options.root, '.perch'), systemOne: full });
-    expect(full.calls.length).toBeGreaterThan(0);
-    for (const call of full.calls) {
-      expect(Object.keys(call.state).sort()).toEqual(['graph', 'method']);
-      expect(JSON.stringify(call.state)).not.toContain('return k(x) * 2;');
-    }
+    const since = service();
+    const run = await scanRepository({ ...options, out: join(options.root, '.perch'), systemOne: since, since: 'main' });
+    expect(requests(since.calls, 'src/b.js::k')).toEqual([]);
+    expect(since.calls).toHaveLength(1);
+    expect(run.skipped).toBe(1);
   });
 
-  it('asks a custom method rule in the same reading with or without --since', async () => {
+  it('asks a custom rule on --since over callers and callees, in the request a full scan sends', async () => {
     const options = await branch();
-    await writeFile(join(options.root, 'perch.yaml'), 'rules:\n  - name: h-doubles\n    each: method\n    where: src/b.js\n    ensure: The method returns a number.\n');
+    await writeFile(join(options.root, 'perch.yaml'), RULE);
     await commitAll(options.root, 'a rule');
     const run = { ...options, revision: await revision(options.root) };
     const full = service(), since = service();
     await scanRepository({ ...run, out: join(options.root, '.perch-full'), systemOne: full });
-    await scanRepository({ ...run, out: join(options.root, '.perch-since'), systemOne: since, since: 'main' });
-    for (const calls of [full.calls, since.calls]) expect(byMethod(calls).get('src/b.js::h').questions['h-doubles']).toBeDefined();
-    expect(since.calls).toHaveLength(full.calls.length);
+    const read = await scanRepository({ ...run, out: join(options.root, '.perch-since'), systemOne: since, since: 'main' });
+    // h was changed, so it is two requests: the diff, then the ordinary one with the rule and follow.
+    const [diff, ordinary] = requests(since.calls, 'src/b.js::h');
+    expect(requests(since.calls, 'src/b.js::h')).toHaveLength(2);
+    expect(Object.keys(diff.questions).sort()).toEqual(BUGS);
+    expect(Object.keys(ordinary.questions).sort()).toEqual(['follow', 'h-doubles']);
+    // The ordinary request's state is the one a full scan sends: h, its caller f, its callee k, and the calls between them.
+    expect(ordinary.state).toEqual(requests(full.calls, 'src/b.js::h')[0].state);
+    expect(ordinary.state.graph.edges).toEqual(expect.arrayContaining(['src/a.js::f -> src/b.js::h', 'src/b.js::h -> src/b.js::k']));
+    // k was not changed, so it is only asked the rule, with h in view as its caller.
+    const [k] = requests(since.calls, 'src/b.js::k');
+    expect(requests(since.calls, 'src/b.js::k')).toHaveLength(1);
+    expect(Object.keys(k.questions).sort()).toEqual(['follow', 'h-doubles']);
+    expect(k.state.graph.edges).toEqual(['src/b.js::h -> src/b.js::k']);
+    // Both requests' answers land on h's one reading.
+    const h = read.visited.find(event => event.name === 'h');
+    expect(h).toMatchObject({ has_bug: expect.any(Number), bug_edge_case: expect.any(Number), 'h-doubles': expect.any(Number) });
+    expect(h.follow).toBeDefined();
+    expect(Object.keys(h.answer_hashes).sort()).toEqual([...BUGS, 'h-doubles'].sort());
+  });
+
+  it('leaves a full scan as it was: one request per function, with its callers and callees', async () => {
+    const options = await branch();
+    const full = service();
+    await scanRepository({ ...options, out: join(options.root, '.perch'), systemOne: full });
+    expect(full.calls).toHaveLength(2);
+    for (const call of full.calls) {
+      expect(Object.keys(call.state).sort()).toEqual(['graph', 'method']);
+      expect(Object.keys(call.questions).sort()).toEqual([...BUGS, 'follow'].sort());
+      expect(JSON.stringify(call.state)).not.toContain('return k(x) * 2;');
+    }
+    expect(requests(full.calls, 'src/b.js::h')[0].state.graph.edges).toEqual(expect.arrayContaining(['src/a.js::f -> src/b.js::h']));
   });
 });
 
