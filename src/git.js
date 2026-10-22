@@ -14,6 +14,9 @@ export async function git(args, cwd) {
     const detail = (error.stderr || error.message || '').toString().trim();
     const failure = new Error(`git ${args.filter(arg => !arg.startsWith('-c') || arg.length > 2).join(' ')} failed: ${detail}`);
     failure.stdout = error.stdout?.toString() ?? '';
+    // Some commands say something by their exit code alone: git grep exits 1, and writes nothing, when nothing matched.
+    failure.code = error.code;
+    failure.stderr = error.stderr?.toString() ?? '';
     throw failure;
   }
 }
@@ -107,6 +110,24 @@ export function openBlobReader(root) {
     },
     close() { closed = true; running?.child.stdin?.end(); running = null; },
   };
+}
+
+/** The blob each `<revision>:<path>` names, or null for one that revision does not have, through one `git cat-file --batch-check`. */
+export async function blobsAt(root, specs) {
+  if (!specs.length) return new Map();
+  const output = await new Promise((resolve, reject) => {
+    const child = spawn('git', ['-c', 'core.hooksPath=/dev/null', 'cat-file', '--batch-check'], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '', stderr = '';
+    child.stdout.on('data', chunk => { stdout += chunk; });
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    child.on('error', error => reject(new Error(`git cat-file --batch-check failed: ${error.message}`)));
+    child.on('close', code => (code ? reject(new Error(`git cat-file --batch-check failed: ${stderr.trim() || `exited with ${code}`}`)) : resolve(stdout)));
+    child.stdin.on('error', () => {});
+    child.stdin.end(specs.map(spec => `${spec}\n`).join(''));
+  });
+  // One line an object, in the order asked: `<sha> blob <size>`, or `<spec> missing` for a path the revision does not hold.
+  const lines = output.split('\n');
+  return new Map(specs.map((spec, index) => { const match = /^([0-9a-f]+) blob \d+$/.exec(lines[index] ?? ''); return [spec, match ? match[1] : null]; }));
 }
 
 /** Many blobs through one `git cat-file --batch` process, delivered in order to `onBlob(index, text)`. */

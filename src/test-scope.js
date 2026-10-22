@@ -54,7 +54,7 @@ const MODULES = [
 const NATIVE_TEST_HEADERS = /^(?:gtest|gmock|catch2?|doctest|boost\/test|CppUTest|cxxtest|criterion)\/|^(?:gtest|gmock|catch|doctest|check|cmocka|unity|unity_fixture)\.h(?:pp)?$/;
 
 /** Languages whose imports and includes name files, so which code uses a module is known. */
-const GROUPED = new Set([...FOLLOWED, 'c', 'cpp']);
+export const GROUPED = new Set([...FOLLOWED, 'c', 'cpp']);
 
 /** The test runners, assertion and mocking libraries a test helper is written with. */
 const TEST_LIBRARIES = /^(?:vitest|jest|@jest\/[\w-]+|mocha|chai|sinon|node:test|ava|tap|uvu|@testing-library\/[\w-]+|supertest|nock|msw|pytest|_pytest|unittest(?:\.mock)?|mock|hypothesis|factory|freezegun|responses)(?:$|[/.])/;

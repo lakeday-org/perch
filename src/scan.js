@@ -6,7 +6,7 @@
  * and gets its own request after the walk.
  */
 import { listTree, readBlob } from './git.js';
-import { analyzeTree } from './analyze.js';
+import { analyzeTree, overriddenElsewhere, unreadMethods } from './analyze.js';
 import { AuthenticationError } from './systemone.js';
 import { attributeRules, createFileSelector, declaredGenerated, generatedText } from './exclusions.js';
 import { buildGraph } from './graph.js';
@@ -183,12 +183,23 @@ export const typesAsked = (scanTypes, filters = [], questions = questionSet()) =
 export async function scanRepository({ root, revision, out, analyzer, systemOne, label = root, github = null, since = null, paths = [], named = [], parallel = DEFAULT_PARALLEL, includeTests = false, includeFiles = false,
   unitParallel = UNIT_PARALLEL, min = 0.5, filters = [], onFile = () => {}, onFinding = () => {}, onProgress = () => {}, progress = () => {}, unitProgress = () => {}, searchProgress = () => {}, scanProgress = () => {}, log = () => {}, debug = () => {} }) {
   const store = openStore(out);
-  // The whole tree is parsed however narrow the run is. Parsing is free next to a request, and a method's callers matter whether
-  // or not they are in the diff: a graph cut down to what a branch touched cannot say who calls into it.
-  const scan = await analyzeTree({ root, revision, out, analyzer, label, github, includeFiles, filePaths: paths, progress: scanProgress, log, debug });
-  const graph = buildGraph(scan.files, { crates: scan.crates, modules: scan.modules });
-  const changeOf = since ? await createChangeReader(root, since, revision) : async () => null;
   const rules = asRules(await readRules(root, revision));
+  // A method is read with its callers, its callees and what those call, wherever they are, so a run narrowed by --paths or
+  // --since needs the graph a parse of everything would build around what it covers. It parses the languages its files are
+  // written in, whole, and any other language that imports into them, that they import, or that keeps test code in a directory
+  // with them; narrow.js says why a language is the least that keeps the graph the same. A Python change to Sentry parses its
+  // Python and none of its TypeScript. A rule about the callers of a named method can name one in any language, so a run with
+  // such a rule parses everything.
+  const around = paths.length && !rules.some(rule => /^callers? of (.+)$/.exec(rule.where ?? '')) ? paths : [];
+  const parse = narrowed => analyzeTree({ root, revision, out, analyzer, label, github, around: narrowed, includeFiles, filePaths: paths, progress: scanProgress, log, debug });
+  let scan = await parse(around), graph = buildGraph(scan.files, { crates: scan.crates, modules: scan.modules });
+  // The one link the graph makes between languages that parsing them whole does not find first: a class in a language left out
+  // that extends one named like a callee's class, which the graph takes as an override.
+  if (scan.around && await overriddenElsewhere({ root, revision, scan, graph, ids: [...graph.nodes.values()].filter(node => covers(paths)(node.path)).map(node => node.id), analyzer, debug, log })) {
+    debug('a class in a language this run did not parse overrides a method in view; parsing everything');
+    scan = await parse([]); graph = buildGraph(scan.files, { crates: scan.crates, modules: scan.modules });
+  }
+  const changeOf = since ? await createChangeReader(root, since, revision) : async () => null;
   // Which issue types this run asks about, and so which of perch's own questions ride in every request.
   const kinds = typesAsked(await readScanTypes(root, revision), filters);
   // --since and --paths say what this run reads, not what perch knows. A method outside is neither read nor reported here, and
@@ -456,7 +467,10 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // not carried: it is code perch.yaml says not to read, and a reading kept from before it was ignored went on being listed and
     // failing the run.
     const walked = new Set(read.map(event => event.method));
-    const elsewhere = [...earlier.values()].filter(event => !walked.has(event.method) && graph.nodes.has(event.method) && !ignores(event.path));
+    // A narrowed parse holds no nodes for the languages it left out, which is not their methods being gone.
+    const unread = scan.around ? await unreadMethods({ root, revision, scan, refs: [...earlier.values(), ...checks.values()], analyzer, debug, log }) : null;
+    const exists = event => graph.nodes.has(event.method) || Boolean(unread && !graph.files.has(event.path) && unread.has(event, event.method));
+    const elsewhere = [...earlier.values()].filter(event => !walked.has(event.method) && exists(event) && !ignores(event.path));
     // Rule checks are carried the same way, and only while the rule that produced one is still that rule. A rule reworded,
     // reshaped or deleted since leaves a check describing a question that no longer exists. The unit has to be the same too: a
     // test deleted or moved, a file removed, or a comment rewritten leaves a check about text this tree does not hold, and so does
@@ -464,8 +478,9 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const said = new Set(broken.map(check => check.id));
     const byName = new Map(rules.map(rule => [rule.name, rule]));
     const blobs = new Map(tree.map(item => [item.path, item.sha]));
+    const hashOf = check => (unread && !graph.nodes.has(check.unit) && check.unit !== check.path && !graph.files.has(check.path) ? unread.hash(check, check.unit) : unitHash(check, { graph, files, blobs }));
     const unasked = [...checks.values()].filter(check => !said.has(check.id) && byName.get(check.rule)?.hash === check.rule_hash
-      && (String(check.unit).startsWith('search:') || !ignores(check.path) && unitHash(check, { graph, files, blobs }) === check.hash));
+      && (String(check.unit).startsWith('search:') || !ignores(check.path) && hashOf(check) === check.hash));
     await store.recordScan([...read, ...elsewhere, ...broken, ...unasked]);
     run.remaining = walk.remaining(); run.status = run.incomplete.length ? 'incomplete' : 'complete'; run.completed_at = new Date().toISOString();
     await saveRun(true); await store.prune('runs', id).catch(error => log(`Could not remove earlier runs: ${error.message}`)); return run;
