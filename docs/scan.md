@@ -68,8 +68,9 @@ Up to `--parallel` methods are in flight at once, 32 by default. The next
 method is sent as soon as any one answers, after that answer has pushed its
 neighbors. Rules about files and searches are asked alongside the walk.
 
-Every method in scope is read. Scope comes from `--paths` or `--since`, and
-nothing else. There is no cap on how many methods a run reads.
+Scope comes from `--paths` or `--since`, and nothing else. Every method in scope
+is read, unless `--since` leaves it nothing to ask. There is no cap on how many
+methods a run reads.
 
 Every reading goes into `scan.jsonl`, rewritten whole each run. What it holds is
 what this run says about this commit. A reading carries forward when the request
@@ -99,9 +100,16 @@ the comment above it, with its metrics. The graph is up to 8 callees and up to
 lines around its call. When they do not fit, each neighbour is shortened, then
 fewer are shown, down to none, before the method is given up on.
 
-Nothing in a request says where in its file the method sits. Adding a line
-above a method does not change what is asked about it, so its cached answers
-are still used.
+With `--since`, the bug questions go in a request of their own: `has_bug`,
+`bug_edge_case`, `kind` and `severity`. Only a method the branch changed is
+asked them. That request holds the method, its code at the merge base and the
+diff, all with line numbers, and no callers or callees. Custom rules and other
+issue types keep the request above, for every method in the changed files. It
+carries `follow` too. A method with both is two requests.
+
+Apart from that `--since` request, nothing in a request says where in its file
+the method sits. Adding a line above a method does not change what is asked about it, so
+its cached answers are still used.
 
 A method too long for one request is read in **overlapping passes**, each sized
 to what the budget actually holds. Only lines a pass can see are offered to its
@@ -123,8 +131,8 @@ distribution over its levels.
 
 | Question | Primitive | |
 | --- | --- | --- |
-| `has_bug` | noul | A concrete behavioral defect a caller can reach. |
-| `bug_edge_case` | noul | A wrong result for a valid empty, zero, first, last, or missing input. |
+| `has_bug` | noul | A functional bug: a wrong result or state, a failed operation, or a false success. |
+| `bug_edge_case` | noul | A supported empty value, boundary value or alternate branch handled wrongly. |
 | `kind` | choice over 8 | `boundary`, `missing_null_handling`, `wrong_return`, `swallowed_error`, `state_mutation`, `ordering`, `resource_leak`, `inverted_condition`. |
 | `severity` | score over 4 levels | The rubric below. |
 | `cwe_*` | Up to 30 nouls | The 2025 MITRE Top 25 CWEs except CWE-20, and six more, filtered by language where needed. |
@@ -175,8 +183,9 @@ only with `--filter type=security` or `security` in `scan_types`.
 ### The floor
 
 An issue is listed only when its score exceeds both the question's floor and
-the run's `--min`. Both bug checks use a **60%** floor. Most security checks use 70%;
-XSS, SQL injection, and out-of-bounds reads use 60%.
+the run's `--min`. Both bug checks use a **60%** floor, whichever model
+answered. Most security checks use 70%; XSS, SQL injection, and out-of-bounds
+reads use 60%.
 These scores rank answers but are not calibrated probabilities that a reported
 issue is real. Higher floors produce fewer alerts and miss more issues.
 
@@ -261,7 +270,9 @@ hold.
 
 A filter narrows the run, not only the report. `--filter rule=<name>` asks that
 one rule and skips every unit it does not cover, which is how a rule you have
-just written gets run on its own.
+just written gets run on its own. `kind=off_by_one` asks `has_bug` and
+`bug_edge_case`, with `kind` to name the defect and `severity` to rank it. A
+`severity=` clause asks everything, since any issue on a P1 method is listed.
 
 A filtered list is also **ranked by what was filtered for**. For each key, perch
 takes the highest probability among the issues that match it, then multiplies

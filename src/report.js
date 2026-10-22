@@ -1,7 +1,7 @@
 /** Human-readable summaries of scans, issues, and the work done on them. */
 import { join } from 'node:path';
 import { RULES_FILE } from './units.js';
-import { CORRECTNESS, labelsRaised, questionSet } from './ask.js';
+import { CORRECTNESS, floorText, labelsRaised, questionSet } from './ask.js';
 import { alsoKnownAs, filterKeys, issuesFor, issuesOf, label, securities, SEVERITY_BANDS, severityName } from './questions.js';
 
 /** Prose broken at `width` columns, each line indented; what a rule asked is the only paragraph perch prints. */
@@ -181,11 +181,11 @@ function fileBlocks(byFile, { width, color, review = false }) {
 /**
  * What fails the scan: every issue from a question that gates, above its own floor. A defect, a vulnerability and a broken rule
  * all say something is wrong; a method being large or undocumented does not. Where the question came from has nothing to do with
- * it, so perch's own and yours are read the same way.
+ * it, so perch's own and yours are read the same way. Under a filter only the issues it lists count, the ones the tally counts.
  */
-export function gating(findings, min = 0, questions = questionSet()) {
+export function gating(findings, min = 0, questions = questionSet(), filters = []) {
   const fails = failing(questions);
-  return findings.flatMap(finding => shownIssues(finding, min).filter(issue => fails(issue))
+  return findings.flatMap(finding => shownIssues(finding, min, filters).filter(issue => fails(issue))
     .map(issue => ({ ...issue, id: finding.id, path: finding.path, line: finding.line, name: finding.name })));
 }
 
@@ -348,7 +348,7 @@ export function formatRules(rules, { width = WIDTH(), own = new Set() } = {}) {
   if (!rules.length) return 'No questions. perch rules add <name> --ensure "..." --where "src/**/*.js" writes the first one.';
   // A question written out longhand rather than with `ensure` is listed under what it asks for, since that is what it is.
   // The floor is part of what a question asks for, so it is on the row rather than only in the file.
-  const asks = rule => (rule.disabled ? 'off' : `${rule.kind ?? rule.type}${rule.min == null ? '' : ` >${rule.min}%`}`);
+  const asks = rule => (rule.disabled ? 'off' : `${rule.kind ?? rule.type}${rule.min == null ? '' : ` >${floorText(rule.min)}`}`);
   // A Map says which file each rule is in; a Set only says it is yours, which is the root file.
   const from = rule => (own.get?.(rule.name) ?? (own.has(rule.name) ? RULES_FILE : 'builtin'));
   // Whether an answer fails the run, which is the difference between a question you have to act on and one you can read later.

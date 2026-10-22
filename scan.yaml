@@ -10,13 +10,10 @@
 - name: has_bug
   each: method
   where: "**/*"
-  ask: Does `method` contain a concrete behavioral defect that a caller can reach?
-  "true": >
-    For some input a caller can pass, the method returns a wrong result, leaves wrong state, throws
-    when it should not, or fails to throw when it should
-  "false": >
-    The method behaves correctly for every input its callers can pass; style, performance, and
-    hypothetical misuse do not count. A helper is judged by what its shown callers pass it
+  ask: Does `method` contain a functional bug?
+  "true": A supported input or operation produces an incorrect result, incorrect
+    state, failed operation or false success in the current `method`.
+  "false": The current `method` handles its supported inputs and operations correctly.
   issue:
     type: defect
     label: kind
@@ -25,9 +22,11 @@
 - name: bug_edge_case
   each: method
   where: "**/*"
-  ask: Does `method` produce a wrong result for a valid empty, zero, first, last, or missing input?
-  "true": One of these inputs produces an incorrect result or failure, and a shown caller can pass it or it arrives from outside the program.
-  "false": These inputs produce the intended results and errors, or no shown caller can pass them.
+  ask: Does `method` mishandle a supported empty value, boundary value or alternate
+    branch?
+  "true": An empty, missing, zero, boundary or alternate-path input that the code
+    accepts produces an incorrect result or operation.
+  "false": The accepted boundary values and alternate paths produce the required result.
   issue:
     type: defect
     label: kind
@@ -471,104 +470,3 @@
     label: open_redirect
     pick: strongest
   min: 70
-
-# Additional readings for branch changes and caller contracts.
-- name: review_current_bug
-  each: method
-  where: "**/*"
-  sees: change
-  ask: Does target contain a functional bug?
-  "true": A supported input or operation produces an incorrect result, incorrect
-    state, failed operation or false success in the current target.
-  "false": The current target handles its supported inputs and operations correctly.
-  min: 60
-  issue:
-    type: defect
-    label: current_bug
-    pick: strongest
-- name: review_edge_case
-  each: method
-  where: "**/*"
-  sees: change
-  ask: Does target mishandle a supported empty value, boundary value or alternate
-    branch?
-  "true": An empty, missing, zero, boundary or alternate-path input that the code
-    accepts produces an incorrect result or operation.
-  "false": The accepted boundary values and alternate paths produce the required result.
-  min: 60
-  issue:
-    type: defect
-    label: edge_case
-    pick: strongest
-- name: review_security
-  each: method
-  where: "**/*"
-  sees: change
-  ask: Does target contain an exploitable security issue?
-  "true": An accepted input or accessible operation can bypass access control,
-    expose protected data, inject commands or code, or cross a memory or
-    filesystem boundary.
-  "false": The current target preserves the required access, input and resource
-    boundaries.
-  min: 70
-  issue:
-    type: security
-    label: access_boundary
-    pick: strongest
-- name: review_caller_contract
-  each: method
-  where: "**/*"
-  sees: contracts
-  ask: Can a supplied caller pass an accepted value that target handles incorrectly?
-  "true": A call shown in callers supplies a valid value or state that causes an
-    incorrect result, failed operation or invalid state inside target.
-  "false": Target correctly handles the values and states supplied by callers.
-  min: 60
-  issue:
-    type: defect
-    label: caller_contract
-    pick: strongest
-- name: review_return_contract
-  each: method
-  where: "**/*"
-  sees: contracts
-  ask: Does a return value or call in target violate a supplied type or consumer
-    contract?
-  "true": Target omits a required field, passes an incompatible value, or returns
-    a value its shown consumer cannot use correctly.
-  "false": The calls and returned values satisfy their supplied types and consumers.
-  min: 60
-  issue:
-    type: defect
-    label: return_contract
-    pick: strongest
-- name: review_cleanup
-  each: method
-  where: "**/*"
-  sees: contracts
-  ask: Can failure or cancellation in target skip required cleanup or leave state
-    incorrectly updated?
-  "true": A reachable failure prevents required release or rollback, destroys
-    data, or records success before the operation succeeds.
-  "false": Failure and cancellation preserve required data, state and resource
-    ownership.
-  min: 60
-  issue:
-    type: defect
-    label: cleanup
-    pick: strongest
-- name: review_access_scope
-  each: method
-  where: "**/*"
-  sees: contracts
-  ask: Can a caller reach protected data or operations through target outside its
-    permitted user or tenant scope?
-  "true": An accessible path through target omits or bypasses a required
-    permission, ownership or tenant check.
-  "false": The accessible paths through target enforce the required permission,
-    ownership and tenant scope.
-  min: 70
-  issue:
-    type: security
-    label: access_boundary
-    pick: strongest

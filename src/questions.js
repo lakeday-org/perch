@@ -78,7 +78,7 @@ export function issuesOf(answers, min = BELIEVED, questions = questionSet()) {
   // and a report of it must read the same whether or not the rule is still in the set that declared it.
   if (answers.lint) {
     const rule = questions.find(question => question.name === answers.lint.rule);
-    const floor = floorFor(rule, min);
+    const floor = floorFor(rule, min, answers.model);
     if (answers.lint.broken > floor) {
       found.push({ type: 'lint', label: answers.lint.rule, probability: answers.lint.broken, floor, text: `${answers.lint.rule} ${percent(answers.lint.broken)}` });
       found.sort((a, b) => b.probability - a.probability);
@@ -340,18 +340,39 @@ export function methodSteps({ node, lines, callees = [], callers = [], edges = [
 }
 
 /**
+ * The reading `--since` gives a method the branch changed: its own lines, what they were at the merge base, and the diff hunks
+ * over them, with no callers, callees or graph. Each part of the change is cut to as many characters as a quarter of the token
+ * budget, and the method is read in chunks of a third of the budget, each with the change beside it. `change` is what
+ * createChangeReader returned for the method.
+ */
+export function changeSteps({ node, lines, change, asked, budget = STATE_BUDGET }) {
+  const source = spanOf(node, lines).map(text => text ?? '').join('\n');
+  const clip = text => text.slice(0, Math.max(32, Math.floor(budget / 4)));
+  const shown = Object.fromEntries(Object.entries(change).map(([key, part]) => [key, { ...part, source: clip(part.source), partial: part.partial || clip(part.source) !== part.source }]));
+  const questions = compile(asked);
+  return sourceChunks(source, { path: node.path, maxTokens: Math.max(128, Math.floor(budget / 3)) }).map(chunk => {
+    const start = node.line + chunk.line - 1;
+    const state = { method: { path: node.path, name: node.qualified_name, source: chunk.source, start_line: start }, change: shown,
+      reading: { start_byte: chunk.startByte, end_byte: chunk.endByte, partial: chunk.startByte !== 0 || chunk.endByte < Buffer.byteLength(source) } };
+    if (estimateTokens(state) > budget) throw new ContextLimitError(`${node.path}: change context exceeds the token budget`, budget / 2);
+    questionBatches(state, questions);
+    return { state, questions, asked, calls: [], calledBy: [], neighbors: [], covers: { line: start, end_line: start + chunk.source.split('\n').length - 1 } };
+  });
+}
+
+/**
  * Typed answers reduced to what the walk and the log use. Every declared question is kept under its own name, whatever it is, so
  * a class added to the question set is recorded without this function being told. The rest is the machinery's own answer: which
  * method to read next.
  */
 export function readAnswers(answers, { neighbors, asked = questionSet().filter(question => question.each === 'method') }) {
-  const followAnswer = answers.follow ?? { choice: 'none', confidence: 1, probabilities: { none: 1 } };
-  const follow = followAnswer.choice;
   const read = { answers_set: setHash(asked), answer_hashes: Object.fromEntries(asked.map(question => [question.name, question.hash])) };
   for (const question of asked) read[question.name] = readAnswer(question, answers[question.name]);
+  const follow = answers.follow?.choice;
   return {
     ...read,
     ...(read.severity ? { severity: { ...read.severity, level: severityOf(read.severity)?.band ?? null, predicted: severityOf(read.severity)?.predicted ?? null } } : {}),
-    follow: { method: neighbors.some(item => item.id === follow) ? follow : null, confidence: followAnswer.confidence, probabilities: followAnswer.probabilities },
+    // A --since reading of the diff is not asked which method to read next. The ordinary reading beside it, when there is one, is.
+    ...(answers.follow ? { follow: { method: neighbors.some(item => item.id === follow) ? follow : null, confidence: answers.follow.confidence, probabilities: answers.follow.probabilities } } : {}),
   };
 }
