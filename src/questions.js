@@ -75,12 +75,13 @@ export const BELIEVED = 0.5;
 export function issuesOf(answers, min = BELIEVED, questions = questionSet()) {
   const found = issues(answers, min, questions, label);
   // A broken rule arrives as a finding of its own rather than as answers, since it may be about a file with no methods at all,
-  // and a report of it must read the same whether or not the rule is still in the set that declared it.
+  // and a report of it must read the same whether or not the rule is still in the set that declared it. `from` is the rule, which
+  // is what decides whether it fails the run: a rule declaring its own `issue.label` raises that label, not its name.
   if (answers.lint) {
     const rule = questions.find(question => question.name === answers.lint.rule);
     const floor = floorFor(rule, min, answers.model);
     if (answers.lint.broken > floor) {
-      found.push({ type: 'lint', label: answers.lint.rule, probability: answers.lint.broken, floor, text: `${answers.lint.rule} ${percent(answers.lint.broken)}` });
+      found.push({ type: 'lint', label: answers.lint.rule, from: answers.lint.rule, probability: answers.lint.broken, floor, text: `${answers.lint.rule} ${percent(answers.lint.broken)}` });
       found.sort((a, b) => b.probability - a.probability);
     }
   }

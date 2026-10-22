@@ -461,6 +461,18 @@ describe('cli', () => {
     expect(gating([finding], 0, questions)).toHaveLength(1);
   });
 
+  it('fails the run on a broken file rule whether or not it declares a label', () => {
+    // A broken rule's issue is filed under the rule's name, and a rule that declares `issue.label` raises that label instead. The
+    // gate matched on labels, so the same rule broken at 100% failed the run without a label and passed it with one.
+    const plain = '- name: demo-rule\n  where: "src/**/*.js"\n  ensure: Every exported function has a comment.\n';
+    const finding = { id: 'bbbb2222', unit: 'src/a.js', path: 'src/a.js', name: 'src/a.js', line: 1,
+      lint: { rule: 'demo-rule', broken: 1, text: 'demo-rule 100%', said: 'Every exported function has a comment.' } };
+    for (const text of [plain, `${plain}  issue: { type: lint, label: docs_claim }\n`]) {
+      const questions = [...questionSet(), ...parseQuestions(text, 'fixture', 'rule')];
+      expect(gating([finding], 0, questions)).toHaveLength(1);
+    }
+  });
+
   it('takes several values for one key, and names a rule as one of them', () => {
     // A part with no `=` belongs to the key before it. Without this, type=defect,security read `security` as a key and the form
     // the docs showed was an error.
