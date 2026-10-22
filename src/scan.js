@@ -12,7 +12,7 @@ import { attributeRules, createFileSelector, declaredGenerated, generatedText } 
 import { buildGraph } from './graph.js';
 import { createLineReader, methodNeighbours } from './context.js';
 import { createChangeReader } from './change-context.js';
-import { appliesToLanguage, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES, setHash } from './ask.js';
+import { appliesToLanguage, CORRECTNESS, floorFor, DEFAULT_TYPES, narrows, questionSet, questionsFor, SEARCHES, setHash } from './ask.js';
 import { changeSteps, issuesOf, label as kindLabel, methodSteps, readAnswers } from './questions.js';
 import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL, unitHash } from './units.js';
 import { findingId, identity, openStore } from './store.js';
@@ -208,8 +208,9 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const graph = buildGraph(scan.files, { crates: scan.crates, modules: scan.modules, focus: paths.length ? covers(paths) : null });
   const changeOf = since ? await createChangeReader(root, since, revision) : async () => null;
   const rules = asRules(await readRules(root, revision));
-  // Which issue types this run asks about, and so which of perch's own questions ride in every request.
-  const kinds = typesAsked(await readScanTypes(root, revision), filters);
+  // Which issue types this run asks about, and so which of perch's own questions ride in every request. A filter of types, kinds
+  // and rules then asks only the questions that can raise what it lists; any other filter asks the whole set.
+  const kinds = typesAsked(await readScanTypes(root, revision), filters), narrowed = narrows(filters);
   // --since and --paths say what this run reads, not what perch knows. A method outside is neither read nor reported here, and
   // what the last run said about it is carried onto the file at the end rather than dropped.
   // What perch.yaml says not to read at all, on top of what this run was asked to cover. A fixture kept so the docs can show real
@@ -300,10 +301,12 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     for (const { node, calleeIds, callerIds, rules: own, response, answers, skipped } of results) {
       // A filter narrows which questions are asked, not which code the run is about, so what it did not ask about is what the
       // last run said rather than nothing at all. Rewriting the file whole with only the answers this run happened to want threw
-      // away every other answer on the same method. Only unchanged questions still covering it can keep those answers.
+      // away every other answer on the same method. Only unchanged questions still covering it can keep those answers. A filter
+      // that asks the whole set, such as a severity, writes the row an unfiltered run would. An answer about code that has since
+      // changed is not carried onto a reading of the new code, where it would look like an answer about it.
       const applicable = [...methodQuestions(null, node.language, { topLevel: Boolean(node.lines) }), ...rulesForMethod(rules, node)];
-      const previous = filters.length ? earlier.get(node.id) : null;
-      const before = previous ? carryAnswers(previous, applicable) : null;
+      const previous = narrowed ? earlier.get(node.id) : null;
+      const before = previous && (skipped || previous.hash === node.hash) ? carryAnswers(previous, applicable) : null;
       if (skipped) { run.skipped++; if (before) read.push(before); continue; }
       run.calls++;
       run.usage.input_tokens += response?.usage?.input_tokens ?? 0; run.usage.output_tokens += response?.usage?.output_tokens ?? 0;

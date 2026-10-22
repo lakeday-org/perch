@@ -270,7 +270,9 @@ hold.
 
 A filter narrows the run, not only the report. `--filter rule=<name>` asks that
 one rule and skips every unit it does not cover, which is how a rule you have
-just written gets run on its own.
+just written gets run on its own. `kind=off_by_one` asks `has_bug` and
+`bug_edge_case`, with `kind` to name the defect and `severity` to rank it. A
+`severity=` clause asks everything, since any issue on a P1 method is listed.
 
 A filtered list is also **ranked by what was filtered for**. For each key, perch
 takes the highest probability among the issues that match it, then multiplies

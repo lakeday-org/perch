@@ -181,11 +181,11 @@ function fileBlocks(byFile, { width, color, review = false }) {
 /**
  * What fails the scan: every issue from a question that gates, above its own floor. A defect, a vulnerability and a broken rule
  * all say something is wrong; a method being large or undocumented does not. Where the question came from has nothing to do with
- * it, so perch's own and yours are read the same way.
+ * it, so perch's own and yours are read the same way. Under a filter only the issues it lists count, the ones the tally counts.
  */
-export function gating(findings, min = 0, questions = questionSet()) {
+export function gating(findings, min = 0, questions = questionSet(), filters = []) {
   const fails = failing(questions);
-  return findings.flatMap(finding => shownIssues(finding, min).filter(issue => fails(issue))
+  return findings.flatMap(finding => shownIssues(finding, min, filters).filter(issue => fails(issue))
     .map(issue => ({ ...issue, id: finding.id, path: finding.path, line: finding.line, name: finding.name })));
 }
 
