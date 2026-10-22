@@ -10,10 +10,10 @@
 - name: has_bug
   each: method
   where: "**/*"
-  ask: Does method contain a functional bug?
+  ask: Does `method` contain a functional bug?
   "true": A supported input or operation produces an incorrect result, incorrect
-    state, failed operation or false success in the current method.
-  "false": The current method handles its supported inputs and operations correctly.
+    state, failed operation or false success in the current `method`.
+  "false": The current `method` handles its supported inputs and operations correctly.
   issue:
     type: defect
     label: kind
@@ -25,7 +25,7 @@
 - name: bug_edge_case
   each: method
   where: "**/*"
-  ask: Does method mishandle a supported empty value, boundary value or alternate
+  ask: Does `method` mishandle a supported empty value, boundary value or alternate
     branch?
   "true": An empty, missing, zero, boundary or alternate-path input that the code
     accepts produces an incorrect result or operation.

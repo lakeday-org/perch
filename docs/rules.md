@@ -244,9 +244,9 @@ Fails column, and a custom rule is read no differently from perch's own:
 ```console
 $ perch rules list
 Question       From     Asks                       Fails  Over  Description
-has_bug        builtin  noul >60%, gpt-6-luna 80%  yes    **/*  Does method contain a
+has_bug        builtin  noul >60%, gpt-6-luna 80%  yes    **/*  Does `method` contain a
                                                                 functional bug?
-bug_edge_case  builtin  noul >60%, gpt-6-luna 80%  yes    **/*  Does method mishandle a
+bug_edge_case  builtin  noul >60%, gpt-6-luna 80%  yes    **/*  Does `method` mishandle a
                                                                 supported empty value,
                                                                 boundary value or alternate
                                                                 branch?
