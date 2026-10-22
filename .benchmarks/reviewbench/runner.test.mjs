@@ -2,7 +2,7 @@ import { afterEach, expect, it } from 'vitest';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { gzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 
@@ -11,15 +11,26 @@ afterEach(async () => { await Promise.all(temporary.splice(0).map(p => fs.rm(p, 
 const question = { bug: { type: 'noul', instructions: 'Does target contain a bug?', criteria: { true: 'A valid input fails.', false: 'Valid inputs work.' } } };
 const step = source => ({ state: { source }, questions: question });
 
-async function fixture(packets, mode) {
+/** A copy of .benchmarks in a temporary directory: the scripts, and the data in hf/reviewbench/ unless `packets` is null. */
+async function scripts(names, packets, mode) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'perch-reviewbench-'));
   temporary.push(dir);
-  for (const name of ['run.mjs', 'core.mjs']) await fs.copyFile(new URL(name, import.meta.url), path.join(dir, name));
+  await fs.mkdir(path.join(dir, 'reviewbench'));
+  for (const name of names) await fs.copyFile(new URL(name, import.meta.url), path.join(dir, 'reviewbench', name));
+  await fs.copyFile(new URL('../data.mjs', import.meta.url), path.join(dir, 'data.mjs'));
+  if (!packets) return dir;
+  const hf = path.join(dir, 'hf', 'reviewbench');
+  await fs.mkdir(hf, { recursive: true });
   const data = gzipSync(packets.map(p => JSON.stringify(p)).join('\n'));
-  await fs.writeFile(path.join(dir, 'requests.jsonl.gz'), data);
+  await fs.writeFile(path.join(hf, 'requests.jsonl.gz'), data);
   const targets = Buffer.from([...new Set(packets.map(p => p.id))].map(id => JSON.stringify({ id, name: mode === 'file' ? '<file>' : 'testMethod' })).join('\n') + '\n');
-  await fs.writeFile(path.join(dir, 'targets.jsonl'), targets);
-  await fs.writeFile(path.join(dir, 'manifest.json'), JSON.stringify({ target_scope: 'method', sha256: Object.fromEntries([['requests.jsonl.gz', data], ['targets.jsonl', targets]].map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')])) }));
+  await fs.writeFile(path.join(hf, 'targets.jsonl'), targets);
+  await fs.writeFile(path.join(hf, 'manifest.json'), JSON.stringify({ target_scope: 'method', sha256: Object.fromEntries([['requests.jsonl.gz', data], ['targets.jsonl', targets]].map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')])) }));
+  return dir;
+}
+
+async function fixture(packets, mode) {
+  const dir = await scripts(['run.mjs', 'core.mjs'], packets, mode);
   await fs.writeFile(path.join(dir, 'mock.mjs'), `
     import fs from 'node:fs';
     const countFile = new URL('./calls.json', import.meta.url);
@@ -36,7 +47,7 @@ async function fixture(packets, mode) {
         answers: { bug: { type: 'noul', noul: .8 } } });
     };
   `);
-  const run = () => execFileSync(process.execPath, ['--import', path.join(dir, 'mock.mjs'), path.join(dir, 'run.mjs'), '--provider', 'jev', '--out', path.join(dir, 'out')], {
+  const run = () => execFileSync(process.execPath, ['--import', path.join(dir, 'mock.mjs'), path.join(dir, 'reviewbench', 'run.mjs'), '--provider', 'jev', '--out', path.join(dir, 'out')], {
     env: { ...process.env, TYPESAFE_API_KEY: 'test-only' }, stdio: ['ignore', 'pipe', 'pipe'], timeout: 10000,
   });
   return { dir, run, read: file => fs.readFile(path.join(dir, file), 'utf8').then(JSON.parse) };
@@ -85,4 +96,15 @@ it('rejects whole-file targets before making a model request', async () => {
   const { run, read } = await fixture([{ id: 'file', arm: 'change_current', steps: [step('whole file')] }], 'file');
   expect(run).toThrow(/method-only/);
   await expect(read('calls.json')).rejects.toMatchObject({ code: 'ENOENT' });
+});
+
+it('says how to download the data and exits 2 when it is not there, before asking for a key', async () => {
+  const dir = await scripts(['run.mjs', 'score.mjs', 'core.mjs'], null);
+  for (const script of ['score.mjs', 'run.mjs']) {
+    const result = spawnSync(process.execPath, [path.join(dir, 'reviewbench', script), ...(script === 'run.mjs' ? ['--provider', 'jev'] : [])], {
+      cwd: dir, env: { ...process.env, TYPESAFE_API_KEY: '' }, encoding: 'utf8', timeout: 10000,
+    });
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("hf download perchscan/benchmark-results --repo-type dataset --include 'reviewbench/*' --local-dir hf");
+  }
 });

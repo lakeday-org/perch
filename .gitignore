@@ -8,3 +8,9 @@ dist/
 # A lock or a half-written rule file, left by a perch that died mid-edit.
 perch.yaml.lock
 perch.yaml.*.tmp
+
+# Clones and runs made by the benchmark runners.
+.benchmarks/*/runs/
+
+# Benchmark data, downloaded from Hugging Face (see .benchmarks/*/README.md).
+.benchmarks/hf/
