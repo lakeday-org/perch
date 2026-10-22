@@ -7,6 +7,9 @@
  */
 const languages = {
   js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript', ts: 'typescript', mts: 'typescript', cts: 'typescript', tsx: 'tsx',
+  // Sprockets reads a file's extensions right to left as the steps that build it, so a Rails app's ES2015 module is `name.js.es6`
+  // and its last extension is es6. Discourse has hundreds of them.
+  es6: 'javascript',
   py: 'python', pyi: 'python', rs: 'rust', go: 'go',
   java: 'java', kt: 'kotlin', kts: 'kotlin', scala: 'scala', sc: 'scala', groovy: 'groovy', gradle: 'groovy',
   c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', cxx: 'cpp', hpp: 'cpp', hh: 'cpp', hxx: 'cpp', cs: 'c_sharp',
