@@ -1,0 +1,236 @@
+{
+ "targets": 16168,
+ "buggy": 1506,
+ "buggy_reference": 861,
+ "prs": 177,
+ "scanned_prs": 171,
+ "failed": [
+  {
+   "pr": "hughdidit_DAISy-Agency_274-1c88a238",
+   "code": "checkout",
+   "error": "clone of https://github.com/hughdidit/DAISy-Agency failed"
+  },
+  {
+   "pr": "Nixbug_entebus-android-operator_67-21b50bbb",
+   "code": "checkout",
+   "error": "clone of https://github.com/Nixbug/entebus-android-operator failed"
+  },
+  {
+   "pr": "hughdidit_DAISy-Agency_309-ac6e2196",
+   "code": "checkout",
+   "error": "clone of https://github.com/hughdidit/DAISy-Agency failed"
+  },
+  {
+   "pr": "RobertAgterhuis_myAgentic-IT-Project-team-V2_331-980b84fa",
+   "code": "checkout",
+   "error": "clone of https://github.com/RobertAgterhuis/myAgentic-IT-Project-team-V2 failed"
+  },
+  {
+   "pr": "anokye-labs_kbexplorer_38-cf24fe27",
+   "code": "checkout",
+   "error": "base 84bf940b71ac021cbe2afa4b1f445959774c4d63 not fetchable"
+  },
+  {
+   "pr": "whispr-messenger_mobile-app_64-9e7742e5",
+   "code": "checkout",
+   "error": "clone of https://github.com/whispr-messenger/mobile-app failed"
+  }
+ ],
+ "readings": 17250,
+ "targets_read": 12955,
+ "unread_buggy": {
+  "in_failed_prs": 80,
+  "in_unparsed_files": 1,
+  "in_unread_functions": 292
+ },
+ "usage": {
+  "gpt-6-luna": {
+   "requests": 17369,
+   "input": 41569033,
+   "output": 0,
+   "cost": 4.1569033
+  }
+ },
+ "cost_usd": 4.1569033,
+ "cutoffs": [
+  {
+   "cutoff": 0.6,
+   "total": {
+    "targets": 16168,
+    "buggy": 1506,
+    "flagged": 2094,
+    "flag_rate": 0.12951509153884216,
+    "precision": 0.28796561604584525,
+    "recall": 0.40039840637450197,
+    "f1": 0.335,
+    "correct": 603,
+    "false": 1491,
+    "missed": 903
+   },
+   "development": {
+    "targets": 10326,
+    "buggy": 944,
+    "flagged": 1558,
+    "flag_rate": 0.15088127057912068,
+    "precision": 0.2920410783055199,
+    "recall": 0.4819915254237288,
+    "f1": 0.36370903277378097,
+    "correct": 455,
+    "false": 1103,
+    "missed": 489
+   },
+   "validation": {
+    "targets": 5842,
+    "buggy": 562,
+    "flagged": 536,
+    "flag_rate": 0.09174940089010612,
+    "precision": 0.27611940298507465,
+    "recall": 0.26334519572953735,
+    "f1": 0.26958105646630237,
+    "correct": 148,
+    "false": 388,
+    "missed": 414
+   },
+   "reference_only": {
+    "targets": 16168,
+    "buggy": 861,
+    "flagged": 2094,
+    "flag_rate": 0.12951509153884216,
+    "precision": 0.20152817574021012,
+    "recall": 0.4901277584204414,
+    "f1": 0.2856175972927242,
+    "correct": 422,
+    "false": 1672,
+    "missed": 439
+   }
+  },
+  {
+   "cutoff": 0.7,
+   "total": {
+    "targets": 16168,
+    "buggy": 1506,
+    "flagged": 1364,
+    "flag_rate": 0.08436417615042058,
+    "precision": 0.3519061583577713,
+    "recall": 0.3187250996015936,
+    "f1": 0.3344947735191638,
+    "correct": 480,
+    "false": 884,
+    "missed": 1026
+   },
+   "development": {
+    "targets": 10326,
+    "buggy": 944,
+    "flagged": 1007,
+    "flag_rate": 0.09752082122796824,
+    "precision": 0.3624627606752731,
+    "recall": 0.3866525423728814,
+    "f1": 0.3741670937980523,
+    "correct": 365,
+    "false": 642,
+    "missed": 579
+   },
+   "validation": {
+    "targets": 5842,
+    "buggy": 562,
+    "flagged": 357,
+    "flag_rate": 0.06110920917494009,
+    "precision": 0.32212885154061627,
+    "recall": 0.20462633451957296,
+    "f1": 0.250272034820457,
+    "correct": 115,
+    "false": 242,
+    "missed": 447
+   },
+   "reference_only": {
+    "targets": 16168,
+    "buggy": 861,
+    "flagged": 1364,
+    "flag_rate": 0.08436417615042058,
+    "precision": 0.25,
+    "recall": 0.39605110336817656,
+    "f1": 0.30651685393258427,
+    "correct": 341,
+    "false": 1023,
+    "missed": 520
+   }
+  },
+  {
+   "cutoff": 0.8,
+   "total": {
+    "targets": 16168,
+    "buggy": 1506,
+    "flagged": 836,
+    "flag_rate": 0.051707075705096486,
+    "precision": 0.41746411483253587,
+    "recall": 0.23173970783532535,
+    "f1": 0.29803586678052946,
+    "correct": 349,
+    "false": 487,
+    "missed": 1157
+   },
+   "development": {
+    "targets": 10326,
+    "buggy": 944,
+    "flagged": 611,
+    "flag_rate": 0.059171024598101876,
+    "precision": 0.4402618657937807,
+    "recall": 0.2849576271186441,
+    "f1": 0.3459807073954984,
+    "correct": 269,
+    "false": 342,
+    "missed": 675
+   },
+   "validation": {
+    "targets": 5842,
+    "buggy": 562,
+    "flagged": 225,
+    "flag_rate": 0.03851420746319754,
+    "precision": 0.35555555555555557,
+    "recall": 0.1423487544483986,
+    "f1": 0.20330368487928843,
+    "correct": 80,
+    "false": 145,
+    "missed": 482
+   },
+   "reference_only": {
+    "targets": 16168,
+    "buggy": 861,
+    "flagged": 836,
+    "flag_rate": 0.051707075705096486,
+    "precision": 0.30023923444976075,
+    "recall": 0.29152148664343785,
+    "f1": 0.2958161461402475,
+    "correct": 251,
+    "false": 585,
+    "missed": 610
+   }
+  }
+ ],
+ "frozen_reference_only": {
+  "jev": {
+   "targets": 16168,
+   "buggy": 861,
+   "flagged": 876,
+   "flag_rate": 0.05418109846610589,
+   "precision": 0.1780821917808219,
+   "recall": 0.18118466898954705,
+   "f1": 0.17962003454231434,
+   "correct": 156,
+   "false": 720,
+   "missed": 705
+  },
+  "luna": {
+   "targets": 16168,
+   "buggy": 861,
+   "flagged": 5635,
+   "flag_rate": 0.3485279564571994,
+   "precision": 0.10629991126885537,
+   "recall": 0.6957026713124274,
+   "f1": 0.18442118226600984,
+   "correct": 599,
+   "false": 5036,
+   "missed": 262
+  }
+ }
+}
