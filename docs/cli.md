@@ -175,6 +175,7 @@ perch rules add errors-reach-the-caller --each method --where "**/*.py" --ensure
 | `--except W` | A glob for paths the rule skips. |
 | `--each U` | Ask about each `file`, `method` or `test` instead of each file as a whole. |
 | `--sees S` | What else to show with a file or test: `file`, `calls`, `callers` or `neighbors`. |
+| `--context PATH` | A document to send with each file, method or test: a path from the repository root, or a file name to look for in the code's directory and the directories above it. |
 | `--min P` | The floor for this rule, in percent. |
 | `--gate yes\|no` | Whether breaking the rule fails a scan. Default yes. |
 | `--file F` | The rule file: `perch.yaml` or a `.yaml` file under `.perch/rules/`. `add` creates it, and `list` shows only it. |

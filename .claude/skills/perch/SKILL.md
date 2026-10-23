@@ -231,15 +231,15 @@ Added no-silent-failure.
 `--where` takes a glob. `--each` is `file`, `method` or `test`. `--min N` sets a floor
 for that rule alone. `--gate no` reports a rule without failing runs.
 
-`--ensure_absent` is for a claim about the codebase as a whole. It searches the
-likeliest places and stops at the answer.
+`--ensure_absent` is for something that must not be anywhere. Perch checks every file
+or method the rule covers and reports each one that has it.
 
-Rules ride in the request perch was already making about a method. Five rules on one
-method is one reading.
+Method rules that use `--ensure` are checked in the same request as perch's built-in
+questions, so adding them doesn't increase the number of requests.
 
 Say what breaks a rule and what satisfies it. A rule answering in the sixties about
-everything cannot tell anything apart. Reword it or drop it. Raising its floor until
-it keeps nothing is turning it off with extra steps.
+everything can't tell anything apart. Reword it or remove it, instead of raising its
+floor until it reports nothing.
 
 `perch rules list` shows every rule and question in force, and whether each fails a run.
 

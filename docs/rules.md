@@ -56,8 +56,9 @@ order-service at commit a71f48f: 3 methods, read 3
 
 A broken rule is reported with the type `lint`, and the Problem column shows the rule's name.
 
-Method rules are checked in the same request as Perch's built-in questions, so adding them doesn't increase the number of
-requests. Rules that apply to whole files or tests are sent as separate requests.
+Method rules that use `ensure` are checked in the same request as Perch's built-in questions, so adding them doesn't
+increase the number of requests. Other rules are sent in separate requests, and so are method rules with a
+[`context`](#context) document.
 
 ## Rule files
 
@@ -94,6 +95,7 @@ A rule must have a `name` and one of `ensure`, `ensure_present` or `ensure_absen
 | `except` | A glob for paths to skip. | none |
 | `each` | Check each `file`, `method` or `test` separately. | each file as a whole |
 | `sees` | Additional context to send with a file or test: `file`, `calls`, `callers` or `neighbors`. | none |
+| `context` | A document to send with each file, method or test, such as a style guide. See [context](#context). | none |
 | `min` | The minimum confidence, in percent, for reporting a break. You can also set one per model. See [Floors](#floors). | the scan's `--min`, which defaults to 50 |
 | `gate` | Whether a break fails the scan. | `true` |
 | `disabled` | Keeps the rule in the file without checking it. | `false` |
@@ -136,12 +138,43 @@ test, `sees: calls` sends the code the test calls. For a file, Perch starts from
 Files that Perch can't parse for methods, such as Markdown and YAML, have no call graph. For these files, `calls` sends
 the files in the same directory and below it, and `callers` sends the files in the directories above it.
 
+### context
+
+`context` sends a document with each file, method or test that the rule applies to, such as a style guide or a list of
+the terms that one part of the code uses:
+
+```yaml
+- name: billing-words
+  where: "src/**/*.js"
+  context: LANGUAGE.md
+  ensure: >-
+    The code uses the words LANGUAGE.md says to use, and none of the words it
+    says to avoid.
+```
+
+If `context` is a file name, Perch uses the nearest file with that name. It looks in the directory of the code being
+checked first, and then in each directory above it. In this example, `src/billing/invoice.js` is checked with
+`src/billing/LANGUAGE.md`, and a file in a directory without its own `LANGUAGE.md` is checked with the nearest one above
+it. If no directory above a file has a `LANGUAGE.md`, the rule doesn't check that file.
+
+If `context` contains a slash, such as `docs/style.md`, it's a path from the root of the repository. The scan fails if
+that file doesn't exist.
+
+When the document changes, Perch checks everything that uses it again. With `--since`, a branch that changes only the
+document is enough. `perch check` reads the document from disk, so it includes changes you haven't committed.
+
+Note: a method rule with `context` isn't checked in the same request as Perch's built-in questions. Perch sends a
+separate request for each method, with the method's callers and callees, so the rule costs one request per method.
+
 ### ensure, ensure_present and ensure_absent
 
 An `ensure` rule must be true of everything it applies to, so Perch checks every file, method or test that matches.
 
-`ensure_present` and `ensure_absent` are statements about the codebase as a whole. Perch searches the most likely
-candidates first, and stops as soon as it finds an answer. For example:
+An `ensure_absent` rule is also checked against everything it applies to. Perch reports each file, method or test that
+has the thing the rule describes.
+
+`ensure_present` is a statement about the codebase as a whole. Perch checks the most likely candidates first, and stops
+at the first one that has the thing the rule describes. For example:
 
 ```yaml
 - name: issues-closable
@@ -157,18 +190,16 @@ candidates first, and stops as soon as it finds an answer. For example:
     A command or flag that is parsed and then never used.
 ```
 
-A search stops as soon as it finds a match, so it's cheap when a match exists. When nothing matches, which is the normal
-case for a codebase that follows the rule, the search has to check everything it applies to. For example, the
-`no-dead-command` rule above checks every method in `src` before it can report that none of them has an unused flag.
+An `ensure_present` rule is cheap when the thing exists, because Perch stops as soon as it finds it. When it doesn't
+exist, Perch checks everything the rule applies to before it reports the rule as broken. An `ensure_absent` rule always
+checks everything it applies to, so the `no-dead-command` rule above checks every method in `src`.
 
-Note: a rule checks at most 400 files, methods or tests, and skips the rest without reporting it. An `ensure_present` rule
-that applies to more than 400 of them can report that something is missing when it isn't.
+With `--since`, a rule applies only to the code that the branch changed.
 
 To see how much a single rule costs, run it on its own with `perch scan --filter rule=<name>`.
 
-Once a search has found where a problem is, you can make the rule cheaper by narrowing `where` to that part of the code.
-For example, this rule from Perch's own `perch.yaml` applies only to the few methods that call `issues()`, instead of
-the roughly 400 methods under `src`:
+You can make a rule cheaper by narrowing `where` to the part of the code it's about. For example, this rule from Perch's
+own `perch.yaml` applies only to the few methods that call `issues()`, instead of every method under `src`:
 
 ```yaml
 - name: closed-never-listed
