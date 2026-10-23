@@ -1,4 +1,4 @@
-import { rm, writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { git, revision } from '../src/git.js';
@@ -158,6 +158,43 @@ describe('method answers carried by a filtered scan', () => {
       expect(row.severity).toEqual(before.severity);
       expect(issuesOf(row)).toContainEqual(expect.objectContaining({ label: 'retained', probability: 0.9 }));
     }
+  });
+
+  it('carries no answer about code that has changed onto a reading of the new code', async () => {
+    const repo = await repoWith(retained + other);
+    const options = { ...repo, analyzer };
+    await scanRepository({ ...options, revision: await revision(repo.root), systemOne: scriptedSystemOne({ 'src/a.js::f': { retained: 0.1, has_bug: 0.9 } }) });
+    const before = await reading(repo.out);
+    const source = join(repo.root, 'src', 'a.js');
+    await writeFile(source, (await readFile(source, 'utf8')).replace('return g(x);\n}', 'return g(x) + 1;\n}'));
+    await commitAll(repo.root, 'change f');
+
+    // A filter that skips the method keeps the earlier reading, still under the hash of the code it was about.
+    await scanRepository({ ...options, revision: await revision(repo.root), systemOne: scriptedSystemOne(), filters: skipped });
+    expect(await reading(repo.out)).toMatchObject({ hash: before.hash, has_bug: 0.9, retained: 0.1 });
+
+    // A filter that reads the method writes a reading of the new code, and the earlier answers were about the old code.
+    await scanRepository({ ...options, revision: await revision(repo.root), systemOne: scriptedSystemOne(), filters: defect });
+    const after = await reading(repo.out);
+    expect(after.hash).not.toBe(before.hash);
+    expect(after.has_bug).toBe(0.2);
+    expect(after).not.toHaveProperty('retained');
+    expect(Object.keys(after.answer_hashes).sort()).toEqual(['bug_edge_case', 'has_bug', 'kind', 'severity']);
+  });
+
+  it('writes the row an unfiltered run would under a filter that asks the whole set', async () => {
+    const repo = await repoWith(retained + other);
+    const options = { ...repo, revision: await revision(repo.root), analyzer };
+    await scanRepository({ ...options, systemOne: scriptedSystemOne({ 'src/a.js::f': { cwe_89: 0.9 } }), filters: [{ key: 'type', value: 'security' }] });
+    expect((await reading(repo.out)).cwe_89).toBe(0.9);
+    // A severity names no question, so the run asks what an unfiltered one does and keeps nothing it did not ask.
+    await scanRepository({ ...options, systemOne: scriptedSystemOne(), filters: [{ key: 'severity', value: 'p1' }] });
+    const severity = await reading(repo.out);
+    await scanRepository({ ...options, systemOne: scriptedSystemOne() });
+    const unfiltered = await reading(repo.out);
+    expect(severity).not.toHaveProperty('cwe_89');
+    expect(severity.answer_hashes).toEqual(unfiltered.answer_hashes);
+    expect(severity.answers_set).toBe(unfiltered.answers_set);
   });
 
   it.each([['reading', defect], ['skipping', skipped]])('discards legacy answers without fingerprints when %s the method', async (_, filters) => {

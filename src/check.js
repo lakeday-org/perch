@@ -161,8 +161,8 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
     const prepare = budget => unitSteps({ rules: together, unit, source: body, seen: neighbourhood(sees, unit, { graph: unit.graph, files: new Map([[unit.path, unit.text]]) }), budget });
     const steps = prepare(systemOne.limits?.state);
     debug(`${together.map(rule => rule.name).join(', ')}: ${unit.name}`);
-    const { answers } = await askUnitSteps({ systemOne, steps, prepare, rules: together });
-    return together.map(rule => ({ rule: rule.name, said: rule.text, broken: brokenHere(rule, answers), floor: floorFor(rule, BELIEVED) }));
+    const { answers, model } = await askUnitSteps({ systemOne, steps, prepare, rules: together });
+    return together.map(rule => ({ rule: rule.name, said: rule.text, broken: brokenHere(rule, answers), floor: floorFor(rule, BELIEVED, model) }));
   }))).flat();
   // Each rule's own floor, the same one a scan reads it by. A flat 50% here called a rule broken that a scan would not list, so
   // fixing what check said was wrong left the run still green and fixing what the run said left check still red.
@@ -185,8 +185,9 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
       const asked = methodQuestions(kinds, languageOf(unit.path), { topLevel: Boolean(unit.own) });
       const prepare = budget => methodSteps({ node, lines: unit.lines, callees: context.callees, callers: context.callers, edges: context.edges, asked, budget });
       const steps = prepare(systemOne.limits?.state);
-      const { answers } = await questionMethod({ systemOne, node, steps, prepare, debug });
-      issues = issuesOf({ ...answers, metrics: node.metrics });
+      const { response, answers } = await questionMethod({ systemOne, node, steps, prepare, debug });
+      // Floors are read for the model that answered, as they are for a reading a scan records.
+      issues = issuesOf({ ...answers, model: response.model, metrics: node.metrics });
       if (named.types.length) issues = issues.filter(issue => named.types.includes(issue.type));
     }
   }

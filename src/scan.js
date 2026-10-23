@@ -12,9 +12,8 @@ import { attributeRules, createFileSelector, declaredGenerated, generatedText } 
 import { buildGraph } from './graph.js';
 import { createLineReader, methodNeighbours } from './context.js';
 import { createChangeReader } from './change-context.js';
-import { isReviewQuestion, reviewQuestions, reviewSteps } from './review.js';
-import { appliesToLanguage, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES, setHash } from './ask.js';
-import { issuesOf, label as kindLabel, methodSteps, readAnswers } from './questions.js';
+import { appliesToLanguage, CORRECTNESS, floorFor, DEFAULT_TYPES, narrows, questionSet, questionsFor, SEARCHES, setHash } from './ask.js';
+import { changeSteps, issuesOf, label as kindLabel, methodSteps, readAnswers } from './questions.js';
 import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL, unitHash } from './units.js';
 import { findingId, identity, openStore } from './store.js';
 import { TOKEN_LIMITS, IncompleteCheckError, withTokenRetries } from './tokens.js';
@@ -43,7 +42,6 @@ export function mergeAnswers(readings, questions = questionSet().filter(question
   const grows = questions.filter(question => question.type === 'noul' && (CORRECTNESS.has(question.issue?.type) || gates.has(question.name))
     && readings.some(reading => reading[question.name] !== undefined));
   for (const later of readings.slice(1)) {
-    for (const question of questions) if (merged[question.name] === undefined && later[question.name] !== undefined) merged[question.name] = later[question.name];
     if (later.has_bug > merged.has_bug) Object.assign(merged, { has_bug: later.has_bug, kind: later.kind, severity: later.severity });
     for (const question of grows) merged[question.name] = Math.max(merged[question.name] ?? 0, later[question.name] ?? 0);
   }
@@ -51,26 +49,31 @@ export function mergeAnswers(readings, questions = questionSet().filter(question
   return merged;
 }
 
-/** One System One reading of a method, in as many passes as its length takes. */
+/**
+ * One System One reading of a method, in as many passes as its length takes. On `--since` a method can have two readings, the
+ * diff and the ordinary one, asking different questions: each merges its own passes, and together they hold every answer.
+ */
 export async function questionMethod({ systemOne, node, step, steps = [step], rules = [], debug = () => {}, prepare }) {
   return withTokenRetries(async budget => {
     if (budget < (systemOne.limits?.state ?? TOKEN_LIMITS.state) && !prepare) throw new IncompleteCheckError('source cannot be rebuilt for a smaller token budget');
     const active = steps?.[0] && budget === (systemOne.limits?.state ?? TOKEN_LIMITS.state) ? steps : prepare ? prepare(budget) : steps;
     debug(`asking ${systemOne.id} about ${node.qualified_name} in ${node.path}:${node.line} (${Object.keys(active[0].questions).length} questions${active.length > 1 ? ` over ${active.length} passes` : ''})`);
-    const readings = [], usage = { input_tokens: 0, output_tokens: 0 };
+    const readings = new Map(), usage = { input_tokens: 0, output_tokens: 0 };
     let response;
     for (const pass of active) {
       response = await systemOne.ask(pass.state, pass.questions);
       usage.input_tokens += response.usage?.input_tokens ?? 0;
       usage.output_tokens += response.usage?.output_tokens ?? 0;
-      readings.push(readAnswers(response.answers, pass));
+      const set = setHash(pass.asked);
+      readings.set(set, [...(readings.get(set) ?? []), { pass, answers: readAnswers(response.answers, pass) }]);
     }
-    const answers = mergeAnswers(readings, [...questionSet().filter(question => question.each === 'method' && !question.kind), ...rules]);
+    const questions = [...questionSet().filter(question => question.each === 'method' && !question.kind), ...rules];
+    const answers = Object.assign({}, ...[...readings.values()].map(passes => mergeAnswers(passes.map(item => item.answers), questions)));
     const asked = [...new Map(active.flatMap(pass => pass.asked).map(question => [question.name, question])).values()];
     answers.answers_set = setHash(asked);
     answers.answer_hashes = Object.fromEntries(asked.map(question => [question.name, question.hash]));
     // A partial source reading must remain visible instead of looking like a complete method check.
-    const to = active.at(-1).covers.end_line;
+    const to = Math.min(...[...readings.values()].map(passes => passes.at(-1).pass.covers.end_line));
     if (to < node.end_line) answers.read = { passes: active.length, to_line: to, of_line: node.end_line };
     return { response: { ...response, usage }, answers };
   }, systemOne.limits?.state);
@@ -143,9 +146,24 @@ const createWalk = (graph, candidates, inScope = () => true) => {
 const ABOUT_A_NAME = new Set(['does_what_it_claims', 'documented']);
 
 export const methodQuestions = (kinds, language, { topLevel = false } = {}) => questionsFor(
-  questionSet().filter(question => question.each === 'method' && !question.kind && !isReviewQuestion(question) && appliesToLanguage(question, language)
+  questionSet().filter(question => question.each === 'method' && !question.kind && appliesToLanguage(question, language)
     && !(topLevel && ABOUT_A_NAME.has(question.name))),
   kinds ? [...kinds].map(value => ({ key: 'type', value })) : []);
+
+/**
+ * How `--since` splits what a method is asked. perch's own defect questions, with the kind that names a defect and the severity
+ * that ranks it, are asked over the diff, and only of a method a hunk touched. Custom rules and any other type the run asks keep
+ * the ordinary reading, with callers and callees. The two ask nothing in common.
+ */
+export function sinceQuestions(asked, changed) {
+  const bugs = questionsFor(asked.filter(question => !question.kind), [{ key: 'type', value: 'defect' }]);
+  const rest = asked.filter(question => question.kind || question.issue?.type !== 'defect');
+  // What the rest raises, with what that needs: a vulnerability is ranked by severity too.
+  const types = [...new Set(rest.filter(question => question.issue).map(question => question.issue.type))];
+  const ordinary = types.length ? questionsFor(rest, types.map(value => ({ key: 'type', value }))) : [];
+  const diff = changed ? bugs : [];
+  return { diff, ordinary: ordinary.filter(question => !diff.some(other => other.name === question.name)) };
+}
 
 /** The row's own fields, apart from answers whose question may no longer exist. */
 const READING_FIELDS = new Set(['type', 'at', 'id', 'run_id', 'root', 'github', 'revision', 'method', 'path', 'name', 'line', 'end_line', 'hash', 'risk', 'model', 'callees', 'callers', 'passes', 'read']);
@@ -190,8 +208,9 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const graph = buildGraph(scan.files, { crates: scan.crates, modules: scan.modules, focus: paths.length ? covers(paths) : null });
   const changeOf = since ? await createChangeReader(root, since, revision) : async () => null;
   const rules = asRules(await readRules(root, revision));
-  // Which issue types this run asks about, and so which of perch's own questions ride in every request.
-  const kinds = typesAsked(await readScanTypes(root, revision), filters);
+  // Which issue types this run asks about, and so which of perch's own questions ride in every request. A filter of types, kinds
+  // and rules then asks only the questions that can raise what it lists; any other filter asks the whole set.
+  const kinds = typesAsked(await readScanTypes(root, revision), filters), narrowed = narrows(filters);
   // --since and --paths say what this run reads, not what perch knows. A method outside is neither read nor reported here, and
   // what the last run said about it is carried onto the file at the end rather than dropped.
   // What perch.yaml says not to read at all, on top of what this run was asked to cover. A fixture kept so the docs can show real
@@ -257,20 +276,16 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // not six.
     // A filter narrows what is asked, not just what is printed. Asking thirty questions about a method to print two is paying
     // for twenty-eight answers nobody reads, and a method no kept question covers is not read at all.
-    const lines = await linesOf(node), change = await changeOf(node);
-    const applicable = rulesForMethod(rules, node);
-    const extra = since ? questionsFor(reviewQuestions({ language: node.language, source: lines.slice(node.line - 1, node.end_line).join('\n'), callers, callees, change,
-      filters: [...kinds].map(value => ({ key: 'type', value })), rules: applicable }), filters, kindLabel) : [];
-    const ordinaryTypes = since ? new Set([...kinds].filter(type => !CORRECTNESS.has(type))) : kinds;
-    const base = questionsFor([...(ordinaryTypes.size ? methodQuestions(ordinaryTypes, node.language, { topLevel: Boolean(node.lines) }) : []),
-      ...(!since ? applicable.filter(q => !isReviewQuestion(q)) : [])], filters, kindLabel);
-    const focused = questionsFor([...extra, ...(since ? applicable.filter(q => !isReviewQuestion(q)) : [])], filters, kindLabel);
-    const asked = [...base, ...focused];
-    askedByMethod.set(node.id, asked);
-    const own = asked.filter(question => question.kind);
-    if (!asked.length) return { node, calleeIds, callerIds, rules: own, skip: true };
-    const prepare = budget => [...(base.length ? methodSteps({ node, lines, callees, callers, edges, asked: base, budget }) : []),
-      ...reviewSteps({ node, lines, callees, callers, change, asked: focused, budget })];
+    // On --since, the bug questions are asked over the diff, and only of a method a hunk touched; the rest keep this reading.
+    const asked = questionsFor([...methodQuestions(kinds, node.language, { topLevel: Boolean(node.lines) }), ...rulesForMethod(rules, node)], filters, kindLabel);
+    const change = since ? await changeOf(node) : null;
+    const { diff, ordinary } = since ? sinceQuestions(asked, Boolean(change)) : { diff: [], ordinary: asked };
+    askedByMethod.set(node.id, [...diff, ...ordinary]);
+    const own = ordinary.filter(question => question.kind);
+    if (!diff.length && !ordinary.length) return { node, calleeIds, callerIds, rules: own, skip: true };
+    const lines = await linesOf(node);
+    const prepare = budget => [...(diff.length ? changeSteps({ node, lines, change, asked: diff, budget }) : []),
+      ...(ordinary.length ? methodSteps({ node, lines, callees, callers, edges, asked: ordinary, budget }) : [])];
     const steps = prepare(systemOne.limits?.state);
     return { node, calleeIds, callerIds, rules: own, steps, prepare };
   };
@@ -286,10 +301,12 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     for (const { node, calleeIds, callerIds, rules: own, response, answers, skipped } of results) {
       // A filter narrows which questions are asked, not which code the run is about, so what it did not ask about is what the
       // last run said rather than nothing at all. Rewriting the file whole with only the answers this run happened to want threw
-      // away every other answer on the same method. Only unchanged questions still covering it can keep those answers.
+      // away every other answer on the same method. Only unchanged questions still covering it can keep those answers. A filter
+      // that asks the whole set, such as a severity, writes the row an unfiltered run would. An answer about code that has since
+      // changed is not carried onto a reading of the new code, where it would look like an answer about it.
       const applicable = [...methodQuestions(null, node.language, { topLevel: Boolean(node.lines) }), ...rulesForMethod(rules, node)];
-      const previous = filters.length ? earlier.get(node.id) : null;
-      const before = previous ? carryAnswers(previous, applicable) : null;
+      const previous = narrowed ? earlier.get(node.id) : null;
+      const before = previous && (skipped || previous.hash === node.hash) ? carryAnswers(previous, applicable) : null;
       if (skipped) { run.skipped++; if (before) read.push(before); continue; }
       run.calls++;
       run.usage.input_tokens += response?.usage?.input_tokens ?? 0; run.usage.output_tokens += response?.usage?.output_tokens ?? 0;
@@ -304,7 +321,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
       // keeps its own tally, which is what the exit code and the summary read.
       for (const rule of own) {
         const failed = 1 - (event[rule.name] ?? 1);
-        if (failed > floorFor(rule, min) && !setAside(findingId(node.id), rule.name)) run.broken.push({ rule: rule.name, path: node.path, name: node.qualified_name, line: node.line, broken: failed, said: rule.text });
+        if (failed > floorFor(rule, min, event.model) && !setAside(findingId(node.id), rule.name)) run.broken.push({ rule: rule.name, path: node.path, name: node.qualified_name, line: node.line, broken: failed, said: rule.text });
       }
       const follow = event.follow?.method;
       walk.enqueue([...calleeIds, ...callerIds].filter(other => other !== follow));
@@ -428,7 +445,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // or broken, since a pass is what lets the next run skip asking it; only the broken ones are anything to report.
     broken.push(...units.results, ...searches.results);
     run.broken.push(...[...units.results, ...searches.results]
-      .filter(result => result.broken > floorFor(rules.find(rule => rule.name === result.rule), min) && !setAside(result.id, result.rule)));
+      .filter(result => result.broken > floorFor(rules.find(rule => rule.name === result.rule), min, result.model) && !setAside(result.id, result.rule)));
     // Every question the run asked, yours and perch's alike. A question perch ships can cover nothing and raise nothing for the
     // same reasons one you wrote can, and a report of a run that names only half of what it asked is half a report.
     const raised = new Map();

@@ -8,6 +8,12 @@ import { TOKEN_LIMITS, estimateTokens, questionBatches, IncompleteCheckError, Co
 export const SEVERITY_BANDS = ['P3', 'P2', 'P1', 'P0'];
 
 /**
+ * A score's distribution, or null when it has none. A reply that carries no probabilities is read as `{}`, and an empty
+ * distribution has no likeliest level to name, so it reads as a score with no spread rather than one that throws.
+ */
+const distribution = severity => (Object.keys(severity?.probabilities ?? {}).length ? severity.probabilities : null);
+
+/**
  * Where the score actually lands, on the P scale the bands are written in. A score carries its whole distribution, and naming a
  * method by the band holding the most of it throws that away: a spread of 33/31/30/6 is called P0 on the strength of a third of
  * the mass, and reads as worse than a method with 54% on P1 and 29% on P0 that is in fact expected to do more damage.
@@ -17,7 +23,7 @@ export const SEVERITY_BANDS = ['P3', 'P2', 'P1', 'P0'];
  * beside it. The band a method files under is that number rounded, and `likeliest` is still the single band holding the most.
  */
 export function severityOf(severity) {
-  const probabilities = severity?.probabilities;
+  const probabilities = distribution(severity);
   if (!probabilities) return severity?.level ? { band: severity.level, likeliest: severity.level, predicted: null, probability: null, expected: null } : null;
   const entries = Object.entries(probabilities).map(([level, p]) => [Number(level), p]);
   const [likeliest, probability] = entries.sort((a, b) => b[1] - a[1])[0];
@@ -75,12 +81,13 @@ export const BELIEVED = 0.5;
 export function issuesOf(answers, min = BELIEVED, questions = questionSet()) {
   const found = issues(answers, min, questions, label);
   // A broken rule arrives as a finding of its own rather than as answers, since it may be about a file with no methods at all,
-  // and a report of it must read the same whether or not the rule is still in the set that declared it.
+  // and a report of it must read the same whether or not the rule is still in the set that declared it. `from` is the rule, which
+  // is what decides whether it fails the run: a rule declaring its own `issue.label` raises that label, not its name.
   if (answers.lint) {
     const rule = questions.find(question => question.name === answers.lint.rule);
-    const floor = floorFor(rule, min);
+    const floor = floorFor(rule, min, answers.model);
     if (answers.lint.broken > floor) {
-      found.push({ type: 'lint', label: answers.lint.rule, probability: answers.lint.broken, floor, text: `${answers.lint.rule} ${percent(answers.lint.broken)}` });
+      found.push({ type: 'lint', label: answers.lint.rule, from: answers.lint.rule, probability: answers.lint.broken, floor, text: `${answers.lint.rule} ${percent(answers.lint.broken)}` });
       found.sort((a, b) => b.probability - a.probability);
     }
   }
@@ -132,8 +139,15 @@ const ALSO_KNOWN = { bug: 'defect' };
 export const meaning = value => ALSO_KNOWN[canon(value)] ?? canon(value);
 /** The other words for a type, so a listing of what a filter takes can say them rather than let you find out by being wrong. */
 export const alsoKnownAs = type => Object.keys(ALSO_KNOWN).filter(word => ALSO_KNOWN[word] === type);
-/** How much of the score's mass sits in the band the method files under: how sure the filter's answer is. */
-const bandWeight = severity => severity?.probabilities?.[SEVERITY_BANDS.indexOf(severityBand(severity))] ?? 1;
+/**
+ * How much of the score's mass sits in the band the method files under: how sure the filter's answer is. A level a distribution
+ * leaves out holds none of it, and a band named by the mean can be one of those: 50% on P3 and 50% on P0 files under P1. Only a
+ * score with no distribution at all is taken at its word.
+ */
+const bandWeight = severity => {
+  const probabilities = distribution(severity);
+  return probabilities ? probabilities[SEVERITY_BANDS.indexOf(severityBand(severity))] ?? 0 : 1;
+};
 
 /** `type=security,kind=too big` as a list of tests; an unknown key or value is an error naming what is allowed. */
 export function parseFilters(text, rules = []) {
@@ -340,18 +354,39 @@ export function methodSteps({ node, lines, callees = [], callers = [], edges = [
 }
 
 /**
+ * The reading `--since` gives a method the branch changed: its own lines, what they were at the merge base, and the diff hunks
+ * over them, with no callers, callees or graph. Each part of the change is cut to as many characters as a quarter of the token
+ * budget, and the method is read in chunks of a third of the budget, each with the change beside it. `change` is what
+ * createChangeReader returned for the method.
+ */
+export function changeSteps({ node, lines, change, asked, budget = STATE_BUDGET }) {
+  const source = spanOf(node, lines).map(text => text ?? '').join('\n');
+  const clip = text => text.slice(0, Math.max(32, Math.floor(budget / 4)));
+  const shown = Object.fromEntries(Object.entries(change).map(([key, part]) => [key, { ...part, source: clip(part.source), partial: part.partial || clip(part.source) !== part.source }]));
+  const questions = compile(asked);
+  return sourceChunks(source, { path: node.path, maxTokens: Math.max(128, Math.floor(budget / 3)) }).map(chunk => {
+    const start = node.line + chunk.line - 1;
+    const state = { method: { path: node.path, name: node.qualified_name, source: chunk.source, start_line: start }, change: shown,
+      reading: { start_byte: chunk.startByte, end_byte: chunk.endByte, partial: chunk.startByte !== 0 || chunk.endByte < Buffer.byteLength(source) } };
+    if (estimateTokens(state) > budget) throw new ContextLimitError(`${node.path}: change context exceeds the token budget`, budget / 2);
+    questionBatches(state, questions);
+    return { state, questions, asked, calls: [], calledBy: [], neighbors: [], covers: { line: start, end_line: start + chunk.source.split('\n').length - 1 } };
+  });
+}
+
+/**
  * Typed answers reduced to what the walk and the log use. Every declared question is kept under its own name, whatever it is, so
  * a class added to the question set is recorded without this function being told. The rest is the machinery's own answer: which
  * method to read next.
  */
 export function readAnswers(answers, { neighbors, asked = questionSet().filter(question => question.each === 'method') }) {
-  const followAnswer = answers.follow ?? { choice: 'none', confidence: 1, probabilities: { none: 1 } };
-  const follow = followAnswer.choice;
   const read = { answers_set: setHash(asked), answer_hashes: Object.fromEntries(asked.map(question => [question.name, question.hash])) };
   for (const question of asked) read[question.name] = readAnswer(question, answers[question.name]);
+  const follow = answers.follow?.choice;
   return {
     ...read,
     ...(read.severity ? { severity: { ...read.severity, level: severityOf(read.severity)?.band ?? null, predicted: severityOf(read.severity)?.predicted ?? null } } : {}),
-    follow: { method: neighbors.some(item => item.id === follow) ? follow : null, confidence: followAnswer.confidence, probabilities: followAnswer.probabilities },
+    // A --since reading of the diff is not asked which method to read next. The ordinary reading beside it, when there is one, is.
+    ...(answers.follow ? { follow: { method: neighbors.some(item => item.id === follow) ? follow : null, confidence: answers.follow.confidence, probabilities: answers.follow.probabilities } } : {}),
   };
 }

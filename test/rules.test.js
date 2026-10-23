@@ -323,7 +323,8 @@ rules:
     // The copy is scan.yaml's own lines, moved in to sit under rules:, with the one change on it.
     const scan = await readFile(new URL('../scan.yaml', import.meta.url), 'utf8');
     const shipped = scan.slice(scan.indexOf('- name: has_bug\n'), scan.indexOf('- name: bug_edge_case\n'));
-    expect(written.slice(WRITTEN_BY_HAND.length)).toBe(shipped.replace(/^(?=.)/gm, '  ').replace(/min: \d+/, 'min: 65'));
+    // A floor given per model is one floor once --min sets it.
+    expect(written.slice(WRITTEN_BY_HAND.length)).toBe(shipped.replace(/^(?=.)/gm, '  ').replace(/min:(?: \d+$|(?:\n {6}.*)+)/m, 'min: 65'));
     expect((await rules()).find(rule => rule.name === 'has_bug')).toMatchObject({ min: 65, each: 'method' });
 
     // Turned off and asked for back, it comes back the same way.

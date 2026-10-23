@@ -46,12 +46,11 @@ perch scan [target] [options]
 `--paths` and `--since` narrow it further. Exits 3 on a defect, a vulnerability,
 or a custom rule that broke.
 
-With `--since`, defect and security scans use two focused readings: current code
-with previous source and the relevant diff, then applicable caller-contract,
-cleanup and access questions. Custom method rules join the contract reading.
-Previous source comes from the merge base with `REF`. The questions ask about
-bugs in the current code; they do not require proving that the branch introduced
-the bug. Defect and security filters apply to these readings too.
+With `--since`, each method the branch changed gets its own request for the bug
+questions: `has_bug`, `bug_edge_case`, `kind` and `severity`. That request holds
+the method, its previous code from the merge base with `REF`, and the diff. It
+has no callers or callees. A method no diff hunk touches is not asked the bug
+questions. Custom rules keep their usual request, with callers and callees.
 
 | Flag | |
 | --- | --- |
@@ -59,6 +58,7 @@ the bug. Defect and security filters apply to these readings too.
 | `--include-tests` | Review parsed tests and their support code as well as production methods. |
 | `--include-files` | Also parse documents, configuration, styles and templates using their own grammars. |
 | `--since REF` | Only what changed since this branch or commit. `--since origin/main` is what CI wants. |
+| `--filter k=v` | Decides what is asked: only the questions that can raise a matching issue. For example `type=security`, `kind=off_by_one` or `rule=no-silent-failure`; `severity=` asks everything. Exits 3 only on what it lists. |
 | `--parallel N` | How many methods to read at once. Default 32; files and tests go 32 at a time, alongside the methods. |
 | `--force` | Ask Perch Cloud again instead of using cached answers, and keep the new answers. |
 | `--all` | List every row instead of the top 10. |

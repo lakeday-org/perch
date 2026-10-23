@@ -91,7 +91,7 @@ If your root `.gitignore` ignores `.perch` or its contents, replace that entry w
 | `except` | A glob it spares. | nothing |
 | `each` | `file`, `method`, or `test`. | the file as a whole |
 | `sees` | What a file or test is shown besides itself: `file`, `calls`, `callers`, or `neighbors`. | itself |
-| `min` | The floor for this rule alone, in percent. | the run's `--min` |
+| `min` | The floor for this rule alone, in percent, or one per model. See [floors](#floors). | the run's `--min` |
 | `gate` | Whether breaking it fails the run. | `true` |
 | `disabled` | Keeps the rule in the file without asking it. | `false` |
 
@@ -132,12 +132,6 @@ sees: callers      # what calls it
 sees: neighbors    # both
 sees: file         # the whole file it lives in
 ```
-
-During `scan --since REF`, a method question may use `sees: change` for a
-reading with previous source and the diff, or `sees: contracts` to join
-the focused caller/callee reading. Both require `each: method` and apply
-only to branch scans. A change question is skipped when its method has no
-overlapping diff hunk. Ordinary method rules still use their usual graph context.
 
 `calls` and `callers` walk the call graph outward from the unit, nearest first.
 What it calls directly comes before what that calls. Eight is the cap, so it cuts
@@ -250,11 +244,9 @@ Fails column, and a custom rule is read no differently from perch's own:
 ```console
 $ perch rules list
 Question       From     Asks         Fails  Over  Description
-has_bug        builtin  noul >60%    yes    **/*  Does `method` contain a concrete behavioral
-                                                  defect that a caller can reach?
-bug_edge_case  builtin  noul >60%    yes    **/*  Does `method` produce a wrong result for a
-                                                  valid empty, zero, first, last, or missing
-                                                  input?
+has_bug        builtin  noul >60%    yes    **/*  Does `method` contain a functional bug?
+bug_edge_case  builtin  noul >60%    yes    **/*  Does `method` mishandle a supported empty
+                                                  value, boundary value or alternate branch?
 refactor       builtin  choice >60%  yes    **/*  Judging from `method`, its `metrics`
                                                   (risk_score and maintainability_index run
                                                   0-100, cyclomatic_complexity and max_nesting
@@ -432,11 +424,23 @@ Every question carries a floor, in percent. Below it, an answer is not listed.
 | 70% | Most security checks |
 | 60% | `has_bug`, `bug_edge_case`, `refactor`, `cwe_79` (XSS), `cwe_89` (SQL injection), `cwe_125` (out-of-bounds read) |
 
-A score near 50% is a weak signal, not a calibrated probability of a bug, so the
-bug checks list nothing at 60% or below. A higher floor misses more bugs; use
-`--min` to choose a stricter floor for a run. XSS, SQL injection, and
-out-of-bounds reads have 60% floors; the other security checks use 70%. These
-are alert cutoffs, not calibrated probabilities that a vulnerability exists.
+A score near 50% is a weak signal, not a calibrated probability of a bug. The
+bug checks list nothing at 60% or below, from every model. A higher floor misses
+more bugs; use `--min` to choose a stricter floor for a run.
+XSS, SQL injection, and out-of-bounds reads have 60% floors; the other security
+checks use 70%. These are alert cutoffs, not calibrated probabilities that a
+vulnerability exists.
+
+A floor can depend on the model that gave the answer. `min` then maps model id
+prefixes to floors, with a `default` for every other model:
+
+```yaml
+min:
+  gpt-6-luna: 80
+  default: 60
+```
+
+When several prefixes match a model id, the longest one sets the floor.
 
 `--min` sets a floor for a whole run. Both apply and the higher wins. Asking for
 `--min 90` gets you nothing at 73%, whatever a question set for itself.

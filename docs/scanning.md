@@ -92,10 +92,14 @@ order-service at commit 6b1cce2: 5 methods, read 5
 
 This is the scan to run on a pull request. [perch in CI](/ci/) has the jobs.
 
+A method the branch changed is asked the bug questions over its previous code
+and the diff, without its callers. Custom rules are asked of every method in the
+changed files, with callers and callees in view.
+
 ## One kind of problem
 
-`--filter` reports one type, kind or severity. A scan asks about defects and rules by default, and
-`--filter type=security` asks about vulnerabilities as well:
+`--filter` decides what a scan asks. A scan asks about defects and rules by default, and
+`--filter type=security` asks about vulnerabilities instead:
 
 ```console
 $ perch scan --filter type=security
