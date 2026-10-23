@@ -26,10 +26,10 @@ export const EACH = ['file', 'method', 'test'];
  */
 export const SEES = ['self', 'file', 'calls', 'callers', 'neighbors'];
 /**
- * `ensure` is asked of every unit and every unit has to satisfy it. The other two are asked of units in turn until one answers,
- * because the claim is about the codebase and not about any one file: `ensure_present` passes at the first unit that has the
- * thing, `ensure_absent` fails at the first unit that has it. Passing a present rule is cheap and proving an absent rule is not,
- * which is the right way round — proving an absence is the expensive claim.
+ * `ensure` is asked of every unit and every unit has to satisfy it. `ensure_absent` is asked of every unit too, and each unit that
+ * has the thing breaks it. `ensure_present` is a claim about the codebase and not about any one file, so it is asked of units in
+ * turn and passes at the first that has the thing. Passing a present rule is cheap and proving an absent rule is not, which is
+ * the right way round — proving an absence is the expensive claim.
  */
 export const ENSURES = ['ensure', 'ensure_present', 'ensure_absent'];
 export const SEARCHES = kind => kind === 'ensure_present' || kind === 'ensure_absent';
@@ -139,7 +139,11 @@ export function check(question, at, noun = 'question') {
     kind: full.kind ?? null, text: full.text ?? null, at,
     // As it was written, so a question perch ships can be copied into your own file and changed from there.
     declared: question,
-    hash: sha(JSON.stringify([full.ask, full.true, full.false, full.options, full.levels, full.where, full.language, full.except, full.each, full.sees])) };
+    // A search's kind is in its hash. ensure_present and ensure_absent ask the same question and read the answer opposite ways,
+    // and an absent rule's checks are kept per unit where they were once one row for the whole search, so a check kept from one
+    // shape is not an answer in the other.
+    hash: sha(JSON.stringify([full.ask, full.true, full.false, full.options, full.levels, full.where, full.language, full.except, full.each, full.sees,
+      ...(SEARCHES(full.kind) ? [full.kind] : [])])) };
 }
 
 /** A missing language selector applies to every parsed language. */

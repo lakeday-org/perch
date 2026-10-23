@@ -146,8 +146,11 @@ shallowest first. `callers` is what sits above it, nearest first.
 
 `ensure` has to hold everywhere, so every unit it covers is asked.
 
-`ensure_present` and `ensure_absent` are claims about the codebase rather than
-any one file. They search the likeliest units first and stop at the answer.
+`ensure_absent` is asked of every unit too, and reports each unit that has the
+thing.
+
+`ensure_present` is a claim about the codebase rather than any one file. It
+searches the likeliest units first and stops at the first that has the thing.
 
 ```yaml
 - name: issues-closable
@@ -168,15 +171,13 @@ any one file. They search the likeliest units first and stop at the answer.
 A search is how you find out whether something is true of a codebase you have not
 read. That is worth having, and it is the most expensive thing perch does.
 
-It stops at the first unit that answers, so a rule that finds what it is looking
-for early is cheap. A rule with no answer anywhere reads every unit it covers.
-`ensure_absent` over `src/**/*.js` with `each: method` asks about every method in
-`src` before it can say nothing has the thing, and that is the case a clean
-codebase hits on every run. Three such rules account for most of a scan here.
+`ensure_present` stops at the first unit that has the thing, so a rule that finds
+it early is cheap. One with no answer anywhere reads every unit it covers.
+`ensure_absent` always reads every unit it covers: over `src/**/*.js` with
+`each: method` it asks about every method in `src`. Three such rules account for
+most of a scan here.
 
-A rule reads at most 400 units, search or not. Past that the rest are skipped
-without a word, so an `ensure_present` rule over more than 400 units can report
-that nothing has the thing when something does.
+Under `--since`, a rule covers only the code the branch changed.
 
 `perch scan --filter rule=<name>` runs one rule on its own, which is how to see
 what a search costs.

@@ -21,8 +21,6 @@ import { languageOf } from './analysis.js';
 export const RULES_FILE = 'perch.yaml', RULES_DIR = '.perch/rules';
 /** A rule is believed to be broken when the model puts more than half its weight there, the same line the scan draws. */
 export const BELIEVED = 0.5;
-/** Units one rule may ask about in a single run, so a mistyped selector cannot spend a repository's worth of requests. */
-export const MAX_UNITS = 400;
 /**
  * Questions in flight at once when the unit is not a method. A method's request carries its whole neighborhood and thirty
  * questions; this is one question about one unit and a few kilobytes, so it can go far wider. Overshooting a rate limit is not a
@@ -390,9 +388,12 @@ export async function locateBreak({ systemOne, rule, unit, body }) {
       maxTokens = Math.max(128, Math.floor(maxTokens / 2));
     }
     let picked = chunks[0], confidence = -1;
+    // An absent rule's text is the thing it forbids, so it is broken where that thing is, and asked for by name.
+    const instructions = rule.kind === 'ensure_absent' ? `Does this excerpt contain the following? ${rule.text}`
+      : `Does this excerpt contain evidence that the following rule is broken? ${rule.text}`;
     if (chunks.length > 1) for (const chunk of chunks) {
       const { answers } = await systemOne.ask({ path: unit.path, source: chunk.source, reading: { partial: true } },
-        { has_break: { type: 'noul', instructions: `Does this excerpt contain evidence that the following rule is broken? ${rule.text}` } });
+        { has_break: { type: 'noul', instructions } });
       if (typeof answers.has_break?.noul !== 'number') throw new Error('Missing location evidence answer');
       if (answers.has_break.noul > confidence) { confidence = answers.has_break.noul; picked = chunk; }
     }
@@ -442,8 +443,10 @@ const failedCheck = (rule, unit, error, revision) => ({
 });
 
 /**
- * Every rule that is not about a method, asked of every unit it selects. One question, one unit, one request, `parallel` of them
- * at a time, and a second question to a file that failed about which line failed on it.
+ * Every rule that is not about a method, and every absent rule whatever it is about, asked of every unit it selects. An absent
+ * rule is broken by each unit that has the thing, so it is asked like `ensure` and not stopped at the first: a scan that named
+ * one offender at a time had the next one waiting behind every fix. One question, one unit, one request, `parallel` of them at a
+ * time, and a second question to a file that failed about which line failed on it.
  */
 export async function askUnits({ rules, scan, graph, files, tree, eligible, revision, systemOne, inScope, min = BELIEVED,
   parallel = UNIT_PARALLEL, progress = () => {}, debug = () => {} }) {
@@ -451,7 +454,7 @@ export async function askUnits({ rules, scan, graph, files, tree, eligible, revi
   // in a request is scored against the state by itself.
   const contexts = new Map();
   for (const rule of rules) {
-    for (const unit of selectUnits(rule, { scan, graph, files, tree, eligible, inScope }).slice(0, MAX_UNITS)) {
+    for (const unit of selectUnits(rule, { scan, graph, files, tree, eligible, inScope })) {
       const key = `${unit.id}\u0000${rule.sees}`;
       if (!contexts.has(key)) contexts.set(key, { unit, sees: rule.sees, rules: [] });
       contexts.get(key).rules.push(rule);
@@ -500,16 +503,18 @@ export async function askUnits({ rules, scan, graph, files, tree, eligible, revi
 }
 
 /**
- * The rules that are claims about the codebase rather than about any one file. Each asks its units in turn, ordered by how likely
- * each is to hold the answer, and stops at the first that answers. Word overlap is a poor judge of that and a free one, which
- * beats a request spent on ranking. One search need not wait on another.
+ * The rules that want something present somewhere in the codebase rather than in any one file. Each asks its units in turn,
+ * ordered by how likely each is to hold the thing, and stops at the first that has it. Word overlap is a poor judge of that and
+ * a free one, which beats a request spent on ranking. One search need not wait on another.
  */
 export async function searchUnits({ rules, scan, graph, files, tree, eligible, revision, systemOne, inScope, min = BELIEVED,
   parallel = UNIT_PARALLEL, progress = () => {}, debug = () => {} }) {
   // What each search would read, worked out before anything is sent, so the run can say how much there is to get through. A
-  // search stops at its answer, so this is the most it will read and not what it will read.
+  // search stops at its answer, so this is the most it will read and not what it will read. Every unit in scope is ranked: a
+  // cut taken before the ranking kept the first units by path, and a search reporting that nobody had the thing had not read
+  // the rest.
   const plans = rules.map(rule => {
-    const units = rank(rule, selectUnits(rule, { scan, graph, files, tree, eligible, inScope }).slice(0, MAX_UNITS));
+    const units = rank(rule, selectUnits(rule, { scan, graph, files, tree, eligible, inScope }));
     const id = findingId(`${rule.name}::search`);
     return { rule, units, id };
   });
@@ -528,7 +533,7 @@ export async function searchUnits({ rules, scan, graph, files, tree, eligible, r
     // unit answering 60%, and under --min 0 took any answer as found, so a present rule could never fail. A present rule is read
     // the way a check reads it: this unit lacks the thing when its lacking it clears the floor.
     const { here } = readLint(rule, answers), floor = floorFor(rule, min, model);
-    return rule.kind === 'ensure_present' ? 1 - here <= floor : here > floor;
+    return 1 - here <= floor;
   };
 
   await Promise.all(plans.map(async ({ rule, units, id }) => {
@@ -556,10 +561,9 @@ export async function searchUnits({ rules, scan, graph, files, tree, eligible, r
       const found = here.findIndex(answer => answer.found);
       if (found >= 0) settled = batch[found];
     }
-    // A rule wanting the thing present is broken by nobody having it; one wanting it absent is broken by the unit that has it.
-    // Either way it is said once, not once per file that did not answer. Nothing having it means no file to point at, so it is
-    // reported against the rule file, where the claim is, and named for what it looked through.
-    const broken = (rule.kind === 'ensure_present') === Boolean(settled) ? 0 : 1;
+    // Broken by nobody having the thing, which is said once, not once per unit that lacked it. Nothing having it means no file
+    // to point at, so it is reported against the rule file, where the claim is, and named for what it looked through.
+    const broken = settled ? 0 : 1;
     const where = settled ?? { id: `search:${rule.name}`, path: RULES_FILE, name: String(rule.where), line: 1 };
     if (!settled && unresolved.length) {
       results.push({ ...failedCheck(rule, where, new IncompleteCheckError(unresolved.join('; ')), revision), id });
