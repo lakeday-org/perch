@@ -163,10 +163,9 @@ own is shown the next one up. A unit with none above it is not asked. A path wit
 a slash in it, such as `docs/style.md`, is that one file from the repository root,
 and a scan fails when it is not there.
 
-Editing the document asks the rule again about every unit that is shown it. On
-`--since`, a branch that changes only the document asks again about the code
-that reads it. `perch check` reads the document from disk, so an uncommitted edit
-counts.
+Every unit shown the document is asked again when the document changes. On
+`--since`, a change to the document alone is enough. `perch check` reads the
+document from disk, so an uncommitted edit counts.
 
 A method rule with `context` is asked in a request of its own, with the method's
 callers and callees, and not in the method's reading. It costs one request for
