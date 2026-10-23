@@ -3,7 +3,7 @@ title: perch
 nav: Introduction
 group: Getting started
 order: 1
-summary: Semantic code linting with Jev.
+summary: Semantic code and security scanner.
 ---
 
 # perch

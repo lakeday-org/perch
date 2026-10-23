@@ -18,11 +18,11 @@
 <p align="center">
   <a href="https://perchscan.com">perchscan.com</a> &nbsp;&middot;&nbsp;
   <a href="https://docs.perchscan.com">docs</a> &nbsp;&middot;&nbsp;
-  <a href="https://huggingface.co/datasets/perchscan/benchmark-results">benchmarks</a> &nbsp;&middot;&nbsp;
+  <a href=".benchmarks">benchmarks</a> &nbsp;&middot;&nbsp;
   <a href="https://discord.gg/znTcuKRK">Discord</a>
 </p>
 
-Semantic code linting with decision models.
+Semantic code and security scanner.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/reviewbench-dark.svg">
