@@ -25,8 +25,8 @@
 Semantic code and security scanner.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset=".github/reviewbench-dark.svg">
-  <img alt="Recall on ReviewBench: perch with OpenAI Decisions at 40.0% and 23.2% for cutoffs of 60% and 80%, beside the eleven reviewers on its leaderboard" src=".github/reviewbench-light.svg" width="880">
+  <source media="(prefers-color-scheme: dark)" srcset=".github/greptile-dark.svg">
+  <img alt="Perch catches 76% of the Greptile benchmark's known bugs for 0.7¢ a pull request, beside Greptile at 82% for about $1, Cursor Bugbot at 58% for about $1.50, GitHub Copilot at 54%, CodeRabbit at 44% for $1–3 and Graphite at 6% for about $2" src=".github/greptile-light.svg" width="880">
 </picture>
 
 ## Getting started
@@ -37,7 +37,7 @@ perch login
 perch scan
 ```
 
-Run `perch login` to sign in to [Perch Cloud](https://perchscan.com). The first $5 is free. Since decisions are cached,
+`perch login` signs you in to [Perch Cloud](https://perchscan.com), where the first $5 is free. Since decisions are cached,
 running perch again on unchanged code is free. Perch Cloud also scans pull requests in CI, without writing
 any workflows.
 
@@ -83,6 +83,11 @@ You can extend perch with your own linting rules by adding them to `perch.yaml`:
 
 ## ReviewBench
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/reviewbench-dark.svg">
+  <img alt="Perch places second on ReviewBench with 40.0% recall, for 2.4¢ a pull request, behind Laude RevEngine Prime at 46.3% and ahead of the other ten reviewers on its leaderboard" src=".github/reviewbench-light.svg" width="880">
+</picture>
+
 [ReviewBench](https://review-bench.ai) is GitHub's benchmark for AI code review. Perch is credited when it flags the method holding
 a labelled bug; the leaderboard credits a review comment that a judge model matches to one. The runs, the answers and how to
 reproduce them are linked from [`.benchmarks/reviewbench`](.benchmarks/reviewbench).
@@ -109,11 +114,6 @@ reproduce them are linked from [`.benchmarks/reviewbench`](.benchmarks/reviewben
 </details>
 
 ## Greptile benchmark
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset=".github/greptile-dark.svg">
-  <img alt="Known bugs caught on the Greptile benchmark: perch with OpenAI Decisions at 76% and 56% for cutoffs of 60% and 80%, beside Greptile at 82%, Cursor Bugbot at 58%, GitHub Copilot at 54%, CodeRabbit at 44% and Graphite at 6%" src=".github/greptile-light.svg" width="880">
-</picture>
 
 [Greptile's benchmark](https://www.greptile.com/benchmarks) runs code reviewers on 50 pull requests, each with one known bug.
 The runs and their labels are linked from [`.benchmarks/greptile`](.benchmarks/greptile).
@@ -170,8 +170,9 @@ takes. For a model that doesn't say, set `PERCH_MAX_QUESTIONS`. See the
 ## Development
 
 ```sh
+npm install       # dependencies
 npm run check     # lint, typecheck, test
 npm run build     # bundle src/cli.js into dist/cli.mjs
 ```
 
-To install perch from a checkout, run `npm install && npm run build && npm link`.
+`npm link` after a build puts the checkout's `perch` on your PATH.

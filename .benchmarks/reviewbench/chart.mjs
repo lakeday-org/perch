@@ -4,9 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { barChart, THEMES } from '../bars.mjs';
 import { needData } from '../data.mjs';
 
-// Draws the README's ReviewBench recall chart, light and dark, into .github/. Perch's rows are the rerun on OpenAI's Decisions
-// model at each cutoff, from rerun-summary.json, each with its precision; the leaderboard's are the grounded recall
-// review-bench.ai listed on the date below, so a new leaderboard means new rows and a new date here.
+// Draws the README's ReviewBench recall chart, light and dark, into .github/. Perch's row is the rerun on OpenAI's Decisions
+// model at its default 60% floor, from rerun-summary.json, with the model's measured cost of a pull request; the leaderboard's are
+// the grounded recall review-bench.ai listed on the date below, so a new leaderboard means new rows and a new date here.
 const root = path.dirname(fileURLToPath(import.meta.url));
 const LEADERBOARD_DATE = 'October 17, 2026';
 const LEADERBOARD = [
@@ -23,25 +23,29 @@ const LEADERBOARD = [
   { name: 'Cursor', recall: 9.6 },
 ];
 
-const data = needData('reviewbench', ['rerun-summary.json']);
+const data = needData('reviewbench', ['rerun-summary.json', 'manifest.json']);
 const summary = JSON.parse(await fs.readFile(path.join(data, 'rerun-summary.json'), 'utf8'));
+const { selected_prs: selected } = JSON.parse(await fs.readFile(path.join(data, 'manifest.json'), 'utf8'));
 const pct = x => `${(Math.round(x * 1000) / 10).toFixed(1)}%`;
+const run = summary.cutoffs.find(c => c.cutoff === 0.6), perPr = `${(Math.round(summary.cost_usd / summary.scanned_prs * 1000) / 10).toFixed(1)}¢`;
 const rows = [
   ...LEADERBOARD.map(r => ({ name: r.name, value: r.recall, text: `${r.recall.toFixed(1)}%` })),
-  // 60% and 80%, the two cutoffs worth choosing between: 70% sits between them on every measure.
-  ...summary.cutoffs.filter(c => [0.6, 0.8].includes(c.cutoff)).map(c => ({ name: `OpenAI at ${Math.round(100 * c.cutoff)}%`, perch: true, value: Math.round(c.total.recall * 1000) / 10,
-    text: pct(c.total.recall), note: `${pct(c.total.precision)} precision` })),
+  { name: 'Perch', perch: true, value: Math.round(run.total.recall * 1000) / 10, text: pct(run.total.recall) },
 ].sort((a, b) => b.value - a.value);
+const place = rows.findIndex(r => r.perch) + 1, ordinal = ['first', 'second', 'third', 'fourth', 'fifth'][place - 1] ?? `number ${place}`;
 
 const chart = colors => barChart(colors, {
-  title: 'Perch on ReviewBench: recall',
-  heading: 'Perch on ReviewBench',
-  subtitle: 'Recall',
-  others: 'Leaderboard reviewers',
-  desc: `Recall on ReviewBench for perch beside the reviewers on its leaderboard, highest first. ${rows.map(r => r.perch
-    ? `Perch with ${r.name}: ${r.text}, ${r.note}.` : `${r.name}: ${r.text}.`).join(' ')}`,
+  title: 'Perch on ReviewBench',
+  kicker: 'ReviewBench',
+  headline: `Perch places ${ordinal} on GitHub's ReviewBench, for ${perPr} a pull request`,
+  subtitle: `Recall: the share of a human review's findings each reviewer found, across ReviewBench's ${selected} pull requests.`,
+  columns: { value: 'Recall' },
+  desc: `Recall on ReviewBench for perch beside the reviewers on its leaderboard, highest first. ${rows.map(r => `${r.name}: ${r.text}.`).join(' ')}`,
   rows,
-  footer: [`Leaderboard: review-bench.ai, grounded recall, ${LEADERBOARD_DATE}. Perch: share of buggy methods it flagged, .benchmarks/reviewbench in this repository.`],
+  footer: [
+    `Perch: OpenAI's Decisions model at its default 60% floor, ${pct(run.total.precision)} precision, scored per function. Model cost measured over ${summary.scanned_prs} pull requests.`,
+    `Leaderboard: review-bench.ai, grounded recall, ${LEADERBOARD_DATE}, where a judge model matches each reviewer's comments to the findings.`,
+  ],
 });
 
 for (const [theme, colors] of Object.entries(THEMES)) {

@@ -223,13 +223,13 @@ rules:
       section says something of its own. A last section titled Where to go next,
       Next steps, See also or Further reading, or one made only of links to
       other pages, breaks this rule.
-  - name: intro-anchors-to-a-linter
+  - name: intro-says-what-perch-is
     where: docs/index.md
     ensure: >-
       Skip the frontmatter between the `---` markers. Read the first sentence
-      under the page's first heading. It says perch is a linter and what kind,
-      as in perch is a semantic linter. A first sentence that says something
-      else, or that describes perch by what other linters fail to do, breaks
+      under the page's first heading. It says what perch is, as in perch is a
+      semantic code and security scanner. A first sentence that says something
+      else, or that describes perch by what other tools fail to do, breaks
       this rule.
   - name: docs-no-antithesis
     where: "{README.md,skill.md,docs/**/*.md}"
