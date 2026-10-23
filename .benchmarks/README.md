@@ -17,13 +17,13 @@ Discourse in front of each reviewer, each with one known bug.
 | Reviewer | Known bugs caught | Cost of a pull request |
 |---|---:|---:|
 | Greptile | 82% | ~$1 |
-| **Perch** | **76%** | **0.7¢** |
+| **Perch** | **76%** | **$0.007** |
 | Cursor Bugbot | 58% | ~$1.50 |
 | GitHub Copilot | 54% | usage credits |
 | CodeRabbit | 44% | $1–3 |
 | Graphite | 6% | ~$2 |
 
-At an 80% floor perch catches 56%. Perch's cost is the model's, measured on this run: 34¢ for all 50 pull requests. The other
+At an 80% floor perch catches 56%. Perch's cost is the model's, measured on this run: $0.34 for all 50 pull requests. The other
 tools' catch rates are Greptile's, read on October 22, 2026, and their costs are list prices: seat plans divided over 20 pull
 requests a developer a month. Bugbot comes with Cursor's Teams plan at $30 a seat.
 
@@ -38,8 +38,8 @@ requests a developer a month. Bugbot comes with Cursor's Teams plan at $30 a sea
 
 | | Recall | Precision | Cost of a pull request |
 |---|---:|---:|---:|
-| **Perch at 60%** | **40.0%** | **28.8%** | **2.4¢** |
-| Perch at 80% | 23.2% | 41.7% | 2.4¢ |
+| **Perch at 60%** | **40.0%** | **28.8%** | **$0.024** |
+| Perch at 80% | 23.2% | 41.7% | $0.024 |
 
 Laude RevEngine Prime leads the leaderboard at 46.3% recall, and perch at 60% is second. Perch read 171 of the pull requests;
 the other 48 changed no function it reads or sit in repositories that no longer exist. The leaderboard's numbers are

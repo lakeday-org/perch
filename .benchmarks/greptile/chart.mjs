@@ -23,12 +23,13 @@ const PUBLISHED = [
   // Team, $40 a seat with unlimited reviews (graphite.com/pricing, October 23, 2026).
   { name: 'Graphite', value: 6, extra: '~$2' },
 ];
-const cents = dollars => `${(Math.round(dollars * 1000) / 10).toFixed(1)}¢`;
+// In dollars, as every other tool's cost is, to a tenth of a cent below a cent: $0.007.
+const usd = dollars => `$${dollars < 0.01 ? dollars.toFixed(3) : dollars.toFixed(2)}`;
 
 const data = needData('greptile', ['summary.json']);
 const summary = JSON.parse(await fs.readFile(path.join(data, 'summary.json'), 'utf8'));
 const run = summary.find(r => r.config === 'oai2q' && r.cutoff === 0.6);
-const caught = Math.round(100 * run.known / run.known_of), perPr = cents(run.cost / run.known_of);
+const caught = Math.round(100 * run.known / run.known_of), perPr = usd(run.cost / run.known_of);
 const rows = [...PUBLISHED.map(r => ({ ...r, text: `${r.value}%` })), { name: 'Perch', perch: true, value: caught, text: `${caught}%`, extra: perPr }]
   .sort((a, b) => b.value - a.value);
 
@@ -42,7 +43,7 @@ const chart = colors => barChart(colors, {
   rows,
   footer: [
     `Perch: OpenAI's Decisions model at its default 60% floor, credited for flagging the function that holds the bug.`,
-    `Perch's cost is the model's, measured on this run: ${cents(run.cost)} for all ${run.known_of}. Others: list prices, seat plans over 20 pull requests a developer a month.`,
+    `Perch's cost is the model's, measured on this run: ${usd(run.cost)} for all ${run.known_of}. Others: list prices, seat plans over 20 pull requests a developer a month.`,
     `Others' catch rates: greptile.com/benchmarks, ${PUBLISHED_DATE}, credited for a line comment that identifies the bug.`,
   ],
 });

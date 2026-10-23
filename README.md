@@ -26,7 +26,7 @@ Semantic code and security scanner.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/greptile-dark.svg">
-  <img alt="Perch catches 76% of the Greptile benchmark's known bugs for 0.7¢ a pull request, beside Greptile at 82% for about $1, Cursor Bugbot at 58% for about $1.50, GitHub Copilot at 54%, CodeRabbit at 44% for $1–3 and Graphite at 6% for about $2" src=".github/greptile-light.svg" width="880">
+  <img alt="Perch catches 76% of the Greptile benchmark's known bugs for $0.007 a pull request, beside Greptile at 82% for about $1, Cursor Bugbot at 58% for about $1.50, GitHub Copilot at 54%, CodeRabbit at 44% for $1–3 and Graphite at 6% for about $2" src=".github/greptile-light.svg" width="880">
 </picture>
 
 ## Getting started
@@ -85,7 +85,7 @@ You can extend perch with your own linting rules by adding them to `perch.yaml`:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/reviewbench-dark.svg">
-  <img alt="Perch places second on ReviewBench with 40.0% recall, for 2.4¢ a pull request, behind Laude RevEngine Prime at 46.3% and ahead of the other ten reviewers on its leaderboard" src=".github/reviewbench-light.svg" width="880">
+  <img alt="Perch places second on ReviewBench with 40.0% recall, for $0.024 a pull request, behind Laude RevEngine Prime at 46.3% and ahead of the other ten reviewers on its leaderboard" src=".github/reviewbench-light.svg" width="880">
 </picture>
 
 [ReviewBench](https://review-bench.ai) is GitHub's benchmark for AI code review. Perch is credited when it flags the method holding

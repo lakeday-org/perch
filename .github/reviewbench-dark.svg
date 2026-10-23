@@ -3,7 +3,7 @@
 <desc id="desc">Recall on ReviewBench for perch beside the reviewers on its leaderboard, highest first. Laude RevEngine Prime: 46.3%. Perch: 40.0%. block/review: 32.6%. Klaussy: 29.8%. Copilot code review: 26.0%. DeepSeek Harness Reviewer: 25.6%. Devin AI: 23.8%. Qodo: 22.1%. Codex: 18.5%. Cubic: 16.3%. Greptile: 16.2%. Cursor: 9.6%.</desc>
 <style>text{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif}.n{font-variant-numeric:tabular-nums}</style>
 <text x="16" y="30" font-size="12" font-weight="700" letter-spacing="1.2" fill="#e0942b">REVIEWBENCH</text>
-<text x="16" y="64" font-size="25" font-weight="700" fill="#f0f6fc">Perch places second on GitHub's ReviewBench, for 2.4¢ a pull request</text>
+<text x="16" y="64" font-size="25" font-weight="700" fill="#f0f6fc">Perch places second on GitHub's ReviewBench, for $0.024 a pull request</text>
 <text x="16" y="92" font-size="14" fill="#9198a1">Recall: the share of a human review's findings each reviewer found, across ReviewBench's 219 pull requests.</text>
 <line x1="16" y1="114" x2="864" y2="114" stroke="#30363d" stroke-width="1"/>
 <text x="230" y="138" font-size="12" font-weight="600" fill="#7d8590">Recall</text>

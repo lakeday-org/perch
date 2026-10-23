@@ -27,7 +27,7 @@ const data = needData('reviewbench', ['rerun-summary.json', 'manifest.json']);
 const summary = JSON.parse(await fs.readFile(path.join(data, 'rerun-summary.json'), 'utf8'));
 const { selected_prs: selected } = JSON.parse(await fs.readFile(path.join(data, 'manifest.json'), 'utf8'));
 const pct = x => `${(Math.round(x * 1000) / 10).toFixed(1)}%`;
-const run = summary.cutoffs.find(c => c.cutoff === 0.6), perPr = `${(Math.round(summary.cost_usd / summary.scanned_prs * 1000) / 10).toFixed(1)}¢`;
+const run = summary.cutoffs.find(c => c.cutoff === 0.6), perPr = `$${(summary.cost_usd / summary.scanned_prs).toFixed(3)}`;
 const rows = [
   ...LEADERBOARD.map(r => ({ name: r.name, value: r.recall, text: `${r.recall.toFixed(1)}%` })),
   { name: 'Perch', perch: true, value: Math.round(run.total.recall * 1000) / 10, text: pct(run.total.recall) },
