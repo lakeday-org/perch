@@ -132,6 +132,7 @@ perch rules add no-narrative-prose --ensure "A headline and one line, not a para
 | `--except W` | A glob it spares. |
 | `--each U` | Ask about each `file`, `method`, or `test` rather than the file as a whole. |
 | `--sees S` | What a file or test is shown besides itself: `file`, `calls`, `callers`, or `neighbors`. |
+| `--context PATH` | A document shown beside each unit: a path from the root, or a name found from the unit up. |
 | `--min P` | The floor for this rule alone, in percent. |
 | `--file F` | The rule file: `perch.yaml` or a `.yaml` under `.perch/rules/`. `add` creates it. `list` shows only it. |
 | `--json` | Print JSON instead of a summary. |

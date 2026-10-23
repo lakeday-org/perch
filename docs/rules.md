@@ -142,6 +142,36 @@ A file the parser does not read has no methods and no call graph. Markdown and
 YAML walk the file tree instead. `calls` is what sits under the file's directory,
 shallowest first. `callers` is what sits above it, nearest first.
 
+### `context`
+
+`context` shows the model a document beside each unit, such as a style guide or
+the words one area of the code uses:
+
+```yaml
+- name: billing-words
+  where: "src/**/*.js"
+  context: LANGUAGE.md
+  ensure: >-
+    The code uses the words LANGUAGE.md says to use, and none of the words it
+    says to avoid.
+```
+
+A bare name is the nearest file with that name, looking in the unit's directory
+first and then in each directory above it. Here `src/billing/invoice.js` is shown
+`src/billing/LANGUAGE.md`, and a file in an area with no `LANGUAGE.md` of its
+own is shown the next one up. A unit with none above it is not asked. A path with
+a slash in it, such as `docs/style.md`, is that one file from the repository root,
+and a scan fails when it is not there.
+
+Editing the document asks the rule again about every unit that is shown it. On
+`--since`, a branch that changes only the document asks again about the code
+that reads it. `perch check` reads the document from disk, so an uncommitted edit
+counts.
+
+A method rule with `context` is asked in a request of its own, with the method's
+callers and callees, and not in the method's reading. It costs one request for
+each method it covers.
+
 ### `ensure` against `ensure_present` and `ensure_absent`
 
 `ensure` has to hold everywhere, so every unit it covers is asked.

@@ -151,7 +151,7 @@ takes. For a model that doesn't say, set `PERCH_MAX_QUESTIONS`. See the
 | --- | --- |
 | [Getting started](https://docs.perchscan.com/install/) | Install, sign in, the first scan. |
 | [Reading issues](https://docs.perchscan.com/issues/) | The list, the filters, closing what does not matter. |
-| [Semantic linting](https://docs.perchscan.com/rules/) | `where`, `each`, `sees`, `min`, `gate`, and the longhand grammar. |
+| [Semantic linting](https://docs.perchscan.com/rules/) | `where`, `each`, `sees`, `context`, `min`, `gate`, and the longhand grammar. |
 | [Checking a change](https://docs.perchscan.com/check/) | `perch check` on work in progress. |
 | [perch in CI](https://docs.perchscan.com/ci/) | What a build can gate on, and what it cannot. |
 | [Command reference](https://docs.perchscan.com/cli/) | Every command, its flags, and what each exit code means. |
