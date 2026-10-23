@@ -13,6 +13,9 @@ Greptile graded each tool on the one known bug in each pull request. Graded the 
 | perch#418, OpenAI Decisions | 60% | 38 (76%) | 20.2 | 42 | 116 | 490 | 7 | $0.335 |
 | perch#418, OpenAI Decisions | 70% | 33 (66%) | 16.3 | 39 | 105 | 383 | 6 | $0.335 |
 | perch#418, OpenAI Decisions | 80% | 28 (56%) | 11.8 | 39 | 86 | 264 | 4 | $0.335 |
+| perch 0.4.8, Jev | 60% | 22 (44%) | 8.2 | 27 | 65 | 179 | 2 | $0.149 |
+| perch 0.4.8, Jev | 70% | 12 (24%) | 4.0 | 19 | 37 | 75 | 0 | $0.149 |
+| perch 0.4.8, Jev | 80% | 6 (12%) | 0.7 | 8 | 13 | 18 | 0 | $0.149 |
 | perch#407, OpenAI Decisions | 60% | 39 (78%) | 16.8 | 44 | 122 | 918 | 14 | $0.640 |
 | perch#407, OpenAI Decisions | 70% | 36 (72%) | 13.1 | 42 | 110 | 684 | 10 | $0.640 |
 | perch#407, OpenAI Decisions | 80% | 33 (66%) | 9.4 | 40 | 98 | 472 | 6 | $0.640 |
@@ -42,6 +45,7 @@ Both are graded on the known bug. The published tools were credited for a line c
 ## Configurations
 
 - `oai2q` is perch#418 at 6e2c92d on OpenAI's Decisions model, `gpt-6-luna`. It asks `has_bug` and `bug_edge_case` of each function the diff changed, over the function and its diff.
+- `jev048` is the released perch 0.4.8, which ships perch#418, on `jev-latest`, the model Perch Cloud answers with.
 - `oai407` is the perch#407 build on the same model. It reads each method twice, once with the change and once with its callers and callees, and asks `review_` questions in each reading.
 - `jev` and `oai` are perch 0.4.7 on Jev and on OpenAI's Decisions model, built at 97e0d74, two fixes after the release. They ask `has_bug` and `bug_edge_case` with each method's callers and callees. `jev-latest` answered as Jev 1.13 for most of the run and Jev 1.14 for part of it.
 

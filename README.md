@@ -18,15 +18,15 @@
 <p align="center">
   <a href="https://perchscan.com">perchscan.com</a> &nbsp;&middot;&nbsp;
   <a href="https://docs.perchscan.com">docs</a> &nbsp;&middot;&nbsp;
-  <a href="https://huggingface.co/datasets/perchscan/benchmark-results">benchmarks</a> &nbsp;&middot;&nbsp;
+  <a href=".benchmarks">benchmarks</a> &nbsp;&middot;&nbsp;
   <a href="https://discord.gg/znTcuKRK">Discord</a>
 </p>
 
-Semantic code linting with decision models.
+Semantic code and security scanner.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset=".github/reviewbench-dark.svg">
-  <img alt="Recall on ReviewBench: perch with OpenAI Decisions at 40.0% and 23.2% for cutoffs of 60% and 80%, beside the eleven reviewers on its leaderboard" src=".github/reviewbench-light.svg" width="880">
+  <source media="(prefers-color-scheme: dark)" srcset=".github/greptile-dark.svg">
+  <img alt="Known bugs caught on the Greptile benchmark and the cost of a pull request: Greptile 82% at about $1, perch on OpenAI Decisions 76% at $0.007, Cursor Bugbot 58% at about $1.50, GitHub Copilot 54%, CodeRabbit 44% at $1–3, perch on Jev 44% at $0.003, Graphite 6% at about $2" src=".github/greptile-light.svg" width="880">
 </picture>
 
 ## Getting started
@@ -37,7 +37,7 @@ perch login
 perch scan
 ```
 
-Run `perch login` to sign in to [Perch Cloud](https://perchscan.com). The first $5 is free. Since decisions are cached,
+`perch login` signs you in to [Perch Cloud](https://perchscan.com), where the first $5 is free. Since decisions are cached,
 running perch again on unchanged code is free. Perch Cloud also scans pull requests in CI, without writing
 any workflows.
 
@@ -83,6 +83,11 @@ You can extend perch with your own linting rules by adding them to `perch.yaml`:
 
 ## ReviewBench
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/reviewbench-dark.svg">
+  <img alt="Recall on ReviewBench and the cost of a pull request: Laude RevEngine Prime 46.3%, perch on OpenAI Decisions 40.0% at $0.024, then the leaderboard's other reviewers down to Cursor at 9.6%, and perch on Jev 7.9% at $0.011" src=".github/reviewbench-light.svg" width="880">
+</picture>
+
 [ReviewBench](https://review-bench.ai) is GitHub's benchmark for AI code review. Perch is credited when it flags the method holding
 a labelled bug; the leaderboard credits a review comment that a judge model matches to one. The runs, the answers and how to
 reproduce them are linked from [`.benchmarks/reviewbench`](.benchmarks/reviewbench).
@@ -93,27 +98,22 @@ reproduce them are linked from [`.benchmarks/reviewbench`](.benchmarks/reviewben
 | Reviewer | Recall |
 | --- | ---: |
 | Laude RevEngine Prime | 46.3% |
-| **Perch · OpenAI at 60%, 28.8% precision** | **40.0%** |
+| **Perch · OpenAI Decisions, $0.024 a pull request** | **40.0%** |
 | block/review | 32.6% |
 | Klaussy | 29.8% |
 | Copilot code review | 26.0% |
 | DeepSeek Harness Reviewer | 25.6% |
 | Devin AI | 23.8% |
-| **Perch · OpenAI at 80%, 41.7% precision** | **23.2%** |
 | Qodo | 22.1% |
 | Codex | 18.5% |
 | Cubic | 16.3% |
 | Greptile | 16.2% |
 | Cursor | 9.6% |
+| **Perch · Jev, $0.011 a pull request** | **7.9%** |
 
 </details>
 
 ## Greptile benchmark
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset=".github/greptile-dark.svg">
-  <img alt="Known bugs caught on the Greptile benchmark: perch with OpenAI Decisions at 76% and 56% for cutoffs of 60% and 80%, beside Greptile at 82%, Cursor Bugbot at 58%, GitHub Copilot at 54%, CodeRabbit at 44% and Graphite at 6%" src=".github/greptile-light.svg" width="880">
-</picture>
 
 [Greptile's benchmark](https://www.greptile.com/benchmarks) runs code reviewers on 50 pull requests, each with one known bug.
 The runs and their labels are linked from [`.benchmarks/greptile`](.benchmarks/greptile).
@@ -170,8 +170,9 @@ takes. For a model that doesn't say, set `PERCH_MAX_QUESTIONS`. See the
 ## Development
 
 ```sh
+npm install       # dependencies
 npm run check     # lint, typecheck, test
 npm run build     # bundle src/cli.js into dist/cli.mjs
 ```
 
-To install perch from a checkout, run `npm install && npm run build && npm link`.
+`npm link` after a build puts the checkout's `perch` on your PATH.

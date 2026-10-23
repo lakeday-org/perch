@@ -1,67 +1,81 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="880" height="566" viewBox="0 0 880 566" role="img" aria-labelledby="title desc">
-<title id="title">Perch on ReviewBench: recall</title>
-<desc id="desc">Recall on ReviewBench for perch beside the reviewers on its leaderboard, highest first. Laude RevEngine Prime: 46.3%. Perch with OpenAI at 60%: 40.0%, 28.8% precision. block/review: 32.6%. Klaussy: 29.8%. Copilot code review: 26.0%. DeepSeek Harness Reviewer: 25.6%. Devin AI: 23.8%. Perch with OpenAI at 80%: 23.2%, 41.7% precision. Qodo: 22.1%. Codex: 18.5%. Cubic: 16.3%. Greptile: 16.2%. Cursor: 9.6%.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="716" viewBox="0 0 880 716" role="img" aria-labelledby="title desc">
+<title id="title">Perch on ReviewBench</title>
+<desc id="desc">Recall on ReviewBench for perch beside the reviewers on its leaderboard, highest first, and what a pull request costs. Laude RevEngine Prime: 46.3%, not published. Perch · OpenAI Decisions: 40.0%, $0.024. block/review: 32.6%, not published. Klaussy: 29.8%, not published. Copilot code review: 26.0%, usage credits. DeepSeek Harness Reviewer: 25.6%, not published. Devin AI: 23.8%, ~$2. Qodo: 22.1%, ~$1.70. Codex: 18.5%, ~$1.25. Cubic: 16.3%, ~$2. Greptile: 16.2%, ~$1. Cursor: 9.6%, ~$1.50. Perch · Jev: 7.9%, $0.011.</desc>
 <style>text{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif}.n{font-variant-numeric:tabular-nums}</style>
-<text x="8" y="30" font-size="20" font-weight="600" fill="#1f2328">Perch on ReviewBench</text>
-<text x="8" y="54" font-size="13" fill="#59636e">Recall</text>
-<rect x="8" y="72" width="10" height="10" rx="2" fill="#c27a12"/><text x="24" y="81" font-size="12" fill="#59636e">Perch</text>
-<rect x="76" y="72" width="10" height="10" rx="2" fill="#b9b8b0"/><text x="92" y="81" font-size="12" fill="#59636e">Leaderboard reviewers</text>
-<line x1="214" y1="112" x2="214" y2="502" stroke="#c9cfd6" stroke-width="1"/>
-<text class="n" x="214" y="518" font-size="11" fill="#818b98">0%</text>
-<text class="n" x="794" y="518" font-size="11" text-anchor="end" fill="#818b98">100%</text>
-<text x="8" y="131.5" font-size="13" fill="#59636e">Laude RevEngine Prime</text>
-<path d="M214,120h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
-<path d="M214,120h264.54a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-264.54z" fill="#b9b8b0"/>
-<text class="n" x="490.54" y="131.5" font-size="13" fill="#59636e">46.3%</text>
-<rect x="0" y="144" width="880" height="26" rx="6" fill="#c27a12" fill-opacity="0.09"/>
-<text x="8" y="161.5" font-size="13" fill="#1f2328"><tspan font-weight="600">Perch</tspan> · OpenAI at 60%</text>
-<path d="M214,150h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
-<path d="M214,150h228a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-228z" fill="#c27a12"/>
-<text class="n" x="454" y="161.5" font-size="13" font-weight="600" fill="#1f2328">40.0%<tspan font-weight="400" fill="#59636e"> · 28.8% precision</tspan></text>
-<text x="8" y="191.5" font-size="13" fill="#59636e">block/review</text>
-<path d="M214,180h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
-<path d="M214,180h185.08a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-185.08z" fill="#b9b8b0"/>
-<text class="n" x="411.08" y="191.5" font-size="13" fill="#59636e">32.6%</text>
-<text x="8" y="221.5" font-size="13" fill="#59636e">Klaussy</text>
-<path d="M214,210h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
-<path d="M214,210h168.84a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-168.84z" fill="#b9b8b0"/>
-<text class="n" x="394.84" y="221.5" font-size="13" fill="#59636e">29.8%</text>
-<text x="8" y="251.5" font-size="13" fill="#59636e">Copilot code review</text>
-<path d="M214,240h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
-<path d="M214,240h146.8a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-146.8z" fill="#b9b8b0"/>
-<text class="n" x="372.8" y="251.5" font-size="13" fill="#59636e">26.0%</text>
-<text x="8" y="281.5" font-size="13" fill="#59636e">DeepSeek Harness Reviewer</text>
-<path d="M214,270h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
-<path d="M214,270h144.48a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-144.48z" fill="#b9b8b0"/>
-<text class="n" x="370.48" y="281.5" font-size="13" fill="#59636e">25.6%</text>
-<text x="8" y="311.5" font-size="13" fill="#59636e">Devin AI</text>
-<path d="M214,300h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
-<path d="M214,300h134.04a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-134.04z" fill="#b9b8b0"/>
-<text class="n" x="360.04" y="311.5" font-size="13" fill="#59636e">23.8%</text>
-<rect x="0" y="324" width="880" height="26" rx="6" fill="#c27a12" fill-opacity="0.09"/>
-<text x="8" y="341.5" font-size="13" fill="#1f2328"><tspan font-weight="600">Perch</tspan> · OpenAI at 80%</text>
-<path d="M214,330h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
-<path d="M214,330h130.56a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-130.56z" fill="#c27a12"/>
-<text class="n" x="356.56" y="341.5" font-size="13" font-weight="600" fill="#1f2328">23.2%<tspan font-weight="400" fill="#59636e"> · 41.7% precision</tspan></text>
-<text x="8" y="371.5" font-size="13" fill="#59636e">Qodo</text>
-<path d="M214,360h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
-<path d="M214,360h124.18a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-124.18z" fill="#b9b8b0"/>
-<text class="n" x="350.18" y="371.5" font-size="13" fill="#59636e">22.1%</text>
-<text x="8" y="401.5" font-size="13" fill="#59636e">Codex</text>
-<path d="M214,390h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
-<path d="M214,390h103.3a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-103.3z" fill="#b9b8b0"/>
-<text class="n" x="329.3" y="401.5" font-size="13" fill="#59636e">18.5%</text>
-<text x="8" y="431.5" font-size="13" fill="#59636e">Cubic</text>
-<path d="M214,420h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
-<path d="M214,420h90.54a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-90.54z" fill="#b9b8b0"/>
-<text class="n" x="316.54" y="431.5" font-size="13" fill="#59636e">16.3%</text>
-<text x="8" y="461.5" font-size="13" fill="#59636e">Greptile</text>
-<path d="M214,450h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
-<path d="M214,450h89.96a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-89.96z" fill="#b9b8b0"/>
-<text class="n" x="315.96" y="461.5" font-size="13" fill="#59636e">16.2%</text>
-<text x="8" y="491.5" font-size="13" fill="#59636e">Cursor</text>
-<path d="M214,480h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
-<path d="M214,480h51.68a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-51.68z" fill="#b9b8b0"/>
-<text class="n" x="277.68" y="491.5" font-size="13" fill="#59636e">9.6%</text>
-<text x="8" y="552" font-size="11" fill="#818b98">Leaderboard: review-bench.ai, grounded recall, October 17, 2026. Perch: share of buggy methods it flagged, .benchmarks/reviewbench in this repository.</text>
+<text x="16" y="34" font-size="22" font-weight="700" fill="#1f2328">ReviewBench</text>
+<text x="16" y="60" font-size="14" fill="#59636e">Recall on GitHub's benchmark of 219 pull requests, against the findings of a human review, and the cost of a pull request.</text>
+<line x1="16" y1="82" x2="864" y2="82" stroke="#d1d9e0" stroke-width="1"/>
+<text x="230" y="108" font-size="12" font-weight="600" fill="#818b98">Recall</text>
+<text x="864" y="108" font-size="12" font-weight="600" text-anchor="end" fill="#818b98">Cost of a pull request</text>
+<text x="16" y="148" font-size="15" fill="#59636e">Laude RevEngine Prime</text>
+<path d="M230,134h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#f1f2f4"/>
+<path d="M230,134h207.98a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-207.98z" fill="#b9b8b0"/>
+<text class="n" x="452.98" y="148" font-size="15" font-weight="600" fill="#59636e">46.3%</text>
+<text class="n" x="864" y="148" font-size="15" text-anchor="end" font-weight="400" fill="#59636e">not published</text>
+<rect x="4" y="164" width="872" height="34" rx="8" fill="#c27a12" fill-opacity="0.1"/>
+<text x="16" y="186" font-size="15" font-weight="700" fill="#1f2328">Perch · OpenAI Decisions</text>
+<path d="M230,172h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#f1f2f4"/>
+<path d="M230,172h179a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-179z" fill="#c27a12"/>
+<text class="n" x="424" y="186" font-size="15" font-weight="700" fill="#1f2328">40.0%</text>
+<text class="n" x="864" y="186" font-size="15" text-anchor="end" font-weight="700" fill="#c27a12">$0.024</text>
+<text x="16" y="224" font-size="15" fill="#59636e">block/review</text>
+<path d="M230,210h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#f1f2f4"/>
+<path d="M230,210h144.96a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-144.96z" fill="#b9b8b0"/>
+<text class="n" x="389.96" y="224" font-size="15" font-weight="600" fill="#59636e">32.6%</text>
+<text class="n" x="864" y="224" font-size="15" text-anchor="end" font-weight="400" fill="#59636e">not published</text>
+<text x="16" y="262" font-size="15" fill="#59636e">Klaussy</text>
+<path d="M230,248h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#f1f2f4"/>
+<path d="M230,248h132.08a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-132.08z" fill="#b9b8b0"/>
+<text class="n" x="377.08" y="262" font-size="15" font-weight="600" fill="#59636e">29.8%</text>
+<text class="n" x="864" y="262" font-size="15" text-anchor="end" font-weight="400" fill="#59636e">not published</text>
+<text x="16" y="300" font-size="15" fill="#59636e">Copilot code review</text>
+<path d="M230,286h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#f1f2f4"/>
+<path d="M230,286h114.6a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-114.6z" fill="#b9b8b0"/>
+<text class="n" x="359.6" y="300" font-size="15" font-weight="600" fill="#59636e">26.0%</text>
+<text class="n" x="864" y="300" font-size="15" text-anchor="end" font-weight="400" fill="#59636e">usage credits</text>
+<text x="16" y="338" font-size="15" fill="#59636e">DeepSeek Harness Reviewer</text>
+<path d="M230,324h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#f1f2f4"/>
+<path d="M230,324h112.76a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-112.76z" fill="#b9b8b0"/>
+<text class="n" x="357.76" y="338" font-size="15" font-weight="600" fill="#59636e">25.6%</text>
+<text class="n" x="864" y="338" font-size="15" text-anchor="end" font-weight="400" fill="#59636e">not published</text>
+<text x="16" y="376" font-size="15" fill="#59636e">Devin AI</text>
+<path d="M230,362h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#f1f2f4"/>
+<path d="M230,362h104.48a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-104.48z" fill="#b9b8b0"/>
+<text class="n" x="349.48" y="376" font-size="15" font-weight="600" fill="#59636e">23.8%</text>
+<text class="n" x="864" y="376" font-size="15" text-anchor="end" font-weight="400" fill="#59636e">~$2</text>
+<text x="16" y="414" font-size="15" fill="#59636e">Qodo</text>
+<path d="M230,400h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#f1f2f4"/>
+<path d="M230,400h96.66a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-96.66z" fill="#b9b8b0"/>
+<text class="n" x="341.66" y="414" font-size="15" font-weight="600" fill="#59636e">22.1%</text>
+<text class="n" x="864" y="414" font-size="15" text-anchor="end" font-weight="400" fill="#59636e">~$1.70</text>
+<text x="16" y="452" font-size="15" fill="#59636e">Codex</text>
+<path d="M230,438h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#f1f2f4"/>
+<path d="M230,438h80.1a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-80.1z" fill="#b9b8b0"/>
+<text class="n" x="325.1" y="452" font-size="15" font-weight="600" fill="#59636e">18.5%</text>
+<text class="n" x="864" y="452" font-size="15" text-anchor="end" font-weight="400" fill="#59636e">~$1.25</text>
+<text x="16" y="490" font-size="15" fill="#59636e">Cubic</text>
+<path d="M230,476h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#f1f2f4"/>
+<path d="M230,476h69.98a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-69.98z" fill="#b9b8b0"/>
+<text class="n" x="314.98" y="490" font-size="15" font-weight="600" fill="#59636e">16.3%</text>
+<text class="n" x="864" y="490" font-size="15" text-anchor="end" font-weight="400" fill="#59636e">~$2</text>
+<text x="16" y="528" font-size="15" fill="#59636e">Greptile</text>
+<path d="M230,514h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#f1f2f4"/>
+<path d="M230,514h69.52a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-69.52z" fill="#b9b8b0"/>
+<text class="n" x="314.52" y="528" font-size="15" font-weight="600" fill="#59636e">16.2%</text>
+<text class="n" x="864" y="528" font-size="15" text-anchor="end" font-weight="400" fill="#59636e">~$1</text>
+<text x="16" y="566" font-size="15" fill="#59636e">Cursor</text>
+<path d="M230,552h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#f1f2f4"/>
+<path d="M230,552h39.16a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-39.16z" fill="#b9b8b0"/>
+<text class="n" x="284.16" y="566" font-size="15" font-weight="600" fill="#59636e">9.6%</text>
+<text class="n" x="864" y="566" font-size="15" text-anchor="end" font-weight="400" fill="#59636e">~$1.50</text>
+<rect x="4" y="582" width="872" height="34" rx="8" fill="#c27a12" fill-opacity="0.1"/>
+<text x="16" y="604" font-size="15" font-weight="700" fill="#1f2328">Perch · Jev</text>
+<path d="M230,590h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#f1f2f4"/>
+<path d="M230,590h31.340000000000003a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-31.340000000000003z" fill="#c27a12"/>
+<text class="n" x="276.34" y="604" font-size="15" font-weight="700" fill="#1f2328">7.9%</text>
+<text class="n" x="864" y="604" font-size="15" text-anchor="end" font-weight="700" fill="#c27a12">$0.011</text>
+<text x="16" y="644" font-size="11.5" fill="#818b98">Perch at its default 60% floor, scored per function: 28.8% precision on OpenAI Decisions and 45.8% precision on Jev.</text>
+<text x="16" y="661" font-size="11.5" fill="#818b98">Perch's cost is the model's, measured on each run over 171 pull requests.</text>
+<text x="16" y="678" font-size="11.5" fill="#818b98">Leaderboard: review-bench.ai, grounded recall, October 17, 2026, scored on review comments.</text>
+<text x="16" y="695" font-size="11.5" fill="#818b98">Their costs are list prices, with seat plans divided over 20 pull requests a developer a month.</text>
 </svg>

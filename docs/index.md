@@ -3,12 +3,12 @@ title: perch
 nav: Introduction
 group: Getting started
 order: 1
-summary: Semantic code linting with Jev.
+summary: Semantic code and security scanner.
 ---
 
 # perch
 
-perch is a semantic linter. It reads each method with its callers and callees in front of it. Then it asks a
+perch is a semantic code and security scanner. It reads each method with its callers and callees in front of it. Then it asks a
 model what the code does.
 
 ```console
@@ -27,7 +27,7 @@ perch at commit d4f7adf: 38 methods, read 38
 110 requests  81k tokens in / 5k out  $0.0034
 ```
 
-Every answer is a probability. `72%` is how sure perch is, and it stays on the row.
+Every answer is a probability. `72%` is the model's probability that the problem is real, and it stays on the row.
 
 ## Install
 
