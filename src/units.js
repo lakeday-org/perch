@@ -531,9 +531,10 @@ export async function searchUnits({ rules, scan, graph, files, tree, eligible, r
     const { answers, model } = await askUnitSteps({ systemOne, steps, prepare, rules: [rule] });
     // The rule's own floor decides, the one perch check reads this unit by. The run's alone called a min: 80 rule broken on a
     // unit answering 60%, and under --min 0 took any answer as found, so a present rule could never fail. A present rule is read
-    // the way a check reads it: this unit lacks the thing when its lacking it clears the floor.
-    const { here } = readLint(rule, answers), floor = floorFor(rule, min, model);
-    return 1 - here <= floor;
+    // the way a check reads it: this unit lacks the thing when its lacking it clears the floor, and has it otherwise.
+    const { here } = readLint(rule, answers);
+    const lacks = 1 - here > floorFor(rule, min, model);
+    return !lacks;
   };
 
   await Promise.all(plans.map(async ({ rule, units, id }) => {
