@@ -177,8 +177,7 @@ rules:
       Every heading on the page names a task or a thing, as the Headings
       section of the style guide says. A heading phrased as a question the page
       answers, or as a sentence or a fragment of prose, breaks this rule.
-    # Floored at 75. Shown the style guide, the clean pages read 37% at worst and a copy of docs/check.md with question
-    # headings 79%.
+    # Floored at 75. Clean pages read 41% at most. A copy of docs/check.md with question headings reads 86%.
     min: 75
   # Bounded to the headings and the first table, where a page names what it covers. A thing described with a clause instead of
   # named reads as machine prose: "Read what CI found" for CI results, "the issues one run found" for a run's issues.
@@ -206,8 +205,7 @@ rules:
       four prose paragraphs of the body; headings, tables, lists and fenced
       blocks are not prose. Each sentence in them keeps to the Sentence length
       section of the style guide. A sentence that does not breaks this rule.
-    # A long frontmatter block still pulls this to the high fifties on a file whose body is clean, so the floor sits above that
-    # band. Shown the style guide, the clean pages read 59% at worst and a copy of docs/check.md opened with run-ons 79%.
+    # Floored at 65. A long frontmatter block pulls a clean page to 60%. A copy of docs/check.md opened with run-ons reads 83%.
     min: 65
   - name: docs-no-next-steps
     where: "{README.md,skill.md,docs/**/*.md}"
@@ -311,8 +309,8 @@ rules:
       No sentence on the page gives code, a question, a page or a table a mind
       or a will, as the Things are not people section of the style guide
       describes.
-    # Floored at 60. Shown the style guide, the clean pages read 54% at worst and a copy of docs/check.md with three such
-    # sentences 84%. It catches a page full of it and may miss a single sentence.
+    # Floored at 60. Clean pages read 60% at most, except docs/skill.md at 69%. A copy of docs/check.md with three such sentences
+    # reads 91%. It catches a page full of it and can miss a single sentence.
     min: 60
   - name: docs-no-refactor-history
     where: "{README.md,skill.md,docs/**/*.md}"
