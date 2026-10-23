@@ -227,8 +227,8 @@ Added no-silent-failure.
 `--where` takes a glob. `--each` is `file`, `method` or `test`. `--min N` sets a floor
 for that rule alone. `--gate no` reports a rule without failing runs.
 
-`--ensure_absent` is for a claim about the codebase as a whole. It searches the
-likeliest places and stops at the answer.
+`--ensure_absent` is for something that must not be anywhere. It asks every unit it
+covers and reports each one that has the thing.
 
 Rules ride in the request perch was already making about a method. Five rules on one
 method is one reading.

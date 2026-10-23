@@ -369,8 +369,8 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
       // source they are asked about comes from the revision, not from disk, so a finding is still about a commit.
       const over = { scan, graph, files, tree, eligible, revision, systemOne: gated, inScope, min, debug };
       return Promise.all([
-        askUnits({ ...over, rules: asking.filter(rule => !SEARCHES(rule.kind) && rule.each !== 'method'), parallel: unitParallel, progress: unitProgress }),
-        searchUnits({ ...over, rules: asking.filter(rule => SEARCHES(rule.kind)), parallel: unitParallel, progress: searchProgress }),
+        askUnits({ ...over, rules: asking.filter(rule => rule.kind === 'ensure_absent' || !SEARCHES(rule.kind) && rule.each !== 'method'), parallel: unitParallel, progress: unitProgress }),
+        searchUnits({ ...over, rules: asking.filter(rule => rule.kind === 'ensure_present'), parallel: unitParallel, progress: searchProgress }),
       ]);
     })();
 

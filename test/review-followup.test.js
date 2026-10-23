@@ -111,7 +111,8 @@ it.each(['ensure_present','ensure_absent'])('retains a %s witness and concurrent
   for (let i=0;i<2;i++) {
     const run = await scanRepository({...options,systemOne,unitParallel:2});
     expect(run.status).toBe('incomplete');
-    expect(run.incomplete.join('\n')).toContain('docs/0.md: server unavailable');
+    // An absent rule is asked of every unit, so a unit it could not read is reported the way a file rule's is.
+    expect(run.incomplete.join('\n')).toContain(kind === 'ensure_absent' ? 'docs/0.md: evidence: server unavailable' : 'docs/0.md: server unavailable');
     expect(run.broken).toHaveLength(kind === 'ensure_absent' ? 1 : 0);
     if (kind === 'ensure_absent') expect(run.broken[0]).toMatchObject({path:'docs/1.md'});
   }
