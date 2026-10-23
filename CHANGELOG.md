@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.9](https://github.com/lakeday-org/perch/compare/v0.4.8...v0.4.9) (2026-10-23)
+
+
+### Features
+
+* rules can read a document with context ([#426](https://github.com/lakeday-org/perch/issues/426)) ([e758b97](https://github.com/lakeday-org/perch/commit/e758b9738138790f590666536aff73a93196731e))
+
+
+### Bug Fixes
+
+* rules skipped every unit past the first 400 ([#425](https://github.com/lakeday-org/perch/issues/425)) ([bda4d44](https://github.com/lakeday-org/perch/commit/bda4d444e1fe84a87ffc5789c894598ae81349c5))
+
 ## [0.4.8](https://github.com/lakeday-org/perch/compare/v0.4.7...v0.4.8) (2026-10-22)
 
 
