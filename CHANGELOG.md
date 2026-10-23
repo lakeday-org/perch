@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.4.8](https://github.com/lakeday-org/perch/compare/v0.4.7...v0.4.8) (2026-10-22)
+
+
+### Features
+
+* ask the same two bug questions on every scan, over the diff on --since ([#418](https://github.com/lakeday-org/perch/issues/418)) ([7dad01e](https://github.com/lakeday-org/perch/commit/7dad01e688afae6e4743e55ff798ecf720765797))
+* perch scan --since shows the model the previous code and diff ([#407](https://github.com/lakeday-org/perch/issues/407)) ([f595eab](https://github.com/lakeday-org/perch/commit/f595eab255c9dec76f666005c0b1dc6e3be47cd9))
+
+
+### Bug Fixes
+
+* fail the scan on a broken rule that declares a label ([#420](https://github.com/lakeday-org/perch/issues/420)) ([9f54ad7](https://github.com/lakeday-org/perch/commit/9f54ad75a97043022880655e1a622d7fbbbab54b))
+* filtered scans kept answers to obsolete questions ([#404](https://github.com/lakeday-org/perch/issues/404)) ([97e0d74](https://github.com/lakeday-org/perch/commit/97e0d74169b52aa6a258569fa436f7610eba7127))
+* Python overload stubs were scanned as methods ([#405](https://github.com/lakeday-org/perch/issues/405)) ([809dc25](https://github.com/lakeday-org/perch/commit/809dc25edea5d44ae64aef4642c9287ff9f24532))
+* read .es6 files as JavaScript ([#414](https://github.com/lakeday-org/perch/issues/414)) ([d589969](https://github.com/lakeday-org/perch/commit/d589969d59c821e54e094334bdd4946f83da3f11))
+* resolve each import once while building the graph ([#413](https://github.com/lakeday-org/perch/issues/413)) ([e34c33a](https://github.com/lakeday-org/perch/commit/e34c33a9e4e3fbd60f3b812ae8bdbb6b61bb5bf7))
+
+
+### Performance Improvements
+
+* build only the graph a narrowed scan needs ([#415](https://github.com/lakeday-org/perch/issues/415)) ([c74981f](https://github.com/lakeday-org/perch/commit/c74981fc7895ffc164197a7fd3faa83c0f08a35a))
+
 ## [0.4.7](https://github.com/lakeday-org/perch/compare/v0.4.6...v0.4.7) (2026-10-21)
 
 
