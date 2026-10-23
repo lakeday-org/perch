@@ -46,6 +46,7 @@ jobs:
         if: ${{ steps.release.outputs.release_created }}
         with:
           node-version: 22
+          check-latest: true
           registry-url: https://registry.npmjs.org/
           cache: npm
 
