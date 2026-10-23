@@ -77,8 +77,7 @@ Probabilities spread across several kinds mean the model is sure something is wr
 and cannot say what. Say 0.4 on one kind and 0.3 on another. Read the method. Leave
 the label alone.
 
-The line it points at carries its own confidence. A low one puts the problem somewhere
-in the method.
+A finding's line is where the method starts. The problem can be anywhere in the method.
 
 Expect the real problem to sit adjacent to what was reported. A `missing_null_handling`
 at 70% is often an unchecked error a few lines off.
@@ -94,16 +93,21 @@ rewrite working code to satisfy a probability.
 After a fix, ask about the thing you changed.
 
 ```console
-$ perch check src/store.js::openStore.scanDir
-src/store.js:74  openStore.scanDir
-5 checks, 0 broken.
+$ perch check storage.py::load_order
+storage.py:10  load_order
+2 checks, 1 broken.
 
-  Also raised: does_not_do_what_it_claims 80%
-2 requests  5k tokens in / 767 out  $0.0002
+  Confidence  Rule                     Description
+         80%  errors-reach-the-caller  When this method catches an exception, it raises it again or
+                                       returns a value the caller can tell apart from success. Logging
+                                       the exception and returning an ordinary value breaks this rule.
+
+  Also raised: error_ignored 68%
+2 requests  447 tokens in / 25 out  $0.0001
 ```
 
-`perch check src/store.js::openStore.scanDir --json` gives the same reading in full,
-and an issue id works in place of a target.
+`perch check storage.py::load_order --json` gives the same answers as JSON, and an
+issue id works in place of a target.
 
 This reads the file off disk, so it works on uncommitted code. It records nothing, so
 it will not move the numbers on the issue you are fixing. It exits `3` while something

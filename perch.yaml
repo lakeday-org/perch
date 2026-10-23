@@ -70,6 +70,23 @@ rules:
     except: skill.md
     min: 65
 
+  # A reader of docs.perchscan.com quoted "Custom rules ride in the request perch was already making about that method. A method
+  # covered by five rules costs one reading." as prose that is hard to read. Bounded to the opening like the rules above.
+  # Floored at 65. Before the rewrite docs/index.md read 94%, docs/rules.md 90% and docs/coverage.md 71%; after it, every
+  # docs page read under 55%, and the README, which the rewrite did not touch, 58%.
+  - name: docs-say-it-plainly
+    min: 65
+    where: "{README.md,docs/**/*.md}"
+    ensure: >-
+      Skip the frontmatter between the `---` markers. Read the first six prose
+      paragraphs; headings, tables, lists and fenced blocks are not prose. Each
+      sentence has a subject and a verb and says literally what perch or the
+      reader does. A figure of speech standing in for a mechanism breaks this
+      rule, such as rules ride in a request. So does an everyday word used as a
+      term the page never defines, such as a reading for one request about a
+      method, and a fragment used for effect, such as Nothing. or Is it a
+      security hole.
+
   - name: docs-succinct
     where: "**/*.md"
     ensure: >

@@ -3,79 +3,87 @@ title: Quick start
 nav: Quick start
 group: Getting started
 order: 2
-summary: Install perch, set the key, and run the first scan.
+summary: Install Perch, sign in, and run your first scan.
 ---
 
 # Quick start
 
-## Requirements
+## Prerequisites
 
-- Node 22 or newer
-- git
-- An API key for your endpoint
+To use Perch, you need Node.js 22 or later and git. Perch scans the commit that is currently checked out, so you need to
+run it inside a git repository.
 
-perch reads the repository at `HEAD`, so run it inside a git checkout.
+## Install Perch
 
-## Install
+Install Perch globally with npm:
 
 ```sh
 npm install -g @lakeday/perch
 ```
 
-Or run it without installing:
+To run Perch without installing it, use `npx @lakeday/perch` in place of `perch`. For example, `npx @lakeday/perch scan`.
 
-```sh
-npx @lakeday/perch scan
+## Sign in to Perch Cloud
+
+Run `perch login` to sign in. Perch prints a link and a confirmation code:
+
+```console
+$ perch login
+Open https://dash.perchscan.com/device?code=L9DR-8BTD
+Confirm code: L9DR-8BTD
 ```
 
-## The key
+Open the link in your browser and confirm the code. Perch saves your login to `~/.perch/cloud.json`, outside your
+repository, and uses it for every command that needs it.
 
-Create an API key at [console.typesafe.ai](https://console.typesafe.ai) and set
-the full System One request URL and your key:
+New accounts include $5 of free usage. Perch Cloud caches answers for each repository, so scanning code that hasn't
+changed is free.
+
+## Run your first scan
+
+Navigate to the root of your repository and run `perch scan`:
+
+```console
+$ perch scan
+inventory.py
+  ID        Line  Severity  Type    Confidence  Problem             Method
+  0d0e3f8a     5  P1 (0.8)  defect         88%  wrong_return_value  reserve
+  225c1645    21  P1 (0.7)  defect         93%  wrong_order         release_expired
+
+checkout.py
+  ID        Line  Severity  Type    Confidence  Problem             Method
+  bdc67421    10  P1 (0.9)  defect         82%  wrong_order         place_order
+  ddc5c917    21  P1 (0.9)  defect         94%  wrong_return_value  can_fulfil
+  4f8bf5dc    29  P1 (0.8)  defect         68%  bad_state_change    refund
+
+cart.py
+  ID        Line  Severity  Type    Confidence  Problem             Method
+  287bfb9d     7  P1 (1.1)  defect         93%  off_by_one          subtotal
+  44c8d48a    21  P1 (1.0)  defect         74%  inverted_condition  is_eligible_for_free_shipping
+  80d6ebbb    28  P1 (1.3)  defect         91%  unhandled_null      cheapest
+
+storage.py
+  ID        Line  Severity  Type    Confidence  Problem        Method
+  5a623390    10  P1 (1.0)  defect         68%  error_ignored  load_order
+
+✖ 9 problems in 4 files, all failing
+order-service at commit b412add: 15 methods, read 15
+15 requests  17k tokens in / 3k out  $0.0065
+```
+
+Perch makes at least one request per method, so scanning a large repository can take hundreds of requests. To scan only
+part of a repository, pass a directory, such as `perch scan src`. For other ways to narrow a scan, see
+[Scanning your code](/scanning/).
+
+## Use your own model endpoint
+
+If you don't want to use Perch Cloud, you can send Perch's questions directly to a model provider. Set `PERCH_BASE_URL`
+to the provider's endpoint and `PERCH_API_KEY` to your API key:
 
 ```sh
 export PERCH_BASE_URL=https://api.typesafe.ai/v1/systemone
 export PERCH_API_KEY='paste-your-TypeSafe-key-here'
 ```
 
-Liquid AI's decision models use the same format; [Environment](/cli/#environment) shows how to
-point perch at them or at another endpoint.
-
-## The first scan
-
-Run it at the root of the repository:
-
-```console
-$ perch scan
-cart.py
-  ID        Line  Severity  Type    Confidence  Problem                     Method
-  287bfb9d    10  P1 (1.0)  defect         89%  off_by_one                  subtotal
-  48a02173    17  P1 (1.3)  defect         74%  off_by_one                  apply_discount
-  44c8d48a    23  P1 (1.1)  defect         71%  does_not_do_what_it_claims  is_eligible_for_free_sh…
-  80d6ebbb    30  P2 (1.5)  defect         88%  unhandled_null              cheapest
-
-inventory.py
-  ID        Line  Severity  Type    Confidence  Problem             Method
-  0d0e3f8a     9  P1 (1.0)  defect         87%  wrong_return_value  reserve
-  225c1645    26  P1 (1.0)  defect         88%  bad_state_change    release_expired
-
-storage.py
-  ID        Line  Severity  Type    Confidence  Problem        Method
-  5a623390    15  P1 (1.3)  defect         76%  error_ignored  load_order
-
-checkout.py
-  ID        Line  Severity  Type    Confidence  Problem                     Method
-  bdc67421    15  P1 (0.8)  defect         82%  wrong_order                 place_order
-  ddc5c917    25  P1 (0.9)  defect         94%  does_not_do_what_it_claims  can_fulfil
-  4f8bf5dc    31  P1 (0.8)  defect         74%  bad_state_change            refund
-
-auth.py
-  ID        Line  Severity  Type    Confidence  Problem         Method
-  c25aa687    14  P1 (0.5)  defect         65%  unhandled_null  cancel_order
-
-✖ 11 problems in 5 files, all failing
-order-service at commit 44c53d9: 14 methods, read 14
-14 requests  17k tokens in / 3k out  $0.0007
-```
-
-A large repository is hundreds of requests. `perch scan src` scans one directory.
+When `PERCH_BASE_URL` is set, Perch ignores your Perch Cloud login. For the list of supported endpoints, see
+[Environment](/cli/#environment).

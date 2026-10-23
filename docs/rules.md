@@ -3,75 +3,76 @@ title: Semantic linting
 nav: Semantic linting
 group: Using perch
 order: 4
-summary: Custom linting rules in perch.yaml, asked in the same reading as perch's own questions.
+summary: Write custom rules as sentences in perch.yaml, and Perch checks them on every scan.
 ---
 
 # Semantic linting
 
-A rule is a sentence about what the code should hold. A comment should say why.
-A listing should honor a filter. A test should assert something real.
+Custom rules let you check for things a traditional linter can't, such as whether errors reach the caller or whether tests
+assert on real behavior. A rule is a plain-English statement that your code should satisfy. Perch asks the model whether
+each file, method or test that the rule applies to satisfies the statement, and reports the ones that don't.
 
-You write the rule as a sentence. perch puts it to the model as a question.
+Rules are stored in `perch.yaml` at the root of your repository, or in YAML files under `.perch/rules/`.
 
-They live in `perch.yaml` or YAML files under `.perch/rules/` at the repository root.
+## Add a rule
 
-## The short form
-
-A rule is its name and the sentence you want held. Everything else has a default:
+To add a rule, use `perch rules add`:
 
 ```console
-$ perch rules add no-narrative-prose --ensure "A headline and one line, not a paragraph explaining the product."
-Added no-narrative-prose.
+$ perch rules add errors-reach-the-caller --each method --where "**/*.py" --min 65 --ensure "When this method catches an exception, it raises it again or returns a value the caller can tell apart from success. Logging the exception and returning an ordinary value breaks this rule."
+Added errors-reach-the-caller to perch.yaml.
 ```
 
-That is what it appended to `perch.yaml`:
+This adds the following rule to `perch.yaml`:
 
 ```yaml
-- name: no-narrative-prose
-  where: "**/*"
-  ensure: >-
-    A headline and one line, not a paragraph explaining the product.
-```
-
-`where` defaults to `**/*`, the answer defaults to a yes-or-no, and the unit
-defaults to the file as a whole. Narrow any of them when you need to:
-
-```yaml
-- name: private-logs
-  where: "src/**/*.ts"
+- name: errors-reach-the-caller
   each: method
-  ensure: >
-    Keep passwords and access tokens out of logs.
-
-- name: tests-assert-real-behavior
-  each: test
-  sees: calls
-  ensure: >
-    Tests assert on the code under test, not on mocks they set up or values they
-    built.
+  where: "**/*.py"
+  min: 65
+  ensure: >-
+    When this method catches an exception, it raises it again or returns a value
+    the caller can tell apart from success. Logging the exception and returning
+    an ordinary value breaks this rule.
 ```
 
-Custom rules ride in the request perch was already making about that method. A
-method covered by five rules costs one reading. Every question is scored against
-the code by itself, and the code is most of what the request carries.
+In this example, `where` and `each` apply the rule to every method in every Python file, and `min: 65` reports a method
+only when Perch is more than 65% confident that it breaks the rule. If you leave out `where`, the rule applies to every
+file in the repository. If you leave out `each`, Perch checks each file as a whole.
+
+The next scan checks the rule along with Perch's built-in questions:
+
+```console
+$ perch scan storage.py
+storage.py
+  ID        Line  Severity  Type    Confidence  Problem                  Method
+  5a623390    10  -         lint           74%  errors-reach-the-caller  load_order
+  5a623390    10  P1 (1.0)  defect         68%  error_ignored            load_order
+
+✖ 2 problems in 1 file, all failing
+order-service at commit a71f48f: 3 methods, read 3
+3 requests  0 tokens in  $0.0000
+```
+
+A broken rule is reported with the type `lint`, and the Problem column shows the rule's name.
+
+Method rules are checked in the same request as Perch's built-in questions, so adding them doesn't increase the number of
+requests. Rules that apply to whole files or tests are sent as separate requests.
 
 ## Rule files
 
-Keep rules in `perch.yaml`, or split them into `.yaml` and `.yml` files under
-`.perch/rules/`. Subdirectories are supported. Each file contains a list of
-rules, using the same syntax as `perch.yaml`.
+You can keep all of your rules in `perch.yaml`, or split them across `.yaml` and `.yml` files in `.perch/rules/` and its
+subdirectories. Each file contains a list of rules in the same format as `perch.yaml`.
 
-Perch reads `perch.yaml` first, then the split files in alphabetical path order.
-A later definition with the same name replaces an earlier one. Edits and new
-files on disk apply before they are committed.
+Perch reads `perch.yaml` first, and then the files in `.perch/rules/` in alphabetical order. If two rules have the same
+name, the one read last takes precedence. Perch reads rule files from disk, so new and edited rules take effect on the
+next scan, even before you commit them.
 
-Keep `ignore` and `scan_types` in the root `perch.yaml`. `perch rules list`
-shows every file. `add` writes to `perch.yaml` unless `--file` names a split
-file; `edit` and `remove` find the file a rule is in.
+`ignore` and `scan_types` must be set in the root `perch.yaml`. To see which file each rule is in, run
+`perch rules list`.
 
-Commit `.perch/rules/` and `.perch/closed.jsonl`. Each scan updates
-`.perch/.gitignore` to keep output ignored and permit those paths.
-If your root `.gitignore` ignores `.perch` or its contents, replace that entry with:
+Commit `.perch/rules/` and `.perch/closed.jsonl` to your repository. Each scan writes a `.perch/.gitignore` file that
+ignores the rest of Perch's output. If your root `.gitignore` ignores `.perch`, replace that entry with:
 
 ```gitignore
 .perch/*
@@ -81,73 +82,66 @@ If your root `.gitignore` ignores `.perch` or its contents, replace that entry w
 
 ## Fields
 
-| Field | | Default |
+A rule must have a `name` and one of `ensure`, `ensure_present` or `ensure_absent`. The other fields are optional.
+
+| Field | Description | Default |
 | --- | --- | --- |
-| `name` | What it is called. Names the row in the table, and is what `--rules` and `--filter kind=` take. | required |
-| `ensure` | What has to be true everywhere it covers. | |
-| `ensure_present` | Something that has to exist somewhere in what it covers. | |
-| `ensure_absent` | Something that must not exist anywhere in what it covers. | |
-| `where` | What it covers: a glob, `callers of <method>`, or `mentions <text>`. | `**/*` |
-| `except` | A glob it spares. | nothing |
-| `each` | `file`, `method`, or `test`. | the file as a whole |
-| `sees` | What a file or test is shown besides itself: `file`, `calls`, `callers`, or `neighbors`. | itself |
-| `min` | The floor for this rule alone, in percent, or one per model. See [floors](#floors). | the run's `--min` |
-| `gate` | Whether breaking it fails the run. | `true` |
-| `disabled` | Keeps the rule in the file without asking it. | `false` |
+| `name` | The rule's name. It's shown in the Problem column, and you can pass it to `--rules`, `--filter rule=` and `--filter kind=`. | required |
+| `ensure` | A statement that must be true of everything the rule applies to. | |
+| `ensure_present` | Something that must exist somewhere in what the rule applies to. | |
+| `ensure_absent` | Something that must not exist anywhere in what the rule applies to. | |
+| `where` | What the rule applies to: a glob, `callers of <method>`, or `mentions <text>`. | `**/*` |
+| `except` | A glob for paths to skip. | none |
+| `each` | Check each `file`, `method` or `test` separately. | each file as a whole |
+| `sees` | Additional context to send with a file or test: `file`, `calls`, `callers` or `neighbors`. | none |
+| `min` | The minimum confidence, in percent, for reporting a break. You can also set one per model. See [Floors](#floors). | the scan's `--min`, which defaults to 50 |
+| `gate` | Whether a break fails the scan. | `true` |
+| `disabled` | Keeps the rule in the file without checking it. | `false` |
 
-### `where`
+### where
 
-A glob is the common case. The other two forms follow the call graph instead of
-the filesystem:
-
-```yaml
-where: "src/**/*.js"           # a glob
-where: callers of issues       # every method that calls issues()
-where: mentions scan.jsonl     # every method whose source names that string
-```
-
-### `each`
-
-`each: method` asks about every method separately. Use it when the claim is about
-one method's behavior. Leaving it off asks about the file as a whole, which suits
-a claim about how the file is arranged. `each: test` asks about each test case
-the parser finds: pytest and `unittest` tests, `it` and `test` in JavaScript and
-TypeScript, `#[test]` functions in Rust, JUnit's `@Test`, and GoogleTest and
-Catch2 macros in C++. A test is read from its first line to the end of its body.
-You do not need to specify `where` for a rule with `each: test`. The parser
-understands what a test looks like and will look for them in any file. `where`
-can still be used to limit the rule to only some of the tests it finds. A rule
-with `each: method` will not find tests or test helper methods that are next to
-tests.
-
-### `sees`
-
-A method is always read with its callers and callees in view, so a method rule
-needs no `sees`. A file or a test is read alone unless you say otherwise. A test
-alone leaves you guessing whether what it asserts is real:
+`where` is usually a glob. The other two forms select methods using the call graph instead of file paths:
 
 ```yaml
-sees: calls        # what it calls
-sees: callers      # what calls it
-sees: neighbors    # both
-sees: file         # the whole file it lives in
+where: "src/**/*.js"           # Every file that matches the glob.
+where: callers of issues       # Every method that calls issues().
+where: mentions scan.jsonl     # Every method whose source contains "scan.jsonl".
 ```
 
-`calls` and `callers` walk the call graph outward from the unit, nearest first.
-What it calls directly comes before what that calls. Eight is the cap, so it cuts
-the far edge and keeps the near one. A test walks from itself, so `sees: calls`
-shows the code the test calls. A file walks from the methods it declares.
+### each
 
-A file the parser does not read has no methods and no call graph. Markdown and
-YAML walk the file tree instead. `calls` is what sits under the file's directory,
-shallowest first. `callers` is what sits above it, nearest first.
+`each: method` checks every method separately. Use it for rules about how a method behaves. Without `each`, Perch checks
+each file as a whole, which is better for rules about how a file is organized.
 
-### `ensure` against `ensure_present` and `ensure_absent`
+`each: test` checks every test that Perch can parse, including pytest and `unittest` tests, `it` and `test` blocks in
+JavaScript and TypeScript, `#[test]` functions in Rust, JUnit `@Test` methods, and GoogleTest and Catch2 test macros in
+C++. Perch finds tests in any file, so a test rule doesn't need `where`, although you can use `where` to limit which tests
+it checks. Rules with `each: method` skip tests and the helper methods next to them.
 
-`ensure` has to hold everywhere, so every unit it covers is asked.
+### sees
 
-`ensure_present` and `ensure_absent` are claims about the codebase rather than
-any one file. They search the likeliest units first and stop at the answer.
+Perch always sends a method's callers and callees with it, so method rules don't need `sees`. Files and tests are sent on
+their own unless you set `sees`. For example, a rule about tests usually needs to see the code being tested:
+
+```yaml
+sees: calls        # The code it calls.
+sees: callers      # The code that calls it.
+sees: neighbors    # Both.
+sees: file         # The whole file it's in.
+```
+
+`calls` and `callers` follow the call graph outward, starting with the nearest methods, up to a limit of eight. For a
+test, `sees: calls` sends the code the test calls. For a file, Perch starts from the methods declared in that file.
+
+Files that Perch can't parse for methods, such as Markdown and YAML, have no call graph. For these files, `calls` sends
+the files in the same directory and below it, and `callers` sends the files in the directories above it.
+
+### ensure, ensure_present and ensure_absent
+
+An `ensure` rule must be true of everything it applies to, so Perch checks every file, method or test that matches.
+
+`ensure_present` and `ensure_absent` are statements about the codebase as a whole. Perch searches the most likely
+candidates first, and stops as soon as it finds an answer. For example:
 
 ```yaml
 - name: issues-closable
@@ -163,30 +157,18 @@ any one file. They search the likeliest units first and stop at the answer.
     A command or flag that is parsed and then never used.
 ```
 
-### The cost of a search
+A search stops as soon as it finds a match, so it's cheap when a match exists. When nothing matches, which is the normal
+case for a codebase that follows the rule, the search has to check everything it applies to. For example, the
+`no-dead-command` rule above checks every method in `src` before it can report that none of them has an unused flag.
 
-A search is how you find out whether something is true of a codebase you have not
-read. That is worth having, and it is the most expensive thing perch does.
+Note: a rule checks at most 400 files, methods or tests, and skips the rest without reporting it. An `ensure_present` rule
+that applies to more than 400 of them can report that something is missing when it isn't.
 
-It stops at the first unit that answers, so a rule that finds what it is looking
-for early is cheap. A rule with no answer anywhere reads every unit it covers.
-`ensure_absent` over `src/**/*.js` with `each: method` asks about every method in
-`src` before it can say nothing has the thing, and that is the case a clean
-codebase hits on every run. Three such rules account for most of a scan here.
+To see how much a single rule costs, run it on its own with `perch scan --filter rule=<name>`.
 
-A rule reads at most 400 units, search or not. Past that the rest are skipped
-without a word, so an `ensure_present` rule over more than 400 units can report
-that nothing has the thing when something does.
-
-`perch scan --filter rule=<name>` runs one rule on its own, which is how to see
-what a search costs.
-
-### From a search to a rule
-
-Use a search to find the problem. Once you know where it lives, write the rule
-against that place instead, and the cost goes with it.
-
-`where` takes the call graph, not just a glob:
+Once a search has found where a problem is, you can make the rule cheaper by narrowing `where` to that part of the code.
+For example, this rule from Perch's own `perch.yaml` applies only to the few methods that call `issues()`, instead of
+the roughly 400 methods under `src`:
 
 ```yaml
 - name: closed-never-listed
@@ -194,76 +176,65 @@ against that place instead, and the cost goes with it.
   ensure: >
     This method passes the findings through visibleFindings before a person
     sees them, or it is not producing a list for a person to read.
-
-- name: one-way-into-the-log
-  where: mentions .jsonl
-  ensure: >-
-    This method reads and writes the results files through the store, not by
-    opening them itself.
 ```
 
-Both are in this repository's `perch.yaml`. `callers of issues` is the handful of
-methods that call `issues()`. `mentions .jsonl` is the methods whose source names
-that string. A search over `src/**/*.js` would ask the same question of four
-hundred methods to reach the same answer.
+## Write a good rule
 
-## Wording a rule
-
-A rule is read by a model. Write it the way you would explain it to somebody
-joining the team, and say what breaks it:
+The model reads your rule as written, so write it the way you'd explain it to a new teammate. Include an example of what
+breaks the rule, not only what follows it:
 
 ```yaml
 ensure: >
-  methods carry a comment that tells a human reader something the code does not.
-  A comment that narrates the steps below it breaks this rule. So does one that
-  restates the method's name as a sentence.
+  The method has a comment that tells the reader something the code does not.
+  A comment that narrates the steps below it breaks this rule, and so does one
+  that restates the method's name as a sentence.
 ```
 
-Rewording a rule re-asks it. Leaving it alone costs nothing.
+If you're writing a rule for whole files, these guidelines help:
+
+- Limit the rule to a fixed part of the file, such as "the first four paragraphs". A rule like "every sentence is short"
+  is more likely to fail on a long file, whatever the writing is like.
+- If a rule scores in the 50s on almost everything, it isn't telling good code from bad. Reword it or remove it instead of
+  raising its floor.
+
+When you change a rule's wording, Perch checks it again on the next scan. Unchanged rules on unchanged code are answered
+from Perch Cloud's cache and cost nothing.
 
 ## Broken rules
 
-A broken rule is listed with everything else, under type `lint`, with the rule's
-name in the Kind column:
+To list the methods and files that break a rule, filter `perch issues` by type:
 
 ```console
 $ perch issues --filter type=lint
-ID        Method          Location          Type  Kind                    Severity
-99d1b053  src/index.html  src/index.html:7  lint  no-narrative-prose 61%  -
-1 open issue match, out of 27
+ID        Method      Location       Type  Kind                                            Severity
+5a623390  load_order  storage.py:10  lint  errors-reach-the-caller 74%, error_ignored 68%  P1 (1.0)
+1 open issue match, out of 9
 ```
 
-`perch scan` exits 3 when a rule is broken. It does the same for a defect or a
-vulnerability.
+`perch scan` exits with code 3 when a rule is broken, the same as it does for a bug or a security problem.
 
 ## Gates
 
-Every question a scan asks fails the run. `perch rules list` shows it in the
-Fails column, and a custom rule is read no differently from perch's own:
+Every question a scan asks, including your custom rules, fails the scan when it finds a problem. `perch rules list`
+shows this in the Fails column:
 
 ```console
 $ perch rules list
-Question       From     Asks         Fails  Over  Description
-has_bug        builtin  noul >60%    yes    **/*  Does `method` contain a functional bug?
-bug_edge_case  builtin  noul >60%    yes    **/*  Does `method` mishandle a supported empty
-                                                  value, boundary value or alternate branch?
-refactor       builtin  choice >60%  yes    **/*  Judging from `method`, its `metrics`
-                                                  (risk_score and maintainability_index run
-                                                  0-100, cyclomatic_complexity and max_nesting
-                                                  are counts), and how its callers use it,
-                                                  what does it most need?
-documented     builtin  noul >75%    yes    **/*  Could a caller learn what `method` promises
-                                                  from the comment above it, or from the code
-                                                  itself where it is small enough to read?
+Question                 From        Asks         Fails  Over     Description
+errors-reach-the-caller  perch.yaml  ensure >65%  yes    **/*.py  When this method catches an
+                                                                  exception, it raises it again
+                                                                  or returns a value the caller
+                                                                  can tell apart from success.
+                                                                  Logging the exception and
+                                                                  returning an ordinary value
+                                                                  breaks this rule.
+has_bug                  builtin     noul >60%    yes    **/*     Does `method` contain a
+                                                                  functional bug?
 ```
 
-There is no type that gets asked about and cannot fail. A run that reports
-something and passes anyway teaches people to read past it. If a type is not
-worth stopping for, leave it out of [`scan_types`](#issue-types) and do not ask
-about it.
+The full output also lists the rest of Perch's built-in questions.
 
-`gate: false` turns one question off, for the case where you want the answer
-recorded and not acted on:
+If you want Perch to report a rule without failing the scan, set `gate: false`:
 
 ```yaml
 - name: docs-succinct
@@ -272,18 +243,13 @@ recorded and not acted on:
   ensure: Documentation is kept succinct and deliberate.
 ```
 
-```sh
-perch rules edit docs-succinct --gate false
-```
+You can make the same change with `perch rules edit docs-succinct --gate no`. To stop checking a whole type of problem,
+remove it from [`scan_types`](#issue-types).
 
 ## Ignored paths
 
-Perch excludes common dependency, build, and cache directories from method scans,
-file rules, test rules, searches, and neighboring context. The exclusions apply to
-every file type, including languages without method analysis, at any depth in a
-repository.
-
-Common excluded locations include:
+Perch skips common dependency, build and cache directories in every language, at any depth. This applies to method
+scans, file and test rules, searches, and the callers and callees sent to the model.
 
 | Ecosystem | Directories |
 | --- | --- |
@@ -295,49 +261,45 @@ Common excluded locations include:
 | Swift and Objective-C | `.build`, `Pods`, `DerivedData`, `Carthage/Build`, `Carthage/Checkouts` |
 | Rust and Zig | `target`, `.zig-cache`, `zig-cache`, `zig-out` |
 | Dart and Flutter | `.dart_tool`, `.pub-cache`, `.pub` |
-| Haskell, Elixir, Erlang, and OCaml | `.stack-work`, `dist-newstyle`, `.cabal-sandbox`, `_build`, `.elixir_ls` |
+| Haskell, Elixir, Erlang and OCaml | `.stack-work`, `dist-newstyle`, `.cabal-sandbox`, `_build`, `.elixir_ls` |
 | Other package and tool caches | `lua_modules`, `blib`, `.precomp`, `renv/library`, `renv/staging`, `packrat/lib`, `.cpcache`, `.godot`, `.import` |
 
-Some directory names also hold authored code. Perch excludes these only beside a
-tracked project marker:
+Some directory names are also used for source code, so Perch only skips them when they're next to a matching project
+file:
 
-| Project marker | Excluded directories beside it |
+| Project file | Directories skipped next to it |
 | --- | --- |
 | `*.csproj`, `*.fsproj`, `*.vbproj` | `bin`, `Bin`, `obj`, `Obj` |
 | `mix.exs`, `rebar.config` | `deps` |
-| `hardhat.config.js`, `.ts`, `.cjs`, `.mjs`, `.cts`, or `.mts` | `cache`, `artifacts` |
+| `hardhat.config.js`, `.ts`, `.cjs`, `.mjs`, `.cts` or `.mts` | `cache`, `artifacts` |
 | `foundry.toml` | `cache`, `broadcast` |
 | `*.uproject` | `Binaries`, `Intermediate`, `Saved` |
 
-For Unity projects identified by `ProjectSettings/ProjectVersion.txt`, Perch
-excludes `Library`, `Temp`, `Obj`, `Logs`, `UserSettings`, and `Builds` at the
-project root. A directory below the repository root containing a tracked
-`pyvenv.cfg` is excluded in full.
-Directories such as `bin`, `lib`, `packages`, and `deps` elsewhere remain readable.
-Generated files are excluded the way GitHub identifies them:
+In a Unity project, identified by `ProjectSettings/ProjectVersion.txt`, Perch skips `Library`, `Temp`, `Obj`, `Logs`,
+`UserSettings` and `Builds` at the project root. It also skips any directory below the repository root that contains a
+committed `pyvenv.cfg` file. Elsewhere, directories such as `bin`, `lib`, `packages` and `deps` are scanned normally.
 
-- Minified JavaScript and TypeScript (`.min.js` and similar), and any JavaScript or
-  CSS file whose lines average more than 110 characters or that ends with a
-  `sourceMappingURL` comment.
-- Files with a generator's marker in their first 40 lines, such as
-  `// Code generated by … DO NOT EDIT.`, `@generated`, or the headers that protobuf,
-  gRPC, Thrift, and Cython write.
+Perch skips generated files the same way GitHub does:
 
-A repository's `.gitattributes` decides first. A path marked `linguist-generated` or
-`linguist-vendored` is excluded, and one marked `-linguist-generated` or
-`linguist-vendored=false` is read even where Perch would otherwise skip it:
+- Minified JavaScript and TypeScript files, such as `.min.js`, and any JavaScript or CSS file whose lines average more
+  than 110 characters or that ends with a `sourceMappingURL` comment.
+- Files with a generator's marker in their first 40 lines, such as `// Code generated by … DO NOT EDIT.`, `@generated`,
+  or the headers written by protobuf, gRPC, Thrift and Cython.
+
+Your `.gitattributes` file takes precedence. Perch skips paths marked `linguist-generated` or `linguist-vendored`, and
+scans paths marked `-linguist-generated` or `linguist-vendored=false`, even if it would otherwise skip them:
 
 ```gitattributes
 public/js/** linguist-generated
 vendor/our-fork/** -linguist-vendored
 ```
 
-Large source files are chunked rather than excluded by size.
+Large source files aren't skipped. Perch splits them into parts instead.
 
-Use `ignore` for custom dependency and output locations.
+### Ignore other paths
 
-`perch.yaml` is a list of rules. To say what a scan should skip entirely, write it as a
-map instead, with the rules under `rules:`:
+To skip other paths, add them to `ignore` in `perch.yaml`. When you use `ignore`, `perch.yaml` must be a map, with your
+rules under `rules:`:
 
 ```yaml
 ignore:
@@ -345,94 +307,107 @@ ignore:
   - fixtures/**
 
 rules:
-  - name: no-narrative-prose
-    where: "**/*.md"
-    ensure: A headline and one line, not a paragraph explaining the product.
+  - name: errors-reach-the-caller
+    where: "**/*.py"
+    each: method
+    ensure: When this method catches an exception, it raises it again or returns an error.
 ```
 
-A scan of the repository does not read a path matching `ignore`. A path you name
-is read anyway: `perch scan fixtures/` and `--paths fixtures` both read it.
-
-The bare list form still works.
+Paths that match `ignore` are skipped when you scan the whole repository. If you name an ignored path directly, as in
+`perch scan fixtures/` or `--paths fixtures`, Perch scans it anyway. A `perch.yaml` that contains only a list of rules
+still works.
 
 ## Issue types
 
-A scan asks about defects and rules. Vulnerabilities are asked for with
-`--filter type=security`, or by adding `security` to `scan_types`.
-
-`refactor` and `docs` read the same on every method that has ever been long. A
-scan of this repository reported 32 of them against 0 defects, so they are asked
-only when you say so. Asked, they fail a run like anything else:
+`scan_types` in `perch.yaml` controls which types of problem a scan checks for. It defaults to `[defect, lint]`, which
+covers Perch's bug questions and your custom rules. You can also add `security`, `refactor` and `docs`. Every type you
+add can fail a scan, just like the defaults. For example:
 
 ```yaml
-scan_types: [defect, security, lint, refactor, docs]
+scan_types: [defect, security, lint]
 
 rules:
-  - name: no-narrative-prose
-    where: "**/*.md"
-    ensure: A headline and one line, not a paragraph explaining the product.
+  - name: errors-reach-the-caller
+    where: "**/*.py"
+    each: method
+    ensure: When this method catches an exception, it raises it again or returns an error.
 ```
 
-The list is the whole set, not an addition to the defaults. `scan_types:
-[security]` asks about vulnerabilities and nothing else.
+The list replaces the default, so `scan_types: [security]` checks for security problems and nothing else.
 
-A filter asks for a type whichever way `scan_types` is written:
+To check for a type on a single scan, use `--filter type=`. This works whatever `scan_types` is set to:
 
 ```console
-$ perch scan src/meter.js --filter type=refactor
-✓ nothing to report
-perch at commit 54a38d6: 13 methods, read 13
-13 requests  33k tokens in / 3k out  $0.0014
+$ perch scan cart.py --filter type=refactor
+✓ nothing matching type=refactor, out of 3 problems found
+order-service at commit a71f48f: 4 methods, read 4
+4 requests  4k tokens in / 296 out  $0.0004
 ```
 
-That is 13 requests against 52 for the default run, because the filter narrows
-what is asked and not just what is printed.
+`--filter` controls which questions Perch asks, so this scan asked only the refactoring question. The three problems it
+mentions are bugs that earlier scans found in `cart.py`.
 
 ## perch rules
 
-`perch rules list` shows the rules in `perch.yaml` and `.perch/rules/`, with the
-file each is in. `add` writes to `perch.yaml`, or to the split file `--file`
-names, creating it if needed. `edit` and `remove` find the file a rule is in.
-Comments and ordering are kept.
+`perch rules` lets you manage rules from the command line. `perch rules list` shows every rule and the file it's in,
+followed by Perch's built-in questions. `add` writes to `perch.yaml`, or to the file under `.perch/rules/` that you name
+with `--file`, creating the file if it doesn't exist. `edit` and `remove` find the file a rule is in. All three keep the
+file's comments and order.
 
 ```sh
-perch rules list
-perch rules list --file .perch/rules/docs.yaml
+perch rules list                                       # List every rule.
+perch rules list --file .perch/rules/docs.yaml         # List the rules in one file.
 perch rules add no-stale-docs --where "docs/**/*.md" --ensure_absent "docs for code that was deleted"
 perch rules add docs-no-rationale --file .perch/rules/docs.yaml --where "docs/**/*.md" --ensure "..."
-perch rules edit private-logs --except "src/generated/**,scripts/**"
+perch rules edit errors-reach-the-caller --except "scripts/**"
 perch rules remove no-stale-docs
 ```
 
-## Overriding perch's own questions
+## Override built-in questions
 
-The questions perch ships with are written in the same grammar, in `scan.yaml`
-inside the package. A rule in `perch.yaml` or `.perch/rules/` sharing a `name` with one of them
-replaces it. Reword a question that fits a codebase badly, or add a custom class
-alongside them.
+Perch's built-in questions are written in the same format, in the `scan.yaml` file that ships with Perch. If a rule in
+`perch.yaml` or `.perch/rules/` has the same `name` as a built-in question, it replaces that question. You can use this to
+reword a question that doesn't suit your codebase, or to add a new type of question.
 
-`scan.yaml` is worth reading once. It is the whole set of questions, and it is
-the clearest statement of what perch does. See [the questions](/scan/#the-questions).
+For the full list of built-in questions, see [The questions](/scan/#4-the-questions).
 
 ## Floors
 
-Every question carries a floor, in percent. Below it, an answer is not listed.
+A floor is the minimum confidence Perch needs before it reports a problem. Each built-in question has its own floor:
 
-| Floor | Question |
+| Floor | Questions |
 | --- | --- |
 | 75% | `documented` |
-| 70% | Most security checks |
+| 70% | Most security questions |
 | 60% | `has_bug`, `bug_edge_case`, `refactor`, `cwe_79` (XSS), `cwe_89` (SQL injection), `cwe_125` (out-of-bounds read) |
 
-A score near 50% is a weak signal, not a calibrated probability of a bug. The
-bug checks list nothing at 60% or below, from every model. A higher floor misses
-more bugs; use `--min` to choose a stricter floor for a run.
-XSS, SQL injection, and out-of-bounds reads have 60% floors; the other security
-checks use 70%. These are alert cutoffs, not calibrated probabilities that a
-vulnerability exists.
+Confidence is the model's own estimate, not a measured rate of real bugs. A higher floor reports fewer false positives,
+but misses more real problems.
 
-A floor can depend on the model that gave the answer. `min` then maps model id
-prefixes to floors, with a `default` for every other model:
+To set a floor for a single scan, use `--min`. If a question also has its own floor, Perch uses the higher of the two. For
+example, with `--min 90`, a 73% answer isn't reported, whatever the question's own floor is.
+
+A custom rule without `min` uses the scan's `--min`, which defaults to 50. Without `min: 65`, the example rule on this
+page also reported seven methods that don't catch any exceptions, at 51% to 62%. For that reason, give each new rule a
+floor:
+
+```yaml
+- name: comment-says-why
+  where: "src/**/*.js"
+  each: method
+  min: 70
+  ensure: A method's comment says something its code cannot.
+```
+
+You can also change floors from the command line:
+
+```sh
+perch rules edit documented --min 85        # Raise the floor of a built-in question.
+perch rules edit comment-says-why --min 0   # Remove a floor.
+```
+
+To use a different floor depending on which model answered, set `min` to a map of model ID prefixes, with `default` for
+every other model:
 
 ```yaml
 min:
@@ -440,47 +415,26 @@ min:
   default: 60
 ```
 
-When several prefixes match a model id, the longest one sets the floor.
-
-`--min` sets a floor for a whole run. Both apply and the higher wins. Asking for
-`--min 90` gets you nothing at 73%, whatever a question set for itself.
-
-A rule you write has no floor unless you give it one:
-
-```yaml
-- name: comment-says-why
-  where: "src/**/*.js"
-  each: method
-  min: 70
-  ensure: A method's comment says what its code cannot.
-```
-
-```sh
-perch rules edit misdocumented --min 85    # raise a shipped one
-perch rules edit comment-says-why --min 0  # take a floor off
-```
-
-Raising a floor until a rule keeps nothing is turning it off with extra steps.
-A question answering in the seventies about most of a codebase is a wrong
-question, not a wrong number. See [writing a good one](#wording-a-rule).
+If more than one prefix matches a model ID, the longest one is used.
 
 ## Longhand questions
 
-`ensure` is shorthand for a yes-or-no question. A rule can instead be written out
-in the grammar `scan.yaml` uses. Reach for that when the answer is a pick from a
-set, or a grade against a rubric.
+`ensure` is a shorthand for a yes-or-no question. For other kinds of answer, such as picking from a list or grading on a
+scale, you can write the rule in the same format that `scan.yaml` uses:
 
-| Field | |
+| Field | Description |
 | --- | --- |
-| `type` | `noul` for a probability, `choice` for a pick, `score` for a grade. Default `noul`. |
-| `ask` | The question itself, in place of `ensure`. |
+| `type` | `noul` for a yes-or-no probability, `choice` to pick one of several options, or `score` for a grade. Defaults to `noul`. |
+| `ask` | The question. Use it instead of `ensure`. |
 | `true` / `false` | What a yes and a no mean, for `noul`. |
-| `options` | The options and what each means, for `choice`. |
-| `levels` | The rubric, weakest first, for `score`. |
-| `when` | Another question this one is only as likely as. The two multiply. |
-| `language` | Optional parser language ID, or list of IDs, for the snippets this question applies to. |
+| `options` | The options and what each one means, for `choice`. |
+| `levels` | The grades, lowest first, for `score`. |
+| `when` | Another question this one depends on. Perch multiplies the two probabilities. |
+| `language` | A parser language ID, or a list of them. The question is only asked about methods in those languages. |
 | `issue` | What an answer means: `type`, `label`, `on`, `pick`, `except`. |
-| `gate` | Whether an answer fails the run. Defaults to yes for a defect, a vulnerability or a rule. |
+| `gate` | Whether an answer fails the scan. Defaults to `true` for a defect, a security problem or a rule. |
+
+For example:
 
 ```sh
 perch rules add handles_absence --type choice --each method --where "src/**/*.js" \
@@ -489,8 +443,6 @@ perch rules add handles_absence --type choice --each method --where "src/**/*.js
   --issue "type=defect,label=handles_absence,except=checks"
 ```
 
-For example, `language: [c, cpp, rust]` asks a native-memory question only of
-methods parsed in those languages. Without `language`, the question applies
-to all snippets selected by `where`. `when` names another question this one
-depends on, and multiplies its probability by that answer. See
-[the questions](/scan/#the-questions).
+This rule reports a defect labelled `handles_absence` when the model picks any option other than `checks`. To ask a
+question only about certain languages, add `language`. For example, `language: [c, cpp, rust]` limits it to methods in
+C, C++ and Rust. Without `language`, the question applies to every method that `where` selects.
