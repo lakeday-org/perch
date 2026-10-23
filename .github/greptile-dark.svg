@@ -1,45 +1,51 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="880" height="461" viewBox="0 0 880 461" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="488" viewBox="0 0 880 488" role="img" aria-labelledby="title desc">
 <title id="title">Perch on the Greptile benchmark</title>
-<desc id="desc">Known bugs caught on the Greptile benchmark, and what a pull request costs. Greptile: 82%, ~$1. Perch: 76%, $0.007. Cursor Bugbot: 58%, ~$1.50. GitHub Copilot: 54%, usage credits. CodeRabbit: 44%, $1–3. Graphite: 6%, ~$2.</desc>
+<desc id="desc">Known bugs caught on the Greptile benchmark, and what a pull request costs. Greptile: 82%, ~$1. Perch · OpenAI Decisions: 76%, $0.007. Cursor Bugbot: 58%, ~$1.50. GitHub Copilot: 54%, usage credits. CodeRabbit: 44%, $1–3. Perch · Jev: 44%, $0.003. Graphite: 6%, ~$2.</desc>
 <style>text{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif}.n{font-variant-numeric:tabular-nums}</style>
-<text x="16" y="30" font-size="12" font-weight="700" letter-spacing="1.2" fill="#e0942b">GREPTILE BENCHMARK</text>
-<text x="16" y="64" font-size="25" font-weight="700" fill="#f0f6fc">Perch catches 76% of the known bugs for $0.007 a pull request</text>
-<text x="16" y="92" font-size="14" fill="#9198a1">50 pull requests from Sentry, Cal.com, Grafana, Keycloak and Discourse, each with one known bug.</text>
-<line x1="16" y1="114" x2="864" y2="114" stroke="#30363d" stroke-width="1"/>
-<text x="196" y="138" font-size="12" font-weight="600" fill="#7d8590">Known bugs caught</text>
-<text x="864" y="138" font-size="12" font-weight="600" text-anchor="end" fill="#7d8590">Cost of a pull request</text>
-<text x="16" y="176" font-size="15" fill="#9198a1">Greptile</text>
-<path d="M196,162h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#1a1f27"/>
-<path d="M196,162h372.2a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-372.2z" fill="#5a5e66"/>
-<text class="n" x="583.2" y="176" font-size="15" font-weight="600" fill="#9198a1">82%</text>
-<text class="n" x="864" y="176" font-size="15" text-anchor="end" font-weight="400" fill="#9198a1">~$1</text>
-<rect x="4" y="192" width="872" height="34" rx="8" fill="#e0942b" fill-opacity="0.14"/>
-<text x="16" y="214" font-size="15" font-weight="700" fill="#f0f6fc">Perch</text>
-<path d="M196,200h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#1a1f27"/>
-<path d="M196,200h344.6a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-344.6z" fill="#e0942b"/>
-<text class="n" x="555.6" y="214" font-size="15" font-weight="700" fill="#f0f6fc">76%</text>
-<text class="n" x="864" y="214" font-size="15" text-anchor="end" font-weight="700" fill="#e0942b">$0.007</text>
-<text x="16" y="252" font-size="15" fill="#9198a1">Cursor Bugbot</text>
-<path d="M196,238h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#1a1f27"/>
-<path d="M196,238h261.8a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-261.8z" fill="#5a5e66"/>
-<text class="n" x="472.8" y="252" font-size="15" font-weight="600" fill="#9198a1">58%</text>
-<text class="n" x="864" y="252" font-size="15" text-anchor="end" font-weight="400" fill="#9198a1">~$1.50</text>
-<text x="16" y="290" font-size="15" fill="#9198a1">GitHub Copilot</text>
-<path d="M196,276h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#1a1f27"/>
-<path d="M196,276h243.4a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-243.4z" fill="#5a5e66"/>
-<text class="n" x="454.4" y="290" font-size="15" font-weight="600" fill="#9198a1">54%</text>
-<text class="n" x="864" y="290" font-size="15" text-anchor="end" font-weight="400" fill="#9198a1">usage credits</text>
-<text x="16" y="328" font-size="15" fill="#9198a1">CodeRabbit</text>
-<path d="M196,314h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#1a1f27"/>
-<path d="M196,314h197.4a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-197.4z" fill="#5a5e66"/>
-<text class="n" x="408.4" y="328" font-size="15" font-weight="600" fill="#9198a1">44%</text>
-<text class="n" x="864" y="328" font-size="15" text-anchor="end" font-weight="400" fill="#9198a1">$1–3</text>
-<text x="16" y="366" font-size="15" fill="#9198a1">Graphite</text>
-<path d="M196,352h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#1a1f27"/>
-<path d="M196,352h22.6a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-22.6z" fill="#5a5e66"/>
-<text class="n" x="233.6" y="366" font-size="15" font-weight="600" fill="#9198a1">6%</text>
-<text class="n" x="864" y="366" font-size="15" text-anchor="end" font-weight="400" fill="#9198a1">~$2</text>
-<text x="16" y="406" font-size="11.5" fill="#7d8590">Perch: OpenAI's Decisions model at its default 60% floor, credited for flagging the function that holds the bug.</text>
-<text x="16" y="423" font-size="11.5" fill="#7d8590">Perch's cost is the model's, measured on this run: $0.34 for all 50. Others: list prices, seat plans over 20 pull requests a developer a month.</text>
-<text x="16" y="440" font-size="11.5" fill="#7d8590">Others' catch rates: greptile.com/benchmarks, October 22, 2026, credited for a line comment that identifies the bug.</text>
+<text x="16" y="34" font-size="22" font-weight="700" fill="#f0f6fc">Greptile benchmark</text>
+<text x="16" y="60" font-size="14" fill="#9198a1">Known bugs caught in 50 pull requests from Sentry, Cal.com, Grafana, Keycloak and Discourse, and the cost of one.</text>
+<line x1="16" y1="82" x2="864" y2="82" stroke="#30363d" stroke-width="1"/>
+<text x="222" y="108" font-size="12" font-weight="600" fill="#7d8590">Known bugs caught</text>
+<text x="864" y="108" font-size="12" font-weight="600" text-anchor="end" fill="#7d8590">Cost of a pull request</text>
+<text x="16" y="148" font-size="15" fill="#9198a1">Greptile</text>
+<path d="M222,134h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#1a1f27"/>
+<path d="M222,134h372.2a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-372.2z" fill="#5a5e66"/>
+<text class="n" x="609.2" y="148" font-size="15" font-weight="600" fill="#9198a1">82%</text>
+<text class="n" x="864" y="148" font-size="15" text-anchor="end" font-weight="400" fill="#9198a1">~$1</text>
+<rect x="4" y="164" width="872" height="34" rx="8" fill="#e0942b" fill-opacity="0.14"/>
+<text x="16" y="186" font-size="15" font-weight="700" fill="#f0f6fc">Perch · OpenAI Decisions</text>
+<path d="M222,172h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#1a1f27"/>
+<path d="M222,172h344.6a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-344.6z" fill="#e0942b"/>
+<text class="n" x="581.6" y="186" font-size="15" font-weight="700" fill="#f0f6fc">76%</text>
+<text class="n" x="864" y="186" font-size="15" text-anchor="end" font-weight="700" fill="#e0942b">$0.007</text>
+<text x="16" y="224" font-size="15" fill="#9198a1">Cursor Bugbot</text>
+<path d="M222,210h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#1a1f27"/>
+<path d="M222,210h261.8a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-261.8z" fill="#5a5e66"/>
+<text class="n" x="498.8" y="224" font-size="15" font-weight="600" fill="#9198a1">58%</text>
+<text class="n" x="864" y="224" font-size="15" text-anchor="end" font-weight="400" fill="#9198a1">~$1.50</text>
+<text x="16" y="262" font-size="15" fill="#9198a1">GitHub Copilot</text>
+<path d="M222,248h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#1a1f27"/>
+<path d="M222,248h243.4a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-243.4z" fill="#5a5e66"/>
+<text class="n" x="480.4" y="262" font-size="15" font-weight="600" fill="#9198a1">54%</text>
+<text class="n" x="864" y="262" font-size="15" text-anchor="end" font-weight="400" fill="#9198a1">usage credits</text>
+<text x="16" y="300" font-size="15" fill="#9198a1">CodeRabbit</text>
+<path d="M222,286h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#1a1f27"/>
+<path d="M222,286h197.4a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-197.4z" fill="#5a5e66"/>
+<text class="n" x="434.4" y="300" font-size="15" font-weight="600" fill="#9198a1">44%</text>
+<text class="n" x="864" y="300" font-size="15" text-anchor="end" font-weight="400" fill="#9198a1">$1–3</text>
+<rect x="4" y="316" width="872" height="34" rx="8" fill="#e0942b" fill-opacity="0.14"/>
+<text x="16" y="338" font-size="15" font-weight="700" fill="#f0f6fc">Perch · Jev</text>
+<path d="M222,324h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#1a1f27"/>
+<path d="M222,324h197.4a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-197.4z" fill="#e0942b"/>
+<text class="n" x="434.4" y="338" font-size="15" font-weight="700" fill="#f0f6fc">44%</text>
+<text class="n" x="864" y="338" font-size="15" text-anchor="end" font-weight="700" fill="#e0942b">$0.003</text>
+<text x="16" y="376" font-size="15" fill="#9198a1">Graphite</text>
+<path d="M222,362h455a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-455z" fill="#1a1f27"/>
+<path d="M222,362h22.6a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-22.6z" fill="#5a5e66"/>
+<text class="n" x="259.6" y="376" font-size="15" font-weight="600" fill="#9198a1">6%</text>
+<text class="n" x="864" y="376" font-size="15" text-anchor="end" font-weight="400" fill="#9198a1">~$2</text>
+<text x="16" y="416" font-size="11.5" fill="#7d8590">Perch at its default 60% floor, credited for flagging the function that holds the bug.</text>
+<text x="16" y="433" font-size="11.5" fill="#7d8590">Perch's cost is the model's, measured on each run: $0.34 on OpenAI Decisions and $0.15 on Jev for all 50.</text>
+<text x="16" y="450" font-size="11.5" fill="#7d8590">Others: catch rates from greptile.com/benchmarks, October 22, 2026, credited for a line comment that identifies the bug.</text>
+<text x="16" y="467" font-size="11.5" fill="#7d8590">Their costs are list prices, with seat plans divided over 20 pull requests a developer a month.</text>
 </svg>

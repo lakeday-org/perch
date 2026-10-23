@@ -1,4 +1,4 @@
-// The horizontal bar chart the README's benchmark charts are drawn in, light and dark: a headline, then one row a reviewer,
+// The horizontal bar chart the README's benchmark charts are drawn in, light and dark: a title, then one row a reviewer,
 // highest first, perch's in amber on a wash and the others in gray, each bar carrying its value and, when the chart has one,
 // a second column such as the cost of a pull request.
 
@@ -8,7 +8,7 @@ export const THEMES = {
   light: { accent: '#c27a12', other: '#b9b8b0', washOpacity: 0.1, primary: '#1f2328', secondary: '#59636e', muted: '#818b98', track: '#f1f2f4', rule: '#d1d9e0' },
   dark: { accent: '#e0942b', other: '#5a5e66', washOpacity: 0.14, primary: '#f0f6fc', secondary: '#9198a1', muted: '#7d8590', track: '#1a1f27', rule: '#30363d' },
 };
-const W = 880, PAD = 16, ROW = 38, BAR = 18, R = 5, TOP = 152;
+const W = 880, PAD = 16, ROW = 38, BAR = 18, R = 5, TOP = 124;
 const FONT = `-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif`;
 const escape = text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
@@ -17,11 +17,11 @@ const bar = (x, y, w) => w <= R ? `M${x},${y}h${w}v${BAR}h${-w}z`
   : `M${x},${y}h${w - R}a${R},${R} 0 0 1 ${R},${R}v${BAR - 2 * R}a${R},${R} 0 0 1 ${-R},${R}h${-(w - R)}z`;
 
 /**
- * One theme's SVG. `kicker` names the benchmark above the `headline`; `columns` heads the bars and, when `columns.extra` is set,
+ * One theme's SVG. `heading` and `subtitle` say what is measured; `columns` heads the bars and, when `columns.extra` is set,
  * a right-hand column filled from each row's `extra`. Each row has a name, a value in percent, the text printed after its bar,
  * and `perch: true` on perch's. Rows are drawn in the order given; `footer` lines go under them.
  */
-export function barChart(t, { title, kicker, headline, subtitle, columns, desc, rows, footer }) {
+export function barChart(t, { title, heading, subtitle, columns, desc, rows, footer }) {
   // The bars start past the longest name, at about 7.6 pixels a character of 15-pixel text.
   const X = Math.max(196, Math.round(PAD + 24 + 7.6 * Math.max(...rows.map(row => row.name.length))));
   const scale = columns.extra ? 460 : W - PAD - 40 - X, bottom = TOP + rows.length * ROW, H = bottom + 30 + 17 * footer.length;
@@ -30,12 +30,11 @@ export function barChart(t, { title, kicker, headline, subtitle, columns, desc, 
     `<title id="title">${escape(title)}</title>`,
     `<desc id="desc">${escape(desc)}</desc>`,
     `<style>text{font-family:${FONT}}.n{font-variant-numeric:tabular-nums}</style>`,
-    `<text x="${PAD}" y="30" font-size="12" font-weight="700" letter-spacing="1.2" fill="${t.accent}">${escape(kicker.toUpperCase())}</text>`,
-    `<text x="${PAD}" y="64" font-size="25" font-weight="700" fill="${t.primary}">${escape(headline)}</text>`,
-    `<text x="${PAD}" y="92" font-size="14" fill="${t.secondary}">${escape(subtitle)}</text>`,
-    `<line x1="${PAD}" y1="114" x2="${W - PAD}" y2="114" stroke="${t.rule}" stroke-width="1"/>`,
-    `<text x="${X}" y="138" font-size="12" font-weight="600" fill="${t.muted}">${escape(columns.value)}</text>`,
-    ...(columns.extra ? [`<text x="${W - PAD}" y="138" font-size="12" font-weight="600" text-anchor="end" fill="${t.muted}">${escape(columns.extra)}</text>`] : []),
+    `<text x="${PAD}" y="34" font-size="22" font-weight="700" fill="${t.primary}">${escape(heading)}</text>`,
+    `<text x="${PAD}" y="60" font-size="14" fill="${t.secondary}">${escape(subtitle)}</text>`,
+    `<line x1="${PAD}" y1="82" x2="${W - PAD}" y2="82" stroke="${t.rule}" stroke-width="1"/>`,
+    `<text x="${X}" y="108" font-size="12" font-weight="600" fill="${t.muted}">${escape(columns.value)}</text>`,
+    ...(columns.extra ? [`<text x="${W - PAD}" y="108" font-size="12" font-weight="600" text-anchor="end" fill="${t.muted}">${escape(columns.extra)}</text>`] : []),
   ];
   rows.forEach((row, index) => {
     const y = TOP + index * ROW, mid = y + ROW / 2, w = +(scale * row.value / 100).toFixed(2), base = mid + 5;

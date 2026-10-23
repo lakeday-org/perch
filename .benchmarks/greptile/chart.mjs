@@ -5,10 +5,10 @@ import { barChart, THEMES } from '../bars.mjs';
 import { needData } from '../data.mjs';
 
 // Draws the README's Greptile benchmark chart, light and dark, into .github/: known bugs caught out of 50, graded as Greptile
-// graded the published tools, beside what a pull request costs with each. Perch's row is perch#418 on OpenAI's Decisions model at
-// its default 60% floor, from summary.json, and its cost is the model's, measured on that run. The published rows are the catch
-// rates greptile.com/benchmarks listed on the date below, and their costs are list prices: a seat plan is divided over 20 pull
-// requests a developer a month, as on perchscan.com's pricing.
+// graded the published tools, beside what a pull request costs with each. Perch's rows are its runs on OpenAI's Decisions model
+// and on Jev at its default 60% floor, from summary.json, each with the model's cost measured on that run. The published rows are
+// the catch rates greptile.com/benchmarks listed on the date below, and their costs are list prices: a seat plan is divided over
+// 20 pull requests a developer a month, as on perchscan.com's pricing.
 const root = path.dirname(fileURLToPath(import.meta.url));
 const PUBLISHED_DATE = 'October 22, 2026';
 const PUBLISHED = [
@@ -23,28 +23,30 @@ const PUBLISHED = [
   // Team, $40 a seat with unlimited reviews (graphite.com/pricing, October 23, 2026).
   { name: 'Graphite', value: 6, extra: '~$2' },
 ];
+const MODELS = { oai2q: 'OpenAI Decisions', jev048: 'Jev' };
 // In dollars, as every other tool's cost is, to a tenth of a cent below a cent: $0.007.
 const usd = dollars => `$${dollars < 0.01 ? dollars.toFixed(3) : dollars.toFixed(2)}`;
 
 const data = needData('greptile', ['summary.json']);
 const summary = JSON.parse(await fs.readFile(path.join(data, 'summary.json'), 'utf8'));
-const run = summary.find(r => r.config === 'oai2q' && r.cutoff === 0.6);
-const caught = Math.round(100 * run.known / run.known_of), perPr = usd(run.cost / run.known_of);
-const rows = [...PUBLISHED.map(r => ({ ...r, text: `${r.value}%` })), { name: 'Perch', perch: true, value: caught, text: `${caught}%`, extra: perPr }]
-  .sort((a, b) => b.value - a.value);
+const perch = Object.entries(MODELS).map(([config, model]) => {
+  const run = summary.find(r => r.config === config && r.cutoff === 0.6), value = Math.round(100 * run.known / run.known_of);
+  return { name: `Perch · ${model}`, perch: true, value, text: `${value}%`, extra: usd(run.cost / run.known_of), total: usd(run.cost) };
+});
+const rows = [...PUBLISHED.map(r => ({ ...r, text: `${r.value}%` })), ...perch].sort((a, b) => b.value - a.value);
 
 const chart = colors => barChart(colors, {
   title: 'Perch on the Greptile benchmark',
-  kicker: 'Greptile benchmark',
-  headline: `Perch catches ${caught}% of the known bugs for ${perPr} a pull request`,
-  subtitle: `${run.known_of} pull requests from Sentry, Cal.com, Grafana, Keycloak and Discourse, each with one known bug.`,
+  heading: 'Greptile benchmark',
+  subtitle: 'Known bugs caught in 50 pull requests from Sentry, Cal.com, Grafana, Keycloak and Discourse, and the cost of one.',
   columns: { value: 'Known bugs caught', extra: 'Cost of a pull request' },
   desc: `Known bugs caught on the Greptile benchmark, and what a pull request costs. ${rows.map(r => `${r.name}: ${r.text}, ${r.extra}.`).join(' ')}`,
   rows,
   footer: [
-    `Perch: OpenAI's Decisions model at its default 60% floor, credited for flagging the function that holds the bug.`,
-    `Perch's cost is the model's, measured on this run: ${usd(run.cost)} for all ${run.known_of}. Others: list prices, seat plans over 20 pull requests a developer a month.`,
-    `Others' catch rates: greptile.com/benchmarks, ${PUBLISHED_DATE}, credited for a line comment that identifies the bug.`,
+    'Perch at its default 60% floor, credited for flagging the function that holds the bug.',
+    `Perch's cost is the model's, measured on each run: ${perch.map(p => `${p.total} on ${p.name.slice(8)}`).join(' and ')} for all 50.`,
+    `Others: catch rates from greptile.com/benchmarks, ${PUBLISHED_DATE}, credited for a line comment that identifies the bug.`,
+    'Their costs are list prices, with seat plans divided over 20 pull requests a developer a month.',
   ],
 });
 

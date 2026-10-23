@@ -2,7 +2,7 @@
 
 [ReviewBench](https://github.com/review-bench/ReviewBench) is a benchmark created by GitHub, containing a set of 219 PRs, each with a list of reference findings from a human code review. Here are two runs of perch on this dataset, both scored per method against the same labels. In short, perch asks bug-related questions about the methods each PR changed, and a method counts as flagged when an answer is above a cutoff.
 
-The frozen run asked up to seven questions in two readings of each method, on Jev 1.14 and GPT-6 Luna Decisions. The [rerun](#the-rerun) is `perch scan --since` from perch#418, which asks two, on GPT-6 Luna. The scoring scripts are in this directory. The requests, answers and labels are on [Hugging Face](#data). Scoring needs no API key.
+The frozen run asked up to seven questions in two readings of each method, on Jev 1.14 and GPT-6 Luna Decisions. The [rerun](#the-rerun) is `perch scan --since` from perch#418, which asks two, on GPT-6 Luna and, with the released 0.4.8, on Jev. The scoring scripts are in this directory. The requests, answers and labels are on [Hugging Face](#data). Scoring needs no API key.
 
 ## Frozen run
 
@@ -87,7 +87,7 @@ Against the 861 labels from ReviewBench's reference findings alone:
 | Frozen run, Jev 1.14 | 17.8% | 18.1% | 18.0% | 156 | 720 | 705 |
 | Frozen run, GPT-6 Luna Decisions | 10.6% | 69.6% | 18.4% | 599 | 5,036 | 262 |
 
-The rerun cost $4.1569 in input tokens.
+The rerun cost $4.1569 in input tokens. The same rerun on Jev, `perch scan --since` from the released 0.4.8 on `jev-latest`, cost $1.7982 over the same 171 PRs. At 60% it finds 7.9% of the labelled bugs at 45.8% precision; its answers are in `results/rerun-jev.jsonl.gz` and its scores in `rerun-jev-summary.json`, written by `rerun-score.mjs --results <data>/results/rerun-jev.jsonl.gz --summary <data>/rerun-jev-summary.json`.
 
 ## Data
 

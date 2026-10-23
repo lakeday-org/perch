@@ -26,7 +26,7 @@ Semantic code and security scanner.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/greptile-dark.svg">
-  <img alt="Perch catches 76% of the Greptile benchmark's known bugs for $0.007 a pull request, beside Greptile at 82% for about $1, Cursor Bugbot at 58% for about $1.50, GitHub Copilot at 54%, CodeRabbit at 44% for $1–3 and Graphite at 6% for about $2" src=".github/greptile-light.svg" width="880">
+  <img alt="Known bugs caught on the Greptile benchmark and the cost of a pull request: Greptile 82% at about $1, perch on OpenAI Decisions 76% at $0.007, Cursor Bugbot 58% at about $1.50, GitHub Copilot 54%, CodeRabbit 44% at $1–3, perch on Jev 44% at $0.003, Graphite 6% at about $2" src=".github/greptile-light.svg" width="880">
 </picture>
 
 ## Getting started
@@ -85,7 +85,7 @@ You can extend perch with your own linting rules by adding them to `perch.yaml`:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/reviewbench-dark.svg">
-  <img alt="Perch places second on ReviewBench with 40.0% recall, for $0.024 a pull request, behind Laude RevEngine Prime at 46.3% and ahead of the other ten reviewers on its leaderboard" src=".github/reviewbench-light.svg" width="880">
+  <img alt="Recall on ReviewBench and the cost of a pull request: Laude RevEngine Prime 46.3%, perch on OpenAI Decisions 40.0% at $0.024, then the leaderboard's other reviewers down to Cursor at 9.6%, and perch on Jev 7.9% at $0.011" src=".github/reviewbench-light.svg" width="880">
 </picture>
 
 [ReviewBench](https://review-bench.ai) is GitHub's benchmark for AI code review. Perch is credited when it flags the method holding
@@ -98,18 +98,18 @@ reproduce them are linked from [`.benchmarks/reviewbench`](.benchmarks/reviewben
 | Reviewer | Recall |
 | --- | ---: |
 | Laude RevEngine Prime | 46.3% |
-| **Perch · OpenAI at 60%, 28.8% precision** | **40.0%** |
+| **Perch · OpenAI Decisions, $0.024 a pull request** | **40.0%** |
 | block/review | 32.6% |
 | Klaussy | 29.8% |
 | Copilot code review | 26.0% |
 | DeepSeek Harness Reviewer | 25.6% |
 | Devin AI | 23.8% |
-| **Perch · OpenAI at 80%, 41.7% precision** | **23.2%** |
 | Qodo | 22.1% |
 | Codex | 18.5% |
 | Cubic | 16.3% |
 | Greptile | 16.2% |
 | Cursor | 9.6% |
+| **Perch · Jev, $0.011 a pull request** | **7.9%** |
 
 </details>
 

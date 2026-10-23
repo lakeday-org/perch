@@ -6,6 +6,7 @@ export const CUTOFFS = [0.6, 0.7, 0.8];
 /** The saved runs, in the order they are printed. */
 export const CONFIGS = {
   oai2q: 'perch#418, OpenAI Decisions',
+  jev048: 'perch 0.4.8, Jev',
   oai407: 'perch#407, OpenAI Decisions',
   jev: 'perch 0.4.7, Jev',
   oai: 'perch 0.4.7, OpenAI Decisions',
