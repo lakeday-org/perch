@@ -47,5 +47,5 @@ review-bench.ai's, read on October 17, 2026.
 
 ## Runs and data
 
-[`reviewbench/`](reviewbench) holds the scripts that score each run. The runs, their answers and the labels are in the
+[`greptile/`](greptile) and [`reviewbench/`](reviewbench) hold the scripts that score each run and draw the charts. The runs, their answers and the labels are in the
 [perchscan/benchmark-results](https://huggingface.co/datasets/perchscan/benchmark-results) dataset on Hugging Face.
