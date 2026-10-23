@@ -187,7 +187,8 @@ export function selectUnits(rule, { scan, graph, files, tree, eligible = null, i
   // `except` is the rule's own exclusion; `inScope` is the run's, which --since narrows to what a branch changed. A unit whose
   // document the branch changed is in it too: the code judged by a vocabulary has to be asked again when the vocabulary moves.
   // What perch.yaml ignores stays out either way, since a document being in scope says nothing about the unit's own path.
-  const spared = unit => !ignores(unit.path) && (inScope(unit.path) || Boolean(unit.context) && inScope(unit.context.path)) && !ours(unit.path)
+  const spared = unit => !ignores(unit.path) && !ours(unit.path)
+    && (inScope(unit.path) || Boolean(unit.context) && inScope(unit.context.path))
     && appliesToLanguage(rule, languageOf(unit.path))
     && (!rule.except || ![rule.except].flat().some(glob => matches(glob, unit.path)));
   const keep = units => units.map(shown).filter(unit => unit && spared(unit));
@@ -227,12 +228,19 @@ export const contextPath = (name, path, has) => contextCandidates(name, path).fi
 export function contextCandidates(name, path) {
   if (name.includes('/')) return [name];
   const directories = path.split('/').slice(0, -1);
-  return [...directories.map((_, index) => [...directories.slice(0, directories.length - index), name].join('/')), name];
+  const places = [];
+  for (let depth = directories.length; depth > 0; depth--) places.push(`${directories.slice(0, depth).join('/')}/${name}`);
+  return [...places, name];
 }
 
 /** Whether a path could be some rule's document, so a run reads those and no others. */
-export const mayBeContext = (rules, path) => rules.some(rule => rule.context
-  && (path === rule.context || !rule.context.includes('/') && path.endsWith(`/${rule.context}`)));
+export function mayBeContext(rules, path) {
+  return rules.some(rule => {
+    if (!rule.context) return false;
+    if (rule.context.includes('/')) return path === rule.context;
+    return path === rule.context || path.endsWith(`/${rule.context}`);
+  });
+}
 
 /**
  * Whether the document a check was answered beside is still the one its unit would be shown, unchanged. A vocabulary edited, or a
@@ -362,23 +370,39 @@ export function unitStep({ rules, unit, source, seen = {} }) {
 function fitSeen(seen, budget) {
   // Neighbours shown whole can outgrow a request on their own. They get a quarter of the budget, and the farthest go first,
   // from whichever list is longer, the way a method's reading drops neighbours before it refuses.
-  const bare = value => ({ ...value, ...(typeof value.file_source === 'string' ? { file_source: '' } : {}), ...(value.context ? { context: { ...value.context, source: '' } } : {}) });
   const lists = ['calls', 'called_by'].filter(key => Array.isArray(seen[key]));
-  while (lists.some(key => seen[key].length) && estimateTokens(bare(seen)) > Math.floor(budget / 4)) {
+  while (lists.some(key => seen[key].length) && estimateTokens(withoutText(seen)) > Math.floor(budget / 4)) {
     const longer = lists.reduce((a, b) => (seen[b].length > seen[a].length ? b : a));
     seen = { ...seen, [longer]: seen[longer].slice(0, -1) };
   }
-  const texts = [typeof seen.file_source === 'string' ? seen.file_source : null, seen.context ? seen.context.source : null];
-  if (texts.every(text => text === null)) return seen;
-  const put = ([file, doc]) => ({ ...seen, ...(file === null ? {} : { file_source: file }), ...(doc === null ? {} : { context: { ...seen.context, source: doc } }) });
-  const room = Math.floor(budget / 2) - estimateTokens(bare(seen)) - 256;
-  const sizes = texts.map(text => (text === null ? 0 : textTokens(text)));
-  if (sizes[0] + sizes[1] <= room) return seen;
-  // Two share the room, and one that needs less than half of it leaves the rest to the other.
-  const half = Math.floor(room / 2);
-  const rooms = texts[1] === null ? [room, 0] : texts[0] === null ? [0, room]
-    : sizes[0] <= half ? [sizes[0], room - sizes[0]] : sizes[1] <= half ? [room - sizes[1], sizes[1]] : [half, room - half];
-  return put(texts.map((text, index) => (text === null ? null : cutToFit(text, rooms[index]))));
+
+  const file = typeof seen.file_source === 'string' ? seen.file_source : null;
+  const doc = seen.context ? seen.context.source : null;
+  if (file === null && doc === null) return seen;
+  const room = Math.floor(budget / 2) - estimateTokens(withoutText(seen)) - 256;
+  const fileSize = file === null ? 0 : textTokens(file);
+  const docSize = doc === null ? 0 : textTokens(doc);
+  if (fileSize + docSize <= room) return seen;
+
+  // The two share the room, and one that needs less than half of it leaves the rest to the other.
+  let docRoom;
+  if (doc === null) docRoom = 0;
+  else if (file === null) docRoom = room;
+  else if (docSize <= room / 2) docRoom = docSize;
+  else if (fileSize <= room / 2) docRoom = room - fileSize;
+  else docRoom = Math.floor(room / 2);
+  const fitted = { ...seen };
+  if (file !== null) fitted.file_source = cutToFit(file, room - docRoom);
+  if (doc !== null) fitted.context = { ...seen.context, source: cutToFit(doc, docRoom) };
+  return fitted;
+}
+
+/** What a unit is shown besides itself with the file and the document emptied: the part that cannot be cut to fit. */
+function withoutText(seen) {
+  const bare = { ...seen };
+  if (typeof bare.file_source === 'string') bare.file_source = '';
+  if (bare.context) bare.context = { ...bare.context, source: '' };
+  return bare;
 }
 
 function cutToFit(text, room) {

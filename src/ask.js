@@ -26,11 +26,18 @@ export const EACH = ['file', 'method', 'test'];
  */
 export const SEES = ['self', 'file', 'calls', 'callers', 'neighbors'];
 /**
- * A document a rule is shown beside each unit, such as the style guide or the vocabulary the rule judges against. A path with a
- * slash in it is one file from the repository root. A bare name is the nearest file so named, from the unit's own directory up,
- * so one rule over `src/**` is shown each area's own `LANGUAGE.md`.
+ * Whether `context` names a document a rule can be shown beside each unit, such as a style guide or the vocabulary the rule
+ * judges against. A path with a slash in it is one file from the repository root. A bare name is the nearest file so named,
+ * from the unit's own directory up, so one rule over `src/**` is shown each area's own `LANGUAGE.md`. Either way it stays inside
+ * the repository and names one file rather than a glob.
  */
-const CONTEXT_PATH = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[^*?[\]{}\\]+$/;
+function isContextPath(context) {
+  if (typeof context !== 'string') return false;
+  const path = context.trim();
+  if (path === '' || path.startsWith('/')) return false;
+  if (path.split('/').includes('..')) return false;
+  return !/[*?[\]{}\\]/.test(path);
+}
 /**
  * `ensure` is asked of every unit and every unit has to satisfy it. `ensure_absent` is asked of every unit too, and each unit that
  * has the thing breaks it. `ensure_present` is a claim about the codebase and not about any one file, so it is asked of units in
@@ -128,7 +135,7 @@ export function check(question, at, noun = 'question') {
   if (full.sees && !SEES.includes(full.sees)) throw new Error(`${where}: sees is ${SEES.join(', ')}, not ${full.sees}`);
   // Silently ignoring it would let a rule read as though it had asked for something it never got.
   if (full.sees && each === 'method') throw new Error(`${where}: a method is always asked with its callers and callees in view, so sees says nothing here`);
-  if (full.context !== undefined && !(typeof full.context === 'string' && CONTEXT_PATH.test(full.context.trim())))
+  if (full.context !== undefined && !isContextPath(full.context))
     throw new Error(`${where}: context is a file name, or a path from the repository root, not ${JSON.stringify(full.context)}`);
   // A question written out longhand is asked inside a method's reading, where there is no document to show it.
   if (full.context && !full.kind) throw new Error(`${where}: context needs one of ${ENSURES.join(', ')}`);

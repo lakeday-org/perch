@@ -371,8 +371,11 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
       // What is left is every rule that is not about a method, and every claim about the codebase rather than about one file. The
       // source they are asked about comes from the revision, not from disk, so a finding is still about a commit.
       const over = { scan, graph, files, documents, tree, eligible, revision, systemOne: gated, inScope, ignores, min, debug };
+      // Asked of each unit: rules about files and tests, method rules shown a document, and absent rules. Any other method rule
+      // rides in the method's own reading, and a present rule stops at the first unit that has the thing.
+      const eachUnit = rule => rule.kind === 'ensure_absent' || !SEARCHES(rule.kind) && (rule.each !== 'method' || Boolean(rule.context));
       return Promise.all([
-        askUnits({ ...over, rules: asking.filter(rule => rule.kind === 'ensure_absent' || !SEARCHES(rule.kind) && (rule.each !== 'method' || rule.context)), parallel: unitParallel, progress: unitProgress }),
+        askUnits({ ...over, rules: asking.filter(eachUnit), parallel: unitParallel, progress: unitProgress }),
         searchUnits({ ...over, rules: asking.filter(rule => rule.kind === 'ensure_present'), parallel: unitParallel, progress: searchProgress }),
       ]);
     })();

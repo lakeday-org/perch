@@ -107,11 +107,16 @@ export async function selectionFor(unit, rules, { root, out, analyzer, revision,
   const elsewhere = callers ? (await analyzeTree({ root, revision, out, analyzer, log: debug })).files.filter(file => file.path !== unit.path) : [];
   // A rule's document is the one on disk, as the unit is, so the places it could be are looked at there and not in the commit.
   const places = new Set(rules.filter(rule => rule.context).flatMap(rule => contextCandidates(rule.context, unit.path)));
-  const documents = new Map((await Promise.all([...places].map(async path => [path, await readInside(root, path)]))).filter(([, text]) => text !== null));
-  const tree = revision ? (await listTree(root, revision)).filter(entry => entry.path !== unit.path && !places.has(entry.path)) : [];
+  const documents = new Map();
+  for (const path of places) {
+    const text = await readInside(root, path);
+    if (text !== null) documents.set(path, text);
+  }
+  const committed = revision ? (await listTree(root, revision)).filter(entry => entry.path !== unit.path && !places.has(entry.path)) : [];
+  const onDisk = [...documents.keys()].map(path => ({ path, type: 'blob', sha: 'working copy' }));
   // Other files are needed to resolve callers and generated-output exclusions, but only the named unit may be checked.
   return { scan: { files: here }, graph: buildGraph([...elsewhere, ...here]), files: new Map([[unit.path, unit.text]]), documents,
-    tree: [...tree, ...[...documents.keys()].map(path => ({ path, type: 'blob', sha: 'working copy' })), item], inScope: path => path === unit.path };
+    tree: [...committed, ...onDisk, item], inScope: path => path === unit.path };
 }
 
 /**
@@ -120,7 +125,10 @@ export async function selectionFor(unit, rules, { root, out, analyzer, revision,
  */
 async function readInside(root, path) {
   const repository = await realpath(root);
-  const found = await realpath(join(repository, path)).catch(error => { if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null; throw error; });
+  const found = await realpath(join(repository, path)).catch(error => {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null;
+    throw error;
+  });
   if (found === null) return null;
   const inside = relative(repository, found);
   if (inside === '..' || inside.startsWith(`..${sep}`) || isAbsolute(inside)) throw new Error(`${path} is outside this repository`);
@@ -178,8 +186,8 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
     contexts.get(key).together.push(rule);
   }
   const asked = (await Promise.all([...contexts.values()].map(async ({ sees, doc, together }) => {
-    const seen = { ...neighbourhood(sees, unit, { graph: unit.graph, files: new Map([[unit.path, unit.text]]) }),
-      ...(doc ? { context: { path: doc, source: selection.documents.get(doc) } } : {}) };
+    const seen = neighbourhood(sees, unit, { graph: unit.graph, files: new Map([[unit.path, unit.text]]) });
+    if (doc) seen.context = { path: doc, source: selection.documents.get(doc) };
     const prepare = budget => unitSteps({ rules: together, unit, source: body, seen, budget });
     const steps = prepare(systemOne.limits?.state);
     debug(`${together.map(rule => rule.name).join(', ')}: ${unit.name}`);
