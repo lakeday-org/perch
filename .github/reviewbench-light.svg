@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="566" viewBox="0 0 880 566" role="img" aria-labelledby="title desc">
 <title id="title">Perch on ReviewBench: recall</title>
-<desc id="desc">Recall on ReviewBench for perch beside the reviewers on its leaderboard, highest first. Perch with OpenAI Decisions: 81.1%. Laude RevEngine Prime: 46.3%. block/review: 32.6%. Klaussy: 29.8%. Copilot code review: 26%. DeepSeek Harness Reviewer: 25.6%. Devin AI: 23.8%. Qodo: 22.1%. Perch with Jev 1.14: 20.2%. Codex: 18.5%. Cubic: 16.3%. Greptile: 16.2%. Cursor: 9.6%.</desc>
+<desc id="desc">Recall on ReviewBench for perch beside the reviewers on its leaderboard, highest first. Laude RevEngine Prime: 46.3%. Perch with OpenAI at 60%: 40.0%, 28.8% precision. block/review: 32.6%. Klaussy: 29.8%. Copilot code review: 26.0%. DeepSeek Harness Reviewer: 25.6%. Devin AI: 23.8%. Perch with OpenAI at 80%: 23.2%, 41.7% precision. Qodo: 22.1%. Codex: 18.5%. Cubic: 16.3%. Greptile: 16.2%. Cursor: 9.6%.</desc>
 <style>text{font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif}.n{font-variant-numeric:tabular-nums}</style>
 <text x="8" y="30" font-size="20" font-weight="600" fill="#1f2328">Perch on ReviewBench</text>
 <text x="8" y="54" font-size="13" fill="#59636e">Recall</text>
@@ -9,23 +9,23 @@
 <line x1="214" y1="112" x2="214" y2="502" stroke="#c9cfd6" stroke-width="1"/>
 <text class="n" x="214" y="518" font-size="11" fill="#818b98">0%</text>
 <text class="n" x="794" y="518" font-size="11" text-anchor="end" fill="#818b98">100%</text>
-<rect x="0" y="114" width="880" height="26" rx="6" fill="#c27a12" fill-opacity="0.09"/>
-<text x="8" y="131.5" font-size="13" fill="#1f2328"><tspan font-weight="600">Perch</tspan> · OpenAI Decisions</text>
+<text x="8" y="131.5" font-size="13" fill="#59636e">Laude RevEngine Prime</text>
 <path d="M214,120h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
-<path d="M214,120h466.38a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-466.38z" fill="#c27a12"/>
-<text class="n" x="692.38" y="131.5" font-size="13" font-weight="600" fill="#1f2328">81.1%</text>
-<text x="8" y="161.5" font-size="13" fill="#59636e">Laude RevEngine Prime</text>
+<path d="M214,120h264.54a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-264.54z" fill="#b9b8b0"/>
+<text class="n" x="490.54" y="131.5" font-size="13" fill="#59636e">46.3%</text>
+<rect x="0" y="144" width="880" height="26" rx="6" fill="#c27a12" fill-opacity="0.09"/>
+<text x="8" y="161.5" font-size="13" fill="#1f2328"><tspan font-weight="600">Perch</tspan> · OpenAI at 60%</text>
 <path d="M214,150h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
-<path d="M214,150h264.54a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-264.54z" fill="#b9b8b0"/>
-<text class="n" x="490.54" y="161.5" font-size="13" fill="#59636e">46.3%</text>
+<path d="M214,150h228a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-228z" fill="#c27a12"/>
+<text class="n" x="454" y="161.5" font-size="13" font-weight="600" fill="#1f2328">40.0%<tspan font-weight="400" fill="#59636e"> · 28.8% precision</tspan></text>
 <text x="8" y="191.5" font-size="13" fill="#59636e">block/review</text>
 <path d="M214,180h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
 <path d="M214,180h185.08a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-185.08z" fill="#b9b8b0"/>
-<text class="n" x="411.08000000000004" y="191.5" font-size="13" fill="#59636e">32.6%</text>
+<text class="n" x="411.08" y="191.5" font-size="13" fill="#59636e">32.6%</text>
 <text x="8" y="221.5" font-size="13" fill="#59636e">Klaussy</text>
 <path d="M214,210h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
 <path d="M214,210h168.84a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-168.84z" fill="#b9b8b0"/>
-<text class="n" x="394.84000000000003" y="221.5" font-size="13" fill="#59636e">29.8%</text>
+<text class="n" x="394.84" y="221.5" font-size="13" fill="#59636e">29.8%</text>
 <text x="8" y="251.5" font-size="13" fill="#59636e">Copilot code review</text>
 <path d="M214,240h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
 <path d="M214,240h146.8a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-146.8z" fill="#b9b8b0"/>
@@ -37,16 +37,16 @@
 <text x="8" y="311.5" font-size="13" fill="#59636e">Devin AI</text>
 <path d="M214,300h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
 <path d="M214,300h134.04a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-134.04z" fill="#b9b8b0"/>
-<text class="n" x="360.03999999999996" y="311.5" font-size="13" fill="#59636e">23.8%</text>
-<text x="8" y="341.5" font-size="13" fill="#59636e">Qodo</text>
+<text class="n" x="360.04" y="311.5" font-size="13" fill="#59636e">23.8%</text>
+<rect x="0" y="324" width="880" height="26" rx="6" fill="#c27a12" fill-opacity="0.09"/>
+<text x="8" y="341.5" font-size="13" fill="#1f2328"><tspan font-weight="600">Perch</tspan> · OpenAI at 80%</text>
 <path d="M214,330h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
-<path d="M214,330h124.18a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-124.18z" fill="#b9b8b0"/>
-<text class="n" x="350.18" y="341.5" font-size="13" fill="#59636e">22.1%</text>
-<rect x="0" y="354" width="880" height="26" rx="6" fill="#c27a12" fill-opacity="0.09"/>
-<text x="8" y="371.5" font-size="13" fill="#1f2328"><tspan font-weight="600">Perch</tspan> · Jev 1.14</text>
+<path d="M214,330h130.56a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-130.56z" fill="#c27a12"/>
+<text class="n" x="356.56" y="341.5" font-size="13" font-weight="600" fill="#1f2328">23.2%<tspan font-weight="400" fill="#59636e"> · 41.7% precision</tspan></text>
+<text x="8" y="371.5" font-size="13" fill="#59636e">Qodo</text>
 <path d="M214,360h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
-<path d="M214,360h113.16a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-113.16z" fill="#c27a12"/>
-<text class="n" x="339.15999999999997" y="371.5" font-size="13" font-weight="600" fill="#1f2328">20.2%</text>
+<path d="M214,360h124.18a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-124.18z" fill="#b9b8b0"/>
+<text class="n" x="350.18" y="371.5" font-size="13" fill="#59636e">22.1%</text>
 <text x="8" y="401.5" font-size="13" fill="#59636e">Codex</text>
 <path d="M214,390h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
 <path d="M214,390h103.3a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-103.3z" fill="#b9b8b0"/>
@@ -63,5 +63,5 @@
 <path d="M214,480h576a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-576z" fill="#f1f2f4"/>
 <path d="M214,480h51.68a4,4 0 0 1 4,4v6a4,4 0 0 1 -4,4h-51.68z" fill="#b9b8b0"/>
 <text class="n" x="277.68" y="491.5" font-size="13" fill="#59636e">9.6%</text>
-<text x="8" y="552" font-size="11" fill="#818b98">Leaderboard: review-bench.ai, grounded recall, October 17, 2026. Perch: .benchmarks/reviewbench in this repository.</text>
+<text x="8" y="552" font-size="11" fill="#818b98">Leaderboard: review-bench.ai, grounded recall, October 17, 2026. Perch: share of buggy methods it flagged, .benchmarks/reviewbench in this repository.</text>
 </svg>

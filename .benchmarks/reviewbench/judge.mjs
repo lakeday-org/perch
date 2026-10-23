@@ -1,16 +1,16 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { jsonl } from './core.mjs';
+import { needData } from '../data.mjs';
 
 // Verify manual judgments against exact source, without an explanation or judging API.
-const root = path.dirname(fileURLToPath(import.meta.url));
 const value = name => { const i = process.argv.indexOf(name); if (i >= 0 && !process.argv[i + 1]) throw Error(`${name} needs a value`); return i < 0 ? null : process.argv[i + 1]; };
 if (!value('--repos')) throw Error('Use --repos DIR [--fetch] [--judgments FILE]');
 const repos = path.resolve(value('--repos')), fetch = process.argv.includes('--fetch');
-const judgments = await jsonl(value('--judgments') ?? path.join(root, 'judgments.jsonl'));
-const targets = new Map((await jsonl(path.join(root, 'targets.jsonl'))).map(t => [t.id, t]));
+const data = needData('reviewbench', value('--judgments') ? ['targets.jsonl'] : ['targets.jsonl', 'judgments.jsonl']);
+const judgments = await jsonl(value('--judgments') ?? path.join(data, 'judgments.jsonl'));
+const targets = new Map((await jsonl(path.join(data, 'targets.jsonl'))).map(t => [t.id, t]));
 // Each command names the target's own repository. Found by looking upward, a repos directory inside a checkout, as the README's is
 // inside perch's, is that checkout: fetches land in it and quotes are read from it.
 const git = (repo, args) => execFileSync('git', ['--git-dir', path.join(repo, '.git'), '-c', 'core.hooksPath=/dev/null', ...args], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
