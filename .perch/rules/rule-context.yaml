@@ -1,0 +1,16 @@
+- name: context-answer-kept-while-document-stands
+  where: mentions check.context
+  each: method
+  ensure: >-
+    A check whose rule names a context document is kept from an earlier run
+    only when the document found again for the check's file has the same path
+    as check.context.path and the same blob as check.context.hash. Comparing
+    the path alone, so an edited document at the same path keeps the old
+    answer, breaks this rule.
+- name: context-edit-is-in-scope
+  where: mentions const spared = unit
+  each: method
+  ensure: >-
+    A unit is kept for a rule when its own file is in scope or the context
+    document found for it is in scope. Requiring the unit's own file alone, so
+    a branch that edits only the document asks nothing again, breaks this rule.

@@ -70,6 +70,7 @@ const options = {
   except: ['--except W', 'A glob it spares', ['rules']],
   each: ['--each U', 'Ask about each file, method, or test rather than the file as a whole', ['rules']],
   sees: ['--sees S', 'What a file or test is shown besides itself: file, calls, callers, or neighbors', ['rules']],
+  context: ['--context PATH', 'A document shown beside each unit: a path from the root, or a name found from the unit up', ['rules']],
   type: ['--type T', `The shape of the answer: ${SHAPES.join(', ')} (default noul)`, ['rules']],
   ask: ['--ask TEXT', 'The question itself, in place of --ensure', ['rules']],
   true: ['--true TEXT', 'What a yes means, for --type noul', ['rules']],
@@ -152,7 +153,7 @@ ${column(own.map(([flag, text, , differs]) => [flag, differs?.[name] ?? text]))}
 export const EXIT = { clean: 0, broke: 1, usage: 2, found: 3 };
 
 const valued = new Set(['paths', 'parallel', 'min', 'filter', 'diff', 'html', 'out', 'reason', 'kind', 'limit', 'page', 'since', 'rules',
-  'ensure', 'ensure_present', 'ensure_absent', 'where', 'except', 'each', 'sees', 'type', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', 'gate', 'file',
+  'ensure', 'ensure_present', 'ensure_absent', 'where', 'except', 'each', 'sees', 'context', 'type', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', 'gate', 'file',
   'pull_requests', 'scan_types', 'scope']);
 const switches = new Set(['force', 'all', 'json', 'verbose', 'closed', 'types', 'wait', 'help', 'version', 'include-tests', 'include-files']);
 
@@ -419,7 +420,7 @@ function yesOrNo(flag, value) {
 }
 
 function ruleFrom(flags) {
-  const written = Object.fromEntries(['type', 'where', 'except', 'each', 'sees', 'when', 'ask', 'true', 'false', ...RULE_KINDS]
+  const written = Object.fromEntries(['type', 'where', 'except', 'each', 'sees', 'context', 'when', 'ask', 'true', 'false', ...RULE_KINDS]
     .filter(key => flags[key] !== undefined).map(key => [key, flags[key]]));
   // A floor of zero is no floor, so it comes off the rule rather than sitting there as a number that does nothing.
   if (flags.min !== undefined) { const min = threshold(flags.min); written.min = min === 0 ? null : min; }
@@ -445,7 +446,7 @@ async function manageRules(io, action, name) {
     const only = io.flags.file === undefined ? null : ruleFile(io.flags.file);
     const all = [...allQuestions()].filter(rule => !only || own.get(rule.name) === only).sort((a, b) => Number(own.has(b.name)) - Number(own.has(a.name)));
     print(io, all.map(rule => ({ name: rule.name, from: own.get(rule.name) ?? 'perch', disabled: Boolean(rule.disabled),
-      type: rule.type, kind: rule.kind, where: rule.where, each: rule.each, sees: rule.sees, except: rule.except ?? null,
+      type: rule.type, kind: rule.kind, where: rule.where, each: rule.each, sees: rule.sees, context: rule.context ?? null, except: rule.except ?? null,
       when: rule.when ?? null, text: rule.text ?? rule.ask })), formatRules(all, { own }));
     return EXIT.clean;
   }

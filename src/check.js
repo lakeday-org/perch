@@ -7,8 +7,8 @@
  *
  * The target is a path, a path and a method, or an issue id, which resolves to whatever raised it.
  */
-import { readFile, realpath } from 'node:fs/promises';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { readFile, realpath, stat } from 'node:fs/promises';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { analyzeFiles, createSourceAnalyzer, languageOf } from './analysis.js';
 import { analyzeTree } from './analyze.js';
 import { methodContext } from './context.js';
@@ -16,7 +16,7 @@ import { listTree, revision as headOf } from './git.js';
 import { buildGraph } from './graph.js';
 import { headerLanguage } from './languages.js';
 import { methodQuestions, questionMethod, typesAsked } from './scan.js';
-import { bodyOf, neighbourhood, readLint, readRules, readScanTypes, RULES_FILE, selectUnits, unitSteps, askUnitSteps } from './units.js';
+import { bodyOf, contextCandidates, contextPath, neighbourhood, readLint, readRules, readScanTypes, RULES_FILE, selectUnits, unitSteps, askUnitSteps } from './units.js';
 import { BELIEVED, filterKeys, meaning, methodSteps, issuesOf } from './questions.js';
 import { floorFor } from './ask.js';
 import { openStore } from './store.js';
@@ -105,10 +105,26 @@ export async function selectionFor(unit, rules, { root, out, analyzer, revision,
   const here = unit.part ? (await analyzeFiles([item], { analyzer, readSource: async () => unit.text })).files : [];
   const callers = unit.part && rules.some(rule => /^callers? of /.test(rule.where ?? ''));
   const elsewhere = callers ? (await analyzeTree({ root, revision, out, analyzer, log: debug })).files.filter(file => file.path !== unit.path) : [];
-  const tree = revision ? (await listTree(root, revision)).filter(entry => entry.path !== unit.path) : [];
+  // A rule's document is the one on disk, as the unit is, so the places it could be are looked at there and not in the commit.
+  const places = new Set(rules.filter(rule => rule.context).flatMap(rule => contextCandidates(rule.context, unit.path)));
+  const documents = new Map((await Promise.all([...places].map(async path => [path, await readInside(root, path)]))).filter(([, text]) => text !== null));
+  const tree = revision ? (await listTree(root, revision)).filter(entry => entry.path !== unit.path && !places.has(entry.path)) : [];
   // Other files are needed to resolve callers and generated-output exclusions, but only the named unit may be checked.
-  return { scan: { files: here }, graph: buildGraph([...elsewhere, ...here]), files: new Map([[unit.path, unit.text]]), tree: [...tree, item],
-    inScope: path => path === unit.path };
+  return { scan: { files: here }, graph: buildGraph([...elsewhere, ...here]), files: new Map([[unit.path, unit.text]]), documents,
+    tree: [...tree, ...[...documents.keys()].map(path => ({ path, type: 'blob', sha: 'working copy' })), item], inScope: path => path === unit.path };
+}
+
+/**
+ * A file in the working copy by its path from the root, or null when there is none. One that resolves outside the repository is
+ * refused, since what is read here is sent to the model.
+ */
+async function readInside(root, path) {
+  const repository = await realpath(root);
+  const found = await realpath(join(repository, path)).catch(error => { if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null; throw error; });
+  if (found === null) return null;
+  const inside = relative(repository, found);
+  if (inside === '..' || inside.startsWith(`..${sep}`) || isAbsolute(inside)) throw new Error(`${path} is outside this repository`);
+  return (await stat(found)).isFile() ? readFile(found, 'utf8') : null;
 }
 
 /**
@@ -148,17 +164,23 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
   const named = splitOnly(only);
   // Naming only classes the scan answers about means the rule file was not named, so none of it is asked.
   const read = askable(only.length && !named.rules.length ? [] : await readRules(root, revision), named.rules);
-  const rules = read.length ? rulesFor(read, unit, named.rules, await selectionFor(unit, read, { root, out, analyzer, revision, debug })) : [];
+  const selection = read.length ? await selectionFor(unit, read, { root, out, analyzer, revision, debug }) : null;
+  const rules = read.length ? rulesFor(read, unit, named.rules, selection) : [];
   const body = unit.part ? bodyOf(unit.text, unit) : unit.text;
 
-  // Every rule that covers this point, asked over it at once. A rule that wants more than the unit itself is its own context.
+  // Every rule that covers this point, asked over it at once. A rule that wants more than the unit itself, a neighbourhood or a
+  // document, is its own context.
   const contexts = new Map();
   for (const rule of rules) {
-    if (!contexts.has(rule.sees)) contexts.set(rule.sees, []);
-    contexts.get(rule.sees).push(rule);
+    const doc = rule.context ? contextPath(rule.context, unit.path, path => selection.documents.has(path)) : null;
+    const key = `${rule.sees}\u0000${doc ?? ''}`;
+    if (!contexts.has(key)) contexts.set(key, { sees: rule.sees, doc, together: [] });
+    contexts.get(key).together.push(rule);
   }
-  const asked = (await Promise.all([...contexts].map(async ([sees, together]) => {
-    const prepare = budget => unitSteps({ rules: together, unit, source: body, seen: neighbourhood(sees, unit, { graph: unit.graph, files: new Map([[unit.path, unit.text]]) }), budget });
+  const asked = (await Promise.all([...contexts.values()].map(async ({ sees, doc, together }) => {
+    const seen = { ...neighbourhood(sees, unit, { graph: unit.graph, files: new Map([[unit.path, unit.text]]) }),
+      ...(doc ? { context: { path: doc, source: selection.documents.get(doc) } } : {}) };
+    const prepare = budget => unitSteps({ rules: together, unit, source: body, seen, budget });
     const steps = prepare(systemOne.limits?.state);
     debug(`${together.map(rule => rule.name).join(', ')}: ${unit.name}`);
     const { answers, model } = await askUnitSteps({ systemOne, steps, prepare, rules: together });
