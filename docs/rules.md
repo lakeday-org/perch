@@ -140,8 +140,15 @@ the files in the same directory and below it, and `callers` sends the files in t
 
 ### context
 
-`context` sends a document with each file, method or test that the rule applies to, such as a style guide or a list of
-the terms that one part of the code uses:
+`context` sends a reference document, such as a style guide, with each file, method or test that the rule checks. For an
+example, see [Cite a reference document](#cite-a-reference-document).
+
+If `context` contains a slash, such as `.perch/rules/code-style.md`, it's a path from the root of the repository. The
+scan fails if that file doesn't exist.
+
+If `context` is a file name without a slash, Perch uses the nearest file with that name. It looks in the directory of the
+code being checked first, and then in each directory above it. You can use this to give each part of a repository its own
+document:
 
 ```yaml
 - name: billing-words
@@ -152,13 +159,9 @@ the terms that one part of the code uses:
     says to avoid.
 ```
 
-If `context` is a file name, Perch uses the nearest file with that name. It looks in the directory of the code being
-checked first, and then in each directory above it. In this example, `src/billing/invoice.js` is checked with
-`src/billing/LANGUAGE.md`, and a file in a directory without its own `LANGUAGE.md` is checked with the nearest one above
-it. If no directory above a file has a `LANGUAGE.md`, the rule doesn't check that file.
-
-If `context` contains a slash, such as `docs/style.md`, it's a path from the root of the repository. The scan fails if
-that file doesn't exist.
+In this example, `src/billing/invoice.js` is checked with `src/billing/LANGUAGE.md`, and a file in a directory without
+its own `LANGUAGE.md` is checked with the nearest one above it. If no directory above a file has a `LANGUAGE.md`, the
+rule doesn't check that file.
 
 When the document changes, Perch checks everything that uses it again. With `--since`, a branch that changes only the
 document is enough. `perch check` reads the document from disk, so it includes changes you haven't committed.
@@ -230,6 +233,73 @@ If you're writing a rule for whole files, these guidelines help:
 
 When you change a rule's wording, Perch checks it again on the next scan. Unchanged rules on unchanged code are answered
 from Perch Cloud's cache and cost nothing.
+
+## Cite a reference document
+
+If several rules depend on the same conventions, you can write the conventions down once in a document, such as a style
+guide, and cite the document from each rule with [`context`](#context). Perch sends the document with everything the rule
+checks, so the rule can refer to a section of the document instead of repeating it.
+
+For example, Perch's own repository keeps its code conventions in `.perch/rules/code-style.md`:
+
+```markdown
+# Code style
+
+## Errors
+
+- A catch rethrows the error, returns it to the caller, or reports it.
+- A catch never returns a stand-in such as null, [] or '' and carries on as if the step worked.
+- A catch may turn a missing file (ENOENT) into an empty value when it rethrows every other error.
+
+## Tests
+
+- A test calls code from src/ or runs the perch command.
+- A test asserts on what that code returned, printed, wrote or sent.
+- A test never asserts only on a value it built itself, or on a fake's canned reply.
+- A test may assert on what a fake recorded the code sending it.
+```
+
+Two rules in its `perch.yaml` cite the guide, and each one names the section that applies:
+
+```yaml
+- name: no-silent-failure
+  where: "src/**/*.js"
+  each: method
+  context: .perch/rules/code-style.md
+  min: 80
+  ensure: >-
+    Find each catch block and each .catch() callback in this method's own
+    body, not in the callers and callees shown with it; if it has none, this
+    rule holds, whatever else the method does. Each one handles the error as
+    the Errors section of the style guide says. One that swallows it breaks
+    this rule.
+
+- name: tests-assert-real-behavior
+  where: "test/**/*.js"
+  context: .perch/rules/code-style.md
+  ensure: >-
+    Read the first three tests in this file. Each asserts on what code from
+    src/ did, as the Tests section of the style guide says. A test whose
+    assertions would still pass if the code under test did nothing breaks
+    this rule. A file that defines no tests satisfies this rule.
+```
+
+In this example, the details of what each rule allows are in the style guide, and the rules stay short. To change what a
+rule allows, edit the guide. On the next scan, Perch checks the code that the guide applies to again.
+
+To add a rule that cites a document from the command line, use `--context`:
+
+```sh
+perch rules add no-silent-failure --each method --where "src/**/*.js" --context .perch/rules/code-style.md --ensure "Each catch block handles the error as the Errors section of the style guide says."
+```
+
+These guidelines help when you cite a document:
+
+- Name the section the rule depends on, such as "the Errors section of the style guide".
+- Keep the document short. Perch sends it with every file, method or test the rule checks. If the document doesn't fit
+  in the request next to the code, Perch sends only the beginning of it.
+- Keep the document in `.perch/rules/`. Rules don't check files in that directory, so the examples of what not to do in
+  your guide aren't reported as problems.
 
 ## Broken rules
 

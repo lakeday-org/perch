@@ -234,6 +234,10 @@ for that rule alone. `--gate no` reports a rule without failing runs.
 `--ensure_absent` is for something that must not be anywhere. Perch checks every file
 or method the rule covers and reports each one that has it.
 
+`--context PATH` sends a reference document, such as a style guide, with everything
+the rule checks. When several rules share the same conventions, write them once in a
+document under `.perch/rules/` and have each rule name the section it depends on.
+
 Method rules that use `--ensure` are checked in the same request as perch's built-in
 questions, so adding them doesn't increase the number of requests.
 

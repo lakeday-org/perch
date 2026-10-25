@@ -87,8 +87,11 @@ example:
 ```
 
 In this example, Perch checks every method in every Python file and reports methods that catch an exception and hide it
-from the caller. Custom rules are checked in the same request as Perch's built-in questions, so adding rules doesn't
-increase the number of requests. To learn how to write rules, see [Semantic linting](/rules/).
+from the caller. Method rules like this one are checked in the same request as Perch's built-in questions, so adding them
+doesn't increase the number of requests.
+
+A rule can also cite a reference document, such as your team's style guide, with
+[`context`](/rules/#cite-a-reference-document). To learn how to write rules, see [Semantic linting](/rules/).
 
 ## The .perch directory
 
