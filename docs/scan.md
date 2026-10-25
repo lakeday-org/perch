@@ -1,12 +1,12 @@
 ---
-title: Inside a scan
-nav: Inside a scan
+title: Scan internals
+nav: Scan internals
 group: Reference
 order: 9
 summary: The parser, the call graph, the questions, and how probabilities become a ranking.
 ---
 
-# Inside a scan
+# Scan internals
 
 When you run `perch scan`, Perch parses your repository with tree-sitter and builds a call graph of its methods. It then
 asks a model the same set of questions about each method. Every answer is a probability, and Perch uses them to rank the
@@ -71,9 +71,9 @@ the model, or the wording of any question results in a new request. To ignore th
 ## 4. The questions
 
 Perch's built-in questions are defined in `scan.yaml`, which ships with Perch. You can override them or add your own in
-`perch.yaml`. Rules that
-apply to a method are sent in the same request as Perch's built-in questions. Most of a request is the method's code, so
-each extra question adds very little to its size.
+`perch.yaml`. Method rules that use `ensure` are sent in the same request as Perch's built-in questions, unless they
+have a [`context`](/rules/#context) document. Most of a request is the method's code, so each extra question adds very
+little to its size.
 
 A question can set `language` to one parser language ID or a list of them. Perch then sends it only for methods in those
 languages, and a question without `language` is sent for every language. For example, `cwe_416` (use after free) is sent
@@ -94,8 +94,8 @@ Apart from the `--since` request, requests don't include the method's position i
 above a method doesn't change its request, so Perch Cloud's cached answers still apply.
 
 If a method is too long to fit in one request, Perch sends it in overlapping parts, each as large as the request limit
-allows, and merges the answers. The worst defect found in any pass is the method's defect, and the likeliest security problem in any pass is
-its security problem. The first pass includes the callers and callees, so it answers the questions about the method's
+allows, and merges the answers. The worst defect found in any pass is the method's defect, and the likeliest security
+problem in any pass is its security problem. The first pass includes the callers and callees, so it answers the questions about the method's
 design and documentation. If part of a method still could not be sent, `perch issues <id>` says how far Perch read.
 
 If Perch can't get an answer about a method, it records the error against that method and carries on. `perch doctor`

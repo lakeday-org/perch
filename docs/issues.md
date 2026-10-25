@@ -48,7 +48,7 @@ are listed together in the Kind column.
 Severity is shown as a band from P0 to P3, where P0 is the most severe, followed by a number in brackets. The model gives
 a probability for each band, and the number is the average of those probabilities on a scale from 0 to 3. For example,
 `P1 (0.9)` is close to P0, and `P1 (1.4)` is close to P2. For the full calculation, see
-[Inside a scan](/scan/#the-severity-formula).
+[Scan internals](/scan/#the-severity-formula).
 
 ## View a single issue
 
@@ -102,7 +102,7 @@ perch issues --min 0    # Every problem the scan answered.
 ```
 
 The threshold only controls what is listed. Ranking uses every answer, so a problem at 49% still raises its method's
-position in the list. For details, see [Inside a scan](/scan/#the-floor).
+position in the list. For details, see [Scan internals](/scan/#the-floor).
 
 ## Close an issue
 
