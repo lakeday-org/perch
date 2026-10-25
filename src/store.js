@@ -13,6 +13,17 @@ export const identity = (...parts) => sha256(JSON.stringify(parts)).slice(0, 16)
 /** A short stable handle for a method's finding, the same across scans. */
 export const findingId = method => identity('finding', method).slice(0, 8);
 
+/**
+ * What is closed on a finding. A rule's answer about a method is one finding whether the method's reading asked it or a request of
+ * its own did, as a rule shown a document is, so a check about a method is also held by a closure on the method for that rule.
+ */
+export function closureOf(dismissals, finding) {
+  const own = dismissals.get(finding.id);
+  if (own?.kinds.size || !finding.rule || !finding.method) return own;
+  const onMethod = dismissals.get(findingId(finding.method));
+  return onMethod?.kinds.has(finding.rule) ? { ...onMethod, kinds: new Set([finding.rule]) } : own;
+}
+
 const plain = value => value !== null && typeof value === 'object' && typeof value.toJSON !== 'function'
   && (Array.isArray(value) || [Object.prototype, null].includes(Object.getPrototypeOf(value)));
 const skipped = value => value === undefined || typeof value === 'function' || typeof value === 'symbol';
@@ -386,7 +397,7 @@ export function openStore(out) {
       // the scan's list. One that passed carries nothing to report and falls out below with everything else that is quiet.
       for (const event of checks.values()) every.push({ ...event, lint: { rule: event.rule, broken: event.broken, text: event.text ?? null, said: event.said ?? null } });
       return every.map(finding => {
-        const held = dismissals.get(finding.id);
+        const held = closureOf(dismissals, finding);
         if (!held?.kinds.size) return finding;
         const closed = { kinds: [...held.kinds], at: held.at, reason: held.reason };
         // Closed when nothing is left live on it, and still listed by `perch issues --closed` either way, which is why what it

@@ -220,7 +220,7 @@ describe('an answer about text the model was shown', () => {
     const before = await revision(repo.root);
     const saysLegacy = answering(state => (String(state.source ?? '').includes('legacy') ? 0.95 : 0.05));
     await scanRepository({ ...repo, revision: before, analyzer, systemOne: saysLegacy });
-    expect((await checks(repo.out)).map(row => [row.unit, row.broken])).toEqual([['src/b.js::h', 1]]);
+    expect((await checks(repo.out)).map(row => [row.unit, row.broken])).toEqual([['src/b.js::h', 0.95], ['src/b.js::k', 0.05]]);
 
     // Only the comment goes. The body is untouched, and it was the comment the answer was about.
     await writeFile(join(repo.root, 'src', 'b.js'), bWith(''));
@@ -233,11 +233,12 @@ describe('an answer about text the model was shown', () => {
 
     // perch issues at the new HEAD, before anything is scanned again: the answer is about a comment that is gone.
     const listed = splitStale(await openStore(repo.out).issues(0.5, { scan: scanAfter, all: true }), scanAfter);
-    expect(listed.current.filter(finding => finding.rule === 'legacy')).toEqual([]);
+    expect(listed.current.filter(finding => finding.rule === 'legacy').map(finding => finding.unit)).toEqual(['src/b.js::k']);
 
-    // A scan that does not reach src/b.js carries earlier checks forward, and must not carry this one.
+    // A scan that does not reach src/b.js carries earlier checks forward, and must not carry this one. k is unchanged, so its
+    // own check stands.
     await scanRepository({ ...repo, revision: after, analyzer, systemOne: saysLegacy, paths: ['README.md'] });
-    expect(await checks(repo.out)).toEqual([]);
+    expect((await checks(repo.out)).map(row => row.unit)).toEqual(['src/b.js::k']);
   });
 });
 

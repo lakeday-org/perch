@@ -488,6 +488,24 @@ describe('the units a rule is asked about', () => {
     expect(everything.broken.map(finding => finding.rule).sort()).toEqual(['no-todo', 'says-what']);
   });
 
+  it('reads every unit in scope, and names every unit an absent rule finds', async () => {
+    const repo = await repoWith('- name: no-password\n  where: "docs/*.md"\n  ensure_absent: A password written into the text.\n'
+      + '- name: has-password\n  where: "docs/*.md"\n  ensure_present: A password written into the text.\n');
+    // More files than the four hundred a rule once stopped at, with the thing only in the two that sort last.
+    await mkdir(join(repo.root, 'docs'));
+    for (let i = 0; i < 450; i++) await writeFile(join(repo.root, 'docs', `${String(i).padStart(3, '0')}.md`), i >= 448 ? 'password: hunter2\n' : 'Nothing here.\n');
+    await commitAll(repo.root, 'docs');
+    const base = answering(0.05);
+    const systemOne = { ...base, async ask(state, questions) {
+      const reply = await base.ask(state, questions);
+      if (String(state.source ?? '').includes('password')) for (const id of ['no-password', 'has-password']) if (reply.answers[id]) reply.answers[id] = { type: 'noul', noul: 0.95 };
+      return reply;
+    } };
+    const run = await scanRepository({ ...repo, revision: await revision(repo.root), analyzer, systemOne });
+    expect(run.broken.filter(finding => finding.rule === 'no-password').map(finding => finding.path)).toEqual(['docs/448.md', 'docs/449.md']);
+    expect(run.broken.filter(finding => finding.rule === 'has-password')).toEqual([]);
+  });
+
   it('asks a method rule inside that method\'s own reading, and a file rule on its own', async () => {
     const repo = await repoWith('- name: comment-says-why\n  where: "src/*.js"\n  each: method\n  ensure: "The comment says why."\n'
       + '- name: prose\n  where: "**/*.md"\n  ensure: "A person wrote this."\n');

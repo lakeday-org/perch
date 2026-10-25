@@ -26,15 +26,28 @@ export const EACH = ['file', 'method', 'test'];
  */
 export const SEES = ['self', 'file', 'calls', 'callers', 'neighbors'];
 /**
- * `ensure` is asked of every unit and every unit has to satisfy it. The other two are asked of units in turn until one answers,
- * because the claim is about the codebase and not about any one file: `ensure_present` passes at the first unit that has the
- * thing, `ensure_absent` fails at the first unit that has it. Passing a present rule is cheap and proving an absent rule is not,
- * which is the right way round — proving an absence is the expensive claim.
+ * Whether `context` names a document a rule can be shown beside each unit, such as a style guide or the vocabulary the rule
+ * judges against. A path with a slash in it is one file from the repository root. A bare name is the nearest file so named,
+ * from the unit's own directory up, so one rule over `src/**` is shown each area's own `LANGUAGE.md`. Either way it stays inside
+ * the repository and names one file rather than a glob.
+ */
+function isContextPath(context) {
+  if (typeof context !== 'string') return false;
+  const path = context.trim();
+  if (path === '' || path.startsWith('/')) return false;
+  if (path.split('/').includes('..')) return false;
+  return !/[*?[\]{}\\]/.test(path);
+}
+/**
+ * `ensure` is asked of every unit and every unit has to satisfy it. `ensure_absent` is asked of every unit too, and each unit that
+ * has the thing breaks it. `ensure_present` is a claim about the codebase and not about any one file, so it is asked of units in
+ * turn and passes at the first that has the thing. Passing a present rule is cheap and proving an absent rule is not, which is
+ * the right way round — proving an absence is the expensive claim.
  */
 export const ENSURES = ['ensure', 'ensure_present', 'ensure_absent'];
 export const SEARCHES = kind => kind === 'ensure_present' || kind === 'ensure_absent';
 
-const KEYS = new Set(['name', 'disabled', 'min', 'gate', 'type', 'each', 'where', 'language', 'except', 'sees', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', ...ENSURES]);
+const KEYS = new Set(['name', 'disabled', 'min', 'gate', 'type', 'each', 'where', 'language', 'except', 'sees', 'context', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', ...ENSURES]);
 const ISSUE_KEYS = new Set(['type', 'label', 'on', 'pick', 'except']);
 /** A correctness issue is weighed by the severity rubric; everything else weighs as itself. */
 export const CORRECTNESS = new Set(['defect', 'security']);
@@ -122,6 +135,13 @@ export function check(question, at, noun = 'question') {
   if (full.sees && !SEES.includes(full.sees)) throw new Error(`${where}: sees is ${SEES.join(', ')}, not ${full.sees}`);
   // Silently ignoring it would let a rule read as though it had asked for something it never got.
   if (full.sees && each === 'method') throw new Error(`${where}: a method is always asked with its callers and callees in view, so sees says nothing here`);
+  if (full.context !== undefined && !isContextPath(full.context))
+    throw new Error(`${where}: context is a file name, or a path from the repository root, not ${JSON.stringify(full.context)}`);
+  // A question written out longhand is asked inside a method's reading, where there is no document to show it.
+  if (full.context && !full.kind) throw new Error(`${where}: context needs one of ${ENSURES.join(', ')}`);
+  // A method rule with a document is asked in a request of its own rather than in the method's reading, since perch's own
+  // questions have no business being shown the document. Its callers and callees come with it, as they do in the reading.
+  const sees = full.sees ?? (each === 'method' && full.context ? 'neighbors' : 'self');
   if (!full.ask) throw new Error(`${where}: needs ask, or one of ${ENSURES.join(', ')}`);
   if (type === 'noul' && (full.true === undefined || full.false === undefined)) throw new Error(`${where}: a noul needs true and false`);
   if (type === 'choice' && !full.options) throw new Error(`${where}: a choice needs options`);
@@ -135,11 +155,16 @@ export function check(question, at, noun = 'question') {
     if (unknown.length) throw new Error(`${where}: issue takes ${[...ISSUE_KEYS].join(', ')}, not ${unknown.join(', ')}`);
     if (!full.issue.type) throw new Error(`${where}: an issue needs a type`);
   }
-  return { ...full, type, each, sees: full.sees ?? 'self', min, gate: gates(full),
+  return { ...full, type, each, sees, min, gate: gates(full), context: full.context?.trim() ?? null,
     kind: full.kind ?? null, text: full.text ?? null, at,
     // As it was written, so a question perch ships can be copied into your own file and changed from there.
     declared: question,
-    hash: sha(JSON.stringify([full.ask, full.true, full.false, full.options, full.levels, full.where, full.language, full.except, full.each, full.sees])) };
+    // A search's kind is in its hash. ensure_present and ensure_absent ask the same question and read the answer opposite ways,
+    // and an absent rule's checks are kept per unit where they were once one row for the whole search, so a check kept from one
+    // shape is not an answer in the other. The document's name is in it only when there is one, so a rule without one keeps the
+    // hash it had before the key existed.
+    hash: sha(JSON.stringify([full.ask, full.true, full.false, full.options, full.levels, full.where, full.language, full.except, full.each, full.sees,
+      ...(SEARCHES(full.kind) ? [full.kind] : []), ...(full.context ? [full.context.trim()] : [])])) };
 }
 
 /** A missing language selector applies to every parsed language. */

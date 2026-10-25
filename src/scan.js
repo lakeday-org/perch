@@ -14,8 +14,8 @@ import { createLineReader, methodNeighbours } from './context.js';
 import { createChangeReader } from './change-context.js';
 import { appliesToLanguage, CORRECTNESS, floorFor, DEFAULT_TYPES, narrows, questionSet, questionsFor, SEARCHES, setHash } from './ask.js';
 import { changeSteps, issuesOf, label as kindLabel, methodSteps, readAnswers } from './questions.js';
-import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL, unitHash } from './units.js';
-import { findingId, identity, openStore } from './store.js';
+import { asRules, askUnits, contextStands, matches, mayBeContext, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL, unitHash } from './units.js';
+import { closureOf, findingId, identity, openStore } from './store.js';
 import { TOKEN_LIMITS, IncompleteCheckError, withTokenRetries } from './tokens.js';
 export { findingId };
 
@@ -346,12 +346,12 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // end, and neither the methods nor the rules about files wait on the other. Waiting for the last method only made a run the
     // length of both. The tree is only read when a file rule or a search is in the set; all rules, not the filtered ones, since a
     // rule filtered out is still counted in coverage, and counting a file rule's units needs the tree.
-    const files = new Map();
+    const files = new Map(), documents = new Map();
     let tree = [], eligible = () => false;
     const kept = new Set(questionsFor(rules, filters, kindLabel).map(rule => rule.name));
     const asking = rules.filter(rule => kept.has(rule.name));
     const checking = (async () => {
-      if (rules.some(rule => SEARCHES(rule.kind) || rule.each !== 'method')) {
+      if (rules.some(rule => SEARCHES(rule.kind) || rule.each !== 'method' || rule.context)) {
         for (const file of scan.files) files.set(file.path, (await linesOf({ id: file.path, path: file.path })).join('\n'));
         tree = await listTree(root, revision);
         const attributes = await attributeRules(tree, item => readBlob(root, item.sha).catch(() => ''));
@@ -364,13 +364,19 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
           else files.set(item.path, text);
         }
         eligible = item => selector(item) && !generated.has(item.path);
+        // A rule's document is read from the revision as the code is, wherever it sits: it can live beside the rules, where no
+        // rule reads it as a file of its own.
+        for (const item of tree) if (mayBeContext(rules, item.path)) documents.set(item.path, files.get(item.path) ?? await readBlob(root, item.sha));
       }
       // What is left is every rule that is not about a method, and every claim about the codebase rather than about one file. The
       // source they are asked about comes from the revision, not from disk, so a finding is still about a commit.
-      const over = { scan, graph, files, tree, eligible, revision, systemOne: gated, inScope, min, debug };
+      const over = { scan, graph, files, documents, tree, eligible, revision, systemOne: gated, inScope, ignores, min, debug };
+      // Asked of each unit: rules about files and tests, method rules shown a document, and absent rules. Any other method rule
+      // rides in the method's own reading, and a present rule stops at the first unit that has the thing.
+      const eachUnit = rule => rule.kind === 'ensure_absent' || !SEARCHES(rule.kind) && (rule.each !== 'method' || Boolean(rule.context));
       return Promise.all([
-        askUnits({ ...over, rules: asking.filter(rule => !SEARCHES(rule.kind) && rule.each !== 'method'), parallel: unitParallel, progress: unitProgress }),
-        searchUnits({ ...over, rules: asking.filter(rule => SEARCHES(rule.kind)), parallel: unitParallel, progress: searchProgress }),
+        askUnits({ ...over, rules: asking.filter(eachUnit), parallel: unitParallel, progress: unitProgress }),
+        searchUnits({ ...over, rules: asking.filter(rule => rule.kind === 'ensure_present'), parallel: unitParallel, progress: searchProgress }),
       ]);
     })();
 
@@ -445,7 +451,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // or broken, since a pass is what lets the next run skip asking it; only the broken ones are anything to report.
     broken.push(...units.results, ...searches.results);
     run.broken.push(...[...units.results, ...searches.results]
-      .filter(result => result.broken > floorFor(rules.find(rule => rule.name === result.rule), min, result.model) && !setAside(result.id, result.rule)));
+      .filter(result => result.broken > floorFor(rules.find(rule => rule.name === result.rule), min, result.model) && !closureOf(dismissals, result)?.kinds.has(result.rule)));
     // Every question the run asked, yours and perch's alike. A question perch ships can cover nothing and raise nothing for the
     // same reasons one you wrote can, and a report of a run that names only half of what it asked is half a report.
     const raised = new Map();
@@ -460,9 +466,9 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
         name: rule.name,
         from: RULES_FILE,
         where: rule.where,
-        units: rule.each === 'method' && !SEARCHES(rule.kind)
+        units: rule.each === 'method' && !SEARCHES(rule.kind) && !rule.context
           ? candidates.filter(candidate => rulesForMethod([rule], graph.nodes.get(candidate.id)).length).length
-          : selectUnits(rule, { scan, graph, files, tree, eligible, inScope }).length,
+          : selectUnits(rule, { scan, graph, files, tree, eligible, inScope, ignores }).length,
         broken: run.broken.filter(finding => finding.rule === rule.name).length,
       })),
     ];
@@ -478,12 +484,14 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // Rule checks are carried the same way, and only while the rule that produced one is still that rule. A rule reworded,
     // reshaped or deleted since leaves a check describing a question that no longer exists. The unit has to be the same too: a
     // test deleted or moved, a file removed, or a comment rewritten leaves a check about text this tree does not hold, and so does
-    // a unit ignore now covers. A search that found nothing is about the rule and not a unit, so it stands on the rule alone.
+    // a unit ignore now covers. A search that found nothing is about the rule and not a unit, so it stands on the rule alone. A
+    // check answered beside a document stands only while that document does.
     const said = new Set(broken.map(check => check.id));
     const byName = new Map(rules.map(rule => [rule.name, rule]));
     const blobs = new Map(tree.map(item => [item.path, item.sha]));
     const unasked = [...checks.values()].filter(check => !said.has(check.id) && byName.get(check.rule)?.hash === check.rule_hash
-      && (String(check.unit).startsWith('search:') || !ignores(check.path) && unitHash(check, { graph, files, blobs }) === check.hash));
+      && (String(check.unit).startsWith('search:') || !ignores(check.path) && unitHash(check, { graph, files, blobs }) === check.hash)
+      && contextStands(byName.get(check.rule), check, blobs));
     await store.recordScan([...read, ...elsewhere, ...broken, ...unasked]);
     run.remaining = walk.remaining(); run.status = run.incomplete.length ? 'incomplete' : 'complete'; run.completed_at = new Date().toISOString();
     await saveRun(true); await store.prune('runs', id).catch(error => log(`Could not remove earlier runs: ${error.message}`)); return run;
