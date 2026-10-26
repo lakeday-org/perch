@@ -197,7 +197,9 @@ An `ensure_present` rule is cheap when the thing exists, because Perch stops as 
 exist, Perch checks everything the rule applies to before it reports the rule as broken. An `ensure_absent` rule always
 checks everything it applies to, so the `no-dead-command` rule above checks every method in `src`.
 
-With `--since`, a rule applies only to the code that the branch changed.
+With `--since`, a rule applies only to the code that the branch changed. An `ensure_present` rule is the exception: if
+the branch changed anything the rule applies to, Perch searches all of it, because the thing can be in a file the
+branch didn't change.
 
 To see how much a single rule costs, run it on its own with `perch scan --filter rule=<name>`.
 

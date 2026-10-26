@@ -96,6 +96,26 @@ it.each([false, true])('answers a search over a file read in pieces, and a later
   expect(run.broken).toHaveLength(witness ? 0 : 1);
 });
 
+it.each([false, true])('searches everything a present rule covers once a branch touches any of it, witness outside the branch: %s', async witness => {
+  const options = await fixture('- name: evidence\n  where: docs/*.md\n  ensure_present: a verified receipt\n', { 'a.md': witness ? 'verified receipt' : 'nothing here', 'b.md': 'nothing here' });
+  const base = scriptedSystemOne(), searched = [];
+  const systemOne = { ...base, async ask(state, questions) {
+    if (!questions.evidence) return base.ask(state, questions);
+    searched.push(state.path);
+    return { answers: { evidence: { noul: state.source.includes('verified receipt') ? 0.99 : 0.01 } } };
+  } };
+  // The branch changed b.md and left a.md alone. Whether the codebase still has the thing is a question about a.md too, and a
+  // search through b.md alone reported it missing on every branch that touched a doc without the receipt in it.
+  const run = await scanRepository({ ...options, systemOne, paths: ['docs/b.md'] });
+  expect(searched).toContain('docs/a.md');
+  expect(run.broken).toHaveLength(witness ? 0 : 1);
+  // A branch that touched nothing the rule covers cannot have taken the thing away, so the rule is not asked.
+  searched.length = 0;
+  const untouched = await scanRepository({ ...options, systemOne, paths: ['src'] });
+  expect(untouched.broken).toEqual([]);
+  expect(searched).toEqual([]);
+});
+
 it('refuses an add shadowed by an uncommitted nested split rule, and edits or removes that rule where it is', async () => {
   const root = await realpath(await makeGraphFixture()); roots.push(root);
   await writeFile(join(root, 'perch.yaml'), '# local rules\n[]\n');
