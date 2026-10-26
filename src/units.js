@@ -606,9 +606,12 @@ export async function searchUnits({ rules, scan, graph, files, tree, eligible, r
   // What each search would read, worked out before anything is sent, so the run can say how much there is to get through. A
   // search stops at its answer, so this is the most it will read and not what it will read. Every unit in scope is ranked: a
   // cut taken before the ranking kept the first units by path, and a search reporting that nobody had the thing had not read
-  // the rest.
+  // the rest. Under --since a search is asked only when the branch touched something the rule covers, since otherwise the thing
+  // cannot have gone, and then it reads everything the rule covers: the thing can sit in a file the branch never opened, and a
+  // search of what it touched called the rule broken on any branch that changed a file without the thing in it.
   const plans = rules.map(rule => {
-    const units = rank(rule, selectUnits(rule, { scan, graph, files, tree, eligible, inScope, ignores }));
+    const touched = selectUnits(rule, { scan, graph, files, tree, eligible, inScope, ignores }).length > 0;
+    const units = touched ? rank(rule, selectUnits(rule, { scan, graph, files, tree, eligible, ignores })) : [];
     const id = findingId(`${rule.name}::search`);
     return { rule, units, id };
   });
