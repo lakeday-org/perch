@@ -3,14 +3,19 @@
 /** Perch Cloud's bug model takes at most 128 options in one Choice; a longer list is narrowed through windows first. */
 export const MAX_CHOICES = 128;
 
+/**
+ * The three budgets one context length gives: the whole request, a method's code and neighbourhood at 80% of it, and that plus
+ * one question at 96%, the rest being room for server formatting.
+ */
+export const contextLimits = length => Object.freeze({ state: Math.floor(length * 0.8), single: Math.floor(length * 0.96), request: length });
 /** Jev 1.14 takes 32k tokens a question and 64k a request (docs.typesafe.ai/models); room is left below both for server formatting. */
 export const JEV_TOKENS = Object.freeze({ state: 24000, single: 30000, request: 60000 });
 /**
  * OpenAI's Decisions API takes 922k input tokens but prices a request past 272k at twice the rate, so that is its ceiling here.
  * Perch Cloud's perch-latest takes the same. Jev with long context on takes 262k for both limits, so the same numbers serve it;
- * TypeSafe says that is slower and less accurate, so it is only ever chosen (PERCH_MAX_REQUEST_TOKENS), never assumed.
+ * TypeSafe says that is slower and less accurate, so it is only ever chosen (PERCH_CONTEXT_LENGTH), never assumed.
  */
-export const DECISIONS_TOKENS = Object.freeze({ state: 200000, single: 240000, request: 250000 });
+export const DECISIONS_TOKENS = contextLimits(250000);
 /** Each model's token limits, by the start of its id. A model named here gets its own; any other gets Jev's. */
 export const MODEL_TOKEN_LIMITS = Object.freeze({ jev: JEV_TOKENS, 'gpt-6-luna': DECISIONS_TOKENS, perch: DECISIONS_TOKENS });
 export function tokenLimitsFor(model) {

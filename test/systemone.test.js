@@ -262,9 +262,9 @@ describe('token limits by model', () => {
     expect(tokenLimitsFor(undefined)).toBe(JEV_TOKENS);
   });
 
-  it("PERCH_MAX_*_TOKENS raise the budgets, and past Jev's default on TypeSafe the long-context header goes with every request", async () => {
+  it("PERCH_CONTEXT_LENGTH sets all three budgets, and past Jev's default on TypeSafe the long-context header goes with every request", async () => {
     const { requests, fetchImpl } = capture();
-    const env = { PERCH_BASE_URL: 'https://api.typesafe.ai/v1/systemone', PERCH_API_KEY: 'k', PERCH_MAX_STATE_TOKENS: '200000', PERCH_MAX_QUESTION_TOKENS: '240000', PERCH_MAX_REQUEST_TOKENS: '250000' };
+    const env = { PERCH_BASE_URL: 'https://api.typesafe.ai/v1/systemone', PERCH_API_KEY: 'k', PERCH_CONTEXT_LENGTH: '250000' };
     const long = await configuredSystemOne({ env, fetchImpl });
     expect(long.limits).toMatchObject({ state: 200000, single: 240000, request: 250000 });
     await long.ask({ method: 'x' }, { has_bug: { type: 'noul' } });
@@ -276,6 +276,6 @@ describe('token limits by model', () => {
     const other = await configuredSystemOne({ env: { ...env, PERCH_BASE_URL: 'https://example.test/v1/systemone' }, fetchImpl });
     await other.ask({ method: 'x' }, { has_bug: { type: 'noul' } });
     expect(requests[2].init.headers).not.toHaveProperty('TypeSafe-Danger-Zone-Long-Context');
-    await expect(configuredSystemOne({ env: { ...env, PERCH_MAX_STATE_TOKENS: '12' }, fetchImpl })).rejects.toThrow('PERCH_MAX_STATE_TOKENS must be a whole number of at least 128');
+    await expect(configuredSystemOne({ env: { ...env, PERCH_CONTEXT_LENGTH: '12' }, fetchImpl })).rejects.toThrow('PERCH_CONTEXT_LENGTH must be a whole number of at least 256');
   });
 });

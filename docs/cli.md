@@ -313,9 +313,7 @@ it includes the end of `.perch/scan.log`.
 | `OPENAI_API_KEY` | `scan`, `check`: the Decisions API key, when `PERCH_API_KEY` is not set. |
 | `PERCH_MAX_QUESTIONS` | `scan`, `check`: most questions in one request to `PERCH_BASE_URL`, for a model that does not report it. |
 | `PERCH_MAX_OPTIONS` | `scan`, `check`: most options in one choice question, likewise. |
-| `PERCH_MAX_STATE_TOKENS` | `scan`, `check`: token budget for a method's code and neighbourhood, over the model's own. |
-| `PERCH_MAX_QUESTION_TOKENS` | `scan`, `check`: token budget for that plus one question, likewise. |
-| `PERCH_MAX_REQUEST_TOKENS` | `scan`, `check`: token budget for one request, likewise. On TypeSafe, a budget past Jev's 64k turns its long context on. |
+| `PERCH_CONTEXT_LENGTH` | `scan`, `check`: tokens in one request, over the model's own. On TypeSafe, past Jev's 64k it turns long context on. |
 
 `PERCH_BASE_URL` is the complete URL to POST to, including its path and any
 query string. perch uses it unchanged, including a trailing slash. To use
@@ -357,8 +355,9 @@ model that reports nothing, set `PERCH_MAX_QUESTIONS`.
 
 How much of a method's code and neighbourhood goes in one request is sized by
 model: about 24k tokens for Jev, whose requests take 64k, and about 200k for
-OpenAI's Decisions API and for Perch Cloud. Any other model gets Jev's budget. `PERCH_MAX_STATE_TOKENS`, `PERCH_MAX_QUESTION_TOKENS` and
-`PERCH_MAX_REQUEST_TOKENS` set the three budgets by hand. A request budget past
+OpenAI's Decisions API and for Perch Cloud. Any other model gets Jev's budget.
+`PERCH_CONTEXT_LENGTH` sets the tokens one request may hold by hand; the code
+budget is 80% of it and code plus one question 96%. A context length past
 64k on TypeSafe sends the `TypeSafe-Danger-Zone-Long-Context` header, which
 raises Jev's limits to 262k; TypeSafe says that is slower and less accurate, so
 it is never turned on unasked.

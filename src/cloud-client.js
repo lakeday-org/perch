@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { git } from './git.js';
 import { createSystemOne, speaksDecisions } from './systemone.js';
+import { contextLimits } from './tokens.js';
 import {
   actionsCanSignIn, actionsToken, CLOUD_ORIGIN, cloudRequest, jsonBody, readCloudLogin, sessionToken,
 } from './cloud-auth.js';
@@ -162,19 +163,17 @@ export const endpointKey = env => (env.PERCH_API_KEY ? 'PERCH_API_KEY' : speaksD
 
 /**
  * What a model takes in one request, when it does not say. PERCH_MAX_QUESTIONS and PERCH_MAX_OPTIONS set the limits for an
- * endpoint that reports nothing in `_meta`; one that does report can only lower them. PERCH_MAX_STATE_TOKENS,
- * PERCH_MAX_QUESTION_TOKENS and PERCH_MAX_REQUEST_TOKENS set the token budgets over the model's own (tokens.js): a method's code
- * and neighbourhood, that plus one question, and a whole request. A value that is not a whole number above zero is an error
- * rather than no limit, since a scan sent in batches the model refuses reads nothing.
+ * endpoint that reports nothing in `_meta`; one that does report can only lower them. PERCH_CONTEXT_LENGTH sets the tokens one
+ * request may hold over the model's own (tokens.js), and the smaller budgets follow from it (contextLimits). A value that is not
+ * a whole number above zero is an error rather than no limit, since a scan sent in batches the model refuses reads nothing.
  */
 export function limitsFrom(env) {
   const limits = {};
-  for (const [name, key, least] of [['PERCH_MAX_QUESTIONS', 'questions', 1], ['PERCH_MAX_OPTIONS', 'options', 2],
-    ['PERCH_MAX_STATE_TOKENS', 'state', 128], ['PERCH_MAX_QUESTION_TOKENS', 'single', 256], ['PERCH_MAX_REQUEST_TOKENS', 'request', 256]]) {
+  for (const [name, key, least] of [['PERCH_MAX_QUESTIONS', 'questions', 1], ['PERCH_MAX_OPTIONS', 'options', 2], ['PERCH_CONTEXT_LENGTH', 'request', 256]]) {
     if (env[name] === undefined || env[name] === '') continue;
     const value = Number(env[name]);
     if (!Number.isSafeInteger(value) || value < least) throw new Error(`${name} must be a whole number of at least ${least}, not ${env[name]}`);
-    limits[key] = value;
+    if (key === 'request') Object.assign(limits, contextLimits(value)); else limits[key] = value;
   }
   return limits;
 }
