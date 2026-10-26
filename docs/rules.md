@@ -206,7 +206,10 @@ it early is cheap. One with no answer anywhere reads every unit it covers.
 `each: method` it asks about every method in `src`. Three such rules account for
 most of a scan here.
 
-Under `--since`, a rule covers only the code the branch changed.
+Under `--since`, a rule covers only the code the branch changed. An
+`ensure_present` rule is the exception: if the branch changed anything the rule
+covers, Perch searches all of it, because the thing can be in a file the branch
+didn't change.
 
 `perch scan --filter rule=<name>` runs one rule on its own, which is how to see
 what a search costs.
