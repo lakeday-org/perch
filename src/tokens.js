@@ -3,11 +3,26 @@
 /** Perch Cloud's bug model takes at most 128 options in one Choice; a longer list is narrowed through windows first. */
 export const MAX_CHOICES = 128;
 
+/** Jev 1.14 takes 32k tokens a question and 64k a request (docs.typesafe.ai/models); room is left below both for server formatting. */
+export const JEV_TOKENS = Object.freeze({ state: 24000, single: 30000, request: 60000 });
 /**
- * Leave room below Jev's 32k per question and 64k per request limits for server formatting. Jev takes any number of questions
- * that fit; another model may take fewer, and says so in `_meta.max_questions`, which `createSystemOne` puts in `questions`.
+ * OpenAI's Decisions API takes 922k input tokens but prices a request past 272k at twice the rate, so that is its ceiling here.
+ * Perch Cloud's perch-latest takes the same. Jev with long context on takes 262k for both limits, so the same numbers serve it;
+ * TypeSafe says that is slower and less accurate, so it is only ever chosen (PERCH_MAX_REQUEST_TOKENS), never assumed.
  */
-export const TOKEN_LIMITS = Object.freeze({ state: 24000, single: 30000, request: 60000, questions: Infinity, options: MAX_CHOICES });
+export const DECISIONS_TOKENS = Object.freeze({ state: 200000, single: 240000, request: 250000 });
+/** Each model's token limits, by the start of its id. A model named here gets its own; any other gets Jev's. */
+export const MODEL_TOKEN_LIMITS = Object.freeze({ jev: JEV_TOKENS, 'gpt-6-luna': DECISIONS_TOKENS, perch: DECISIONS_TOKENS });
+export function tokenLimitsFor(model) {
+  const id = String(model ?? '').toLowerCase();
+  const prefix = Object.keys(MODEL_TOKEN_LIMITS).filter(start => id.startsWith(start)).sort((a, b) => b.length - a.length)[0];
+  return prefix ? MODEL_TOKEN_LIMITS[prefix] : JEV_TOKENS;
+}
+/**
+ * The limits a client starts from: Jev's tokens, and any number of questions that fit; another model may take fewer, and says
+ * so in `_meta.max_questions`, which `createSystemOne` puts in `questions`. A client sizes its tokens by model (tokenLimitsFor).
+ */
+export const TOKEN_LIMITS = Object.freeze({ ...JEV_TOKENS, questions: Infinity, options: MAX_CHOICES });
 /**
  * Bytes counted as one token. An estimate from a request's length costs nothing to make, where counting it with a tokenizer was
  * most of a scan's CPU. Three bytes a token is about what the o200k tokenizer plus 20% headroom gave the largest method readings,

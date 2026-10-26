@@ -1,5 +1,5 @@
 /** TypeSafe System One client: typed questions over a state, answered with probabilities. */
-import { questionBatches, estimateTokens, TOKEN_LIMITS, ContextLimitError } from './tokens.js';
+import { questionBatches, estimateTokens, JEV_TOKENS, TOKEN_LIMITS, tokenLimitsFor, ContextLimitError } from './tokens.js';
 
 export const DEFAULT_SYSTEM_ONE_MODEL = 'jev-latest';
 export const DECISIONS_MODEL = 'gpt-6-luna';
@@ -71,14 +71,18 @@ export function createSystemOne({
   retryDelayMs = 2000,
   sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
   log = () => {},
-  limits = TOKEN_LIMITS,
+  limits = {},
   firstQuestions = Infinity,
 } = {}) {
   if (!apiKey) throw new Error('PERCH_API_KEY is not set. Export an API key before running perch scan or perch check.');
   const wire = speaksDecisions(baseUrl) ? DECISIONS : SYSTEM_ONE, { service } = wire;
   model ??= wire.model;
-  // A copy, so what this endpoint reports about itself changes this client and no other.
-  limits = { ...TOKEN_LIMITS, ...limits };
+  // The model's own token limits (tokens.js) under whatever this client was given; a copy, so what this endpoint reports about
+  // itself changes this client and no other.
+  limits = { ...TOKEN_LIMITS, ...tokenLimitsFor(model), ...limits };
+  // Jev gives a request more than its default 64k only when asked with this header, which turns its long context on.
+  const longContext = wire === SYSTEM_ONE && /(^|\.)typesafe\.ai$/i.test(new URL(baseUrl, 'https://invalid.test').hostname) && limits.request > JEV_TOKENS.request;
+  const headers = { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json', ...(longContext ? { 'TypeSafe-Danger-Zone-Long-Context': 'true' } : {}) };
   let authenticationFailure = null, answered = false, opening = null;
 
   /**
@@ -100,7 +104,7 @@ export function createSystemOne({
       let response;
       try {
         attempted();
-        response = await fetchImpl(baseUrl, { method: 'POST', headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' }, body: JSON.stringify(wire.body(body)) });
+        response = await fetchImpl(baseUrl, { method: 'POST', headers, body: JSON.stringify(wire.body(body)) });
       } catch (error) {
         if (attempt >= 3) throw error;
         log(`${service} request failed (${error.message}); retrying`);
