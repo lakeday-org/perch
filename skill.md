@@ -77,8 +77,7 @@ Probabilities spread across several kinds mean the model is sure something is wr
 and cannot say what. Say 0.4 on one kind and 0.3 on another. Read the method. Leave
 the label alone.
 
-The line it points at carries its own confidence. A low one puts the problem somewhere
-in the method.
+A finding's line is where the method starts. The problem can be anywhere in the method.
 
 Expect the real problem to sit adjacent to what was reported. A `missing_null_handling`
 at 70% is often an unchecked error a few lines off.
@@ -94,16 +93,21 @@ rewrite working code to satisfy a probability.
 After a fix, ask about the thing you changed.
 
 ```console
-$ perch check src/store.js::openStore.scanDir
-src/store.js:74  openStore.scanDir
-5 checks, 0 broken.
+$ perch check storage.py::load_order
+storage.py:10  load_order
+2 checks, 1 broken.
 
-  Also raised: does_not_do_what_it_claims 80%
-2 requests  5k tokens in / 767 out  $0.0002
+  Confidence  Rule                     Description
+         80%  errors-reach-the-caller  When this method catches an exception, it raises it again or
+                                       returns a value the caller can tell apart from success. Logging
+                                       the exception and returning an ordinary value breaks this rule.
+
+  Also raised: error_ignored 68%
+2 requests  447 tokens in / 25 out  $0.0001
 ```
 
-`perch check src/store.js::openStore.scanDir --json` gives the same reading in full,
-and an issue id works in place of a target.
+`perch check storage.py::load_order --json` gives the same answers as JSON, and an
+issue id works in place of a target.
 
 This reads the file off disk, so it works on uncommitted code. It records nothing, so
 it will not move the numbers on the issue you are fixing. It exits `3` while something
@@ -227,15 +231,19 @@ Added no-silent-failure.
 `--where` takes a glob. `--each` is `file`, `method` or `test`. `--min N` sets a floor
 for that rule alone. `--gate no` reports a rule without failing runs.
 
-`--ensure_absent` is for something that must not be anywhere. It asks every unit it
-covers and reports each one that has the thing.
+`--ensure_absent` is for something that must not be anywhere. Perch checks every file
+or method the rule covers and reports each one that has it.
 
-Rules ride in the request perch was already making about a method. Five rules on one
-method is one reading.
+`--context PATH` sends a reference document, such as a style guide, with everything
+the rule checks. When several rules share the same conventions, write them once in a
+document under `.perch/rules/` and have each rule name the section it depends on.
+
+Method rules that use `--ensure` are checked in the same request as perch's built-in
+questions, so adding them doesn't increase the number of requests.
 
 Say what breaks a rule and what satisfies it. A rule answering in the sixties about
-everything cannot tell anything apart. Reword it or drop it. Raising its floor until
-it keeps nothing is turning it off with extra steps.
+everything can't tell anything apart. Reword it or remove it, instead of raising its
+floor until it reports nothing.
 
 `perch rules list` shows every rule and question in force, and whether each fails a run.
 
