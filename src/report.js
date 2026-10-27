@@ -469,13 +469,9 @@ export function formatRuns({ runs, branch }) {
 export const runSummary = run => `${run.pull_request ? `#${run.pull_request}` : run.branch ?? 'run'} at ${short(run.revision)}, `
   + (run.exit_code < 0 ? `started ${since(run.started_at)}` : `finished ${since(run.finished_at)}`);
 
-/**
- * What became of Perch's review comment on a finding: open, resolved, or resolved by Perch when a later scan stopped reporting it.
- * Perch's own reply saying so is the last one on a thread it resolved, and the Review column has already said it.
- */
-const reviewOf = comment => (!comment ? 'no comment' : !comment.resolved ? 'open' : comment.resolvedByPerch ? 'resolved by Perch' : 'resolved');
-const repliesTo = comment => (comment?.replies ?? []).slice(0, comment?.resolvedByPerch ? -1 : undefined)
-  .map(reply => `${reply.author ?? 'someone'}: ${String(reply.body).replace(/\s+/g, ' ').trim()}`);
+/** What became of Perch's review comment on a finding: open, fixed when a later scan stopped reporting it, or resolved by a person. */
+const reviewOf = comment => (!comment ? 'no comment' : comment.resolved ? 'resolved' : comment.fixed ? 'fixed' : 'open');
+const repliesTo = comment => (comment?.replies ?? []).map(reply => `${reply.author ?? 'someone'}: ${String(reply.body).replace(/\s+/g, ' ').trim()}`);
 
 /** One CI run's issues in the layout a scan prints, then what the run came to. A pull request run says what became of each comment. */
 export function formatRun({ run, findings }, { width = WIDTH(), color = COLOR() } = {}) {

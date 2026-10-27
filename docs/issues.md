@@ -3,140 +3,133 @@ title: Reading issues
 nav: Reading issues
 group: Using perch
 order: 3
-summary: The ranked list, what a row means, and how to narrow it.
+summary: The ranked list, what each column means, and how to filter and close issues.
 ---
 
 # Reading issues
 
-`perch scan` reports by file, the way a linter does. `perch issues` ranks the
-whole repository against itself, worst first.
+`perch issues` lists the problems from the last scan across the whole repository, with the most serious first. While
+`perch scan` groups problems by file, `perch issues` ranks every method against the others. It reads the results saved in
+`.perch`, so it doesn't make any requests.
 
 ```console
 $ perch issues
-ID        Method           Location         Type      Kind                                Severity
-c3ff1609  token_for        auth.py:7        security  weak_crypto 94%                     P1 (0.7)
-ddc5c917  can_fulfil       checkout.py:25   defect    does_not_do_what_it_claims 94%      P1 (0.9)
-c25aa687  cancel_order     auth.py:12       security  missing_authorization 90%, +1 more  P0 (0.4)
-287bfb9d  subtotal         cart.py:10       defect    off_by_one 89%                      P1 (1.1)
-225c1645  release_expired  inventory.py:26  defect    bad_state_change 88%                P1 (0.9)
-80d6ebbb  cheapest         cart.py:30       defect    unhandled_null 88%                  P2 (1.5)
-0d0e3f8a  reserve          inventory.py:9   defect    wrong_return_value 87%              P1 (1.0)
-bdc67421  place_order      checkout.py:15   defect    wrong_order 82%                     P1 (0.8)
-5a623390  load_order       storage.py:15    defect    error_ignored 76%                   P1 (1.2)
-4f8bf5dc  refund           checkout.py:31   defect    bad_state_change 74%                P1 (0.8)
-1-10 of 12 open issues. --page 2 for the next
+ID        Method             Location         Type      Kind                                Severity
+c25aa687  cancel_order       auth.py:12       security  missing_authorization 94%           P1 (0.6)
+ddc5c917  can_fulfil         checkout.py:21   defect    wrong_return_value 94%              P1 (0.9)
+225c1645  release_expired    inventory.py:21  defect    wrong_order 93%                     P1 (0.7)
+287bfb9d  subtotal           cart.py:7        defect    off_by_one 93%                      P1 (1.1)
+c3ff1609  token_for          auth.py:7        security  weak_crypto 93%                     P1 (0.8)
+80d6ebbb  cheapest           cart.py:28       defect    unhandled_null 91%                  P1 (1.3)
+0d0e3f8a  reserve            inventory.py:5   defect    wrong_return_value 88%              P1 (0.8)
+4f8bf5dc  refund             checkout.py:29   security  missing_authentication 84%, +1 mo…  P1 (0.8)
+bdc67421  place_order        checkout.py:10   defect    wrong_order 82%, +1 more            P1 (0.9)
+44c8d48a  is_eligible_for_…  cart.py:21       defect    inverted_condition 74%              P1 (1.0)
+1-10 of 11 open issues. --page 2 for the next
 ```
 
-Ten rows by default. `--limit` changes that, `--page` moves through them, `--all`
-prints every row.
+By default, `perch issues` shows 10 rows at a time. Use `--page` to see the next page, `--limit` to change the page size,
+or `--all` to print every row.
 
-## The columns
+## Columns
 
-One row is one method. A method with a defect, a missing comment and a refactor
-is one row carrying three issues.
+Each row represents one method. If a method has more than one problem, such as a bug and a security vulnerability, they
+are listed together in the Kind column.
 
-| Column | |
+| Column | Description |
 | --- | --- |
-| `ID` | Stable while the method's source is. What `issues`, `check`, `close` and `reopen` take. |
-| `Method` | The qualified name. Nested functions read as `versionAssets.walk`. |
-| `Location` | The file and the line. For a defect, the line the model pointed at. |
-| `Type` | The class the row leads with: `defect`, `security`, `refactor`, `docs`, or `lint`. |
-| `Kind` | The issues themselves, likeliest first, with how sure perch is of each. |
-| `Severity` | How bad it would be for a caller. The rubric grades the defect and the vulnerability, so other rows are empty. |
+| `ID` | The issue ID. It is based on the file and the method name, so it doesn't change when you edit the method. Use it with `perch issues`, `perch check`, `perch close` and `perch reopen`. |
+| `Method` | The method's qualified name. Nested functions are shown as `outer.inner`. |
+| `Location` | The file, and the line where the method starts. |
+| `Type` | The type of the most likely problem: `defect`, `security`, `refactor`, `docs` or `lint`. A `lint` issue is a broken custom rule. |
+| `Kind` | Every problem found in the method, most likely first, with the confidence for each. |
+| `Severity` | How badly a defect or security problem would affect callers. Other types of issue don't have a severity. |
 
-Severity prints as a band and a number, `P1 (0.9)`. The number is where it falls
-within the band:
+Severity is shown as a band from P0 to P3, where P0 is the most severe, followed by a number in brackets. The model gives
+a probability for each band, and the number is the average of those probabilities on a scale from 0 to 3. For example,
+`P1 (0.9)` is close to P0, and `P1 (1.4)` is close to P2. For the full calculation, see
+[Scan internals](/scan/#the-severity-formula).
 
-```
-P1 (0.9)   almost P0
-P1 (1.2)   settling toward P2
-```
+## View a single issue
 
-The band is `round(mean)` and the number is `3 − mean`, over a distribution the
-model gives across all four levels. [Inside a scan](scan.md) works it through.
-
-## One issue in full
+To see everything Perch recorded about a method, pass its issue ID to `perch issues`:
 
 ```console
-$ perch issues c25aa687
-c25aa687  cancel_order  auth.py:12-16
-44c53d9  read 2026-09-27  open
+$ perch issues ddc5c917
+ddc5c917  can_fulfil  checkout.py:21-26
+b412add  read 2026-10-23  open
 
-  Confidence  Type      Severity  Problem
-         90%  security  P0 (0.4)  missing_authorization
-         65%  defect    P0 (0.4)  unhandled_null
+  Confidence  Type    Severity  Problem
+         94%  defect  P1 (0.9)  wrong_return_value
 
-  Kind           unhandled_null 79%  bad_state_change 21%
-  Severity       P0 76%  P1 11%  P3 7%  P2 6%
-  Vulnerability  missing_authorization 90%  missing_authentication 90%  idor 85%  +18 more
-  Claims         does what it claims 54%
-  Code           risk 19  maintainability 71  complexity 1  nesting 0  5 lines
+  Kind       wrong_return_value 73%  wrong_order 10%  inverted_condition 10%  +3 more
+  Severity   P1 88%  P0 9%  P2 3%
+  Called by  test_can_fulfil_when_every_item_is_in_stock  test_can_fulfil_stubbed  test_can_fulfil_when_quantity_equals_stock  test_can_fulfil_rejects_an_empty_cart
+  Code       risk 30  maintainability 68  complexity 3  nesting 2  6 lines
 ```
 
-These are the columns the table prints, with every answer under them. The table
-lists one vulnerability per method; `missing_authentication` at 90% is not a row,
-and it is listed here.
+The table at the top lists each problem in the method. Below it, Perch shows the model's full answers: the probability of
+each kind of defect, the probability of each severity band, the method's callers and callees, and its code metrics. After
+a security scan, a `Vulnerability` line also lists the answer to every security question, including answers below the
+threshold that aren't shown in the list.
 
-`Severity` is filled in on the two rows the rubric weighs, the defect and the
-vulnerability. The `Severity` line lower down carries the whole distribution, and
-the band and bracketed number are worked out from it.
+## Filter issues
 
-## Filters
-
-`--filter` takes `type=`, `kind=`, `severity=` and `rule=`. Clauses on the same
-key are alternatives, clauses on different keys all have to hold.
+To narrow the list, use `--filter` with `type=`, `kind=`, `severity=` or `rule=`. To match more than one value for a key,
+separate the values with commas. When you filter on more than one key, an issue must match all of them.
 
 ```sh
-perch issues --filter type=security
-perch issues --filter severity=P0,P1
-perch issues --filter type=defect,security --filter kind=unhandled_null
-perch issues --filter rule=no-silent-failure
+perch issues --filter type=security                                         # Only security issues.
+perch issues --filter severity=P0,P1                                        # Only P0 and P1 issues.
+perch issues --filter type=defect,security --filter kind=unhandled_null     # Defects or security issues of one kind.
+perch issues --filter rule=errors-reach-the-caller                          # Only breaks of one custom rule.
 ```
 
-`perch issues --types` prints every value the three keys accept.
+To see every value you can filter on, run `perch issues --types`.
 
-A filtered list is ranked by what was filtered for, so `--filter type=security`
-puts the likeliest vulnerability first. Each row shows the matching issue first
-as well.
+A filtered list is sorted by the issues that match the filter. For example, with `--filter type=security`, the most
+likely security problem comes first.
 
-## Floors
+## Confidence thresholds
 
-An issue is listed when its score exceeds both its question's floor and the
-run's `--min`. Both bug checks have a 60 percent floor; see
-[the question floors](/rules/#floors).
+Perch only lists a problem when its confidence is above the threshold for that question, and above `--min`. The bug
+questions have a threshold of 60%, and the security questions use 60% or 70%. For the full list, see
+[Floors](/rules/#floors).
 
 ```sh
-perch issues --min 80     # only what it is very sure of
-perch issues --min 0      # everything it answered
+perch issues --min 80   # Only problems Perch is at least 80% sure of.
+perch issues --min 0    # Every problem the scan answered.
 ```
 
-The floor decides what is listed. The ranking uses every answer, so an issue at
-49 percent still weighs 0.49 in where its method sorts. See [the floor](/scan/#the-floor).
+The threshold only controls what is listed. Ranking uses every answer, so a problem at 49% still raises its method's
+position in the list. For details, see [Scan internals](/scan/#the-floor).
 
-## Closing an issue
+## Close an issue
 
-`perch close` takes a finding off the list:
+If you've reviewed an issue and decided not to fix it, close it with a reason:
 
-```sh
-perch close e585492e --reason "verifies the HMAC before parsing"
-perch close 4eec00c0 7676ecad --reason "generated file"
+```console
+$ perch close 4f8bf5dc --reason "refunds are idempotent upstream"
+4f8bf5dc  refund  checkout.py:29  closed  bad_state_change
 ```
 
-The reason is kept and shown by `perch issues <id>`. A closure holds until you
-take it back, the way a `.eslintignore` entry does, and later scans leave it
-alone. `perch reopen <id>` puts it back.
+A closed issue stays closed through later scans, even if you edit the method. `perch issues <id>` shows the reason, and
+`perch issues --closed` includes closed issues in the list. To reopen an issue, run `perch reopen <id>`.
+
+Closing an issue only covers the kinds of problem it had when you closed it. If a later scan finds a different kind of
+problem in the same method, Perch lists it. To close only some kinds of problem on an issue, use `--kind`:
 
 ```sh
-perch issues --closed     # include what you set aside
+perch close 2638fb16 --kind docs --reason "internal helper"
 ```
 
-Closed issues live in `.perch/closed.jsonl`.
+Perch stores closed issues in `.perch/closed.jsonl`. Commit this file so your team sees the same list.
 
-## JSON
+## JSON output
 
-Every command takes `--json` and prints the same information for a script to
-read:
+Every command accepts `--json`, which prints the same information as JSON, including the full set of probabilities behind
+each answer. For example, this lists the files of methods whose severity is closer to P0 than to P2:
 
 ```sh
-perch issues --all --json | jq '.[] | select(.severity.mean > 2) | .path'
+perch issues --all --json | jq '.[] | select(.severity.score > 2) | .path'
 ```

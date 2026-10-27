@@ -22,7 +22,7 @@ describe('perch setup', () => {
       const written = await readFile(join(root, done.path), 'utf8');
       // The same document every time: what perch can be told to do does not depend on who is reading it.
       expect(written).toContain('perch scan --since origin/main --json');
-      expect(written).toContain('perch check src/store.js::openStore.scanDir --json');
+      expect(written).toContain('perch check storage.py::load_order --json');
       expect(written).toContain('perch rules add no-silent-failure');
       expect(written).toMatch(/^---\n/);
     }

@@ -155,7 +155,7 @@ takes. For a model that doesn't say, set `PERCH_MAX_QUESTIONS`. See the
 | [Checking a change](https://docs.perchscan.com/check/) | `perch check` on work in progress. |
 | [perch in CI](https://docs.perchscan.com/ci/) | What a build can gate on, and what it cannot. |
 | [Command reference](https://docs.perchscan.com/cli/) | Every command, its flags, and what each exit code means. |
-| [Inside a scan](https://docs.perchscan.com/scan/) | The graph walk, the questions, and how probabilities turn into a ranking. |
+| [Scan internals](https://docs.perchscan.com/scan/) | The graph walk, the questions, and how probabilities turn into a ranking. |
 
 ## Perch files
 
