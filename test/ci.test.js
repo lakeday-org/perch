@@ -174,11 +174,10 @@ describe('perch ci', () => {
     const commented = {
       links: { cloud: 'https://dash.perchscan.com/#/scan/pr', check: null, pull: 'https://github.com/acme/web/pull/318' },
       findings: [
-        { ...findings[0], comment: { url: 'https://github.com/acme/web/pull/318#r1', resolved: false, resolvedByPerch: false,
+        { ...findings[0], comment: { url: 'https://github.com/acme/web/pull/318#r1', resolved: false, fixed: false,
           replies: [{ author: 'octocat', body: 'Intended: the caller\nchecks first.', createdAt: '2026-10-06T11:00:00Z', url: 'https://github.com/acme/web/pull/318#r2' }] } },
-        // Perch resolved this one when a later scan stopped reporting it. Its reply saying so is what the Review column says.
-        { ...findings[1], comment: { url: 'https://github.com/acme/web/pull/318#r3', resolved: true, resolvedByPerch: true,
-          replies: [{ author: 'perchcode-bot', body: 'The scan of abc1234 no longer reports this, so Perch resolved it.', createdAt: '2026-10-06T12:00:00Z', url: 'https://github.com/acme/web/pull/318#r4' }] } },
+        // A later scan stopped reporting this one, so Perch marked its comment fixed.
+        { ...findings[1], comment: { url: 'https://github.com/acme/web/pull/318#r3', resolved: false, fixed: true, replies: [] } },
       ],
     };
     const stub = cloud({ detail: { pr: { scan: run('pr', { exit_code: 3, open_issues: 2 }), findings, commented },
@@ -188,8 +187,7 @@ describe('perch ci', () => {
     expect(stub.asked.at(-1).query).toEqual({ organizationId: 'org-1', scanId: 'pr', comments: '1' });
     expect(out).toContain('src/session.js\n  ID  Line  Severity  Type    Confidence  Problem          Review  Method\n'
       + '  f1    42  P1        defect         81%  swallowed_error  open    Session.refresh\n      octocat: Intended: the caller checks first.');
-    expect(out).toContain('  f2     1  -         lint         70%  docs-show-output  resolved by Perch  docs/setup.md');
-    expect(out).not.toContain('no longer reports this');
+    expect(out).toContain('  f2     1  -         lint         70%  docs-show-output  fixed   docs/setup.md');
     expect(err).toContain('Pull request: https://github.com/acme/web/pull/318');
 
     // A repository off the GitHub App still lists its issues, with no Review column, and says why there are no comments.

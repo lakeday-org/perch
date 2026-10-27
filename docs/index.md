@@ -8,66 +8,100 @@ summary: Semantic code and security scanner.
 
 # perch
 
-perch is a semantic code and security scanner. It reads each method with its callers and callees in front of it. Then it asks a
-model what the code does.
+Perch is a semantic code and security scanner. It finds bugs, security vulnerabilities and violations of your own rules by
+asking a language model about each method in your repository, with the method's callers and callees included for context.
+
+For example, running `perch scan` in a small Python project produces output like this:
 
 ```console
 $ perch scan
-src/store.js
-  ID        Line  Severity  Type      Confidence  Problem             Method
-  d8f67bd9    46  -         refactor         72%  tangled_conditions  closures
-  463c56ed    63  -         refactor         74%  too_big             openStore
+inventory.py
+  ID        Line  Severity  Type    Confidence  Problem             Method
+  0d0e3f8a     5  P1 (0.8)  defect         88%  wrong_return_value  reserve
+  225c1645    21  P1 (0.7)  defect         93%  wrong_order         release_expired
 
-src/git.js
-  ID        Line  Severity  Type    Confidence  Problem           Method
-  fe166264    84  P1 (1.3)  defect         72%  integer_overflow  readBlobs
+checkout.py
+  ID        Line  Severity  Type    Confidence  Problem             Method
+  bdc67421    10  P1 (0.9)  defect         82%  wrong_order         place_order
+  ddc5c917    21  P1 (0.9)  defect         94%  wrong_return_value  can_fulfil
+  4f8bf5dc    29  P1 (0.8)  defect         68%  bad_state_change    refund
 
-✖ 3 problems in 2 files, 1 failing
-perch at commit d4f7adf: 38 methods, read 38
-110 requests  81k tokens in / 5k out  $0.0034
+cart.py
+  ID        Line  Severity  Type    Confidence  Problem             Method
+  287bfb9d     7  P1 (1.1)  defect         93%  off_by_one          subtotal
+  44c8d48a    21  P1 (1.0)  defect         74%  inverted_condition  is_eligible_for_free_shipping
+  80d6ebbb    28  P1 (1.3)  defect         91%  unhandled_null      cheapest
+
+storage.py
+  ID        Line  Severity  Type    Confidence  Problem        Method
+  5a623390    10  P1 (1.0)  defect         68%  error_ignored  load_order
+
+✖ 9 problems in 4 files, all failing
+order-service at commit b412add: 15 methods, read 15
+15 requests  17k tokens in / 3k out  $0.0065
 ```
 
-Every answer is a probability. `72%` is the model's probability that the problem is real, and it stays on the row.
+The Confidence column is the model's estimated probability that the problem is real. The Severity column estimates how
+badly the problem would affect callers, from P0 (most severe) to P3. `perch scan` exits with code 3 when it reports a
+problem, so you can use it to fail a CI build.
 
-## Install
+## Installation
+
+Perch requires Node.js 22 or later and git. Install it with npm, then sign in to Perch Cloud:
 
 ```sh
 npm install -g @lakeday/perch
-export PERCH_BASE_URL=https://api.typesafe.ai/v1/systemone
-export PERCH_API_KEY='paste-your-TypeSafe-key-here'
+perch login
 ```
 
-Needs Node 22 and git.
+By default, Perch sends its questions to a model through Perch Cloud, which bills your organization for usage. You can
+also use your own model endpoint. See [Quick start](/install/) for details.
 
-## The questions
+## Default checks
 
-Each method gets the same set. Is there a bug, where, what kind, how bad. Is it a
-security hole. Does it do what its name says. Does it need refactoring.
+By default, `perch scan` asks two questions about every method: whether it contains a functional bug, and whether it
+mishandles an empty value, a boundary value or an alternate branch. The same request also asks which kind of bug is most
+likely and how severe it would be.
 
-A method is ranked by what its problems would cost. The list
-runs worst first.
+Security, refactoring and documentation checks are turned off by default. To turn them on for every scan, add them to
+`scan_types` in `perch.yaml`. To run them for a single scan, use `--filter`:
+
+```sh
+perch scan --filter type=security
+```
 
 ## Custom rules
 
-Rules live in `perch.yaml` and are sentences:
+You can also write your own rules in `perch.yaml`. A rule is a plain-English statement that your code should satisfy. For
+example:
 
 ```yaml
-- name: no-silent-failure
-  where: "src/**/*.js"
+- name: errors-reach-the-caller
+  where: "**/*.py"
   each: method
-  ensure: An error is returned or raised, and reaches the caller.
+  min: 65
+  ensure: >-
+    When this method catches an exception, it raises it again or returns a value
+    the caller can tell apart from success. Logging the exception and returning
+    an ordinary value breaks this rule.
 ```
 
-They ride in the request perch was already making about that method. Five rules on one
-method cost one reading.
+In this example, Perch checks every method in every Python file and reports methods that catch an exception and hide it
+from the caller. Method rules like this one are checked in the same request as Perch's built-in questions, so adding them
+doesn't increase the number of requests.
+
+A rule can also cite a reference document, such as your team's style guide, with
+[`context`](/rules/#cite-a-reference-document). To learn how to write rules, see [Semantic linting](/rules/).
 
 ## The .perch directory
 
-Results go to `.perch`:
+Perch stores scan results in a `.perch` directory at the root of your repository:
 
-| File | What it holds |
+| Path | Contents |
 | --- | --- |
-| `.perch/scan.jsonl` | What the last run found. Rewritten whole every run. |
-| `.perch/closed.jsonl` | What you set aside with `perch close`. Survives the next run. |
+| `.perch/scan.jsonl` | The results of the last scan. Each scan replaces this file. |
+| `.perch/closed.jsonl` | Issues you closed with `perch close`, and your reasons. Commit this file. |
+| `.perch/rules/` | Optional rule files, if you split your rules out of `perch.yaml`. Commit these files. |
 
-`--out` points them somewhere else.
+Commands like `perch issues` read from these files, so they work offline and don't make any requests. To store results in
+a different directory, use `--out DIR`.
