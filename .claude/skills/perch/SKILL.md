@@ -152,7 +152,7 @@ After a push, `perch ci --wait` waits for the current commit's run to finish and
 its issues. It exits like a scan: `3` for failing issues, `1` if the run didn't finish.
 
 On a pull request, each issue also shows the status of Perch's review comment on it:
-`open`, `resolved`, or `resolved by Perch` after a later scan stopped reporting it. Replies
+`open`, `fixed` after a later scan stopped reporting it, or `resolved`. Replies
 are listed underneath. Read them before changing the code, since a reviewer may already
 have explained why it's right.
 

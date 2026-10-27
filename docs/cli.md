@@ -286,8 +286,8 @@ test/test-detection.test.js
 #320 at d738e69, finished 45h ago: https://dash.perchscan.com/#/scan/6323adfc-9440-4640-badf-58c8e61cd5ba
 ```
 
-On a pull request, each issue also shows the state of Perch's review comment on it: `open`, `resolved`, or
-`resolved by Perch` when a later scan stopped reporting it. Replies are listed underneath. With `--json`, each issue's
+On a pull request, each issue also shows the state of Perch's review comment on it: `open`, `fixed` when a later
+scan stopped reporting it, or `resolved` once someone resolves the thread. Replies are listed underneath. With `--json`, each issue's
 `method` works as a `perch check` target.
 
 `perch ci` uses your `perch login` and the repository named by the `origin` remote. A CI token in `PERCH_API_KEY` also
