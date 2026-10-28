@@ -116,12 +116,18 @@ describe('the question grammar', () => {
     expect(() => check({ name: 'q', where: 'src/**', min: 140, ensure: 'x' }, at)).toThrow('min is a percentage, 0 to 100');
   });
 
-  it('lists a bug answer over 60% from every model', () => {
+  it('lists a bug answer over 80% from gpt-6-luna and Perch Cloud, and over 60% from every other model', () => {
     const set = BUILTIN.filter(question => ['has_bug', 'bug_edge_case', 'kind'].includes(question.name));
     const defects = (model, answer) => issues({ model, has_bug: 0.1, bug_edge_case: 0.1, kind: { choice: 'boundary', probability: 0.8 }, ...answer }, 0.5, set);
-    for (const name of ['has_bug', 'bug_edge_case']) for (const model of ['gpt-6-luna', 'jev-1.13.0', undefined]) {
-      expect(defects(model, { [name]: 0.6 }), `${name} ${model}`).toEqual([]);
-      expect(defects(model, { [name]: 0.65 }), `${name} ${model}`).toEqual([expect.objectContaining({ from: name, floor: 0.6 })]);
+    for (const name of ['has_bug', 'bug_edge_case']) {
+      for (const model of ['gpt-6-luna', 'gpt-6-luna-2026-10-01', 'perch-latest']) {
+        expect(defects(model, { [name]: 0.8 }), `${name} ${model}`).toEqual([]);
+        expect(defects(model, { [name]: 0.85 }), `${name} ${model}`).toEqual([expect.objectContaining({ from: name, floor: 0.8 })]);
+      }
+      for (const model of ['jev-1.13.0', 'd1:free', undefined]) {
+        expect(defects(model, { [name]: 0.6 }), `${name} ${model}`).toEqual([]);
+        expect(defects(model, { [name]: 0.65 }), `${name} ${model}`).toEqual([expect.objectContaining({ from: name, floor: 0.6 })]);
+      }
     }
   });
 

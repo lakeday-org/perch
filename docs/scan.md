@@ -172,7 +172,8 @@ when `refactor` or `docs` is in `scan_types`, or when you filter for them.
 ### The floor
 
 Perch lists an issue only when its probability is above both the question's floor and the scan's `--min`. The bug
-questions have a 60% floor, whichever model answered. Most security questions have a 70% floor, and XSS, SQL injection
+questions have an 80% floor on answers from `gpt-6-luna`, OpenAI's Decisions model, and from `perch-latest`, the model
+Perch Cloud serves, and 60% on Jev and other models. Most security questions have a 70% floor, and XSS, SQL injection
 and out-of-bounds reads have 60%. These probabilities are useful for ranking answers, but they
 aren't measured rates of real bugs. A higher floor reports fewer false positives, but misses more real problems.
 

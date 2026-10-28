@@ -1,6 +1,6 @@
 # Benchmarks
 
-Perch on two public code review benchmarks, on OpenAI's Decisions model and on Jev, at perch's default 60% floor. Perch is scored per
+Perch on two public code review benchmarks, on OpenAI's Decisions model and on Jev, at a 60% floor. Perch's own floor for the bug questions is now 80% on Decisions and 60% on Jev. Perch is scored per
 function: a bug counts as caught when perch flags the function that holds it. The other tools were scored on their review
 comments.
 

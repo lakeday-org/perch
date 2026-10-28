@@ -139,9 +139,9 @@ describe('a bug question floor per model', () => {
     return issuesOf(h, min).filter(issue => issue.type === 'defect');
   };
 
-  it('lists a bug answer over 60% from gpt-6-luna and from Jev, as perch ships it', async () => {
-    expect(await defects('gpt-6-luna', 0.6)).toEqual([]);
-    expect(await defects('gpt-6-luna', 0.65)).toEqual([expect.objectContaining({ from: 'has_bug', probability: 0.65, floor: 0.6 })]);
+  it('lists a bug answer over 80% from gpt-6-luna and over 60% from Jev, as perch ships it', async () => {
+    expect(await defects('gpt-6-luna', 0.7)).toEqual([]);
+    expect(await defects('gpt-6-luna', 0.85)).toEqual([expect.objectContaining({ from: 'has_bug', probability: 0.85, floor: 0.8 })]);
     expect(await defects('jev-1.13.0', 0.65)).toEqual([expect.objectContaining({ from: 'has_bug', probability: 0.65, floor: 0.6 })]);
   });
 

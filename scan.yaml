@@ -18,7 +18,12 @@
     type: defect
     label: kind
     pick: strongest
-  min: 60
+  # Floors by model id prefix: gpt-6-luna, OpenAI's Decisions model, and perch-latest, the model Perch Cloud serves, take 80.
+  # Jev and every other model take the default.
+  min:
+    gpt-6-luna: 80
+    perch-latest: 80
+    default: 60
 - name: bug_edge_case
   each: method
   where: "**/*"
@@ -31,7 +36,10 @@
     type: defect
     label: kind
     pick: strongest
-  min: 60
+  min:
+    gpt-6-luna: 80
+    perch-latest: 80
+    default: 60
 - name: kind
   type: choice
   each: method

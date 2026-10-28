@@ -44,7 +44,7 @@
 <path d="M222,362h22.6a5,5 0 0 1 5,5v8a5,5 0 0 1 -5,5h-22.6z" fill="#b9b8b0"/>
 <text class="n" x="259.6" y="376" font-size="15" font-weight="600" fill="#59636e">6%</text>
 <text class="n" x="864" y="376" font-size="15" text-anchor="end" font-weight="400" fill="#59636e">~$2</text>
-<text x="16" y="416" font-size="11.5" fill="#818b98">Perch at its default 60% floor, credited for flagging the function that holds the bug.</text>
+<text x="16" y="416" font-size="11.5" fill="#818b98">Perch at a 60% floor, credited for flagging the function that holds the bug.</text>
 <text x="16" y="433" font-size="11.5" fill="#818b98">Perch's cost is the model's, measured on each run: $0.34 on OpenAI Decisions and $0.15 on Jev for all 50.</text>
 <text x="16" y="450" font-size="11.5" fill="#818b98">Others: catch rates from greptile.com/benchmarks, October 22, 2026, credited for a line comment that identifies the bug.</text>
 <text x="16" y="467" font-size="11.5" fill="#818b98">Their costs are list prices, with seat plans divided over 20 pull requests a developer a month.</text>

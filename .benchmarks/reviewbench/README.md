@@ -60,7 +60,7 @@ Each PR's answers are in `results/rerun-luna.jsonl.gz`. A target is matched to t
 | 70% | 35.2% | 31.9% | 33.4% | 8.4% | 480 | 884 | 1,026 |
 | 80% | 41.7% | 23.2% | 29.8% | 5.2% | 349 | 487 | 1,157 |
 
-60% is perch's floor for both questions on every model. By split:
+These runs used a 60% floor for both questions. Perch now uses 80% on Decisions and 60% on Jev. By split:
 
 | Split | Cutoff | Precision | Recall | F1 | Flag rate | Correct alerts | False alerts | Missed bugs |
 |---|---|---:|---:|---:|---:|---:|---:|---:|

@@ -6,7 +6,7 @@ This directory holds the scripts that score four perch runs on those pull reques
 
 ## Results
 
-Greptile graded each tool on the one known bug in each pull request. Graded the same way, perch#418 on OpenAI's Decisions model catches 38 of the 50 at perch's 60% floor, with a median of 7 functions flagged in each.
+Greptile graded each tool on the one known bug in each pull request. Graded the same way, perch#418 on OpenAI's Decisions model catches 38 of the 50 at a 60% floor, with a median of 7 functions flagged in each.
 
 | Configuration | Cutoff | Known bugs caught | By chance | PRs with a golden bug caught | Golden comments caught | Flags | Median flags a PR | Model cost |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|

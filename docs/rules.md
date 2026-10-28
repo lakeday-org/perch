@@ -323,16 +323,16 @@ shows this in the Fails column:
 
 ```console
 $ perch rules list
-Question                 From        Asks         Fails  Over     Description
-errors-reach-the-caller  perch.yaml  ensure >65%  yes    **/*.py  When this method catches an
-                                                                  exception, it raises it again
-                                                                  or returns a value the caller
-                                                                  can tell apart from success.
-                                                                  Logging the exception and
-                                                                  returning an ordinary value
-                                                                  breaks this rule.
-has_bug                  builtin     noul >60%    yes    **/*     Does `method` contain a
-                                                                  functional bug?
+Question                 From        Asks                                         Fails  Over     Description
+errors-reach-the-caller  perch.yaml  ensure >65%                                  yes    **/*.py  When this method catches an
+                                                                                                  exception, it raises it again
+                                                                                                  or returns a value the caller
+                                                                                                  can tell apart from success.
+                                                                                                  Logging the exception and
+                                                                                                  returning an ordinary value
+                                                                                                  breaks this rule.
+has_bug                  builtin     noul >60%, gpt-6-luna 80%, perch-latest 80%  yes    **/*     Does `method` contain a
+                                                                                                  functional bug?
 ```
 
 The full output also lists the rest of Perch's built-in questions.
@@ -480,9 +480,10 @@ A floor is the minimum confidence Perch needs before it reports a problem. Each 
 
 | Floor | Questions |
 | --- | --- |
+| 80% from `gpt-6-luna` and `perch-latest`, 60% from other models | `has_bug`, `bug_edge_case` |
 | 75% | `documented` |
 | 70% | Most security questions |
-| 60% | `has_bug`, `bug_edge_case`, `refactor`, `cwe_79` (XSS), `cwe_89` (SQL injection), `cwe_125` (out-of-bounds read) |
+| 60% | `refactor`, `cwe_79` (XSS), `cwe_89` (SQL injection), `cwe_125` (out-of-bounds read) |
 
 Confidence is the model's own estimate, not a measured rate of real bugs. A higher floor reports fewer false positives,
 but misses more real problems.

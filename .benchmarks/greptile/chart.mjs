@@ -6,7 +6,7 @@ import { needData } from '../data.mjs';
 
 // Draws the README's Greptile benchmark chart, light and dark, into .github/: known bugs caught out of 50, graded as Greptile
 // graded the published tools, beside what a pull request costs with each. Perch's rows are its runs on OpenAI's Decisions model
-// and on Jev at its default 60% floor, from summary.json, each with the model's cost measured on that run. The published rows are
+// and on Jev at a 60% floor, from summary.json, each with the model's cost measured on that run. The published rows are
 // the catch rates greptile.com/benchmarks listed on the date below, and their costs are list prices: a seat plan is divided over
 // 20 pull requests a developer a month, as on perchscan.com's pricing.
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -43,7 +43,7 @@ const chart = colors => barChart(colors, {
   desc: `Known bugs caught on the Greptile benchmark, and what a pull request costs. ${rows.map(r => `${r.name}: ${r.text}, ${r.extra}.`).join(' ')}`,
   rows,
   footer: [
-    'Perch at its default 60% floor, credited for flagging the function that holds the bug.',
+    'Perch at a 60% floor, credited for flagging the function that holds the bug.',
     `Perch's cost is the model's, measured on each run: ${perch.map(p => `${p.total} on ${p.name.slice(8)}`).join(' and ')} for all 50.`,
     `Others: catch rates from greptile.com/benchmarks, ${PUBLISHED_DATE}, credited for a line comment that identifies the bug.`,
     'Their costs are list prices, with seat plans divided over 20 pull requests a developer a month.',

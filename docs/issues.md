@@ -93,7 +93,8 @@ likely security problem comes first.
 ## Confidence thresholds
 
 Perch only lists a problem when its confidence is above the threshold for that question, and above `--min`. The bug
-questions have a threshold of 60%, and the security questions use 60% or 70%. For the full list, see
+questions have a threshold of 80% on answers from `gpt-6-luna` and `perch-latest`, and 60% on other models. The
+security questions use 60% or 70%. For the full list, see
 [Floors](/rules/#floors).
 
 ```sh

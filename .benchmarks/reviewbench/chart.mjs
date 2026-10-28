@@ -5,7 +5,7 @@ import { barChart, THEMES } from '../bars.mjs';
 import { needData } from '../data.mjs';
 
 // Draws the README's ReviewBench recall chart, light and dark, into .github/, beside what a pull request costs with each reviewer.
-// Perch's rows are the reruns on OpenAI's Decisions model and on Jev at its default 60% floor, from rerun-summary.json and
+// Perch's rows are the reruns on OpenAI's Decisions model and on Jev at a 60% floor, from rerun-summary.json and
 // rerun-jev-summary.json, each with the model's cost measured on that run. The leaderboard's are the grounded recall
 // review-bench.ai listed on the date below, so a new leaderboard means new rows and a new date here. Their costs are list prices,
 // a seat plan divided over 20 pull requests a developer a month; a reviewer with no public price says so.
@@ -53,7 +53,7 @@ const chart = colors => barChart(colors, {
   desc: `Recall on ReviewBench for perch beside the reviewers on its leaderboard, highest first, and what a pull request costs. ${rows.map(r => `${r.name}: ${r.text}, ${r.extra}.`).join(' ')}`,
   rows,
   footer: [
-    `Perch at its default 60% floor, scored per function: ${perch.map(p => `${p.precision} precision on ${p.name.slice(8)}`).join(' and ')}.`,
+    `Perch at a 60% floor, scored per function: ${perch.map(p => `${p.precision} precision on ${p.name.slice(8)}`).join(' and ')}.`,
     `Perch's cost is the model's, measured on each run over ${perch[0].scanned} pull requests.`,
     `Leaderboard: review-bench.ai, grounded recall, ${LEADERBOARD_DATE}, scored on review comments.`,
     'Their costs are list prices, with seat plans divided over 20 pull requests a developer a month.',
