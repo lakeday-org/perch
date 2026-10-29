@@ -27,3 +27,8 @@ it('leaves a file that is not a PE alone', () => {
   expect(renameImport(copy, 'node.dll', 'node.exe')).toBe(false);
   expect(copy.equals(elf)).toBe(true);
 });
+
+it('says no for a PE cut off partway through its headers, rather than throwing', () => {
+  const pe = readFileSync(join(pack, 'ts-pack-core-node.win32-x64-msvc.node')).subarray(0, 0x200);
+  expect(renameImport(Buffer.from(pe), 'node.dll', 'node.exe')).toBe(false);
+});

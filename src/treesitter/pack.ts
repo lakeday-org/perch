@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire as requireFrom } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -22,13 +22,14 @@ function load(): Pack {
   if (!existsSync(addon)) return require(PACK);
   const bytes = readFileSync(addon);
   if (!renameImport(bytes, 'node.dll', 'node.exe')) return require(PACK);
-  const copy = join(tmpdir(), `perch-${createHash('sha256').update(bytes).digest('hex').slice(0, 16)}.node`);
-  if (!existsSync(copy)) {
-    // Another perch may be writing or holding the same copy; Windows will not replace a loaded DLL, and its copy is this one.
+  const copy = join(tmpdir(), `perch-${createHash('sha256').update(bytes).digest('hex')}.node`);
+  // A file already at that name is loaded only if it is this copy, byte for byte: the temp directory is not perch's alone.
+  if (!existsSync(copy) || !readFileSync(copy).equals(bytes)) {
+    // Another perch may be writing or holding the same copy, and Windows will not replace a loaded DLL.
     const partial = `${copy}.${process.pid}`;
     writeFileSync(partial, bytes);
     try { renameSync(partial, copy); }
-    catch (error) { if (!existsSync(copy)) throw error; }
+    catch (error) { rmSync(partial, { force: true }); if (!existsSync(copy) || !readFileSync(copy).equals(bytes)) throw error; }
   }
   const module = { exports: {} as Pack };
   process.dlopen(module, copy);
@@ -41,32 +42,42 @@ function load(): Pack {
  */
 export function renameImport(pe: Buffer, from: string, to: string): boolean {
   if (to.length > from.length || pe.length < 0x40 || pe.toString('latin1', 0, 2) !== 'MZ') return false;
-  const header = pe.readUInt32LE(0x3c);
-  if (pe.toString('latin1', header, header + 4) !== 'PE\0\0') return false;
-  const sections = pe.readUInt16LE(header + 6);
-  const optional = header + 24;
-  const directories = optional + (pe.readUInt16LE(optional) === 0x20b ? 112 : 96);
-  const table = optional + pe.readUInt16LE(header + 20);
-  const offset = (rva: number): number | undefined => {
-    for (let i = 0; i < sections; i++) {
-      const section = table + i * 40;
-      const virtualSize = pe.readUInt32LE(section + 8), address = pe.readUInt32LE(section + 12);
-      const rawSize = pe.readUInt32LE(section + 16), raw = pe.readUInt32LE(section + 20);
-      if (rva >= address && rva < address + Math.max(virtualSize, rawSize)) return rva - address + raw;
+  try {
+    const header = pe.readUInt32LE(0x3c);
+    if (pe.toString('latin1', header, header + 4) !== 'PE\0\0') return false;
+    const sections = pe.readUInt16LE(header + 6);
+    const optional = header + 24;
+    const wide = pe.readUInt16LE(optional) === 0x20b;
+    // The import table is data directory 1, so a header that lists fewer than two has none.
+    if (pe.readUInt32LE(optional + (wide ? 108 : 92)) < 2) return false;
+    const directories = optional + (wide ? 112 : 96);
+    const table = optional + pe.readUInt16LE(header + 20);
+    // Only the part of a section that is in the file has an offset; past its raw data the loader fills in zeroes.
+    const offset = (rva: number): number | undefined => {
+      for (let i = 0; i < sections; i++) {
+        const section = table + i * 40;
+        const virtualSize = pe.readUInt32LE(section + 8), address = pe.readUInt32LE(section + 12);
+        const rawSize = pe.readUInt32LE(section + 16), raw = pe.readUInt32LE(section + 20);
+        if (rva >= address && rva - address < Math.min(rawSize, virtualSize || rawSize)) return rva - address + raw;
+      }
+      return undefined;
+    };
+    let descriptor = offset(pe.readUInt32LE(directories + 8));
+    // Each import descriptor is 20 bytes, and an all-zero one ends the table; its fourth field is the DLL name's address.
+    while (descriptor !== undefined && descriptor + 20 <= pe.length && pe.subarray(descriptor, descriptor + 20).some(byte => byte !== 0)) {
+      const name = offset(pe.readUInt32LE(descriptor + 12));
+      if (name !== undefined && pe.toString('latin1', name, name + from.length + 1).toLowerCase() === `${from.toLowerCase()}\0`) {
+        pe.write(`${to}\0`, name, 'latin1');
+        return true;
+      }
+      descriptor += 20;
     }
-    return undefined;
-  };
-  let descriptor = offset(pe.readUInt32LE(directories + 8));
-  // Each import descriptor is 20 bytes, and an all-zero one ends the table; its fourth field is the DLL name's address.
-  while (descriptor !== undefined && descriptor + 20 <= pe.length && pe.subarray(descriptor, descriptor + 20).some(byte => byte !== 0)) {
-    const name = offset(pe.readUInt32LE(descriptor + 12));
-    if (name !== undefined && pe.toString('latin1', name, name + from.length + 1).toLowerCase() === `${from.toLowerCase()}\0`) {
-      pe.write(`${to}\0`, name, 'latin1');
-      return true;
-    }
-    descriptor += 20;
+    return false;
+  } catch (error) {
+    // A header that points past the end of the file is not a PE this can rename anything in.
+    if (error instanceof RangeError) return false;
+    throw error;
   }
-  return false;
 }
 
 const pack: Pack = load();
