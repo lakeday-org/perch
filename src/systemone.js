@@ -20,6 +20,8 @@ const SYSTEM_ONE = { service: 'System One', model: DEFAULT_SYSTEM_ONE_MODEL, bod
 
 /** The option a Decisions choice falls back to. Asked a choice none of whose options fits, the API refuses it; System One never does. */
 const NONE = 'none_of_these';
+/** The option of a choice that says none of the others fits, as kind's does. An answer of none_of_these is an answer of it. */
+const OTHER = 'other';
 
 /**
  * OpenAI's Decisions API. The state goes as one string and the questions as an array naming each one, and the answers come back
@@ -54,10 +56,16 @@ const DECISIONS = {
       const asked = questions[name], shares = Object.fromEntries((probabilities ?? []).map(option => [option.value, option.probability]));
       if (asked?.type === 'noul') return [name, { type: 'noul', noul: type === 'predicate' ? probability : shares.true ?? 0 }];
       if (asked?.type !== 'choice' || NONE in asked.criteria) return [name, { type, ...answer, probabilities: shares }];
+      // A choice with an option for none of the others takes none_of_these as that option. One without spreads it over the
+      // options asked about, all of them when the answer gave a share to none_of_these alone.
+      const none = shares[NONE] ?? 0;
       delete shares[NONE];
-      const options = Object.keys(shares), total = options.reduce((sum, option) => sum + shares[option], 0);
-      const spread = Object.fromEntries(options.map(option => [option, total > 0 ? shares[option] / total : 1 / options.length]));
-      const choice = answer.choice in spread ? answer.choice : options.reduce((best, option) => (spread[option] > spread[best] ? option : best));
+      if (OTHER in asked.criteria) shares[OTHER] = (shares[OTHER] ?? 0) + none;
+      const options = Object.keys(shares).length ? Object.keys(shares) : Object.keys(asked.criteria);
+      const total = options.reduce((sum, option) => sum + (shares[option] ?? 0), 0);
+      const spread = Object.fromEntries(options.map(option => [option, total > 0 ? (shares[option] ?? 0) / total : 1 / options.length]));
+      const picked = answer.choice === NONE && OTHER in asked.criteria ? OTHER : answer.choice;
+      const choice = picked in spread ? picked : options.reduce((best, option) => (spread[option] > spread[best] ? option : best));
       return [name, { type, ...answer, choice, probabilities: spread }];
     })) };
   },
