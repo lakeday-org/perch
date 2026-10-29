@@ -85,7 +85,7 @@ perch scan --paths src,lib
 
 ## Scan changes on a branch
 
-To scan only the files that changed on a branch, use `--since` with the branch or commit to compare against. This is the
+To scan only the methods that changed on a branch, use `--since` with the branch or commit to compare against. This is the
 scan you'll typically run on a pull request:
 
 ```console
@@ -106,7 +106,8 @@ diff touches, Perch sends the model the method's previous code and the diff, and
 bug. Methods in the same file that the diff doesn't touch aren't checked again, but problems an earlier scan found in
 them, such as the one in `cheapest`, are still reported.
 
-Custom rules are checked for every method in the changed files. To run this scan on every pull request, see
+Custom rules and every other question are also asked only about the methods the diff touches. To run this scan on every pull
+request, see
 [perch in CI](/ci/).
 
 ## Scan for security problems

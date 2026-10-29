@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-import pack from '@xberg-io/tree-sitter-language-pack';
+import pack from '../src/treesitter/pack.ts';
 import { createAnalyzer } from '../src/treesitter/index.ts';
 import { analyzeFiles } from '../src/analysis.js';
 import { buildGraph } from '../src/graph.js';

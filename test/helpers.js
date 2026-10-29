@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { git } from '../src/git.js';
@@ -31,6 +31,9 @@ test('clamp enforces the lower bound', () => {
 const author = ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com'];
 
 /** A fresh repository on `main` with a committed tree, then checked out on a feature branch, since fix and refactor commit to the current branch. */
+/** Windows will not remove a directory something still has open, and a test's repository can stay open a moment after the test ends. */
+export const removeDir = dir => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+
 export async function initRepo(root) {
   await git(['init', '-q', '-b', 'main', '.'], root);
   await git(['config', 'user.name', 'Fixture'], root);

@@ -61,8 +61,8 @@ Perch uses a stack to decide which method to ask about next:
 4. When the stack is empty, start again from step 1.
 
 Perch asks about up to 32 methods at a time. You can change this with `--parallel`. Test methods appear as callers, but
-Perch doesn't ask about them unless you pass `--include-tests`. `--paths` and `--since` control which methods a scan
-covers, and Perch asks about every method in that scope.
+Perch doesn't ask about them unless you pass `--include-tests`. `--paths` controls which files a scan
+covers, and `--since` which methods. Perch asks about every method in that scope.
 
 Each scan replaces `.perch/scan.jsonl` with its answers. Perch Cloud caches answers for each repository. If a request
 matches one it has already answered, it returns the saved answer at no cost. Changing the method, its callers or callees,
@@ -85,10 +85,11 @@ comment above it, and its metrics. It also sends up to 8 callees and 8 callers, 
 calls between them. Perch cuts a long caller down to the lines around its call. If the request is still too large, Perch
 shortens each neighbor, then sends fewer of them, down to none, before giving up on the method.
 
-With `--since`, the bug questions `has_bug`, `bug_edge_case`, `kind` and `severity` go in a separate request, and only for
-methods the branch changed. That request contains the method's code at the merge base and the diff, both with line numbers,
-and no callers or callees. Custom rules and other types of question keep the usual request, for every method in the
-changed files, together with `follow`. A method that needs both is sent as two requests.
+With `--since`, Perch asks only about methods the branch changed. The bug questions `has_bug`, `bug_edge_case`, `kind` and
+`severity` go in a separate request that contains the method's code at the merge base and the diff, both with line numbers,
+and no callers or callees. Custom rules and other types of question keep the usual request, together with `follow`. A method
+that needs both is sent as two requests. Methods the branch didn't change appear as callers and callees, and Perch doesn't
+ask about them.
 
 Apart from the `--since` request, requests don't include the method's position in its file. This means that adding lines
 above a method doesn't change its request, so Perch Cloud's cached answers still apply.
