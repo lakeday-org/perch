@@ -202,7 +202,7 @@ export function selectUnits(rule, { scan, graph, files, tree, eligible = null, i
   }
   if (mentions) {
     const needle = mentions[1].trim();
-    return keep([...graph.nodes.values()].filter(node => !node.test && sourceOf(node, files).includes(needle)).map(methodUnit));
+    return keep([...graph.nodes.values()].filter(node => !node.test && spanText(node, (files.get(node.path) ?? '').split('\n')).includes(needle)).map(methodUnit));
   }
   // A test is a node the parser marked as a test case from its syntax, in whatever language it is written, and it spans exactly
   // its own body. Its hash is its own, so an answer about it is reused only while that test is unchanged.
@@ -283,8 +283,6 @@ const spanText = (node, lines) => spanOf(node, lines).map(text => text ?? '').jo
 const methodUnit = node => ({ id: node.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, own: node.lines, hash: node.hash, method: true, part: true });
 /** A test is what a person names when they say where something is asserted, so a rule about tests answers with the test. */
 const testUnit = node => ({ id: node.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, hash: node.hash, part: true });
-/** A method's own text, cut from its file as the run read it. A file the run did not read gives an empty string. */
-const sourceOf = (node, files) => spanText(node, (files.get(node.path) ?? '').split('\n'));
 
 /** Units most likely to hold what a search is looking for, first. Shared words between the rule and the unit's name and path. */
 export function rank(rule, units) {
@@ -307,7 +305,7 @@ export function neighbourhood(sees, unit, { graph, files, max = MAX_SEEN }) {
   const text = files.get(unit.path) ?? '';
   if (sees === 'file') return { file_source: text };
   const show = ids => ids.slice(0, max).map(id => graph.nodes.get(id)).filter(Boolean)
-    .map(node => ({ name: node.qualified_name, path: node.path, source: sourceOf(node, files) }));
+    .map(node => ({ name: node.qualified_name, path: node.path, source: spanText(node, (files.get(node.path) ?? '').split('\n')) }));
   // A method or a test walks from itself. A file walks from the methods it declares, since a file is not a node but what it holds is.
   const own = graph.nodes.has(unit.id) ? [unit.id] : [...graph.nodes.keys()].filter(id => graph.nodes.get(id)?.path === unit.path);
   const seeds = own;
