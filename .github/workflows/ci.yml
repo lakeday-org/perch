@@ -76,6 +76,34 @@ jobs:
       - name: Nothing in the package that should not ship
         run: npm pack --dry-run
 
+  # The parser is a native addon with a separate build for each platform, and a Windows build that cannot load stops perch
+  # before it reads anything. 0.4.9 shipped one that imported node.dll, which Node.js does not have.
+  windows:
+    name: windows (node ${{ matrix.node }})
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          check-latest: true
+          cache: npm
+
+      - run: npm ci
+
+      - name: The bundle builds and loads the parser
+        run: |
+          npm run build
+          node bin/perch.mjs --version
+
+      - name: Parse, build the call graph, and scan
+        run: npx vitest run test/treesitter.test.ts test/parser-callables.test.ts test/analyze.test.js test/scan.test.js
+
   # The docs live here and the site that serves them lives in perch-cloud, which builds them from this branch. Nothing told it
   # when they changed, so a page added here stayed invisible until somebody deployed by hand: docs/skill.md sat on main for a
   # release and a half while docs.perchscan.com answered 404 for it. Fired on every push rather than on a path filter, because
