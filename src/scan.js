@@ -104,15 +104,16 @@ export const covers = (paths = []) => path => !paths.length || paths.some(item =
 
 /**
  * The order methods are read in: riskiest neighbor first off the stack, then the next riskiest method overall. An id from the
- * scan or from the model is taken only when it names a node the graph actually has, is not a test, and is in scope. A neighbor
- * outside scope is in view as context for the method that names it, and is not itself read: what a run covers is what it covers.
+ * scan or from the model is taken only when it names a node the graph actually has, is not a test, and `reads` takes its id. A
+ * neighbor it does not take is in view as context for the method that names it, and is not itself read: what a run covers is
+ * what it covers.
  */
-const createWalk = (graph, candidates, inScope = () => true) => {
+const createWalk = (graph, candidates, reads = () => true) => {
   const score = id => graph.nodes.get(id)?.metrics?.risk_score ?? 0;
   const visited = new Set(), stack = [], ranked = candidates.map(candidate => candidate.id);
   const enqueue = ids => {
     const valid = ids.filter(id => typeof id === 'string' && graph.nodes.has(id) && !visited.has(id)
-      && !graph.nodes.get(id).test && inScope(id));
+      && !graph.nodes.get(id).test && reads(id));
     stack.push(...valid.sort((a, b) => score(a) - score(b)));
   };
   const next = () => {
