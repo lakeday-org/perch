@@ -14,7 +14,7 @@
  * needs at compile time; `locate` names the mutants the compiler's error lines fall in, so they can be taken out and the code
  * built again, as Stryker.NET does.
  */
-import pack from '@xberg-io/tree-sitter-language-pack';
+import pack from '../treesitter/pack.ts';
 import { Node } from '../treesitter/node.ts';
 import { downloading, normalizeLanguage } from '../treesitter/languages.ts';
 

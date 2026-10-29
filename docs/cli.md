@@ -349,6 +349,7 @@ saved by `perch login`, or a GitHub Actions job's OIDC token when the job has `i
 | `TYPESAFE_API_KEY` | The key for any other `PERCH_BASE_URL`, when `PERCH_API_KEY` is not set. |
 | `PERCH_MAX_QUESTIONS` | The most questions to send in one request, for a `PERCH_BASE_URL` model that doesn't report its limit. |
 | `PERCH_MAX_OPTIONS` | The most options in one choice question, for the same kind of model. |
+| `PERCH_CONTEXT_LENGTH` | The tokens one request may hold, over the model's own limit. Past 64k on TypeSafe, it turns Jev's long context on. |
 | `PERCH_ORGANIZATION` | The Perch Cloud organization to use, when your login belongs to several. |
 | `PERCH_REPOSITORY` | The Perch Cloud repository ID, in place of the one the `origin` remote names. |
 
@@ -383,6 +384,12 @@ probabilities. An OpenAI-compatible chat endpoint does not accept it.
 Models accept different numbers of questions in one request. If a model reports `max_questions` in its answers, Perch keeps
 its first request to eight questions and sizes later requests to fit. For a model that reports nothing, set
 `PERCH_MAX_QUESTIONS`.
+
+How much code goes in one request also depends on the model: about 24k tokens of a method and its neighbours for Jev, whose
+requests take 64k, and about 200k for OpenAI's Decisions API and for Perch Cloud. Any other model gets Jev's budget.
+`PERCH_CONTEXT_LENGTH` sets the size of one request yourself; the code gets 80% of it, and the code plus any one question
+96%. A context length past 64k on TypeSafe sends the `TypeSafe-Danger-Zone-Long-Context` header, which raises Jev's limits
+to 262k. TypeSafe says that is slower and less accurate, so Perch never turns it on unless you set the length.
 
 ### Configuration file
 

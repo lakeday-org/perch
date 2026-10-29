@@ -291,8 +291,9 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     const own = ordinary.filter(question => question.kind);
     if (!diff.length && !ordinary.length) return { node, calleeIds, callerIds, rules: own, skip: true };
     const lines = await linesOf(node);
-    const prepare = budget => [...(diff.length ? changeSteps({ node, lines, change, asked: diff, budget }) : []),
-      ...(ordinary.length ? methodSteps({ node, lines, callees, callers, edges, asked: ordinary, budget }) : [])];
+    const tokenLimits = systemOne.limits;
+    const prepare = budget => [...(diff.length ? changeSteps({ node, lines, change, asked: diff, budget, tokenLimits }) : []),
+      ...(ordinary.length ? methodSteps({ node, lines, callees, callers, edges, asked: ordinary, budget, tokenLimits }) : [])];
     const steps = prepare(systemOne.limits?.state);
     return { node, calleeIds, callerIds, rules: own, steps, prepare };
   };

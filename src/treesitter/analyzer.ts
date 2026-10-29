@@ -1,4 +1,4 @@
-import pack from '@xberg-io/tree-sitter-language-pack';
+import pack from './pack';
 import type { ProcessResult, StructureItem } from '@xberg-io/tree-sitter-language-pack';
 import { PARSE_VERSION, type AnalyzeOptions, type Analyzer, type Declaration, type Mock, type SourceAnalysis, type SourceSummary } from './types';
 import { downloading, normalizeLanguage } from './languages';

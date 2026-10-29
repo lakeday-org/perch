@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -6,11 +6,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer, sourceFile } from '../src/analysis.js';
 import { analyzeTree } from '../src/analyze.js';
-import { commitAll, fixtureOptions, initRepo, makeFixture, makeGraphFixture } from './helpers.js';
+import { commitAll, fixtureOptions, initRepo, makeFixture, makeGraphFixture, removeDir } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
 const cleanups = [];
-afterEach(async () => { for (const dir of cleanups.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of cleanups.splice(0)) await removeDir(dir); });
 
 async function fixture(make = makeFixture) {
   const root = await make();

@@ -14,14 +14,14 @@ import { createSourceAnalyzer } from '../src/analysis.js';
 import { scanRepository } from '../src/scan.js';
 import { openStore } from '../src/store.js';
 import { formatFinding, formatIssues, formatScanReport, scanTally } from '../src/report.js';
-import { commitAll, fixtureOptions, makeFixture, makeGraphFixture, scriptedSystemOne } from './helpers.js';
+import { commitAll, fixtureOptions, makeFixture, makeGraphFixture, removeDir, scriptedSystemOne } from './helpers.js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const cleanups = [];
 afterEach(async () => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-  for (const dir of cleanups.splice(0)) await rm(dir, { recursive: true, force: true });
+  for (const dir of cleanups.splice(0)) await removeDir(dir);
 });
 
 function capture() {

@@ -131,6 +131,7 @@ Perch shows the `kind` and `refactor` options with shorter labels, which you can
 | `resource_leak` | `leak` |
 | `wrong_lookup` | `wrong_lookup` |
 | `inverted_condition` | `inverted_condition` |
+| `other` | `other_defect` |
 | `split` | `too_big` |
 | `flatten` | `too_nested` |
 | `simplify_conditions` | `tangled_conditions` |

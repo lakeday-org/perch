@@ -1,4 +1,4 @@
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -12,11 +12,11 @@ import { estimateTokens } from '../src/tokens.js';
 import { openStore } from '../src/store.js';
 import { createSystemOne } from '../src/systemone.js';
 import { formatDoctor, formatScanReport, gating, scanCount } from '../src/report.js';
-import { commitAll, fixtureOptions, makeGraphFixture, scriptedSystemOne } from './helpers.js';
+import { commitAll, fixtureOptions, makeGraphFixture, removeDir, scriptedSystemOne } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
 const cleanups = [];
-afterEach(async () => { for (const dir of cleanups.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of cleanups.splice(0)) await removeDir(dir); });
 
 async function fixture({ scanTypes } = {}) {
   const root = await makeGraphFixture();
@@ -285,7 +285,8 @@ describe('perch hunt', () => {
     // Its neighbours are read as context and offered to follow, not each asked about in a question of its own.
     expect(Object.keys(first.questions).filter(name => /^misuse/.test(name))).toEqual([]);
     expect(first.questions.kind.type).toBe('choice');
-    expect(Object.keys(first.questions.kind.criteria)).toHaveLength(9);
+    expect(Object.keys(first.questions.kind.criteria)).toHaveLength(10);
+    expect(first.questions.kind.criteria.other).toBe('A defect that none of the kinds above describes');
     expect(first.questions.severity.type).toBe('score');
     expect(first.questions.refactor.type).toBe('choice');
     expect(Object.keys(first.questions.follow.criteria)).toEqual(expect.arrayContaining(['src/a.js::g', 'src/b.js::h', 'none']));
