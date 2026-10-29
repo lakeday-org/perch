@@ -1,4 +1,4 @@
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -12,11 +12,11 @@ import { estimateTokens } from '../src/tokens.js';
 import { openStore } from '../src/store.js';
 import { createSystemOne } from '../src/systemone.js';
 import { formatDoctor, formatScanReport, gating, scanCount } from '../src/report.js';
-import { commitAll, fixtureOptions, makeGraphFixture, scriptedSystemOne } from './helpers.js';
+import { commitAll, fixtureOptions, makeGraphFixture, removeDir, scriptedSystemOne } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
 const cleanups = [];
-afterEach(async () => { for (const dir of cleanups.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of cleanups.splice(0)) await removeDir(dir); });
 
 async function fixture({ scanTypes } = {}) {
   const root = await makeGraphFixture();
