@@ -285,7 +285,8 @@ describe('perch hunt', () => {
     // Its neighbours are read as context and offered to follow, not each asked about in a question of its own.
     expect(Object.keys(first.questions).filter(name => /^misuse/.test(name))).toEqual([]);
     expect(first.questions.kind.type).toBe('choice');
-    expect(Object.keys(first.questions.kind.criteria)).toHaveLength(9);
+    expect(Object.keys(first.questions.kind.criteria)).toHaveLength(10);
+    expect(first.questions.kind.criteria.other).toBe('A defect that none of the kinds above describes');
     expect(first.questions.severity.type).toBe('score');
     expect(first.questions.refactor.type).toBe('choice');
     expect(Object.keys(first.questions.follow.criteria)).toEqual(expect.arrayContaining(['src/a.js::g', 'src/b.js::h', 'none']));
