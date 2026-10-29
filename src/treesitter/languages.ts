@@ -1,4 +1,4 @@
-import pack from '@xberg-io/tree-sitter-language-pack';
+import pack from './pack';
 
 /**
  * The pack downloads its list of languages and each parser from GitHub releases on first use, and GitHub has bad minutes: one

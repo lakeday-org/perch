@@ -1,5 +1,5 @@
 /** The language pack selects syntax boundaries; token estimates decide how much source fits. */
-import pack from '@xberg-io/tree-sitter-language-pack';
+import pack from './treesitter/pack.ts';
 import { downloading } from './treesitter/languages.ts';
 import { textTokens, TOKEN_LIMITS, IncompleteCheckError, BYTES_PER_TOKEN } from './tokens.js';
 

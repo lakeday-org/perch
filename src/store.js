@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { appendFile, lstat, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { git, repoRoot } from './git.js';
 import { BELIEVED, flagged, issuesOf, issueWeight } from './questions.js';
 
@@ -244,9 +244,11 @@ export function openStore(out) {
     },
     /** Ignore generated results while allowing closures and the default rule directory to be committed. */
     async exclude(root) {
-      if (!out.startsWith(root + '/')) return;
+      // relative, not a '/' prefix: on Windows git names the root C:/repo and the results directory is C:\repo\.perch.
+      const inside = relative(root, out);
+      if (!inside || inside === '..' || inside.startsWith('..' + sep) || isAbsolute(inside)) return;
       const path = join(out, '.gitignore');
-      const rules = out === join(root, '.perch') ? '!rules/\n' : '';
+      const rules = inside === '.perch' ? '!rules/\n' : '';
       const wanted = '# Written by perch. Rules and closures are committed; scan output is not.\n/*\n!closed.jsonl\n' + rules;
       await writable(out, path);
       if (await readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return null; throw error; }) === wanted) return;

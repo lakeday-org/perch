@@ -10,7 +10,7 @@
  * does it notice when the function does nothing? Every mutant a method has is made; none is left out for being the eleventh.
  */
 import { createHash } from 'node:crypto';
-import pack from '@xberg-io/tree-sitter-language-pack';
+import pack from './treesitter/pack.ts';
 import { Node } from './treesitter/node.ts';
 import { downloading, normalizeLanguage } from './treesitter/languages.ts';
 import { FUNCTION_TYPES } from './treesitter/metrics.ts';
