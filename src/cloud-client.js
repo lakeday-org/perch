@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { git } from './git.js';
 import { createSystemOne, speaksDecisions } from './systemone.js';
+import { contextLimits } from './tokens.js';
 import {
   actionsCanSignIn, actionsToken, CLOUD_ORIGIN, cloudRequest, jsonBody, readCloudLogin, sessionToken,
 } from './cloud-auth.js';
@@ -28,7 +29,7 @@ export async function withCurrentToken(getToken, signal, send) {
  */
 export function createCloudClient({
   origin, getToken, organizationId, repositoryId, reports,
-  model = 'jev-latest', force = false, log, fetchImpl = globalThis.fetch, reportTimeoutMs = 30000,
+  model = 'jev-latest', limits = {}, force = false, log, fetchImpl = globalThis.fetch, reportTimeoutMs = 30000,
   retryDelayMs = 2000, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
 }) {
   // The Cloud scan this run reports to, once it has been started. A question names it so the Cloud can add up what a scan cost,
@@ -38,6 +39,7 @@ export function createCloudClient({
     apiKey: 'cloud',
     baseUrl: `${origin}/v1/systemone`,
     model,
+    limits,
     log,
     fetchImpl: async (url, options) => {
       const input = JSON.parse(options.body);
@@ -120,7 +122,7 @@ async function repositoryForLogin({ env, root, token, organizationId, fetchImpl 
 /** The Cloud says which model it serves; PERCH_MODEL_ID asks for another. */
 async function cloudClient({ env, log, fetchImpl, credentials, force }) {
   const config = await cloudRequest(fetchImpl, `${CLOUD_ORIGIN}/api/config`);
-  return createCloudClient({ origin: CLOUD_ORIGIN, ...credentials, model: env.PERCH_MODEL_ID || config.model, force, log, fetchImpl });
+  return createCloudClient({ origin: CLOUD_ORIGIN, ...credentials, model: env.PERCH_MODEL_ID || config.model, limits: limitsFrom(env), force, log, fetchImpl });
 }
 
 /** A CI token from the dashboard. It is issued for one repository, so the Cloud knows which without being told. */
@@ -161,16 +163,17 @@ export const endpointKey = env => (env.PERCH_API_KEY ? 'PERCH_API_KEY' : speaksD
 
 /**
  * What a model takes in one request, when it does not say. PERCH_MAX_QUESTIONS and PERCH_MAX_OPTIONS set the limits for an
- * endpoint that reports nothing in `_meta`; one that does report can only lower them. A value that is not a whole number above
- * zero is an error rather than no limit, since a scan sent in batches the model refuses reads nothing.
+ * endpoint that reports nothing in `_meta`; one that does report can only lower them. PERCH_CONTEXT_LENGTH sets the tokens one
+ * request may hold over the model's own (tokens.js), and the smaller budgets follow from it (contextLimits). A value that is not
+ * a whole number above zero is an error rather than no limit, since a scan sent in batches the model refuses reads nothing.
  */
-function limitsFrom(env) {
+export function limitsFrom(env) {
   const limits = {};
-  for (const [name, key, least] of [['PERCH_MAX_QUESTIONS', 'questions', 1], ['PERCH_MAX_OPTIONS', 'options', 2]]) {
+  for (const [name, key, least] of [['PERCH_MAX_QUESTIONS', 'questions', 1], ['PERCH_MAX_OPTIONS', 'options', 2], ['PERCH_CONTEXT_LENGTH', 'request', 256]]) {
     if (env[name] === undefined || env[name] === '') continue;
     const value = Number(env[name]);
     if (!Number.isSafeInteger(value) || value < least) throw new Error(`${name} must be a whole number of at least ${least}, not ${env[name]}`);
-    limits[key] = value;
+    if (key === 'request') Object.assign(limits, contextLimits(value)); else limits[key] = value;
   }
   return limits;
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { AuthenticationError, createSystemOne } from '../src/systemone.js';
 import { createMeter } from '../src/meter.js';
 import { configuredSystemOne, FIRST_QUESTIONS } from '../src/cloud-client.js';
+import { DECISIONS_TOKENS, JEV_TOKENS, tokenLimitsFor } from '../src/tokens.js';
 import { runChecks } from '../src/checks.js';
 
 const reply = (status, body, headers = {}) => ({ status, ok: status < 400, headers: { get: name => headers[name] }, json: async () => body, text: async () => JSON.stringify(body) });
@@ -265,5 +266,40 @@ describe("OpenAI's Decisions API", () => {
     meter.add('gpt-7', { input_tokens: 1000, output_tokens: 0 });
     expect(meter.cost('gpt-6-luna')).toBeCloseTo(0.2);
     expect(meter.cost('gpt-7')).toBeNull();
+  });
+});
+
+describe('token limits by model', () => {
+  const capture = () => {
+    const requests = [];
+    return { requests, fetchImpl: async (url, init) => { requests.push({ url, init }); return reply(200, { answers: { has_bug: { type: 'noul', noul: 0.5 } } }); } };
+  };
+
+  it("sizes the token budget by model: Perch Cloud and gpt-6-luna get Decisions limits, Jev and any other model keep Jev's", () => {
+    const { fetchImpl } = capture();
+    expect(createSystemOne({ apiKey: 'k', fetchImpl, model: 'perch-latest' }).limits).toMatchObject(DECISIONS_TOKENS);
+    expect(createSystemOne({ apiKey: 'k', fetchImpl, baseUrl: 'https://api.openai.com/v1/decisions' }).limits).toMatchObject(DECISIONS_TOKENS);
+    expect(createSystemOne({ apiKey: 'k', fetchImpl, model: 'jev-latest' }).limits).toMatchObject(JEV_TOKENS);
+    expect(createSystemOne({ apiKey: 'k', fetchImpl, model: 'd1:free' }).limits).toMatchObject(JEV_TOKENS);
+    expect(createSystemOne({ apiKey: 'k', fetchImpl, model: 'perch-latest', limits: { state: 1000 } }).limits.state).toBe(1000);
+    expect(tokenLimitsFor('JEV/semif')).toBe(JEV_TOKENS);
+    expect(tokenLimitsFor(undefined)).toBe(JEV_TOKENS);
+  });
+
+  it("PERCH_CONTEXT_LENGTH sets all three budgets, and past Jev's default on TypeSafe the long-context header goes with every request", async () => {
+    const { requests, fetchImpl } = capture();
+    const env = { PERCH_BASE_URL: 'https://api.typesafe.ai/v1/systemone', PERCH_API_KEY: 'k', PERCH_CONTEXT_LENGTH: '250000' };
+    const long = await configuredSystemOne({ env, fetchImpl });
+    expect(long.limits).toMatchObject({ state: 200000, single: 240000, request: 250000 });
+    await long.ask({ method: 'x' }, { has_bug: { type: 'noul' } });
+    expect(requests[0].init.headers['TypeSafe-Danger-Zone-Long-Context']).toBe('true');
+    const plain = await configuredSystemOne({ env: { PERCH_BASE_URL: env.PERCH_BASE_URL, PERCH_API_KEY: 'k' }, fetchImpl });
+    await plain.ask({ method: 'x' }, { has_bug: { type: 'noul' } });
+    expect(requests[1].init.headers).not.toHaveProperty('TypeSafe-Danger-Zone-Long-Context');
+    // Another endpoint given a big budget is not Jev, so it is sent nothing it would not understand.
+    const other = await configuredSystemOne({ env: { ...env, PERCH_BASE_URL: 'https://example.test/v1/systemone' }, fetchImpl });
+    await other.ask({ method: 'x' }, { has_bug: { type: 'noul' } });
+    expect(requests[2].init.headers).not.toHaveProperty('TypeSafe-Danger-Zone-Long-Context');
+    await expect(configuredSystemOne({ env: { ...env, PERCH_CONTEXT_LENGTH: '12' }, fetchImpl })).rejects.toThrow('PERCH_CONTEXT_LENGTH must be a whole number of at least 256');
   });
 });

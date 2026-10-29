@@ -418,11 +418,11 @@ function cutToFit(text, room) {
  * Every byte is visited. A file that took more than one piece is answered from its pieces: `askUnitSteps` keeps the lowest score
  * for `ensure` and the piece likeliest to have the thing for a search, and that is the file's answer.
  */
-export function unitSteps({ rules, unit, source, seen = {}, budget = TOKEN_LIMITS.state }) {
+export function unitSteps({ rules, unit, source, seen = {}, budget = TOKEN_LIMITS.state, tokenLimits = TOKEN_LIMITS }) {
   seen = fitSeen(seen, budget);
   const whole = unitStep({ rules, unit, source, seen });
   try {
-    questionBatches(whole.state, whole.questions, { ...TOKEN_LIMITS, state: budget });
+    questionBatches(whole.state, whole.questions, { ...tokenLimits, state: budget });
     return [{ ...whole, chunk: { source, line: 1, startByte: 0, endByte: Buffer.byteLength(source) } }];
   } catch (error) { if (!(error instanceof IncompleteCheckError)) throw error; }
   const overhead = estimateTokens(unitStep({ rules, unit, source: '', seen }).state) + 256;
@@ -433,7 +433,7 @@ export function unitSteps({ rules, unit, source, seen = {}, budget = TOKEN_LIMIT
       return chunks.map(chunk => {
         const step = unitStep({ rules, unit, source: chunk.source, seen });
         if (chunks.length > 1) step.state.reading = { partial: true, start_byte: chunk.startByte, end_byte: chunk.endByte };
-        questionBatches(step.state, step.questions, { ...TOKEN_LIMITS, state: budget });
+        questionBatches(step.state, step.questions, { ...tokenLimits, state: budget });
         return { ...step, chunk };
       });
     } catch (error) {
@@ -559,7 +559,7 @@ export async function askUnits({ rules, scan, graph, files, tree, eligible, revi
     const source = files.get(unit.path) ?? '';
     const body = unit.part ? bodyOf(source, unit) : source;
     const seen = { ...neighbourhood(sees, unit, { graph, files }), ...shownContext(unit, documents) };
-    const prepare = budget => unitSteps({ rules: over, unit, source: body, seen, budget });
+    const prepare = budget => unitSteps({ rules: over, unit, source: body, seen, budget, tokenLimits: systemOne.limits });
     const steps = prepare(systemOne.limits?.state);
     debug(`${over.map(rule => rule.name).join(', ')}: ${unit.name}`);
     const { answers, evidence, model } = await askUnitSteps({ systemOne, steps, prepare, rules: over });
@@ -623,7 +623,7 @@ export async function searchUnits({ rules, scan, graph, files, tree, eligible, r
     const source = files.get(unit.path) ?? '';
     const body = unit.part ? bodyOf(source, unit) : source;
     const seen = { ...neighbourhood(rule.sees, unit, { graph, files }), ...shownContext(unit, documents) };
-    const prepare = budget => unitSteps({ rules: [rule], unit, source: body, seen, budget });
+    const prepare = budget => unitSteps({ rules: [rule], unit, source: body, seen, budget, tokenLimits: systemOne.limits });
     const steps = prepare(systemOne.limits?.state);
     debug(`${rule.name}: ${unit.name}`);
     const { answers, model } = await askUnitSteps({ systemOne, steps, prepare, rules: [rule] });
