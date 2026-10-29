@@ -46,7 +46,7 @@ const DECISIONS = {
       if (type !== 'choice' && !criteria) return { type: 'predicate', name, instructions: text };
       const options = type === 'choice' ? criteria : { true: criteria.true, false: criteria.false };
       const choices = Object.entries(options).map(([value, description]) => ({ value, description: description ?? value }));
-      return { type: 'choice', name, instructions: text, choices: type === 'choice' && !(NONE in options) ? [...choices, { value: NONE, description: 'None of these fits' }] : choices };
+      return { type: 'choice', name, instructions: text, choices: type === 'choice' && !Object.hasOwn(options, NONE) ? [...choices, { value: NONE, description: 'None of these fits' }] : choices };
     }),
   }),
   reply: ({ answers = [], ...rest }, { questions }) => {
@@ -55,17 +55,17 @@ const DECISIONS = {
     return { ...rest, answers: Object.fromEntries(answers.map(({ name, type, probability, probabilities, ...answer }) => {
       const asked = questions[name], shares = Object.fromEntries((probabilities ?? []).map(option => [option.value, option.probability]));
       if (asked?.type === 'noul') return [name, { type: 'noul', noul: type === 'predicate' ? probability : shares.true ?? 0 }];
-      if (asked?.type !== 'choice' || NONE in asked.criteria) return [name, { type, ...answer, probabilities: shares }];
+      if (asked?.type !== 'choice' || Object.hasOwn(asked.criteria, NONE)) return [name, { type, ...answer, probabilities: shares }];
       // A choice with an option for none of the others takes none_of_these as that option. One without spreads it over the
       // options asked about, all of them when the answer gave a share to none_of_these alone.
       const none = shares[NONE] ?? 0;
       delete shares[NONE];
-      if (OTHER in asked.criteria) shares[OTHER] = (shares[OTHER] ?? 0) + none;
+      if (Object.hasOwn(asked.criteria, OTHER)) shares[OTHER] = (shares[OTHER] ?? 0) + none;
       const options = Object.keys(shares).length ? Object.keys(shares) : Object.keys(asked.criteria);
       const total = options.reduce((sum, option) => sum + (shares[option] ?? 0), 0);
       const spread = Object.fromEntries(options.map(option => [option, total > 0 ? (shares[option] ?? 0) / total : 1 / options.length]));
-      const picked = answer.choice === NONE && OTHER in asked.criteria ? OTHER : answer.choice;
-      const choice = picked in spread ? picked : options.reduce((best, option) => (spread[option] > spread[best] ? option : best));
+      const picked = answer.choice === NONE && Object.hasOwn(asked.criteria, OTHER) ? OTHER : answer.choice;
+      const choice = Object.hasOwn(spread, picked) ? picked : options.reduce((best, option) => (spread[option] > spread[best] ? option : best));
       return [name, { type, ...answer, choice, probabilities: spread }];
     })) };
   },
