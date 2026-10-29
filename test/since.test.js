@@ -226,6 +226,21 @@ describe('the change a --since reading carries', () => {
     expect(await read({ path: 'untouched.js', line: 1, end_line: 3 })).toBeNull();
   });
 
+  it('counts a method changed only when a line it owns was added or deleted', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'perch-change-')); roots.push(root);
+    const source = "import x from './x.js';\n\nexport function a() {\n  return 1;\n}\nexport function b() {\n  return 2;\n}\n";
+    await writeFile(join(root, 'a.js'), source);
+    await initRepo(root);
+    await writeFile(join(root, 'a.js'), source.replace('return 1;', 'return 3;'));
+    await commitAll(root, 'a returns 3');
+    const read = await createChangeReader(root, 'main', await revision(root));
+    expect(await read({ path: 'a.js', line: 3, end_line: 5 })).not.toBeNull();
+    // b starts two lines below the edit, inside the hunk's context.
+    expect(await read({ path: 'a.js', line: 6, end_line: 8 })).toBeNull();
+    // The top-level unit's span runs past a, but none of its own lines changed.
+    expect(await read({ path: 'a.js', line: 1, end_line: 9, lines: [1, 2, 9] })).toBeNull();
+  });
+
   it('counts input usage from every pass of a long method rather than only the last', async () => {
     const node = { path: 'a.js', qualified_name: 'run', line: 1, end_line: 1 };
     const pass = { state: {}, questions: {}, asked: [], calls: [], calledBy: [], neighbors: [], covers: { end_line: 1 } };
