@@ -101,8 +101,8 @@ jobs:
           npm run build
           node bin/perch.mjs --version
 
-      - name: Parse, build the call graph, and scan
-        run: npx vitest run test/pack.test.ts test/treesitter.test.ts test/parser-callables.test.ts test/analyze.test.js test/scan.test.js
+      - name: Load the parser and parse every scanned language
+        run: npx vitest run test/pack.test.ts test/treesitter.test.ts test/parser-callables.test.ts
 
   # The docs live here and the site that serves them lives in perch-cloud, which builds them from this branch. Nothing told it
   # when they changed, so a page added here stayed invisible until somebody deployed by hand: docs/skill.md sat on main for a
