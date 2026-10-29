@@ -47,6 +47,7 @@
     resource_leak: A handle, lock, timer, process, or connection is not released on some path
     wrong_lookup: A lookup or match finds the wrong entry, such as an inherited key, the wrong scope, or a partial match
     inverted_condition: A condition, sign, or boolean is the wrong way round
+    other: A defect that none of the kinds above describes
 - name: severity
   type: score
   each: method

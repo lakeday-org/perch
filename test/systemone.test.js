@@ -211,6 +211,30 @@ describe("OpenAI's Decisions API", () => {
     expect(answers.kind.probabilities.wrong_return).toBeCloseTo(0.25);
   });
 
+  it('takes none_of_these as other on a choice that has other, rather than guessing another option', async () => {
+    const client = createSystemOne({ apiKey: 'sk', baseUrl: url, fetchImpl: async () => reply(200, { model: 'gpt-6-luna', answers: [{ type: 'choice', name: 'kind', choice: 'none_of_these',
+      probabilities: [{ value: 'boundary', probability: 0.15 }, { value: 'other', probability: 0.05 }, { value: 'none_of_these', probability: 0.8 }], confidence: 0.8 }] }) });
+    const { answers } = await client.ask({}, { kind: { type: 'choice', instructions: 'Which kind?', criteria: { boundary: 'Off by one', other: 'None of the above' } } });
+    expect(answers.kind.choice).toBe('other');
+    expect(answers.kind.probabilities.other).toBeCloseTo(0.85);
+    expect(answers.kind.probabilities.boundary).toBeCloseTo(0.15);
+  });
+
+  it('spreads a share given only to none_of_these evenly over the options asked about', async () => {
+    const client = createSystemOne({ apiKey: 'sk', baseUrl: url, fetchImpl: async () => reply(200, { model: 'gpt-6-luna', answers: [{ type: 'choice', name: 'kind', choice: 'none_of_these',
+      probabilities: [{ value: 'none_of_these', probability: 1 }], confidence: 1 }] }) });
+    const { answers } = await client.ask({}, { kind: { type: 'choice', instructions: 'Which kind?', criteria: { boundary: 'Off by one', wrong_return: 'Wrong value' } } });
+    expect(answers.kind.choice).toBe('boundary');
+    expect(answers.kind.probabilities).toEqual({ boundary: 0.5, wrong_return: 0.5 });
+  });
+
+  it('reads a pick named like a built-in property as no option asked about', async () => {
+    const client = createSystemOne({ apiKey: 'sk', baseUrl: url, fetchImpl: async () => reply(200, { model: 'gpt-6-luna', answers: [{ type: 'choice', name: 'kind', choice: 'toString',
+      probabilities: [{ value: 'boundary', probability: 0.3 }, { value: 'wrong_return', probability: 0.7 }], confidence: 0.7 }] }) });
+    const { answers } = await client.ask({}, { kind: { type: 'choice', instructions: 'Which kind?', criteria: { boundary: 'Off by one', wrong_return: 'Wrong value' } } });
+    expect(answers.kind.choice).toBe('wrong_return');
+  });
+
   it('fails a reading the model declined, naming the question', async () => {
     const client = createSystemOne({ apiKey: 'sk', baseUrl: url,
       fetchImpl: async () => reply(200, { model: 'gpt-6-luna', answers: [{ type: 'choice', name: 'has_bug', choice: 'false', probabilities: [{ value: 'true', probability: 0.4 }, { value: 'false', probability: 0.6 }] }, { type: 'refusal', name: 'kind' }] }) });

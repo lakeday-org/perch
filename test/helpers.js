@@ -185,8 +185,9 @@ export function scriptedSystemOne(overrides = {}) {
           answers[id] = { type: 'score', score: Object.entries(probabilities).reduce((total, [index, p]) => total + Number(index) * p, 0), confidence: 0.6, legend: {}, probabilities };
         }
         else {
-          const keys = Object.keys(question.criteria);
-          const choice = own[id] && keys.includes(own[id]) ? own[id] : keys.at(-1) === 'none' && question.instructions?.command ? standInRole(question.instructions.command) : keys.at(-1);
+          // The double answers the last option, as a model sure of one would, except kind's other, which names no kind.
+          const keys = Object.keys(question.criteria), last = keys.filter(key => key !== 'other').at(-1) ?? keys.at(-1);
+          const choice = own[id] && keys.includes(own[id]) ? own[id] : last === 'none' && question.instructions?.command ? standInRole(question.instructions.command) : last;
           answers[id] = { type: 'choice', choice, confidence: 0.8, probabilities: Object.fromEntries(keys.map(key => [key, key === choice ? 0.8 : 0.2 / Math.max(1, keys.length - 1)])) };
         }
       }
