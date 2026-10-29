@@ -154,15 +154,17 @@ export const methodQuestions = (kinds, language, { topLevel = false } = {}) => q
 /**
  * How `--since` splits what a method a hunk touched is asked. perch's own defect questions, with the kind that names a defect and
  * the severity that ranks it, are asked over the diff. Custom rules and any other type the run asks keep the ordinary reading,
- * with callers and callees. The two ask nothing in common. A method no hunk touched is not read at all.
+ * with callers and callees. The two ask nothing in common. A method no hunk touched is not read at all, and without a change
+ * there is no diff to ask the bug questions over.
  */
-export function sinceQuestions(asked) {
+export function sinceQuestions(asked, changed) {
   const bugs = questionsFor(asked.filter(question => !question.kind), [{ key: 'type', value: 'defect' }]);
   const rest = asked.filter(question => question.kind || question.issue?.type !== 'defect');
   // What the rest raises, with what that needs: a vulnerability is ranked by severity too.
   const types = [...new Set(rest.filter(question => question.issue).map(question => question.issue.type))];
   const ordinary = types.length ? questionsFor(rest, types.map(value => ({ key: 'type', value }))) : [];
-  return { diff: bugs, ordinary: ordinary.filter(question => !bugs.some(other => other.name === question.name)) };
+  const diff = changed ? bugs : [];
+  return { diff, ordinary: ordinary.filter(question => !diff.some(other => other.name === question.name)) };
 }
 
 /** The row's own fields, apart from answers whose question may no longer exist. */
@@ -284,7 +286,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // On --since, the bug questions are asked over the diff; the rest keep this reading.
     const asked = questionsFor([...methodQuestions(kinds, node.language, { topLevel: Boolean(node.lines) }), ...rulesForMethod(rules, node)], filters, kindLabel);
     const change = since ? await changeOf(node) : null;
-    const { diff, ordinary } = since ? sinceQuestions(asked) : { diff: [], ordinary: asked };
+    const { diff, ordinary } = since ? sinceQuestions(asked, Boolean(change)) : { diff: [], ordinary: asked };
     askedByMethod.set(node.id, [...diff, ...ordinary]);
     const own = ordinary.filter(question => question.kind);
     if (!diff.length && !ordinary.length) return { node, calleeIds, callerIds, rules: own, skip: true };
