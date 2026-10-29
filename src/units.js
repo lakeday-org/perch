@@ -283,6 +283,7 @@ const spanText = (node, lines) => spanOf(node, lines).map(text => text ?? '').jo
 const methodUnit = node => ({ id: node.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, own: node.lines, hash: node.hash, method: true, part: true });
 /** A test is what a person names when they say where something is asserted, so a rule about tests answers with the test. */
 const testUnit = node => ({ id: node.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, hash: node.hash, part: true });
+/** A method's own text, cut from its file as the run read it. A file the run did not read gives an empty string. */
 const sourceOf = (node, files) => spanText(node, (files.get(node.path) ?? '').split('\n'));
 
 /** Units most likely to hold what a search is looking for, first. Shared words between the rule and the unit's name and path. */
