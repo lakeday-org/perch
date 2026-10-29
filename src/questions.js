@@ -332,8 +332,11 @@ export function methodStep({ node, lines, callees, callers, edges = [], budget =
   return { state, questions, asked, calls, calledBy, neighbors, covers: { line: first < 0 ? node.line : start + first, end_line: last < 0 ? node.end_line : start + last, ...(chunk ? { start_byte: chunk.startByte, end_byte: chunk.endByte } : {}) } };
 }
 
-/** Native syntax chunks overlap in source bytes, including when one line spans multiple requests. */
-export function methodSteps({ node, lines, callees = [], callers = [], edges = [], ...options }) {
+/**
+ * Native syntax chunks overlap in source bytes, including when one line spans multiple requests. `tokenLimits` are the model's
+ * (tokens.js), which each step is checked against; the reading is sized to `budget` within them.
+ */
+export function methodSteps({ node, lines, callees = [], callers = [], edges = [], tokenLimits = TOKEN_LIMITS, ...options }) {
   // Blank the lines that belong to other methods instead of removing them, so a chunk's line still counts from the unit's first.
   const source = spanOf(node, lines).map(text => text ?? '').join('\n');
   const budget = options.budget ?? STATE_BUDGET;
@@ -344,7 +347,7 @@ export function methodSteps({ node, lines, callees = [], callers = [], edges = [
       const steps = chunks.map((chunk, index) => methodStep({ node, lines,
         callees: index ? [] : callees, callers: index ? [] : callers, edges: index ? [] : edges,
         ...options, budget, chunk: { ...chunk, partial: chunks.length > 1 } }));
-      for (const step of steps) questionBatches(step.state, step.questions);
+      for (const step of steps) questionBatches(step.state, step.questions, { ...tokenLimits, state: budget });
       return steps;
     } catch (error) {
       if (!(error instanceof IncompleteCheckError) || maxTokens <= 128) throw error;
@@ -359,7 +362,7 @@ export function methodSteps({ node, lines, callees = [], callers = [], edges = [
  * budget, and the method is read in chunks of a third of the budget, each with the change beside it. `change` is what
  * createChangeReader returned for the method.
  */
-export function changeSteps({ node, lines, change, asked, budget = STATE_BUDGET }) {
+export function changeSteps({ node, lines, change, asked, budget = STATE_BUDGET, tokenLimits = TOKEN_LIMITS }) {
   const source = spanOf(node, lines).map(text => text ?? '').join('\n');
   const clip = text => text.slice(0, Math.max(32, Math.floor(budget / 4)));
   const shown = Object.fromEntries(Object.entries(change).map(([key, part]) => [key, { ...part, source: clip(part.source), partial: part.partial || clip(part.source) !== part.source }]));
@@ -369,7 +372,7 @@ export function changeSteps({ node, lines, change, asked, budget = STATE_BUDGET 
     const state = { method: { path: node.path, name: node.qualified_name, source: chunk.source, start_line: start }, change: shown,
       reading: { start_byte: chunk.startByte, end_byte: chunk.endByte, partial: chunk.startByte !== 0 || chunk.endByte < Buffer.byteLength(source) } };
     if (estimateTokens(state) > budget) throw new ContextLimitError(`${node.path}: change context exceeds the token budget`, budget / 2);
-    questionBatches(state, questions);
+    questionBatches(state, questions, { ...tokenLimits, state: budget });
     return { state, questions, asked, calls: [], calledBy: [], neighbors: [], covers: { line: start, end_line: start + chunk.source.split('\n').length - 1 } };
   });
 }

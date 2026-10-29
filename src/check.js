@@ -188,7 +188,7 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
   const asked = (await Promise.all([...contexts.values()].map(async ({ sees, doc, together }) => {
     const seen = neighbourhood(sees, unit, { graph: unit.graph, files: new Map([[unit.path, unit.text]]) });
     if (doc) seen.context = { path: doc, source: selection.documents.get(doc) };
-    const prepare = budget => unitSteps({ rules: together, unit, source: body, seen, budget });
+    const prepare = budget => unitSteps({ rules: together, unit, source: body, seen, budget, tokenLimits: systemOne.limits });
     const steps = prepare(systemOne.limits?.state);
     debug(`${together.map(rule => rule.name).join(', ')}: ${unit.name}`);
     const { answers, model } = await askUnitSteps({ systemOne, steps, prepare, rules: together });
@@ -213,7 +213,7 @@ export async function checkTarget({ target, root, out, analyzer, systemOne, revi
       // vulnerability on a method whose scan never asks about security, so a check and a scan disagreed about the same code.
       const kinds = named.types.length ? new Set(named.types) : typesAsked(await readScanTypes(root, revision));
       const asked = methodQuestions(kinds, languageOf(unit.path), { topLevel: Boolean(unit.own) });
-      const prepare = budget => methodSteps({ node, lines: unit.lines, callees: context.callees, callers: context.callers, edges: context.edges, asked, budget });
+      const prepare = budget => methodSteps({ node, lines: unit.lines, callees: context.callees, callers: context.callers, edges: context.edges, asked, budget, tokenLimits: systemOne.limits });
       const steps = prepare(systemOne.limits?.state);
       const { response, answers } = await questionMethod({ systemOne, node, steps, prepare, debug });
       // Floors are read for the model that answered, as they are for a reading a scan records.
