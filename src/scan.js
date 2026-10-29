@@ -112,7 +112,7 @@ const createWalk = (graph, candidates, inScope = () => true) => {
   const visited = new Set(), stack = [], ranked = candidates.map(candidate => candidate.id);
   const enqueue = ids => {
     const valid = ids.filter(id => typeof id === 'string' && graph.nodes.has(id) && !visited.has(id)
-      && !graph.nodes.get(id).test && inScope(graph.nodes.get(id).path));
+      && !graph.nodes.get(id).test && inScope(id));
     stack.push(...valid.sort((a, b) => score(a) - score(b)));
   };
   const next = () => {
@@ -151,18 +151,17 @@ export const methodQuestions = (kinds, language, { topLevel = false } = {}) => q
   kinds ? [...kinds].map(value => ({ key: 'type', value })) : []);
 
 /**
- * How `--since` splits what a method is asked. perch's own defect questions, with the kind that names a defect and the severity
- * that ranks it, are asked over the diff, and only of a method a hunk touched. Custom rules and any other type the run asks keep
- * the ordinary reading, with callers and callees. The two ask nothing in common.
+ * How `--since` splits what a method a hunk touched is asked. perch's own defect questions, with the kind that names a defect and
+ * the severity that ranks it, are asked over the diff. Custom rules and any other type the run asks keep the ordinary reading,
+ * with callers and callees. The two ask nothing in common. A method no hunk touched is not read at all.
  */
-export function sinceQuestions(asked, changed) {
+export function sinceQuestions(asked) {
   const bugs = questionsFor(asked.filter(question => !question.kind), [{ key: 'type', value: 'defect' }]);
   const rest = asked.filter(question => question.kind || question.issue?.type !== 'defect');
   // What the rest raises, with what that needs: a vulnerability is ranked by severity too.
   const types = [...new Set(rest.filter(question => question.issue).map(question => question.issue.type))];
   const ordinary = types.length ? questionsFor(rest, types.map(value => ({ key: 'type', value }))) : [];
-  const diff = changed ? bugs : [];
-  return { diff, ordinary: ordinary.filter(question => !diff.some(other => other.name === question.name)) };
+  return { diff: bugs, ordinary: ordinary.filter(question => !bugs.some(other => other.name === question.name)) };
 }
 
 /** The row's own fields, apart from answers whose question may no longer exist. */
@@ -223,11 +222,16 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const covered = covers(paths);
   const ignores = path => ignored.some(glob => matches(glob, path));
   const inScope = path => covered(path) && !ignores(path);
+  // --since reads the methods a hunk touched, not every method in a file the branch changed. The rest of the file is still in view
+  // as callers and callees, and keeps what the last run said about it.
+  const touched = since ? new Set((await Promise.all([...graph.nodes.values()].filter(node => covered(node.path))
+    .map(async node => await changeOf(node) ? node.id : null))).filter(Boolean)) : null;
+  const changed = id => !touched || touched.has(id), changedUnit = unit => changed(unit.id);
   const ranked = includeTests ? [...graph.nodes.values()].map(node => ({ id: node.id, score: node.metrics?.risk_score ?? 0 }))
     .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id)) : scan.candidates;
-  const candidates = ranked.filter(candidate => graph.nodes.has(candidate.id) && inScope(graph.nodes.get(candidate.id).path));
+  const candidates = ranked.filter(candidate => graph.nodes.has(candidate.id) && inScope(graph.nodes.get(candidate.id).path) && changed(candidate.id));
   // How many methods the run was asked about that ignore took out, so a run left with none can say why rather than call it clean.
-  const excluded = ranked.filter(candidate => graph.nodes.has(candidate.id) && covered(graph.nodes.get(candidate.id).path)).length - candidates.length;
+  const excluded = ranked.filter(candidate => graph.nodes.has(candidate.id) && covered(graph.nodes.get(candidate.id).path) && changed(candidate.id)).length - candidates.length;
   // No methods in scope is an ordinary run, not a failure: a branch that only touched markdown and a workflow has none, and the
   // rules about files still cover what it did touch. Erroring here failed the run and skipped those rules as well.
   const candidateIds = candidates.map(candidate => candidate.id);
@@ -267,7 +271,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   };
   const missing = new Map();
 
-  const linesOf = createLineReader(root, graph), walk = createWalk(graph, candidates, inScope);
+  const linesOf = createLineReader(root, graph), walk = createWalk(graph, candidates, id => inScope(graph.nodes.get(id).path) && changed(id));
   const askedByMethod = new Map();
   const stepFor = async nodeId => {
     const node = graph.nodes.get(nodeId);
@@ -276,10 +280,10 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // not six.
     // A filter narrows what is asked, not just what is printed. Asking thirty questions about a method to print two is paying
     // for twenty-eight answers nobody reads, and a method no kept question covers is not read at all.
-    // On --since, the bug questions are asked over the diff, and only of a method a hunk touched; the rest keep this reading.
+    // On --since, the bug questions are asked over the diff; the rest keep this reading.
     const asked = questionsFor([...methodQuestions(kinds, node.language, { topLevel: Boolean(node.lines) }), ...rulesForMethod(rules, node)], filters, kindLabel);
     const change = since ? await changeOf(node) : null;
-    const { diff, ordinary } = since ? sinceQuestions(asked, Boolean(change)) : { diff: [], ordinary: asked };
+    const { diff, ordinary } = since ? sinceQuestions(asked) : { diff: [], ordinary: asked };
     askedByMethod.set(node.id, [...diff, ...ordinary]);
     const own = ordinary.filter(question => question.kind);
     if (!diff.length && !ordinary.length) return { node, calleeIds, callerIds, rules: own, skip: true };
@@ -370,7 +374,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
       }
       // What is left is every rule that is not about a method, and every claim about the codebase rather than about one file. The
       // source they are asked about comes from the revision, not from disk, so a finding is still about a commit.
-      const over = { scan, graph, files, documents, tree, eligible, revision, systemOne: gated, inScope, ignores, min, debug };
+      const over = { scan, graph, files, documents, tree, eligible, revision, systemOne: gated, inScope, changed: changedUnit, ignores, min, debug };
       // Asked of each unit: rules about files and tests, method rules shown a document, and absent rules. Any other method rule
       // rides in the method's own reading, and a present rule stops at the first unit that has the thing.
       const eachUnit = rule => rule.kind === 'ensure_absent' || !SEARCHES(rule.kind) && (rule.each !== 'method' || Boolean(rule.context));
@@ -468,7 +472,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
         where: rule.where,
         units: rule.each === 'method' && !SEARCHES(rule.kind) && !rule.context
           ? candidates.filter(candidate => rulesForMethod([rule], graph.nodes.get(candidate.id)).length).length
-          : selectUnits(rule, { scan, graph, files, tree, eligible, inScope, ignores }).length,
+          : selectUnits(rule, { scan, graph, files, tree, eligible, inScope, changed: changedUnit, ignores }).length,
         broken: run.broken.filter(finding => finding.rule === rule.name).length,
       })),
     ];

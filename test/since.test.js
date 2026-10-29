@@ -18,7 +18,7 @@ afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { rec
 
 /**
  * A branch that changed h. f in a.js calls h, and h calls k, which sits far enough below h in b.js that no diff hunk reaches it.
- * Only b.js changed, so a --since scan reads h and k, with f in view as h's caller.
+ * Only h changed, so a --since scan reads h, with f in view as its caller and k as its callee.
  */
 async function branch() {
   const root = await mkdtemp(join(tmpdir(), 'perch-since-')); roots.push(root);
@@ -70,13 +70,36 @@ describe('perch scan --since', () => {
     expect(h.state.change.diff.source).toContain('+  return k(x) + 2;');
   });
 
-  it('does not ask the bug questions of a function in a changed file that no hunk touches', async () => {
+  it('does not read a function in a changed file that no hunk touches', async () => {
     const options = await branch();
     const since = service();
     const run = await scanRepository({ ...options, out: join(options.root, '.perch'), systemOne: since, since: 'main' });
     expect(requests(since.calls, 'src/b.js::k')).toEqual([]);
     expect(since.calls).toHaveLength(1);
-    expect(run.skipped).toBe(1);
+    expect(run.methods).toBe(1);
+  });
+
+  it('asks security questions only of a function the diff changed', async () => {
+    const options = await branch();
+    const since = service();
+    await scanRepository({ ...options, out: join(options.root, '.perch'), systemOne: since, since: 'main',
+      filters: [{ key: 'type', value: 'defect' }, { key: 'type', value: 'lint' }, { key: 'type', value: 'security' }] });
+    expect(requests(since.calls, 'src/b.js::k')).toEqual([]);
+    expect(requests(since.calls, 'src/b.js::h').length).toBeGreaterThan(0);
+  });
+
+  it('asks a rule shown a document only of a function the diff changed', async () => {
+    const options = await branch();
+    await writeFile(join(options.root, 'src', 'GLOSSARY.md'), 'A number is a number.\n');
+    await writeFile(join(options.root, 'perch.yaml'), 'rules:\n  - name: uses-glossary\n    each: method\n    where: src/b.js\n    context: GLOSSARY.md\n    ensure: The method uses the words the glossary defines.\n');
+    await commitAll(options.root, 'a rule with a document');
+    const path = join(options.root, 'src', 'b.js');
+    await writeFile(path, (await readFile(path, 'utf8')).replace('return k(x) + 2;', 'return k(x) + 3;'));
+    await commitAll(options.root, 'h adds more');
+    const since = service();
+    await scanRepository({ ...options, revision: await revision(options.root), out: join(options.root, '.perch'), systemOne: since, since: 'HEAD~1' });
+    const asked = since.calls.filter(call => 'uses-glossary' in call.questions);
+    expect(asked.map(call => JSON.stringify(call.state))).toEqual([expect.stringContaining('k(x) + 3')]);
   });
 
   it('asks a custom rule on --since over callers and callees, in the request a full scan sends', async () => {
@@ -95,11 +118,9 @@ describe('perch scan --since', () => {
     // The ordinary request's state is the one a full scan sends: h, its caller f, its callee k, and the calls between them.
     expect(ordinary.state).toEqual(requests(full.calls, 'src/b.js::h')[0].state);
     expect(ordinary.state.graph.edges).toEqual(expect.arrayContaining(['src/a.js::f -> src/b.js::h', 'src/b.js::h -> src/b.js::k']));
-    // k was not changed, so it is only asked the rule, with h in view as its caller.
-    const [k] = requests(since.calls, 'src/b.js::k');
-    expect(requests(since.calls, 'src/b.js::k')).toHaveLength(1);
-    expect(Object.keys(k.questions).sort()).toEqual(['follow', 'h-doubles']);
-    expect(k.state.graph.edges).toEqual(['src/b.js::h -> src/b.js::k']);
+    // k was not changed, so it is not asked the rule either.
+    expect(requests(since.calls, 'src/b.js::k')).toEqual([]);
+    expect(read.methods).toBe(1);
     // Both requests' answers land on h's one reading.
     const h = read.visited.find(event => event.name === 'h');
     expect(h).toMatchObject({ has_bug: expect.any(Number), bug_edge_case: expect.any(Number), 'h-doubles': expect.any(Number) });

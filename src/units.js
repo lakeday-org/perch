@@ -170,7 +170,7 @@ export function matches(glob, path) {
  * them. It also takes two selectors over what perch already knows: `callers of <method>` from the call graph, and
  * `mentions <text>`, which is a text match and finds the methods worth asking rather than the methods that are guilty.
  */
-export function selectUnits(rule, { scan, graph, files, tree, eligible = null, inScope = () => true, ignores = () => false }) {
+export function selectUnits(rule, { scan, graph, files, tree, eligible = null, inScope = () => true, changed = () => true, ignores = () => false }) {
   const source = rule.where;
   // The rule file is not code. A rule over `**/*` would otherwise be asked about the file that declares it, and answer about the
   // wording of its own question.
@@ -184,11 +184,12 @@ export function selectUnits(rule, { scan, graph, files, tree, eligible = null, i
     const path = contextPath(rule.context, unit.path, at => blobs.has(at));
     return path && path !== unit.path ? { ...unit, context: { path, hash: blobs.get(path) } } : null;
   };
-  // `except` is the rule's own exclusion; `inScope` is the run's, which --since narrows to what a branch changed. A unit whose
-  // document the branch changed is in it too: the code judged by a vocabulary has to be asked again when the vocabulary moves.
+  // `except` is the rule's own exclusion; `inScope` is the run's, which --since narrows to the files a branch changed, and
+  // `changed` narrows a method or test in them to one a hunk touched. A unit whose document the branch changed is in it too: the
+  // code judged by a vocabulary has to be asked again when the vocabulary moves.
   // What perch.yaml ignores stays out either way, since a document being in scope says nothing about the unit's own path.
   const spared = unit => !ignores(unit.path) && !ours(unit.path)
-    && (inScope(unit.path) || Boolean(unit.context) && inScope(unit.context.path))
+    && (inScope(unit.path) && (!unit.part || changed(unit)) || Boolean(unit.context) && inScope(unit.context.path))
     && appliesToLanguage(rule, languageOf(unit.path))
     && (!rule.except || ![rule.except].flat().some(glob => matches(glob, unit.path)));
   const keep = units => units.map(shown).filter(unit => unit && spared(unit));
@@ -541,13 +542,13 @@ const failedCheck = (rule, unit, error, revision) => ({
  * waiting behind every fix. One question, one unit, one request, `parallel` of them at a time, and a second question to a file
  * that failed about which line failed on it. `documents` holds the text of every document a rule can be shown.
  */
-export async function askUnits({ rules, scan, graph, files, tree, eligible, revision, systemOne, inScope, ignores, min = BELIEVED,
+export async function askUnits({ rules, scan, graph, files, tree, eligible, revision, systemOne, inScope, changed, ignores, min = BELIEVED,
   documents = new Map(), parallel = UNIT_PARALLEL, progress = () => {}, debug = () => {} }) {
   // One request per context. Two rules about the same file that want to see the same thing are one reading, since every question
   // in a request is scored against the state by itself.
   const contexts = new Map();
   for (const rule of rules) {
-    for (const unit of selectUnits(rule, { scan, graph, files, tree, eligible, inScope, ignores })) {
+    for (const unit of selectUnits(rule, { scan, graph, files, tree, eligible, inScope, changed, ignores })) {
       const key = `${unit.id}\u0000${rule.sees}\u0000${unit.context?.path ?? ''}`;
       if (!contexts.has(key)) contexts.set(key, { unit, sees: rule.sees, rules: [] });
       contexts.get(key).rules.push(rule);
@@ -601,7 +602,7 @@ export async function askUnits({ rules, scan, graph, files, tree, eligible, revi
  * ordered by how likely each is to hold the thing, and stops at the first that has it. Word overlap is a poor judge of that and
  * a free one, which beats a request spent on ranking. One search need not wait on another.
  */
-export async function searchUnits({ rules, scan, graph, files, tree, eligible, revision, systemOne, inScope, ignores, min = BELIEVED,
+export async function searchUnits({ rules, scan, graph, files, tree, eligible, revision, systemOne, inScope, changed, ignores, min = BELIEVED,
   documents = new Map(), parallel = UNIT_PARALLEL, progress = () => {}, debug = () => {} }) {
   // What each search would read, worked out before anything is sent, so the run can say how much there is to get through. A
   // search stops at its answer, so this is the most it will read and not what it will read. Every unit in scope is ranked: a
@@ -610,7 +611,7 @@ export async function searchUnits({ rules, scan, graph, files, tree, eligible, r
   // cannot have gone, and then it reads everything the rule covers: the thing can sit in a file the branch never opened, and a
   // search of what it touched called the rule broken on any branch that changed a file without the thing in it.
   const plans = rules.map(rule => {
-    const touched = selectUnits(rule, { scan, graph, files, tree, eligible, inScope, ignores }).length > 0;
+    const touched = selectUnits(rule, { scan, graph, files, tree, eligible, inScope, changed, ignores }).length > 0;
     const units = touched ? rank(rule, selectUnits(rule, { scan, graph, files, tree, eligible, ignores })) : [];
     const id = findingId(`${rule.name}::search`);
     return { rule, units, id };

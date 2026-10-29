@@ -69,9 +69,9 @@ and defaults to the current directory.
 The scan exits with code 3 when it lists a problem. `scan_types` in `perch.yaml` sets which types of problem it asks
 about, and defaults to `defect` and `lint`.
 
-With `--since`, Perch asks the bug questions `has_bug`, `bug_edge_case`, `kind` and `severity` only about methods the diff
-touches. That request contains the method's code at the merge base with `REF` and the diff, without callers or callees. Custom
-rules are asked of every method in the changed files, with callers and callees.
+With `--since`, Perch asks only about methods the diff touches. The bug questions `has_bug`, `bug_edge_case`, `kind` and
+`severity` go in a request that contains the method's code at the merge base with `REF` and the diff, without callers or
+callees. Custom rules and other types of question are asked in the usual request, with callers and callees.
 
 | Flag | Description |
 | --- | --- |
