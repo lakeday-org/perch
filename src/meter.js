@@ -73,3 +73,6 @@ export const metered = (systemOne, meter) => ({ ...systemOne, async ask(state, q
     throw error;
   }
 } });
+
+/** The last `count` items of `list`, oldest first. */
+export function lastItems(list, count) { return list.slice(list.length - count - 1); }
