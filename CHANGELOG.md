@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.5.0](https://github.com/lakeday-org/perch/compare/v0.4.9...v0.5.0) (2026-10-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* `kind` has a tenth option, `other`, shown and filtered as `other_defect`, and a Decisions answer of none_of_these on it is `other` instead of a guess spread over the other kinds. A defect that was labelled with a guessed kind can now be labelled `other_defect`, so `--filter kind=` with the old label no longer matches it, and an issue closed under the old kind is listed again. Changing `kind`'s options changes the question, so cached `kind` answers are asked again.
+
+### Features
+
+* let kind answer other instead of a guessed kind ([#442](https://github.com/lakeday-org/perch/issues/442)) ([1911f36](https://github.com/lakeday-org/perch/commit/1911f36fdc2c97f91bd7b7f2de977fb66d5e4389))
+* size each request's token budget by model ([#434](https://github.com/lakeday-org/perch/issues/434)) ([d1404dc](https://github.com/lakeday-org/perch/commit/d1404dcce875254f6aff3f772fdd972483ea6f91))
+
+
+### Bug Fixes
+
+* perch could not load its parser on Windows ([#441](https://github.com/lakeday-org/perch/issues/441)) ([acebf2c](https://github.com/lakeday-org/perch/commit/acebf2c90c1d89c9e2542cbde18f11a8d1b06e92))
+* perch coverage no longer imports lazy modules while finding mutated code ([#443](https://github.com/lakeday-org/perch/issues/443)) ([1f537e7](https://github.com/lakeday-org/perch/commit/1f537e70baf6d449022e0c2be46d7d59d88ed62a))
+* perch scan --since read unchanged methods in changed files ([#439](https://github.com/lakeday-org/perch/issues/439)) ([97710f2](https://github.com/lakeday-org/perch/commit/97710f252b70e7661787cdba152cb0a8d34a0b82))
+* present rules under --since searched only the files a branch changed ([#432](https://github.com/lakeday-org/perch/issues/432)) ([bdc0fd5](https://github.com/lakeday-org/perch/commit/bdc0fd5b0d0116b753247afffd5a7206fa899dca))
+* show fixed review comments in perch ci ([#436](https://github.com/lakeday-org/perch/issues/436)) ([9b66c33](https://github.com/lakeday-org/perch/commit/9b66c330ed45f1f52de0fa2652530139f7631634))
+
 ## [0.4.9](https://github.com/lakeday-org/perch/compare/v0.4.8...v0.4.9) (2026-10-23)
 
 
