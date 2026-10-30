@@ -22,6 +22,7 @@ import signal
 import sys
 import time
 import traceback
+import types
 from collections import deque
 import importlib.abc
 import importlib.machinery
@@ -74,9 +75,10 @@ FUNCTIONS = {}
 
 
 def index_functions():
+    # Only a function is asked for its code: a lazy proxy, a six.moves-style object, imports what it stands for on any attribute.
     for item in gc.get_objects():
-        code = getattr(item, '__code__', None)
-        if type(item).__name__ == 'function' and code is not None:
+        if type(item) is types.FunctionType:
+            code = item.__code__
             FUNCTIONS.setdefault((code.co_filename, code.co_firstlineno, code.co_name), []).append(item)
 
 
@@ -106,7 +108,8 @@ def apply(command, root):
     source = command['source']
     tree = ast.parse(source, filename)
     chain = find_def(tree, command['line'], command['name'])
-    loaded = any(os.path.realpath(getattr(module, '__file__', None) or '') == filename for module in list(sys.modules.values()))
+    # A module's own __file__, from its namespace: a module with a PEP 562 __getattr__ imports on a name it lacks.
+    loaded = any(os.path.realpath((getattr(module, '__dict__', None) or {}).get('__file__') or '') == filename for module in list(sys.modules.values()))
     if not loaded:
         sys.meta_path.insert(0, MutatedModule(filename, source))
         return
