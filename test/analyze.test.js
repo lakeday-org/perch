@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -6,11 +6,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { git, revision } from '../src/git.js';
 import { createSourceAnalyzer, sourceFile } from '../src/analysis.js';
 import { analyzeTree } from '../src/analyze.js';
-import { commitAll, fixtureOptions, initRepo, makeFixture, makeGraphFixture } from './helpers.js';
+import { commitAll, fixtureOptions, initRepo, makeFixture, makeGraphFixture, removeDir } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
 const cleanups = [];
-afterEach(async () => { for (const dir of cleanups.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of cleanups.splice(0)) await removeDir(dir); });
 
 async function fixture(make = makeFixture) {
   const root = await make();
@@ -25,6 +25,35 @@ describe('source selection', () => {
       expect(sourceFile({ type: 'blob', path: `src/app.min.${extension}`, size: 100 })).toBe(false);
       expect(sourceFile({ type: 'blob', path: `src/app.${extension}`, size: 100 })).toBe(true);
     }
+  });
+
+  it('reads a .js.es6 file as JavaScript, with the same methods as the same code in a .js file', async () => {
+    // Discourse names its Ember modules admin-group.js.es6. perch took the language from the last extension, found none, and
+    // left every one of them out of a scan, so a pull request changing one read nothing in it.
+    const controller = [
+      'export default Em.ObjectController.extend({',
+      '  currentPage: function() {',
+      '    return Math.floor(this.get("offset") / this.get("limit")) + 1;',
+      '  },',
+      '  actions: {',
+      '    next: function() {',
+      '      return this.get("model").findMembers();',
+      '    }',
+      '  }',
+      '});',
+      '',
+    ].join('\n');
+    const root = await mkdtemp(join(tmpdir(), 'perch-es6-'));
+    cleanups.push(root);
+    const paths = ['admin/controllers/admin-group.js', 'admin/controllers/admin-group.js.es6', 'discourse/helpers/admin-group.es6'];
+    for (const path of paths) { await mkdir(join(root, dirname(path)), { recursive: true }); await writeFile(join(root, path), controller); }
+    await initRepo(root);
+    const scan = await analyzeTree({ root, revision: await revision(root), out: join(root, '.perch'), analyzer });
+    const methods = path => scan.files.find(file => file.path === path)?.methods.map(method => method.qualified_name).sort();
+    expect(scan.files.map(file => [file.path, file.language]).sort()).toEqual(paths.map(path => [path, 'javascript']).sort());
+    expect(methods(paths[0])).toEqual(expect.arrayContaining(['currentPage', 'actions.next']));
+    expect(methods(paths[1])).toEqual(methods(paths[0]));
+    expect(methods(paths[2])).toEqual(methods(paths[0]));
   });
 });
 

@@ -1,73 +1,64 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { barChart, THEMES } from '../bars.mjs';
+import { needData } from '../data.mjs';
 
-// Draws the README's ReviewBench recall chart, light and dark, into .github/. Perch's rows come from summary.json; the
-// leaderboard's are the grounded recall review-bench.ai listed on the date below, so a new leaderboard means new rows and a new
-// date here.
+// Draws the README's ReviewBench recall chart, light and dark, into .github/, beside what a pull request costs with each reviewer.
+// Perch's rows are the reruns on OpenAI's Decisions model and on Jev at its default 60% floor, from rerun-summary.json and
+// rerun-jev-summary.json, each with the model's cost measured on that run. The leaderboard's are the grounded recall
+// review-bench.ai listed on the date below, so a new leaderboard means new rows and a new date here. Their costs are list prices,
+// a seat plan divided over 20 pull requests a developer a month; a reviewer with no public price says so.
 const root = path.dirname(fileURLToPath(import.meta.url));
 const LEADERBOARD_DATE = 'October 17, 2026';
+const UNPUBLISHED = 'not published';
 const LEADERBOARD = [
-  { name: 'Laude RevEngine Prime', recall: 46.3 },
-  { name: 'block/review', recall: 32.6 },
-  { name: 'Klaussy', recall: 29.8 },
-  { name: 'Copilot code review', recall: 26.0 },
-  { name: 'DeepSeek Harness Reviewer', recall: 25.6 },
-  { name: 'Devin AI', recall: 23.8 },
-  { name: 'Qodo', recall: 22.1 },
-  { name: 'Codex', recall: 18.5 },
-  { name: 'Cubic', recall: 16.3 },
-  { name: 'Greptile', recall: 16.2 },
-  { name: 'Cursor', recall: 9.6 },
+  { name: 'Laude RevEngine Prime', recall: 46.3, extra: UNPUBLISHED },
+  { name: 'block/review', recall: 32.6, extra: UNPUBLISHED },
+  { name: 'Klaussy', recall: 29.8, extra: UNPUBLISHED },
+  // Code review draws on a plan's usage credits, and GitHub gives no cost for one (github.com/features/copilot/plans).
+  { name: 'Copilot code review', recall: 26.0, extra: 'usage credits' },
+  { name: 'DeepSeek Harness Reviewer', recall: 25.6, extra: UNPUBLISHED },
+  // Teams, $40 a developer seat (devin.ai/pricing, October 23, 2026).
+  { name: 'Devin AI', recall: 23.8, extra: '~$2' },
+  // About 18 reviews from 2,500 credits at $0.012 each (qodo.ai/pricing, October 23, 2026).
+  { name: 'Qodo', recall: 22.1, extra: '~$1.70' },
+  // ChatGPT Business, $25 a user a month (learn.chatgpt.com/docs/pricing, October 23, 2026).
+  { name: 'Codex', recall: 18.5, extra: '~$1.25' },
+  // Team, $40 a developer a month (cubic.dev/pricing, October 23, 2026).
+  { name: 'Cubic', recall: 16.3, extra: '~$2' },
+  // $30 a seat with 50 reviews (greptile.com/pricing, October 3, 2026).
+  { name: 'Greptile', recall: 16.2, extra: '~$1' },
+  // Bugbot comes with Cursor's Teams plan, $30 a seat (cursor.com/pricing, October 23, 2026).
+  { name: 'Cursor', recall: 9.6, extra: '~$1.50' },
 ];
-const MODELS = { jev: 'Jev 1.14', luna: 'OpenAI Decisions' };
+const RUNS = [['rerun-summary.json', 'OpenAI Decisions'], ['rerun-jev-summary.json', 'Jev']];
 
-const summary = JSON.parse(await fs.readFile(path.join(root, 'summary.json'), 'utf8'));
-const rows = [...LEADERBOARD, ...summary.map(r => ({ name: MODELS[r.provider], perch: true, recall: Math.round(r.recall * 1000) / 10 }))]
-  .sort((a, b) => b.recall - a.recall);
+const data = needData('reviewbench', ['manifest.json', ...RUNS.map(([file]) => file)]);
+const { selected_prs: selected } = JSON.parse(await fs.readFile(path.join(data, 'manifest.json'), 'utf8'));
+const pct = x => `${(Math.round(x * 1000) / 10).toFixed(1)}%`;
+const perch = await Promise.all(RUNS.map(async ([file, model]) => {
+  const summary = JSON.parse(await fs.readFile(path.join(data, file), 'utf8')), run = summary.cutoffs.find(c => c.cutoff === 0.6);
+  return { name: `Perch · ${model}`, perch: true, value: Math.round(run.total.recall * 1000) / 10, text: pct(run.total.recall),
+    extra: `$${(summary.cost_usd / summary.scanned_prs).toFixed(3)}`, precision: pct(run.total.precision), scanned: summary.scanned_prs };
+}));
+const rows = [...LEADERBOARD.map(r => ({ name: r.name, value: r.recall, text: `${r.recall.toFixed(1)}%`, extra: r.extra })), ...perch]
+  .sort((a, b) => b.value - a.value);
 
-// Perch's amber and a recessive gray, checked against GitHub's light and dark page colors. The gray sits under 3:1 on purpose,
-// which is why every bar carries its value.
-const THEMES = {
-  light: { accent: '#c27a12', other: '#b9b8b0', washOpacity: 0.09, primary: '#1f2328', secondary: '#59636e', muted: '#818b98', track: '#f1f2f4', baseline: '#c9cfd6' },
-  dark: { accent: '#cc8218', other: '#5a5e66', washOpacity: 0.12, primary: '#f0f6fc', secondary: '#9198a1', muted: '#7d8590', track: '#1a1f27', baseline: '#30363d' },
-};
-const W = 880, ROW = 30, BAR = 14, R = 4, X = 214, SCALE = 580, TOP = 112;
-const bottom = TOP + rows.length * ROW, H = bottom + 64;
-const FONT = `-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif`;
-
-// Square at the baseline, rounded at the value.
-const bar = (x, y, w) => w <= R ? `M${x},${y}h${w}v${BAR}h${-w}z`
-  : `M${x},${y}h${w - R}a${R},${R} 0 0 1 ${R},${R}v${BAR - 2 * R}a${R},${R} 0 0 1 ${-R},${R}h${-(w - R)}z`;
-
-function chart(t) {
-  const out = [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-labelledby="title desc">`,
-    '<title id="title">Perch on ReviewBench: recall</title>',
-    `<desc id="desc">Recall on ReviewBench for perch beside the reviewers on its leaderboard, highest first. ${rows.map(r => `${r.perch ? 'Perch with ' : ''}${r.name}: ${r.recall}%.`).join(' ')}</desc>`,
-    `<style>text{font-family:${FONT}}.n{font-variant-numeric:tabular-nums}</style>`,
-    `<text x="8" y="30" font-size="20" font-weight="600" fill="${t.primary}">Perch on ReviewBench</text>`,
-    `<text x="8" y="54" font-size="13" fill="${t.secondary}">Recall</text>`,
-    `<rect x="8" y="72" width="10" height="10" rx="2" fill="${t.accent}"/><text x="24" y="81" font-size="12" fill="${t.secondary}">Perch</text>`,
-    `<rect x="76" y="72" width="10" height="10" rx="2" fill="${t.other}"/><text x="92" y="81" font-size="12" fill="${t.secondary}">Leaderboard reviewers</text>`,
-    // No gridlines: they would cross the value labels. The track behind each bar shows the scale.
-    `<line x1="${X}" y1="${TOP}" x2="${X}" y2="${bottom}" stroke="${t.baseline}" stroke-width="1"/>`,
-    `<text class="n" x="${X}" y="${bottom + 16}" font-size="11" fill="${t.muted}">0%</text>`,
-    `<text class="n" x="${X + SCALE}" y="${bottom + 16}" font-size="11" text-anchor="end" fill="${t.muted}">100%</text>`,
-  ];
-  rows.forEach((row, index) => {
-    const y = TOP + index * ROW, mid = y + ROW / 2, w = SCALE * row.recall / 100;
-    if (row.perch) out.push(`<rect x="0" y="${y + 2}" width="${W}" height="${ROW - 4}" rx="6" fill="${t.accent}" fill-opacity="${t.washOpacity}"/>`);
-    out.push(row.perch
-      ? `<text x="8" y="${mid + 4.5}" font-size="13" fill="${t.primary}"><tspan font-weight="600">Perch</tspan> · ${row.name}</text>`
-      : `<text x="8" y="${mid + 4.5}" font-size="13" fill="${t.secondary}">${row.name}</text>`);
-    out.push(`<path d="${bar(X, mid - BAR / 2, SCALE)}" fill="${t.track}"/>`);
-    out.push(`<path d="${bar(X, mid - BAR / 2, w)}" fill="${row.perch ? t.accent : t.other}"/>`);
-    out.push(`<text class="n" x="${X + w + 8}" y="${mid + 4.5}" font-size="13"${row.perch ? ' font-weight="600"' : ''} fill="${row.perch ? t.primary : t.secondary}">${row.recall.toFixed(1)}%</text>`);
-  });
-  out.push(`<text x="8" y="${H - 14}" font-size="11" fill="${t.muted}">Leaderboard: review-bench.ai, grounded recall, ${LEADERBOARD_DATE}. Perch: .benchmarks/reviewbench in this repository.</text>`, '</svg>');
-  return out.join('\n') + '\n';
-}
+const chart = colors => barChart(colors, {
+  title: 'Perch on ReviewBench',
+  heading: 'ReviewBench',
+  subtitle: `Recall on GitHub's benchmark of ${selected} pull requests, against the findings of a human review, and the cost of a pull request.`,
+  columns: { value: 'Recall', extra: 'Cost of a pull request' },
+  desc: `Recall on ReviewBench for perch beside the reviewers on its leaderboard, highest first, and what a pull request costs. ${rows.map(r => `${r.name}: ${r.text}, ${r.extra}.`).join(' ')}`,
+  rows,
+  footer: [
+    `Perch at its default 60% floor, scored per function: ${perch.map(p => `${p.precision} precision on ${p.name.slice(8)}`).join(' and ')}.`,
+    `Perch's cost is the model's, measured on each run over ${perch[0].scanned} pull requests.`,
+    `Leaderboard: review-bench.ai, grounded recall, ${LEADERBOARD_DATE}, scored on review comments.`,
+    'Their costs are list prices, with seat plans divided over 20 pull requests a developer a month.',
+  ],
+});
 
 for (const [theme, colors] of Object.entries(THEMES)) {
   await fs.writeFile(path.join(root, '../../.github', `reviewbench-${theme}.svg`), chart(colors));

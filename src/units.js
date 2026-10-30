@@ -2,8 +2,9 @@
  * The units a rule is asked about, and how one question about one unit is put and read.
  *
  * A scan reads methods, and a rule about a method rides along in that method's own request. The rest do not fit there: a rule
- * about prose is a rule about markdown, which the graph has never heard of, and a rule about a test is about one test case, which
- * the scan does not question. Those are selected here and asked here.
+ * about prose is a rule about markdown, which the graph has never heard of, a rule about a test is about one test case, which
+ * the scan does not question, and a rule shown a document needs a request perch's own questions are not in. Those are selected
+ * here and asked here.
  */
 import { readdir, readFile } from 'node:fs/promises';
 import { join, sep } from 'node:path';
@@ -21,8 +22,6 @@ import { languageOf } from './analysis.js';
 export const RULES_FILE = 'perch.yaml', RULES_DIR = '.perch/rules';
 /** A rule is believed to be broken when the model puts more than half its weight there, the same line the scan draws. */
 export const BELIEVED = 0.5;
-/** Units one rule may ask about in a single run, so a mistyped selector cannot spend a repository's worth of requests. */
-export const MAX_UNITS = 400;
 /**
  * Questions in flight at once when the unit is not a method. A method's request carries its whole neighborhood and thirty
  * questions; this is one question about one unit and a few kilobytes, so it can go far wider. Overshooting a rate limit is not a
@@ -171,38 +170,94 @@ export function matches(glob, path) {
  * them. It also takes two selectors over what perch already knows: `callers of <method>` from the call graph, and
  * `mentions <text>`, which is a text match and finds the methods worth asking rather than the methods that are guilty.
  */
-export function selectUnits(rule, { scan, graph, files, tree, eligible = null, inScope = () => true }) {
+export function selectUnits(rule, { scan, graph, files, tree, eligible = null, inScope = () => true, changed = () => true, ignores = () => false }) {
   const source = rule.where;
   // The rule file is not code. A rule over `**/*` would otherwise be asked about the file that declares it, and answer about the
   // wording of its own question.
   const ours = path => path === RULES_FILE || path.startsWith(`${RULES_DIR}/`);
-  // `except` is the rule's own exclusion; `inScope` is the run's, which --since narrows to what a branch changed.
-  const spared = unit => inScope(unit.path) && !ours(unit.path) && appliesToLanguage(rule, languageOf(unit.path))
+  // A rule shown a document asks about the units that have one, and each unit carries which one and its blob, so an answer is
+  // kept only while that document is unchanged. A document is not judged against itself.
+  const blobs = rule.context ? new Map((tree ?? []).map(item => [item.path, item.sha])) : null;
+  if (rule.context?.includes('/') && !blobs.has(rule.context)) throw new Error(`${rule.name} (${rule.at}): context ${rule.context} is not in this repository`);
+  const shown = unit => {
+    if (!blobs) return unit;
+    const path = contextPath(rule.context, unit.path, at => blobs.has(at));
+    return path && path !== unit.path ? { ...unit, context: { path, hash: blobs.get(path) } } : null;
+  };
+  // `except` is the rule's own exclusion; `inScope` is the run's, which --since narrows to the files a branch changed, and
+  // `changed` narrows a method or test in them to one a hunk touched. A unit whose document the branch changed is in it too: the
+  // code judged by a vocabulary has to be asked again when the vocabulary moves.
+  // What perch.yaml ignores stays out either way, since a document being in scope says nothing about the unit's own path.
+  const spared = unit => !ignores(unit.path) && !ours(unit.path)
+    && (inScope(unit.path) && (!unit.part || changed(unit)) || Boolean(unit.context) && inScope(unit.context.path))
+    && appliesToLanguage(rule, languageOf(unit.path))
     && (!rule.except || ![rule.except].flat().some(glob => matches(glob, unit.path)));
+  const keep = units => units.map(shown).filter(unit => unit && spared(unit));
   const callers = /^callers? of (.+)$/.exec(source ?? '');
   const mentions = /^(?:writers? of|mentions) (.+)$/.exec(source ?? '');
   if (callers) {
     const target = [...graph.nodes.keys()].filter(id => id === callers[1] || id.endsWith(`::${callers[1]}`));
     if (!target.length) throw new Error(`${rule.name} (${rule.at}): no method named ${callers[1]}`);
-    return [...new Set(target.flatMap(id => graph.callers(id)))].map(id => graph.nodes.get(id)).filter(node => !node.test).map(methodUnit).filter(spared);
+    return keep([...new Set(target.flatMap(id => graph.callers(id)))].map(id => graph.nodes.get(id)).filter(node => !node.test).map(methodUnit));
   }
   if (mentions) {
     const needle = mentions[1].trim();
-    return [...graph.nodes.values()].filter(node => !node.test && sourceOf(node, files).includes(needle)).map(methodUnit).filter(spared);
+    return keep([...graph.nodes.values()].filter(node => !node.test && spanText(node, (files.get(node.path) ?? '').split('\n')).includes(needle)).map(methodUnit));
   }
   // A test is a node the parser marked as a test case from its syntax, in whatever language it is written, and it spans exactly
   // its own body. Its hash is its own, so an answer about it is reused only while that test is unchanged.
   if (rule.each === 'test') {
-    return [...graph.nodes.values()].filter(node => node.case && (!source || matches(source, node.path))).map(testUnit).filter(spared);
+    return keep([...graph.nodes.values()].filter(node => node.case && (!source || matches(source, node.path))).map(testUnit));
   }
   // A method comes from the scan, which only holds what tree-sitter could parse. A file comes from the git tree, because a rule
   // about prose is a rule about markdown, and markdown is not a language the scan reads.
   if (rule.each === 'method') {
-    return scan.files.filter(file => (SEARCHES(rule.kind) || !file.test) && matches(source, file.path))
-      .flatMap(file => file.methods.filter(method => SEARCHES(rule.kind) || !(method.test || method.support)).map(method => methodUnit({ ...method, path: file.path }))).filter(spared);
+    return keep(scan.files.filter(file => (SEARCHES(rule.kind) || !file.test) && matches(source, file.path))
+      .flatMap(file => file.methods.filter(method => SEARCHES(rule.kind) || !(method.test || method.support)).map(method => methodUnit({ ...method, path: file.path }))));
   }
-  return tree.filter(eligible ?? createFileSelector(tree)).filter(item => matches(source, item.path))
-    .map(item => ({ id: item.path, path: item.path, name: item.path, line: 1, hash: item.sha })).filter(spared);
+  return keep(tree.filter(eligible ?? createFileSelector(tree)).filter(item => matches(source, item.path))
+    .map(item => ({ id: item.path, path: item.path, name: item.path, line: 1, hash: item.sha })));
+}
+
+/**
+ * Where a rule's `context` is for a unit at `path`, or null when it has none. A path with a slash is that file from the root. A
+ * bare name is looked for beside the unit and then in each directory above it, so the nearest one wins.
+ */
+export const contextPath = (name, path, has) => contextCandidates(name, path).find(has) ?? null;
+
+/** Every place a rule's `context` could be for a unit at `path`, nearest first. */
+export function contextCandidates(name, path) {
+  if (name.includes('/')) return [name];
+  const directories = path.split('/').slice(0, -1);
+  const places = [];
+  for (let depth = directories.length; depth > 0; depth--) places.push(`${directories.slice(0, depth).join('/')}/${name}`);
+  return [...places, name];
+}
+
+/** Whether a path could be some rule's document, so a run reads those and no others. */
+export function mayBeContext(rules, path) {
+  return rules.some(rule => {
+    if (!rule.context) return false;
+    if (rule.context.includes('/')) return path === rule.context;
+    return path === rule.context || path.endsWith(`/${rule.context}`);
+  });
+}
+
+/**
+ * Whether the document a check was answered beside is still the one its unit would be shown, unchanged. A vocabulary edited, or a
+ * nearer one added, leaves the answer about a document this tree does not hold. A search that found nothing is about the rule.
+ */
+export function contextStands(rule, check, blobs) {
+  if (!rule.context || String(check.unit).startsWith('search:')) return true;
+  const path = contextPath(rule.context, check.path, at => blobs.has(at));
+  return Boolean(path) && path === check.context?.path && blobs.get(path) === check.context?.hash;
+}
+
+/** The document beside a unit, as the model is shown it. A document the run did not read is a mistake, not an empty one. */
+function shownContext(unit, documents) {
+  if (!unit.context) return {};
+  if (!documents.has(unit.context.path)) throw new Error(`context ${unit.context.path} was not read`);
+  return { context: { path: unit.context.path, source: documents.get(unit.context.path) } };
 }
 
 export const bodyOf = (text, unit) => shownSource(unit.own ? spanLines({ line: unit.line, end_line: unit.end_line, lines: unit.own }, text.split('\n')) : text.split('\n'), unit.line, unit.end_line);
@@ -228,7 +283,6 @@ const spanText = (node, lines) => spanOf(node, lines).map(text => text ?? '').jo
 const methodUnit = node => ({ id: node.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, own: node.lines, hash: node.hash, method: true, part: true });
 /** A test is what a person names when they say where something is asserted, so a rule about tests answers with the test. */
 const testUnit = node => ({ id: node.id, path: node.path, name: node.qualified_name, line: node.line, end_line: node.end_line, hash: node.hash, part: true });
-const sourceOf = (node, files) => spanText(node, (files.get(node.path) ?? '').split('\n'));
 
 /** Units most likely to hold what a search is looking for, first. Shared words between the rule and the unit's name and path. */
 export function rank(rule, units) {
@@ -251,7 +305,7 @@ export function neighbourhood(sees, unit, { graph, files, max = MAX_SEEN }) {
   const text = files.get(unit.path) ?? '';
   if (sees === 'file') return { file_source: text };
   const show = ids => ids.slice(0, max).map(id => graph.nodes.get(id)).filter(Boolean)
-    .map(node => ({ name: node.qualified_name, path: node.path, source: sourceOf(node, files) }));
+    .map(node => ({ name: node.qualified_name, path: node.path, source: spanText(node, (files.get(node.path) ?? '').split('\n')) }));
   // A method or a test walks from itself. A file walks from the methods it declares, since a file is not a node but what it holds is.
   const own = graph.nodes.has(unit.id) ? [unit.id] : [...graph.nodes.keys()].filter(id => graph.nodes.get(id)?.path === unit.path);
   const seeds = own;
@@ -310,29 +364,65 @@ export function unitStep({ rules, unit, source, seen = {} }) {
 
 /**
  * What a unit is shown besides itself has to leave room for the unit. `sees: file` on a method in a large file put the whole
- * file beside every piece, so the pieces shrank to nothing and the request was still too big. The companion is cut to fit
- * half the budget, and says so, rather than costing the unit its reading.
+ * file beside every piece, so the pieces shrank to nothing and the request was still too big. The companions, the file and a
+ * rule's document, are cut to fit half the budget between them, and say so, rather than costing the unit its reading.
  */
 function fitSeen(seen, budget) {
-  if (typeof seen.file_source !== 'string') return seen;
-  const room = Math.floor(budget / 2) - estimateTokens({ ...seen, file_source: '' }) - 256;
-  if (textTokens(seen.file_source) <= room) return seen;
-  if (room <= 64) return { ...seen, file_source: '(too large to show beside this unit)' };
+  // Neighbours shown whole can outgrow a request on their own. They get a quarter of the budget, and the farthest go first,
+  // from whichever list is longer, the way a method's reading drops neighbours before it refuses.
+  const lists = ['calls', 'called_by'].filter(key => Array.isArray(seen[key]));
+  while (lists.some(key => seen[key].length) && estimateTokens(withoutText(seen)) > Math.floor(budget / 4)) {
+    const longer = lists.reduce((a, b) => (seen[b].length > seen[a].length ? b : a));
+    seen = { ...seen, [longer]: seen[longer].slice(0, -1) };
+  }
+
+  const file = typeof seen.file_source === 'string' ? seen.file_source : null;
+  const doc = seen.context ? seen.context.source : null;
+  if (file === null && doc === null) return seen;
+  const room = Math.floor(budget / 2) - estimateTokens(withoutText(seen)) - 256;
+  const fileSize = file === null ? 0 : textTokens(file);
+  const docSize = doc === null ? 0 : textTokens(doc);
+  if (fileSize + docSize <= room) return seen;
+
+  // The two share the room, and one that needs less than half of it leaves the rest to the other.
+  let docRoom;
+  if (doc === null) docRoom = 0;
+  else if (file === null) docRoom = room;
+  else if (docSize <= room / 2) docRoom = docSize;
+  else if (fileSize <= room / 2) docRoom = room - fileSize;
+  else docRoom = Math.floor(room / 2);
+  const fitted = { ...seen };
+  if (file !== null) fitted.file_source = cutToFit(file, room - docRoom);
+  if (doc !== null) fitted.context = { ...seen.context, source: cutToFit(doc, docRoom) };
+  return fitted;
+}
+
+/** What a unit is shown besides itself with the file and the document emptied: the part that cannot be cut to fit. */
+function withoutText(seen) {
+  const bare = { ...seen };
+  if (typeof bare.file_source === 'string') bare.file_source = '';
+  if (bare.context) bare.context = { ...bare.context, source: '' };
+  return bare;
+}
+
+function cutToFit(text, room) {
+  if (textTokens(text) <= room) return text;
+  if (room <= 64) return '(too large to show beside this unit)';
   // Tokens scale with length, so one proportional cut lands close; the loop shaves off what the estimate under-counted.
-  let text = seen.file_source.slice(0, Math.floor(seen.file_source.length * room / textTokens(seen.file_source)));
-  while (text.length && textTokens(text) > room) text = text.slice(0, Math.floor(text.length * 0.9));
-  return { ...seen, file_source: `${text}\n… (cut to fit; ${seen.file_source.length - text.length} characters not shown)` };
+  let kept = text.slice(0, Math.floor(text.length * room / textTokens(text)));
+  while (kept.length && textTokens(kept) > room) kept = kept.slice(0, Math.floor(kept.length * 0.9));
+  return `${kept}\n… (cut to fit; ${text.length - kept.length} characters not shown)`;
 }
 
 /**
  * Every byte is visited. A file that took more than one piece is answered from its pieces: `askUnitSteps` keeps the lowest score
  * for `ensure` and the piece likeliest to have the thing for a search, and that is the file's answer.
  */
-export function unitSteps({ rules, unit, source, seen = {}, budget = TOKEN_LIMITS.state }) {
+export function unitSteps({ rules, unit, source, seen = {}, budget = TOKEN_LIMITS.state, tokenLimits = TOKEN_LIMITS }) {
   seen = fitSeen(seen, budget);
   const whole = unitStep({ rules, unit, source, seen });
   try {
-    questionBatches(whole.state, whole.questions, { ...TOKEN_LIMITS, state: budget });
+    questionBatches(whole.state, whole.questions, { ...tokenLimits, state: budget });
     return [{ ...whole, chunk: { source, line: 1, startByte: 0, endByte: Buffer.byteLength(source) } }];
   } catch (error) { if (!(error instanceof IncompleteCheckError)) throw error; }
   const overhead = estimateTokens(unitStep({ rules, unit, source: '', seen }).state) + 256;
@@ -343,7 +433,7 @@ export function unitSteps({ rules, unit, source, seen = {}, budget = TOKEN_LIMIT
       return chunks.map(chunk => {
         const step = unitStep({ rules, unit, source: chunk.source, seen });
         if (chunks.length > 1) step.state.reading = { partial: true, start_byte: chunk.startByte, end_byte: chunk.endByte };
-        questionBatches(step.state, step.questions, { ...TOKEN_LIMITS, state: budget });
+        questionBatches(step.state, step.questions, { ...tokenLimits, state: budget });
         return { ...step, chunk };
       });
     } catch (error) {
@@ -358,8 +448,10 @@ export async function askUnitSteps({ systemOne, steps, rules, prepare }) {
     if (budget < (systemOne.limits?.state ?? TOKEN_LIMITS.state) && !prepare) throw new IncompleteCheckError('source cannot be rebuilt for a smaller token budget');
     const active = steps?.[0] && budget === (systemOne.limits?.state ?? TOKEN_LIMITS.state) ? steps : prepare ? prepare(budget) : steps;
     const answers = {}, evidence = {};
+    let model = null;
     for (const step of active) {
       const response = await systemOne.ask(step.state, step.questions);
+      model = response.model ?? model;
       for (const rule of rules) {
         const answer = response.answers[rule.name];
         if (!answer || typeof answer.noul !== 'number') throw new Error(`Missing rule answer: ${rule.name}`);
@@ -369,7 +461,7 @@ export async function askUnitSteps({ systemOne, steps, rules, prepare }) {
         }
       }
     }
-    return { answers, evidence };
+    return { answers, evidence, model };
   }, systemOne.limits?.state);
 }
 
@@ -388,9 +480,12 @@ export async function locateBreak({ systemOne, rule, unit, body }) {
       maxTokens = Math.max(128, Math.floor(maxTokens / 2));
     }
     let picked = chunks[0], confidence = -1;
+    // An absent rule's text is the thing it forbids, so it is broken where that thing is, and asked for by name.
+    const instructions = rule.kind === 'ensure_absent' ? `Does this excerpt contain the following? ${rule.text}`
+      : `Does this excerpt contain evidence that the following rule is broken? ${rule.text}`;
     if (chunks.length > 1) for (const chunk of chunks) {
       const { answers } = await systemOne.ask({ path: unit.path, source: chunk.source, reading: { partial: true } },
-        { has_break: { type: 'noul', instructions: `Does this excerpt contain evidence that the following rule is broken? ${rule.text}` } });
+        { has_break: { type: 'noul', instructions } });
       if (typeof answers.has_break?.noul !== 'number') throw new Error('Missing location evidence answer');
       if (answers.has_break.noul > confidence) { confidence = answers.has_break.noul; picked = chunk; }
     }
@@ -412,7 +507,7 @@ export function readLint(rule, answers) {
  * is scored against the state on its own, and the state is what the request is mostly made of, so a method covered by five rules
  * is one reading and not six.
  */
-export const rulesForMethod = (rules, node) => rules.filter(rule => rule.kind === 'ensure' && rule.each === 'method'
+export const rulesForMethod = (rules, node) => rules.filter(rule => rule.kind === 'ensure' && rule.each === 'method' && !rule.context
   && appliesToLanguage(rule, node.language ?? languageOf(node.path))
   && matches(String(rule.where), node.path)
   && (!rule.except || ![rule.except].flat().some(glob => matches(glob, node.path))));
@@ -422,10 +517,10 @@ export const rulesForMethod = (rules, node) => rules.filter(rule => rule.kind ==
  * the scan read, and as the record of a rule having been asked. A check that passed is written down as well, so perch issues
  * can tell a rule that passed from one that was never asked.
  */
-const checkOf = (rule, unit, { broken, line, text, revision }) => ({
+const checkOf = (rule, unit, { broken, line, text, revision, model = null }) => ({
   type: 'checked', at: new Date().toISOString(), id: findingId(`${rule.name}::${unit.id}`), rule: rule.name, rule_hash: rule.hash,
   unit: unit.id, method: unit.method ? unit.id : null, path: unit.path, name: unit.name, line, end_line: unit.end_line ?? null,
-  text, hash: unit.hash, revision, said: rule.text, broken,
+  text, hash: unit.hash, revision, said: rule.text, broken, model, ...(unit.context ? { context: unit.context } : {}),
   lint: { rule: rule.name, broken, text: rule.text, said: rule.text },
 });
 
@@ -440,17 +535,20 @@ const failedCheck = (rule, unit, error, revision) => ({
 });
 
 /**
- * Every rule that is not about a method, asked of every unit it selects. One question, one unit, one request, `parallel` of them
- * at a time, and a second question to a file that failed about which line failed on it.
+ * Every rule that is not asked in a method's reading, asked of every unit it selects: a rule about a file or a test, a rule about a
+ * method that is shown a document, and every absent rule whatever it is about. An absent rule is broken by each unit that has the
+ * thing, so it is asked like `ensure` and not stopped at the first: a scan that named one offender at a time had the next one
+ * waiting behind every fix. One question, one unit, one request, `parallel` of them at a time, and a second question to a file
+ * that failed about which line failed on it. `documents` holds the text of every document a rule can be shown.
  */
-export async function askUnits({ rules, scan, graph, files, tree, eligible, revision, systemOne, inScope, min = BELIEVED,
-  parallel = UNIT_PARALLEL, progress = () => {}, debug = () => {} }) {
+export async function askUnits({ rules, scan, graph, files, tree, eligible, revision, systemOne, inScope, changed, ignores, min = BELIEVED,
+  documents = new Map(), parallel = UNIT_PARALLEL, progress = () => {}, debug = () => {} }) {
   // One request per context. Two rules about the same file that want to see the same thing are one reading, since every question
   // in a request is scored against the state by itself.
   const contexts = new Map();
   for (const rule of rules) {
-    for (const unit of selectUnits(rule, { scan, graph, files, tree, eligible, inScope }).slice(0, MAX_UNITS)) {
-      const key = `${unit.id}\u0000${rule.sees}`;
+    for (const unit of selectUnits(rule, { scan, graph, files, tree, eligible, inScope, changed, ignores })) {
+      const key = `${unit.id}\u0000${rule.sees}\u0000${unit.context?.path ?? ''}`;
       if (!contexts.has(key)) contexts.set(key, { unit, sees: rule.sees, rules: [] });
       contexts.get(key).rules.push(rule);
     }
@@ -460,19 +558,20 @@ export async function askUnits({ rules, scan, graph, files, tree, eligible, revi
   const askOne = async ({ unit, sees, rules: over }) => {
     const source = files.get(unit.path) ?? '';
     const body = unit.part ? bodyOf(source, unit) : source;
-    const prepare = budget => unitSteps({ rules: over, unit, source: body, seen: neighbourhood(sees, unit, { graph, files }), budget });
+    const seen = { ...neighbourhood(sees, unit, { graph, files }), ...shownContext(unit, documents) };
+    const prepare = budget => unitSteps({ rules: over, unit, source: body, seen, budget, tokenLimits: systemOne.limits });
     const steps = prepare(systemOne.limits?.state);
     debug(`${over.map(rule => rule.name).join(', ')}: ${unit.name}`);
-    const { answers, evidence } = await askUnitSteps({ systemOne, steps, prepare, rules: over });
+    const { answers, evidence, model } = await askUnitSteps({ systemOne, steps, prepare, rules: over });
     // A file that failed is asked which line failed; a method or a test block already has one. One question per broken rule,
     // since two rules broken in one file are rarely broken on the same line.
     const results = await Promise.all(over.map(async rule => {
       const broken = readLint(rule, answers).broken;
-      const failing = broken > floorFor(rule, min);
+      const failing = broken > floorFor(rule, min, model);
       const chunk = evidence[rule.name];
       const line = failing && !unit.part ? await locateBreak({ systemOne, rule, unit: { ...unit, line: unit.line + chunk.line - 1 }, body: chunk.source }) : unit.line;
       const onLine = failing && !unit.part ? (source.split('\n')[line - 1] ?? '').trim() : '';
-      return checkOf(rule, unit, { broken, line, text: onLine.length > 110 ? `${onLine.slice(0, 110)}…` : onLine || null, revision });
+      return checkOf(rule, unit, { broken, line, text: onLine.length > 110 ? `${onLine.slice(0, 110)}…` : onLine || null, revision, model });
     }));
     return { results };
   };
@@ -498,16 +597,21 @@ export async function askUnits({ rules, scan, graph, files, tree, eligible, revi
 }
 
 /**
- * The rules that are claims about the codebase rather than about any one file. Each asks its units in turn, ordered by how likely
- * each is to hold the answer, and stops at the first that answers. Word overlap is a poor judge of that and a free one, which
- * beats a request spent on ranking. One search need not wait on another.
+ * The rules that want something present somewhere in the codebase rather than in any one file. Each asks its units in turn,
+ * ordered by how likely each is to hold the thing, and stops at the first that has it. Word overlap is a poor judge of that and
+ * a free one, which beats a request spent on ranking. One search need not wait on another.
  */
-export async function searchUnits({ rules, scan, graph, files, tree, eligible, revision, systemOne, inScope, min = BELIEVED,
-  parallel = UNIT_PARALLEL, progress = () => {}, debug = () => {} }) {
+export async function searchUnits({ rules, scan, graph, files, tree, eligible, revision, systemOne, inScope, changed, ignores, min = BELIEVED,
+  documents = new Map(), parallel = UNIT_PARALLEL, progress = () => {}, debug = () => {} }) {
   // What each search would read, worked out before anything is sent, so the run can say how much there is to get through. A
-  // search stops at its answer, so this is the most it will read and not what it will read.
+  // search stops at its answer, so this is the most it will read and not what it will read. Every unit in scope is ranked: a
+  // cut taken before the ranking kept the first units by path, and a search reporting that nobody had the thing had not read
+  // the rest. Under --since a search is asked only when the branch touched something the rule covers, since otherwise the thing
+  // cannot have gone, and then it reads everything the rule covers: the thing can sit in a file the branch never opened, and a
+  // search of what it touched called the rule broken on any branch that changed a file without the thing in it.
   const plans = rules.map(rule => {
-    const units = rank(rule, selectUnits(rule, { scan, graph, files, tree, eligible, inScope }).slice(0, MAX_UNITS));
+    const touched = selectUnits(rule, { scan, graph, files, tree, eligible, inScope, changed, ignores }).length > 0;
+    const units = touched ? rank(rule, selectUnits(rule, { scan, graph, files, tree, eligible, ignores })) : [];
     const id = findingId(`${rule.name}::search`);
     return { rule, units, id };
   });
@@ -518,15 +622,17 @@ export async function searchUnits({ rules, scan, graph, files, tree, eligible, r
   const askOne = async (rule, unit) => {
     const source = files.get(unit.path) ?? '';
     const body = unit.part ? bodyOf(source, unit) : source;
-    const prepare = budget => unitSteps({ rules: [rule], unit, source: body, seen: neighbourhood(rule.sees, unit, { graph, files }), budget });
+    const seen = { ...neighbourhood(rule.sees, unit, { graph, files }), ...shownContext(unit, documents) };
+    const prepare = budget => unitSteps({ rules: [rule], unit, source: body, seen, budget, tokenLimits: systemOne.limits });
     const steps = prepare(systemOne.limits?.state);
     debug(`${rule.name}: ${unit.name}`);
-    const { answers } = await askUnitSteps({ systemOne, steps, prepare, rules: [rule] });
+    const { answers, model } = await askUnitSteps({ systemOne, steps, prepare, rules: [rule] });
     // The rule's own floor decides, the one perch check reads this unit by. The run's alone called a min: 80 rule broken on a
     // unit answering 60%, and under --min 0 took any answer as found, so a present rule could never fail. A present rule is read
-    // the way a check reads it: this unit lacks the thing when its lacking it clears the floor.
-    const { here } = readLint(rule, answers), floor = floorFor(rule, min);
-    return rule.kind === 'ensure_present' ? 1 - here <= floor : here > floor;
+    // the way a check reads it: this unit lacks the thing when its lacking it clears the floor, and has it otherwise.
+    const { here } = readLint(rule, answers);
+    const lacks = 1 - here > floorFor(rule, min, model);
+    return !lacks;
   };
 
   await Promise.all(plans.map(async ({ rule, units, id }) => {
@@ -554,10 +660,9 @@ export async function searchUnits({ rules, scan, graph, files, tree, eligible, r
       const found = here.findIndex(answer => answer.found);
       if (found >= 0) settled = batch[found];
     }
-    // A rule wanting the thing present is broken by nobody having it; one wanting it absent is broken by the unit that has it.
-    // Either way it is said once, not once per file that did not answer. Nothing having it means no file to point at, so it is
-    // reported against the rule file, where the claim is, and named for what it looked through.
-    const broken = (rule.kind === 'ensure_present') === Boolean(settled) ? 0 : 1;
+    // Broken by nobody having the thing, which is said once, not once per unit that lacked it. Nothing having it means no file
+    // to point at, so it is reported against the rule file, where the claim is, and named for what it looked through.
+    const broken = settled ? 0 : 1;
     const where = settled ?? { id: `search:${rule.name}`, path: RULES_FILE, name: String(rule.where), line: 1 };
     if (!settled && unresolved.length) {
       results.push({ ...failedCheck(rule, where, new IncompleteCheckError(unresolved.join('; ')), revision), id });

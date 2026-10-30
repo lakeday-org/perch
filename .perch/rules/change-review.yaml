@@ -1,0 +1,6 @@
+- name: changes-read-the-merge-base
+  where: src/change-context.js
+  ensure: >-
+    Previous source comes from the merge base of the requested since reference
+    and the scanned revision. Renames use the old path. A new file has no
+    previous source. Diff and source truncation remain explicit.

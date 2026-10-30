@@ -4,6 +4,55 @@ import { buildGraph, resolveModule } from '../src/graph.js';
 const method = (path, name, line, risk = 10) => ({ id: `${path}::${name}`, node: `function:${line}`, name: name.split('.').at(-1), qualified_name: name, line, end_line: line + 2, hash: 'h', metrics: { risk_score: risk } });
 
 describe('method graph', () => {
+  it('places, for a focus, the calls into, out of and around the focused methods, the same as the whole graph', () => {
+    const file = (path, names, calls = [], imports = []) => ({ path, language: 'javascript', methods: names.map((name, i) => method(path, name, i + 1)), calls, values: [], imports });
+    const files = [
+      // The changed file: check calls helper, which is in another file.
+      file('src/changed.js', ['check'], [{ from: 'src/changed.js::check', name: 'helper', line: 2 }], [{ module: './helper.js', name: 'helper', alias: 'helper' }]),
+      file('src/helper.js', ['helper', 'format'], [{ from: 'src/helper.js::helper', name: 'format', line: 2 }]),
+      // A caller in a file the change does not touch, which also calls helper: the edge between two neighbours of check.
+      file('src/caller.js', ['run'], [{ from: 'src/caller.js::run', name: 'check', line: 2 }, { from: 'src/caller.js::run', name: 'helper', line: 3 }],
+        [{ module: './changed.js', name: 'check', alias: 'check' }, { module: './helper.js', name: 'helper', alias: 'helper' }]),
+      // Nothing here touches check.
+      file('src/other.js', ['unrelated', 'leaf'], [{ from: 'src/other.js::unrelated', name: 'leaf', line: 2 }]),
+    ];
+    const whole = buildGraph(files), focused = buildGraph(files, { focus: path => path === 'src/changed.js' });
+    for (const id of ['src/changed.js::check', 'src/helper.js::helper', 'src/caller.js::run']) {
+      expect(focused.callees(id)).toEqual(whole.callees(id));
+      expect(focused.callers(id)).toEqual(whole.callers(id));
+    }
+    expect(focused.callers('src/changed.js::check')).toEqual(['src/caller.js::run']);
+    expect(focused.callees('src/caller.js::run')).toEqual(['src/changed.js::check', 'src/helper.js::helper']);
+    expect(focused.callees('src/helper.js::helper')).toEqual(['src/helper.js::format']);
+    // A call nowhere near the focus is not placed.
+    expect(whole.callees('src/other.js::unrelated')).toEqual(['src/other.js::leaf']);
+    expect(focused.callees('src/other.js::unrelated')).toEqual([]);
+  });
+
+  it('counts, for a focus, a call to a focused function under the name it was imported as', () => {
+    const file = (path, names, calls = [], imports = []) => ({ path, language: 'typescript', methods: names.map((name, i) => method(path, name, i + 1)), calls, values: [], imports });
+    const files = [
+      file('src/styles.ts', ['DO_NOT_USE_getStyles']),
+      file('src/button.ts', ['Button'], [{ from: 'src/button.ts::Button', name: 'getStyles', line: 2 }], [{ module: './styles', name: 'DO_NOT_USE_getStyles', alias: 'getStyles' }]),
+    ];
+    const whole = buildGraph(files), focused = buildGraph(files, { focus: path => path === 'src/styles.ts' });
+    expect(whole.callers('src/styles.ts::DO_NOT_USE_getStyles')).toEqual(['src/button.ts::Button']);
+    expect(focused.callers('src/styles.ts::DO_NOT_USE_getStyles')).toEqual(whole.callers('src/styles.ts::DO_NOT_USE_getStyles'));
+  });
+
+  it('counts, for a focus, a call that names a focused class anywhere, or passes it, as a caller', () => {
+    const file = (path, names, calls = [], imports = []) => ({ path, language: 'python', methods: names.map((name, i) => method(path, name, i + 1)), calls, values: [], imports });
+    const files = [
+      file('app/endpoints.py', ['Endpoint.get', 'Endpoint.post']),
+      // Django's urls: `Endpoint.as_view()` is a method the repository does not define, of a class it does.
+      file('app/urls.py', ['<top-level>'], [{ from: 'app/urls.py::<top-level>', name: 'Endpoint.as_view', line: 3 },
+        { from: 'app/urls.py::<top-level>', name: 'register', line: 4, args: [{ local: 'Endpoint' }] }], [{ module: 'app.endpoints', name: 'Endpoint', alias: 'Endpoint' }]),
+    ];
+    const whole = buildGraph(files), focused = buildGraph(files, { focus: path => path === 'app/endpoints.py' });
+    for (const id of ['app/endpoints.py::Endpoint.get', 'app/endpoints.py::Endpoint.post']) expect(focused.callers(id)).toEqual(whole.callers(id));
+    expect(focused.callees('app/urls.py::<top-level>')).toEqual(whole.callees('app/urls.py::<top-level>'));
+  });
+
   it('preserves Go package order, top-level preference, language boundaries and unresolved calls', () => {
     const file = (path, language, names, calls = [], values = []) => ({ path, language, methods: names.map((name, i) => method(path, name, i + 1)), calls, values, imports: [] });
     const files = [

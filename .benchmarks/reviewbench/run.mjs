@@ -2,9 +2,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { jsonl, hash, decisionPayload, normalize, ARMS, verifyBundle } from './core.mjs';
+import { needData } from '../data.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
-await verifyBundle(new URL('./', import.meta.url));
+const data = needData('reviewbench', ['manifest.json']);
+await verifyBundle(data);
 const option = (name, fallback) => { const i = process.argv.indexOf('--' + name); return i < 0 ? fallback : process.argv[i + 1]; };
 for (let i = 2; i < process.argv.length; i += 2) if (!['--provider', '--out', '--limit', '--expected-model'].includes(process.argv[i]) || !process.argv[i + 1]) throw Error('Unknown or incomplete option');
 const provider = option('provider');
@@ -15,7 +17,7 @@ const config = provider === 'jev'
 if (!config.key) throw Error(`Set ${provider === 'jev' ? 'TYPESAFE_API_KEY' : 'OPENAI_API_KEY'}`);
 const limit = Number(option('limit', Infinity));
 if (!(limit > 0)) throw Error('--limit must be a positive number');
-const packets = (await jsonl(path.join(root, 'requests.jsonl.gz'))).filter(p => ARMS.includes(p.arm)).slice(0, limit);
+const packets = (await jsonl(path.join(data, 'requests.jsonl.gz'))).filter(p => ARMS.includes(p.arm)).slice(0, limit);
 const out = path.resolve(option('out', path.join(root, 'runs/live'))), cache = path.join(out, provider);
 await fs.mkdir(cache, { recursive: true });
 // stop holds why the run stopped: an error that every later request would hit too.

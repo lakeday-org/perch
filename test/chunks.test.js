@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { sourceChunks } from '../src/chunks.js';
-import { TOKEN_LIMITS, estimateTokens, textTokens, questionBatches } from '../src/tokens.js';
+import { DECISIONS_TOKENS, TOKEN_LIMITS, estimateTokens, textTokens, questionBatches } from '../src/tokens.js';
 import { methodStep, methodSteps, STATE_BUDGET } from '../src/questions.js';
 import { unitSteps } from '../src/units.js';
 import { createSystemOne } from '../src/systemone.js';
@@ -105,6 +105,19 @@ describe('complete request budgets', () => {
     expect(steps.length).toBeGreaterThan(1);
     expect(steps.at(-1).covers.end_byte).toBe(Buffer.byteLength(source));
     for (const step of steps) expect(() => questionBatches(step.state, step.questions)).not.toThrow();
+  });
+
+  it("reads a method whole within a bigger model's budget that Jev's would split", () => {
+    const source = 'function big() { return "' + 'x'.repeat(150000) + '"; }';
+    const node = { path: 'big.js', qualified_name: 'big', line: 1, end_line: 1 };
+    const asked = [{ name: 'q', type: 'noul', ask: 'Check this rule.' }];
+    expect(methodSteps({ node, lines: [source], asked }).length).toBeGreaterThan(1);
+    const whole = methodSteps({ node, lines: [source], asked, budget: DECISIONS_TOKENS.state, tokenLimits: DECISIONS_TOKENS });
+    expect(whole).toHaveLength(1);
+    expect(() => questionBatches(whole[0].state, whole[0].questions, DECISIONS_TOKENS)).not.toThrow();
+    const unit = { path: 'big.txt', line: 1 };
+    expect(unitSteps({ rules: asked, unit, source }).length).toBeGreaterThan(1);
+    expect(unitSteps({ rules: asked, unit, source, budget: DECISIONS_TOKENS.state, tokenLimits: DECISIONS_TOKENS })).toHaveLength(1);
   });
 
   it('batches long questions and accounts for the source in every outgoing request', async () => {

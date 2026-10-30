@@ -17,7 +17,7 @@ import { changedPaths, readRuleFiles, readRules, RULES_FILE, RULES_DIR, UNIT_PAR
 import { checkTarget } from './check.js';
 import { runChecks } from './checks.js';
 import { addRule, editRule, KINDS as RULE_KINDS, removeRule, ruleFile } from './rules.js';
-import { allQuestions, parseQuestions, SHAPES } from './ask.js';
+import { allQuestions, parseQuestions, questionSet, SHAPES } from './ask.js';
 import { installSkill, registerMcp, TARGET_NAMES, TARGETS } from './setup.js';
 import { createCloud, running, SCAN_TYPES, waitForRun } from './ci.js';
 import { createMeter, metered } from './meter.js';
@@ -51,7 +51,8 @@ const options = {
   min: ['--min P', `Only issues it is at least P percent sure of (default ${BELIEVED * 100}; --min 0 shows everything). On a rule, the floor for that one alone`, ['scan', 'issues', 'rules', 'coverage'],
     { coverage: `Only problems it is at least P percent sure of (default ${BELIEVED * 100}; --min 0 shows everything)` }],
   filter: ['--filter k=v', 'Only issues matching, e.g. type=security, kind=too big, severity=P1 (comma-separated)', ['scan', 'issues', 'coverage'],
-    { coverage: 'Only problems of these kinds, e.g. kind=survived,kind=redundant' }],
+    { scan: 'Ask only what can raise a matching issue, e.g. type=security, kind=off_by_one, rule=<name> (comma-separated); severity= asks everything',
+      coverage: 'Only problems of these kinds, e.g. kind=survived,kind=redundant' }],
   diff: ['--diff REF', 'Compare with the run saved at this branch or commit', ['coverage']],
   html: ['--html FILE', 'Where to write the HTML report (default coverage/index.html under --out)', ['coverage']],
   gate: ['--gate yes|no', 'Whether breaking this one fails a scan. Defaults to yes for a defect, a vulnerability or a rule', ['rules', 'cloud'],
@@ -69,6 +70,7 @@ const options = {
   except: ['--except W', 'A glob it spares', ['rules']],
   each: ['--each U', 'Ask about each file, method, or test rather than the file as a whole', ['rules']],
   sees: ['--sees S', 'What a file or test is shown besides itself: file, calls, callers, or neighbors', ['rules']],
+  context: ['--context PATH', 'A document shown beside each unit: a path from the root, or a name found from the unit up', ['rules']],
   type: ['--type T', `The shape of the answer: ${SHAPES.join(', ')} (default noul)`, ['rules']],
   ask: ['--ask TEXT', 'The question itself, in place of --ensure', ['rules']],
   true: ['--true TEXT', 'What a yes means, for --type noul', ['rules']],
@@ -92,7 +94,7 @@ const ALIASES = { findings: 'issues' };
 const commandHelp = {
   login: { args: '[organization-id]', summary: 'Sign in to Perch Cloud', detail: 'Shows a device code to confirm in your browser. Stores a private login outside the repository. In CI, set PERCH_API_KEY to a CI token from the dashboard, or let a GitHub Actions job sign in with its own OIDC token.' },
   logout: { args: '', summary: 'Remove this device’s cloud login', detail: 'Removes the saved login from this device. CI credentials are revoked separately in the dashboard.' },
-  scan: { args: '[target]', summary: 'Find issues', detail: `Scores every method with tree-sitter, then reads them with System One, callers and callees in view. Custom rules in ${RULES_FILE} and ${RULES_DIR}/ are asked in the same reading, so they cost nothing extra on a method perch was reading anyway.\n\nEvery run asks about every method in scope. Answers are cached by the endpoint rather than in .perch: Perch Cloud shares them across a repository's scans, locally and in CI. --force asks again and replaces what was cached.\n\ntarget is the file or directory to read, and defaults to where you are. Scans read the Git repository at HEAD. --paths and --since narrow the run, and --since origin/main is what CI wants. ignore in perch.yaml skips paths on a scan of the repository; a path you name is read anyway. Exits 3 on anything it found. Every type it asks about fails the run; scan_types in perch.yaml decides which those are, and defaults to defect and lint; --filter type=security asks about vulnerabilities. Questions go to Perch Cloud: sign in with perch login, or set PERCH_API_KEY to a CI token; a GitHub Actions job with id-token: write signs itself in. PERCH_BASE_URL sends them to another endpoint instead, with PERCH_API_KEY as its key. Defaults can be set in ~/.perch/config.toml.` },
+  scan: { args: '[target]', summary: 'Find issues', detail: `Scores every method with tree-sitter, then reads them with System One, callers and callees in view. Custom rules in ${RULES_FILE} and ${RULES_DIR}/ are asked in the same reading, so they cost nothing extra on a method perch was reading anyway.\n\nEvery run asks about every method in scope. Answers are cached by the endpoint rather than in .perch: Perch Cloud shares them across a repository's scans, locally and in CI. --force asks again and replaces what was cached.\n\ntarget is the file or directory to read, and defaults to where you are. Scans read the Git repository at HEAD. --paths and --since narrow the run, and --since origin/main is what CI wants. ignore in perch.yaml skips paths on a scan of the repository; a path you name is read anyway. Exits 3 on anything it found. Every type it asks about fails the run; scan_types in perch.yaml decides which those are, and defaults to defect and lint. --filter decides what is asked: type=security asks about vulnerabilities and nothing else, and kind= or rule= asks only the questions that raise it. A filtered run fails only on what it lists. Questions go to Perch Cloud: sign in with perch login, or set PERCH_API_KEY to a CI token; a GitHub Actions job with id-token: write signs itself in. PERCH_BASE_URL sends them to another endpoint instead, with PERCH_API_KEY as its key. Defaults can be set in ~/.perch/config.toml.` },
   coverage: { args: '[target]', summary: 'Test coverage, and which tests are worth keeping', detail: `Mutation testing that runs your tests. perch runs them itself, in a copy of the repository at the commit: once with per-test coverage, to know which tests run each line, then each mutant, a one-line edit off the syntax tree, against just those tests. A mutant a test fails on is caught. The model is asked only about the ones that survive: whether a caller could ever see the change. Lists the survivors that matter, the tests that catch nothing they run, and the tests that catch exactly what another catches. A percentage is how sure the model is that a survivor matters.\n\nIt runs pytest, with the Python on PATH, which needs pytest-cov, Vitest, Jest, Mocha, Jasmine, Karma, Cucumber and node:test from node_modules, cargo test, go test and dotnet test, and JUnit, TestNG, ScalaTest and MUnit on Gradle, Maven or sbt. A mutant's outcome is saved and reused while its code, its tests and what they run are unchanged; on a branch, --since runs only the mutants in code it changed. A repository whose tests it cannot run is an error that says what is missing.\n\n--since REF reports the problems in code the branch changed since REF. --diff REF compares with the run saved at REF. perch close <id> sets a problem aside.\n\ntarget is the file or directory to read, and defaults to where you are. --filter takes kind=, one of ${COVERAGE_KINDS.join(', ')}. Exits 3 when it lists a problem and 1 when it could not run. Asks Perch Cloud, the same way perch scan does. PERCH_BASE_URL sends it to another endpoint instead; PERCH_MODEL_ID selects the model.` },
   rules: { args: '[list | add <name> | edit <name> | remove <name>]', summary: `Change ${RULES_FILE} without opening it`, detail: `Custom rules are questions perch asks alongside its own, written in the same grammar as the ones it ships with in scan.yaml. perch scan asks them; this writes them, keeping comments and ordering.\n\nRules live in ${RULES_FILE} or in .yaml files under ${RULES_DIR}/. add writes to ${RULES_FILE} unless --file names a split file; edit and remove find the file a rule is in; list shows every file, or one file with --file.\n\nMost are a yes-or-no, so --ensure is usually the only flag needed. It covers what a parser can't: whether a comment says why, whether a test asserts what you claim.\n\n  perch rules add no-stale-docs --where "docs/**/*.md" --ensure_absent "docs for code that was deleted"\n\nAn answer that is not yes-or-no is written out: --ask with --type and the options or levels it offers, and --issue for what an answer means. --when names a question this one is only as likely as.\n\n  perch rules add handles_absence --type choice --each method --where "src/**/*.js" \\\n    --ask "How does this method handle a value that is missing?" \\\n    --options "checks=It checks for it; ignores=It carries on with the missing value" \\\n    --issue "type=defect,label=handles_absence,except=checks"` },
   issues: { args: '[issue-id]', summary: 'List what the scan found, or show one', detail: 'Worst first. --filter narrows the list, --types prints what it accepts, --closed includes closed ones, --all lists every row. Give it an id to see everything known about that method. perch findings does the same thing.' },
@@ -151,7 +153,7 @@ ${column(own.map(([flag, text, , differs]) => [flag, differs?.[name] ?? text]))}
 export const EXIT = { clean: 0, broke: 1, usage: 2, found: 3 };
 
 const valued = new Set(['paths', 'parallel', 'min', 'filter', 'diff', 'html', 'out', 'reason', 'kind', 'limit', 'page', 'since', 'rules',
-  'ensure', 'ensure_present', 'ensure_absent', 'where', 'except', 'each', 'sees', 'type', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', 'gate', 'file',
+  'ensure', 'ensure_present', 'ensure_absent', 'where', 'except', 'each', 'sees', 'context', 'type', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', 'gate', 'file',
   'pull_requests', 'scan_types', 'scope']);
 const switches = new Set(['force', 'all', 'json', 'verbose', 'closed', 'types', 'wait', 'help', 'version', 'include-tests', 'include-files']);
 
@@ -418,7 +420,7 @@ function yesOrNo(flag, value) {
 }
 
 function ruleFrom(flags) {
-  const written = Object.fromEntries(['type', 'where', 'except', 'each', 'sees', 'when', 'ask', 'true', 'false', ...RULE_KINDS]
+  const written = Object.fromEntries(['type', 'where', 'except', 'each', 'sees', 'context', 'when', 'ask', 'true', 'false', ...RULE_KINDS]
     .filter(key => flags[key] !== undefined).map(key => [key, flags[key]]));
   // A floor of zero is no floor, so it comes off the rule rather than sitting there as a number that does nothing.
   if (flags.min !== undefined) { const min = threshold(flags.min); written.min = min === 0 ? null : min; }
@@ -444,7 +446,7 @@ async function manageRules(io, action, name) {
     const only = io.flags.file === undefined ? null : ruleFile(io.flags.file);
     const all = [...allQuestions()].filter(rule => !only || own.get(rule.name) === only).sort((a, b) => Number(own.has(b.name)) - Number(own.has(a.name)));
     print(io, all.map(rule => ({ name: rule.name, from: own.get(rule.name) ?? 'perch', disabled: Boolean(rule.disabled),
-      type: rule.type, kind: rule.kind, where: rule.where, each: rule.each, sees: rule.sees, except: rule.except ?? null,
+      type: rule.type, kind: rule.kind, where: rule.where, each: rule.each, sees: rule.sees, context: rule.context ?? null, except: rule.except ?? null,
       when: rule.when ?? null, text: rule.text ?? rule.ask })), formatRules(all, { own }));
     return EXIT.clean;
   }
@@ -520,7 +522,7 @@ const commands = {
     let run, lastProgress = { completed: 0, total: 0 };
     try {
       run = await scanRepository({ root: resolved.root, revision, label: resolved.label, github: resolved.github, out: resolved.out,
-        systemOne, analyzer: createSourceAnalyzer(), paths, named: [resolved.scope, ...parsePaths(io.flags)].filter(Boolean), parallel, min, filters,
+        systemOne, analyzer: createSourceAnalyzer(), since: io.flags.since ?? null, paths, named: [resolved.scope, ...parsePaths(io.flags)].filter(Boolean), parallel, min, filters,
         includeTests: Boolean(io.flags['include-tests']), includeFiles: Boolean(io.flags['include-files']),
         onFinding: finding => stream?.add(reportFindings(visibleFindings([finding]), min)),
         onProgress: value => { lastProgress = value; stream?.progress(value); },
@@ -563,8 +565,8 @@ const commands = {
     const unanswered = (run.failed ?? []).filter(result => result.incomplete !== true && !result.oversize);
     if (unanswered.length) io.note(`${unanswered.length} could not be read after retries, so this scan did not finish; perch doctor lists them`);
     // Otherwise the scan passes when nothing it gates on came back. Which questions those are is on the questions, so a defect and
-    // a vulnerability count the same as a rule you wrote.
-    const exit = unanswered.length ? EXIT.broke : gating(issues, min).length ? EXIT.found : EXIT.clean;
+    // a vulnerability count the same as a rule you wrote. A filtered run fails only on the issues it lists.
+    const exit = unanswered.length ? EXIT.broke : gating(issues, min, questionSet(), filters).length ? EXIT.found : EXIT.clean;
     if (stream) {
       // File rules finish after method readings; add any issues not already sent before publishing the scan.
       stream.add(reportFindings(everything, min));

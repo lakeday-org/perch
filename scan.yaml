@@ -10,13 +10,10 @@
 - name: has_bug
   each: method
   where: "**/*"
-  ask: Does `method` contain a concrete behavioral defect that a caller can reach?
-  "true": >
-    For some input a caller can pass, the method returns a wrong result, leaves wrong state, throws
-    when it should not, or fails to throw when it should
-  "false": >
-    The method behaves correctly for every input its callers can pass; style, performance, and
-    hypothetical misuse do not count. A helper is judged by what its shown callers pass it
+  ask: Does `method` contain a functional bug?
+  "true": A supported input or operation produces an incorrect result, incorrect
+    state, failed operation or false success in the current `method`.
+  "false": The current `method` handles its supported inputs and operations correctly.
   issue:
     type: defect
     label: kind
@@ -25,9 +22,11 @@
 - name: bug_edge_case
   each: method
   where: "**/*"
-  ask: Does `method` produce a wrong result for a valid empty, zero, first, last, or missing input?
-  "true": One of these inputs produces an incorrect result or failure, and a shown caller can pass it or it arrives from outside the program.
-  "false": These inputs produce the intended results and errors, or no shown caller can pass them.
+  ask: Does `method` mishandle a supported empty value, boundary value or alternate
+    branch?
+  "true": An empty, missing, zero, boundary or alternate-path input that the code
+    accepts produces an incorrect result or operation.
+  "false": The accepted boundary values and alternate paths produce the required result.
   issue:
     type: defect
     label: kind
@@ -48,6 +47,7 @@
     resource_leak: A handle, lock, timer, process, or connection is not released on some path
     wrong_lookup: A lookup or match finds the wrong entry, such as an inherited key, the wrong scope, or a partial match
     inverted_condition: A condition, sign, or boolean is the wrong way round
+    other: A defect that none of the kinds above describes
 - name: severity
   type: score
   each: method

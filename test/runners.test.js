@@ -1,14 +1,15 @@
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { exec, executedBy, testOf } from '../src/runners/pytest.js';
+import { available, exec, executedBy, session, testOf } from '../src/runners/pytest.js';
 import { sandboxKind } from '../src/runners/sandbox.js';
 import { startDriver } from '../src/runners/driver.js';
 import { startWorkers, WORKER_IO } from '../src/runners/workers.js';
 
 const cleanups = [];
+const pytest = await available({ root: tmpdir() });
 afterEach(async () => { for (const path of cleanups.splice(0)) await rm(path, { recursive: true, force: true }); });
 
 describe('a test run perch starts', () => {
@@ -181,4 +182,33 @@ describe('the pytest runner', () => {
       ['tests/test_calc.py::test_small', [['shop/calc.py', [2, 4]]]],
     ]);
   });
+
+  it.skipIf(!pytest.python)('finds the mutated code without touching lazily loaded modules or objects', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'perch-lazy-'));
+    cleanups.push(dir);
+    const copy = { dir: join(dir, 'copy'), scratch: join(dir, 'scratch') };
+    await mkdir(join(copy.dir, 'shop'), { recursive: true });
+    await mkdir(join(copy.dir, 'tests'));
+    await mkdir(copy.scratch);
+    await writeFile(join(copy.dir, 'shop', '__init__.py'), '');
+    await writeFile(join(copy.dir, 'shop', 'calc.py'), 'def add(a, b):\n    return a + b\n');
+    await writeFile(join(copy.dir, 'tests', 'test_calc.py'), 'from shop.calc import add\n\n\ndef test_add():\n    assert add(2, 3) == 5\n');
+    // A module in sys.modules and an object in memory that import on any attribute they lack, as a PEP 562 `__getattr__` or a
+    // six.moves-style proxy does, and fail to: prefect's lazy tkinter import did this in an image without libtk.
+    await writeFile(join(copy.dir, 'conftest.py'), [
+      'import sys', 'import types', '', '',
+      'def missing(name):', "    raise ImportError('libtk8.6.so: cannot open shared object file')", '', '',
+      "lazy = types.ModuleType('lazy_tk')", 'lazy.__getattr__ = missing', "sys.modules['lazy_tk'] = lazy", '', '',
+      'class LazyProxy:', '    def __getattr__(self, name):', '        missing(name)', '', '',
+      'PROXY = LazyProxy()', '',
+    ].join('\n'));
+    await writeFile(join(copy.dir, 'pytest.ini'), '[pytest]\ntestpaths = tests\n');
+    const server = await session({ copies: [copy], tool: pytest, parallel: 1 });
+    try {
+      const result = await server.run({ path: 'shop/calc.py', source: Buffer.from('def add(a, b):\n    return a - b\n'), method: { node: { qualified_name: 'add', line: 1 } },
+        mutant: { statements: [2] }, nodes: ['tests/test_calc.py::test_add'], timeout: 30000 });
+      expect(result.status).toBe('ran');
+      expect([...result.results.values()]).toEqual([{ test: 'tests/test_calc.py::test_add', status: 'failed' }]);
+    } finally { await server.close(); }
+  }, 60000);
 });

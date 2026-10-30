@@ -6,11 +6,11 @@ import { createSourceAnalyzer } from '../src/analysis.js';
 import { checkTarget } from '../src/check.js';
 import { scanRepository } from '../src/scan.js';
 import { methodStep, methodSteps } from '../src/questions.js';
-import { commitAll, makeGraphFixture, scriptedSystemOne } from './helpers.js';
+import { commitAll, makeGraphFixture, removeDir, scriptedSystemOne } from './helpers.js';
 
 const analyzer = createSourceAnalyzer();
 const cleanups = [];
-afterEach(async () => { for (const dir of cleanups.splice(0)) await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const dir of cleanups.splice(0)) await removeDir(dir); });
 
 /** Every state a run asked a method question over, by method, as the text an endpoint would cache its answers under. */
 const methodStates = systemOne => new Map(systemOne.calls.filter(call => call.state.method).map(call => [call.method, JSON.stringify(call.state)]));

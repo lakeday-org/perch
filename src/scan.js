@@ -11,10 +11,11 @@ import { AuthenticationError } from './systemone.js';
 import { attributeRules, createFileSelector, declaredGenerated, generatedText } from './exclusions.js';
 import { buildGraph } from './graph.js';
 import { createLineReader, methodNeighbours } from './context.js';
-import { appliesToLanguage, CORRECTNESS, floorFor, DEFAULT_TYPES, questionSet, questionsFor, SEARCHES } from './ask.js';
-import { issuesOf, label as kindLabel, methodSteps, readAnswers } from './questions.js';
-import { asRules, askUnits, matches, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL, unitHash } from './units.js';
-import { findingId, identity, openStore } from './store.js';
+import { createChangeReader } from './change-context.js';
+import { appliesToLanguage, CORRECTNESS, floorFor, DEFAULT_TYPES, narrows, questionSet, questionsFor, SEARCHES, setHash } from './ask.js';
+import { changeSteps, issuesOf, label as kindLabel, methodSteps, readAnswers } from './questions.js';
+import { asRules, askUnits, contextStands, matches, mayBeContext, readIgnored, readRules, readScanTypes, RULES_FILE, rulesForMethod, searchUnits, selectUnits, UNIT_PARALLEL, unitHash } from './units.js';
+import { closureOf, findingId, identity, openStore } from './store.js';
 import { TOKEN_LIMITS, IncompleteCheckError, withTokenRetries } from './tokens.js';
 export { findingId };
 
@@ -48,23 +49,33 @@ export function mergeAnswers(readings, questions = questionSet().filter(question
   return merged;
 }
 
-/** One System One reading of a method, in as many passes as its length takes. */
+/**
+ * One System One reading of a method, in as many passes as its length takes. On `--since` a method can have two readings, the
+ * diff and the ordinary one, asking different questions: each merges its own passes, and together they hold every answer.
+ */
 export async function questionMethod({ systemOne, node, step, steps = [step], rules = [], debug = () => {}, prepare }) {
   return withTokenRetries(async budget => {
     if (budget < (systemOne.limits?.state ?? TOKEN_LIMITS.state) && !prepare) throw new IncompleteCheckError('source cannot be rebuilt for a smaller token budget');
     const active = steps?.[0] && budget === (systemOne.limits?.state ?? TOKEN_LIMITS.state) ? steps : prepare ? prepare(budget) : steps;
     debug(`asking ${systemOne.id} about ${node.qualified_name} in ${node.path}:${node.line} (${Object.keys(active[0].questions).length} questions${active.length > 1 ? ` over ${active.length} passes` : ''})`);
-    const readings = [];
+    const readings = new Map(), usage = { input_tokens: 0, output_tokens: 0 };
     let response;
     for (const pass of active) {
       response = await systemOne.ask(pass.state, pass.questions);
-      readings.push(readAnswers(response.answers, pass));
+      usage.input_tokens += response.usage?.input_tokens ?? 0;
+      usage.output_tokens += response.usage?.output_tokens ?? 0;
+      const set = setHash(pass.asked);
+      readings.set(set, [...(readings.get(set) ?? []), { pass, answers: readAnswers(response.answers, pass) }]);
     }
-    const answers = mergeAnswers(readings, [...questionSet().filter(question => question.each === 'method' && !question.kind), ...rules]);
+    const questions = [...questionSet().filter(question => question.each === 'method' && !question.kind), ...rules];
+    const answers = Object.assign({}, ...[...readings.values()].map(passes => mergeAnswers(passes.map(item => item.answers), questions)));
+    const asked = [...new Map(active.flatMap(pass => pass.asked).map(question => [question.name, question])).values()];
+    answers.answers_set = setHash(asked);
+    answers.answer_hashes = Object.fromEntries(asked.map(question => [question.name, question.hash]));
     // A partial source reading must remain visible instead of looking like a complete method check.
-    const to = active.at(-1).covers.end_line;
+    const to = Math.min(...[...readings.values()].map(passes => passes.at(-1).pass.covers.end_line));
     if (to < node.end_line) answers.read = { passes: active.length, to_line: to, of_line: node.end_line };
-    return { response, answers };
+    return { response: { ...response, usage }, answers };
   }, systemOne.limits?.state);
 }
 
@@ -93,15 +104,16 @@ export const covers = (paths = []) => path => !paths.length || paths.some(item =
 
 /**
  * The order methods are read in: riskiest neighbor first off the stack, then the next riskiest method overall. An id from the
- * scan or from the model is taken only when it names a node the graph actually has, is not a test, and is in scope. A neighbor
- * outside scope is in view as context for the method that names it, and is not itself read: what a run covers is what it covers.
+ * scan or from the model is taken only when it names a node the graph actually has, is not a test, and `reads` takes its id. A
+ * neighbor it does not take is in view as context for the method that names it, and is not itself read: what a run covers is
+ * what it covers.
  */
-const createWalk = (graph, candidates, inScope = () => true) => {
+const createWalk = (graph, candidates, reads = () => true) => {
   const score = id => graph.nodes.get(id)?.metrics?.risk_score ?? 0;
   const visited = new Set(), stack = [], ranked = candidates.map(candidate => candidate.id);
   const enqueue = ids => {
     const valid = ids.filter(id => typeof id === 'string' && graph.nodes.has(id) && !visited.has(id)
-      && !graph.nodes.get(id).test && inScope(graph.nodes.get(id).path));
+      && !graph.nodes.get(id).test && reads(id));
     stack.push(...valid.sort((a, b) => score(a) - score(b)));
   };
   const next = () => {
@@ -127,9 +139,9 @@ const createWalk = (graph, candidates, inScope = () => true) => {
  * reads: a number that stops partway through leaves a report that looks complete and is not.
  */
 /**
- * perch's own questions for a method, narrowed to its language and to the issue types this run asks about. A question raising
- * no issue comes along only when a kept one needs it, the way `kind` names a defect and `severity` ranks it. `perch check` asks
- * the same set, so a scan and a check of one method agree about what was asked.
+ * perch's own questions for a method, narrowed to its language and, when given, the issue types this run asks about. A question
+ * raising no issue comes along only when a kept one needs it, the way `kind` names a defect and `severity` ranks it. `perch check`
+ * asks the same set, so a scan and a check of one method agree about what was asked.
  */
 /** Questions about what a method's name and leading comment claim. A top-level unit has neither, so it is not asked them. */
 const ABOUT_A_NAME = new Set(['does_what_it_claims', 'documented']);
@@ -137,7 +149,37 @@ const ABOUT_A_NAME = new Set(['does_what_it_claims', 'documented']);
 export const methodQuestions = (kinds, language, { topLevel = false } = {}) => questionsFor(
   questionSet().filter(question => question.each === 'method' && !question.kind && appliesToLanguage(question, language)
     && !(topLevel && ABOUT_A_NAME.has(question.name))),
-  [...kinds].map(value => ({ key: 'type', value })));
+  kinds ? [...kinds].map(value => ({ key: 'type', value })) : []);
+
+/**
+ * How `--since` splits what a method a hunk touched is asked. perch's own defect questions, with the kind that names a defect and
+ * the severity that ranks it, are asked over the diff. Custom rules and any other type the run asks keep the ordinary reading,
+ * with callers and callees. The two ask nothing in common. A method no hunk touched is not read at all, and without a change
+ * there is no diff to ask the bug questions over.
+ */
+export function sinceQuestions(asked, changed) {
+  const bugs = questionsFor(asked.filter(question => !question.kind), [{ key: 'type', value: 'defect' }]);
+  const rest = asked.filter(question => question.kind || question.issue?.type !== 'defect');
+  // What the rest raises, with what that needs: a vulnerability is ranked by severity too.
+  const types = [...new Set(rest.filter(question => question.issue).map(question => question.issue.type))];
+  const ordinary = types.length ? questionsFor(rest, types.map(value => ({ key: 'type', value }))) : [];
+  const diff = changed ? bugs : [];
+  return { diff, ordinary: ordinary.filter(question => !diff.some(other => other.name === question.name)) };
+}
+
+/** The row's own fields, apart from answers whose question may no longer exist. */
+const READING_FIELDS = new Set(['type', 'at', 'id', 'run_id', 'root', 'github', 'revision', 'method', 'path', 'name', 'line', 'end_line', 'hash', 'risk', 'model', 'callees', 'callers', 'passes', 'read']);
+
+/** Only an unchanged question still covering this method can keep an earlier answer. Legacy rows cannot establish that. */
+const carryAnswers = (before, questions) => {
+  const kept = questions.filter(question => before.answer_hashes?.[question.name] === question.hash && before[question.name] !== undefined);
+  return {
+    ...Object.fromEntries(Object.entries(before).filter(([key]) => READING_FIELDS.has(key))),
+    answers_set: setHash(kept),
+    answer_hashes: Object.fromEntries(kept.map(question => [question.name, question.hash])),
+    ...Object.fromEntries(kept.map(question => [question.name, before[question.name]])),
+  };
+};
 
 /**
  * The issue types a scan asks about. `scan_types` in `perch.yaml` decides; omitted, it is defects and rules.
@@ -158,16 +200,19 @@ export const typesAsked = (scanTypes, filters = [], questions = questionSet()) =
   ]);
 };
 
-export async function scanRepository({ root, revision, out, analyzer, systemOne, label = root, github = null, paths = [], named = [], parallel = DEFAULT_PARALLEL, includeTests = false, includeFiles = false,
+export async function scanRepository({ root, revision, out, analyzer, systemOne, label = root, github = null, since = null, paths = [], named = [], parallel = DEFAULT_PARALLEL, includeTests = false, includeFiles = false,
   unitParallel = UNIT_PARALLEL, min = 0.5, filters = [], onFile = () => {}, onFinding = () => {}, onProgress = () => {}, progress = () => {}, unitProgress = () => {}, searchProgress = () => {}, scanProgress = () => {}, log = () => {}, debug = () => {} }) {
   const store = openStore(out);
   // The whole tree is parsed however narrow the run is. Parsing is free next to a request, and a method's callers matter whether
   // or not they are in the diff: a graph cut down to what a branch touched cannot say who calls into it.
   const scan = await analyzeTree({ root, revision, out, analyzer, label, github, includeFiles, filePaths: paths, progress: scanProgress, log, debug });
-  const graph = buildGraph(scan.files, { crates: scan.crates, modules: scan.modules });
+  // A narrowed run reads only the methods it covers, so its graph places only the calls into, out of and around them.
+  const graph = buildGraph(scan.files, { crates: scan.crates, modules: scan.modules, focus: paths.length ? covers(paths) : null });
+  const changeOf = since ? await createChangeReader(root, since, revision) : async () => null;
   const rules = asRules(await readRules(root, revision));
-  // Which issue types this run asks about, and so which of perch's own questions ride in every request.
-  const kinds = typesAsked(await readScanTypes(root, revision), filters);
+  // Which issue types this run asks about, and so which of perch's own questions ride in every request. A filter of types, kinds
+  // and rules then asks only the questions that can raise what it lists; any other filter asks the whole set.
+  const kinds = typesAsked(await readScanTypes(root, revision), filters), narrowed = narrows(filters);
   // --since and --paths say what this run reads, not what perch knows. A method outside is neither read nor reported here, and
   // what the last run said about it is carried onto the file at the end rather than dropped.
   // What perch.yaml says not to read at all, on top of what this run was asked to cover. A fixture kept so the docs can show real
@@ -180,11 +225,16 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   const covered = covers(paths);
   const ignores = path => ignored.some(glob => matches(glob, path));
   const inScope = path => covered(path) && !ignores(path);
+  // --since reads the methods a hunk touched, not every method in a file the branch changed. The rest of the file is still in view
+  // as callers and callees, and keeps what the last run said about it.
+  const touched = since ? new Set((await Promise.all([...graph.nodes.values()].filter(node => covered(node.path))
+    .map(async node => await changeOf(node) ? node.id : null))).filter(Boolean)) : null;
+  const changed = id => !touched || touched.has(id), changedUnit = unit => changed(unit.id);
   const ranked = includeTests ? [...graph.nodes.values()].map(node => ({ id: node.id, score: node.metrics?.risk_score ?? 0 }))
     .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id)) : scan.candidates;
-  const candidates = ranked.filter(candidate => graph.nodes.has(candidate.id) && inScope(graph.nodes.get(candidate.id).path));
+  const candidates = ranked.filter(candidate => graph.nodes.has(candidate.id) && inScope(graph.nodes.get(candidate.id).path) && changed(candidate.id));
   // How many methods the run was asked about that ignore took out, so a run left with none can say why rather than call it clean.
-  const excluded = ranked.filter(candidate => graph.nodes.has(candidate.id) && covered(graph.nodes.get(candidate.id).path)).length - candidates.length;
+  const excluded = ranked.filter(candidate => graph.nodes.has(candidate.id) && covered(graph.nodes.get(candidate.id).path) && changed(candidate.id)).length - candidates.length;
   // No methods in scope is an ordinary run, not a failure: a branch that only touched markdown and a workflow has none, and the
   // rules about files still cover what it did touch. Erroring here failed the run and skipped those rules as well.
   const candidateIds = candidates.map(candidate => candidate.id);
@@ -224,7 +274,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
   };
   const missing = new Map();
 
-  const linesOf = createLineReader(root, graph), walk = createWalk(graph, candidates, inScope);
+  const linesOf = createLineReader(root, graph), walk = createWalk(graph, candidates, id => inScope(graph.nodes.get(id).path) && changed(id));
   const askedByMethod = new Map();
   const stepFor = async nodeId => {
     const node = graph.nodes.get(nodeId);
@@ -233,12 +283,17 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // not six.
     // A filter narrows what is asked, not just what is printed. Asking thirty questions about a method to print two is paying
     // for twenty-eight answers nobody reads, and a method no kept question covers is not read at all.
+    // On --since, the bug questions are asked over the diff; the rest keep this reading.
     const asked = questionsFor([...methodQuestions(kinds, node.language, { topLevel: Boolean(node.lines) }), ...rulesForMethod(rules, node)], filters, kindLabel);
-    askedByMethod.set(node.id, asked);
-    const own = asked.filter(question => question.kind);
-    if (!asked.length) return { node, calleeIds, callerIds, rules: own, skip: true };
+    const change = since ? await changeOf(node) : null;
+    const { diff, ordinary } = since ? sinceQuestions(asked, Boolean(change)) : { diff: [], ordinary: asked };
+    askedByMethod.set(node.id, [...diff, ...ordinary]);
+    const own = ordinary.filter(question => question.kind);
+    if (!diff.length && !ordinary.length) return { node, calleeIds, callerIds, rules: own, skip: true };
     const lines = await linesOf(node);
-    const prepare = budget => methodSteps({ node, lines, callees, callers, edges, asked, budget });
+    const tokenLimits = systemOne.limits;
+    const prepare = budget => [...(diff.length ? changeSteps({ node, lines, change, asked: diff, budget, tokenLimits }) : []),
+      ...(ordinary.length ? methodSteps({ node, lines, callees, callers, edges, asked: ordinary, budget, tokenLimits }) : [])];
     const steps = prepare(systemOne.limits?.state);
     return { node, calleeIds, callerIds, rules: own, steps, prepare };
   };
@@ -254,13 +309,18 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     for (const { node, calleeIds, callerIds, rules: own, response, answers, skipped } of results) {
       // A filter narrows which questions are asked, not which code the run is about, so what it did not ask about is what the
       // last run said rather than nothing at all. Rewriting the file whole with only the answers this run happened to want threw
-      // away every other answer on the same method.
-      const before = filters.length ? earlier.get(node.id) : null;
+      // away every other answer on the same method. Only unchanged questions still covering it can keep those answers. A filter
+      // that asks the whole set, such as a severity, writes the row an unfiltered run would. An answer about code that has since
+      // changed is not carried onto a reading of the new code, where it would look like an answer about it.
+      const applicable = [...methodQuestions(null, node.language, { topLevel: Boolean(node.lines) }), ...rulesForMethod(rules, node)];
+      const previous = narrowed ? earlier.get(node.id) : null;
+      const before = previous && (skipped || previous.hash === node.hash) ? carryAnswers(previous, applicable) : null;
       if (skipped) { run.skipped++; if (before) read.push(before); continue; }
       run.calls++;
       run.usage.input_tokens += response?.usage?.input_tokens ?? 0; run.usage.output_tokens += response?.usage?.output_tokens ?? 0;
       const fresh = readEvent({ node, answers, response, runId: id, root, github, revision, calleeIds, callerIds });
-      const event = before ? { ...before, ...fresh } : fresh;
+      const event = before ? { ...before, ...fresh, answer_hashes: { ...before.answer_hashes, ...fresh.answer_hashes } } : fresh;
+      event.answers_set = setHash(applicable.filter(question => event.answer_hashes[question.name] === question.hash));
       read.push(event); run.visited.push({ ...event, status: 'read' });
       onFinding(withClosure(event));
       finish(node.path, event);
@@ -269,7 +329,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
       // keeps its own tally, which is what the exit code and the summary read.
       for (const rule of own) {
         const failed = 1 - (event[rule.name] ?? 1);
-        if (failed > floorFor(rule, min) && !setAside(findingId(node.id), rule.name)) run.broken.push({ rule: rule.name, path: node.path, name: node.qualified_name, line: node.line, broken: failed, said: rule.text });
+        if (failed > floorFor(rule, min, event.model) && !setAside(findingId(node.id), rule.name)) run.broken.push({ rule: rule.name, path: node.path, name: node.qualified_name, line: node.line, broken: failed, said: rule.text });
       }
       const follow = event.follow?.method;
       walk.enqueue([...calleeIds, ...callerIds].filter(other => other !== follow));
@@ -294,12 +354,12 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // end, and neither the methods nor the rules about files wait on the other. Waiting for the last method only made a run the
     // length of both. The tree is only read when a file rule or a search is in the set; all rules, not the filtered ones, since a
     // rule filtered out is still counted in coverage, and counting a file rule's units needs the tree.
-    const files = new Map();
+    const files = new Map(), documents = new Map();
     let tree = [], eligible = () => false;
     const kept = new Set(questionsFor(rules, filters, kindLabel).map(rule => rule.name));
     const asking = rules.filter(rule => kept.has(rule.name));
     const checking = (async () => {
-      if (rules.some(rule => SEARCHES(rule.kind) || rule.each !== 'method')) {
+      if (rules.some(rule => SEARCHES(rule.kind) || rule.each !== 'method' || rule.context)) {
         for (const file of scan.files) files.set(file.path, (await linesOf({ id: file.path, path: file.path })).join('\n'));
         tree = await listTree(root, revision);
         const attributes = await attributeRules(tree, item => readBlob(root, item.sha).catch(() => ''));
@@ -312,13 +372,19 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
           else files.set(item.path, text);
         }
         eligible = item => selector(item) && !generated.has(item.path);
+        // A rule's document is read from the revision as the code is, wherever it sits: it can live beside the rules, where no
+        // rule reads it as a file of its own.
+        for (const item of tree) if (mayBeContext(rules, item.path)) documents.set(item.path, files.get(item.path) ?? await readBlob(root, item.sha));
       }
       // What is left is every rule that is not about a method, and every claim about the codebase rather than about one file. The
       // source they are asked about comes from the revision, not from disk, so a finding is still about a commit.
-      const over = { scan, graph, files, tree, eligible, revision, systemOne: gated, inScope, min, debug };
+      const over = { scan, graph, files, documents, tree, eligible, revision, systemOne: gated, inScope, changed: changedUnit, ignores, min, debug };
+      // Asked of each unit: rules about files and tests, method rules shown a document, and absent rules. Any other method rule
+      // rides in the method's own reading, and a present rule stops at the first unit that has the thing.
+      const eachUnit = rule => rule.kind === 'ensure_absent' || !SEARCHES(rule.kind) && (rule.each !== 'method' || Boolean(rule.context));
       return Promise.all([
-        askUnits({ ...over, rules: asking.filter(rule => !SEARCHES(rule.kind) && rule.each !== 'method'), parallel: unitParallel, progress: unitProgress }),
-        searchUnits({ ...over, rules: asking.filter(rule => SEARCHES(rule.kind)), parallel: unitParallel, progress: searchProgress }),
+        askUnits({ ...over, rules: asking.filter(eachUnit), parallel: unitParallel, progress: unitProgress }),
+        searchUnits({ ...over, rules: asking.filter(rule => rule.kind === 'ensure_present'), parallel: unitParallel, progress: searchProgress }),
       ]);
     })();
 
@@ -393,7 +459,7 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // or broken, since a pass is what lets the next run skip asking it; only the broken ones are anything to report.
     broken.push(...units.results, ...searches.results);
     run.broken.push(...[...units.results, ...searches.results]
-      .filter(result => result.broken > floorFor(rules.find(rule => rule.name === result.rule), min) && !setAside(result.id, result.rule)));
+      .filter(result => result.broken > floorFor(rules.find(rule => rule.name === result.rule), min, result.model) && !closureOf(dismissals, result)?.kinds.has(result.rule)));
     // Every question the run asked, yours and perch's alike. A question perch ships can cover nothing and raise nothing for the
     // same reasons one you wrote can, and a report of a run that names only half of what it asked is half a report.
     const raised = new Map();
@@ -408,9 +474,9 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
         name: rule.name,
         from: RULES_FILE,
         where: rule.where,
-        units: rule.each === 'method' && !SEARCHES(rule.kind)
+        units: rule.each === 'method' && !SEARCHES(rule.kind) && !rule.context
           ? candidates.filter(candidate => rulesForMethod([rule], graph.nodes.get(candidate.id)).length).length
-          : selectUnits(rule, { scan, graph, files, tree, eligible, inScope }).length,
+          : selectUnits(rule, { scan, graph, files, tree, eligible, inScope, changed: changedUnit, ignores }).length,
         broken: run.broken.filter(finding => finding.rule === rule.name).length,
       })),
     ];
@@ -426,12 +492,14 @@ export async function scanRepository({ root, revision, out, analyzer, systemOne,
     // Rule checks are carried the same way, and only while the rule that produced one is still that rule. A rule reworded,
     // reshaped or deleted since leaves a check describing a question that no longer exists. The unit has to be the same too: a
     // test deleted or moved, a file removed, or a comment rewritten leaves a check about text this tree does not hold, and so does
-    // a unit ignore now covers. A search that found nothing is about the rule and not a unit, so it stands on the rule alone.
+    // a unit ignore now covers. A search that found nothing is about the rule and not a unit, so it stands on the rule alone. A
+    // check answered beside a document stands only while that document does.
     const said = new Set(broken.map(check => check.id));
     const byName = new Map(rules.map(rule => [rule.name, rule]));
     const blobs = new Map(tree.map(item => [item.path, item.sha]));
     const unasked = [...checks.values()].filter(check => !said.has(check.id) && byName.get(check.rule)?.hash === check.rule_hash
-      && (String(check.unit).startsWith('search:') || !ignores(check.path) && unitHash(check, { graph, files, blobs }) === check.hash));
+      && (String(check.unit).startsWith('search:') || !ignores(check.path) && unitHash(check, { graph, files, blobs }) === check.hash)
+      && contextStands(byName.get(check.rule), check, blobs));
     await store.recordScan([...read, ...elsewhere, ...broken, ...unasked]);
     run.remaining = walk.remaining(); run.status = run.incomplete.length ? 'incomplete' : 'complete'; run.completed_at = new Date().toISOString();
     await saveRun(true); await store.prune('runs', id).catch(error => log(`Could not remove earlier runs: ${error.message}`)); return run;

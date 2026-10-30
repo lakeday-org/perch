@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { AuthenticationError, createSystemOne } from '../src/systemone.js';
 import { createMeter } from '../src/meter.js';
 import { configuredSystemOne, FIRST_QUESTIONS } from '../src/cloud-client.js';
+import { DECISIONS_TOKENS, JEV_TOKENS, tokenLimitsFor } from '../src/tokens.js';
 import { runChecks } from '../src/checks.js';
 
 const reply = (status, body, headers = {}) => ({ status, ok: status < 400, headers: { get: name => headers[name] }, json: async () => body, text: async () => JSON.stringify(body) });
@@ -210,6 +211,30 @@ describe("OpenAI's Decisions API", () => {
     expect(answers.kind.probabilities.wrong_return).toBeCloseTo(0.25);
   });
 
+  it('takes none_of_these as other on a choice that has other, rather than guessing another option', async () => {
+    const client = createSystemOne({ apiKey: 'sk', baseUrl: url, fetchImpl: async () => reply(200, { model: 'gpt-6-luna', answers: [{ type: 'choice', name: 'kind', choice: 'none_of_these',
+      probabilities: [{ value: 'boundary', probability: 0.15 }, { value: 'other', probability: 0.05 }, { value: 'none_of_these', probability: 0.8 }], confidence: 0.8 }] }) });
+    const { answers } = await client.ask({}, { kind: { type: 'choice', instructions: 'Which kind?', criteria: { boundary: 'Off by one', other: 'None of the above' } } });
+    expect(answers.kind.choice).toBe('other');
+    expect(answers.kind.probabilities.other).toBeCloseTo(0.85);
+    expect(answers.kind.probabilities.boundary).toBeCloseTo(0.15);
+  });
+
+  it('spreads a share given only to none_of_these evenly over the options asked about', async () => {
+    const client = createSystemOne({ apiKey: 'sk', baseUrl: url, fetchImpl: async () => reply(200, { model: 'gpt-6-luna', answers: [{ type: 'choice', name: 'kind', choice: 'none_of_these',
+      probabilities: [{ value: 'none_of_these', probability: 1 }], confidence: 1 }] }) });
+    const { answers } = await client.ask({}, { kind: { type: 'choice', instructions: 'Which kind?', criteria: { boundary: 'Off by one', wrong_return: 'Wrong value' } } });
+    expect(answers.kind.choice).toBe('boundary');
+    expect(answers.kind.probabilities).toEqual({ boundary: 0.5, wrong_return: 0.5 });
+  });
+
+  it('reads a pick named like a built-in property as no option asked about', async () => {
+    const client = createSystemOne({ apiKey: 'sk', baseUrl: url, fetchImpl: async () => reply(200, { model: 'gpt-6-luna', answers: [{ type: 'choice', name: 'kind', choice: 'toString',
+      probabilities: [{ value: 'boundary', probability: 0.3 }, { value: 'wrong_return', probability: 0.7 }], confidence: 0.7 }] }) });
+    const { answers } = await client.ask({}, { kind: { type: 'choice', instructions: 'Which kind?', criteria: { boundary: 'Off by one', wrong_return: 'Wrong value' } } });
+    expect(answers.kind.choice).toBe('wrong_return');
+  });
+
   it('fails a reading the model declined, naming the question', async () => {
     const client = createSystemOne({ apiKey: 'sk', baseUrl: url,
       fetchImpl: async () => reply(200, { model: 'gpt-6-luna', answers: [{ type: 'choice', name: 'has_bug', choice: 'false', probabilities: [{ value: 'true', probability: 0.4 }, { value: 'false', probability: 0.6 }] }, { type: 'refusal', name: 'kind' }] }) });
@@ -241,5 +266,40 @@ describe("OpenAI's Decisions API", () => {
     meter.add('gpt-7', { input_tokens: 1000, output_tokens: 0 });
     expect(meter.cost('gpt-6-luna')).toBeCloseTo(0.2);
     expect(meter.cost('gpt-7')).toBeNull();
+  });
+});
+
+describe('token limits by model', () => {
+  const capture = () => {
+    const requests = [];
+    return { requests, fetchImpl: async (url, init) => { requests.push({ url, init }); return reply(200, { answers: { has_bug: { type: 'noul', noul: 0.5 } } }); } };
+  };
+
+  it("sizes the token budget by model: Perch Cloud and gpt-6-luna get Decisions limits, Jev and any other model keep Jev's", () => {
+    const { fetchImpl } = capture();
+    expect(createSystemOne({ apiKey: 'k', fetchImpl, model: 'perch-latest' }).limits).toMatchObject(DECISIONS_TOKENS);
+    expect(createSystemOne({ apiKey: 'k', fetchImpl, baseUrl: 'https://api.openai.com/v1/decisions' }).limits).toMatchObject(DECISIONS_TOKENS);
+    expect(createSystemOne({ apiKey: 'k', fetchImpl, model: 'jev-latest' }).limits).toMatchObject(JEV_TOKENS);
+    expect(createSystemOne({ apiKey: 'k', fetchImpl, model: 'd1:free' }).limits).toMatchObject(JEV_TOKENS);
+    expect(createSystemOne({ apiKey: 'k', fetchImpl, model: 'perch-latest', limits: { state: 1000 } }).limits.state).toBe(1000);
+    expect(tokenLimitsFor('JEV/semif')).toBe(JEV_TOKENS);
+    expect(tokenLimitsFor(undefined)).toBe(JEV_TOKENS);
+  });
+
+  it("PERCH_CONTEXT_LENGTH sets all three budgets, and past Jev's default on TypeSafe the long-context header goes with every request", async () => {
+    const { requests, fetchImpl } = capture();
+    const env = { PERCH_BASE_URL: 'https://api.typesafe.ai/v1/systemone', PERCH_API_KEY: 'k', PERCH_CONTEXT_LENGTH: '250000' };
+    const long = await configuredSystemOne({ env, fetchImpl });
+    expect(long.limits).toMatchObject({ state: 200000, single: 240000, request: 250000 });
+    await long.ask({ method: 'x' }, { has_bug: { type: 'noul' } });
+    expect(requests[0].init.headers['TypeSafe-Danger-Zone-Long-Context']).toBe('true');
+    const plain = await configuredSystemOne({ env: { PERCH_BASE_URL: env.PERCH_BASE_URL, PERCH_API_KEY: 'k' }, fetchImpl });
+    await plain.ask({ method: 'x' }, { has_bug: { type: 'noul' } });
+    expect(requests[1].init.headers).not.toHaveProperty('TypeSafe-Danger-Zone-Long-Context');
+    // Another endpoint given a big budget is not Jev, so it is sent nothing it would not understand.
+    const other = await configuredSystemOne({ env: { ...env, PERCH_BASE_URL: 'https://example.test/v1/systemone' }, fetchImpl });
+    await other.ask({ method: 'x' }, { has_bug: { type: 'noul' } });
+    expect(requests[2].init.headers).not.toHaveProperty('TypeSafe-Danger-Zone-Long-Context');
+    await expect(configuredSystemOne({ env: { ...env, PERCH_CONTEXT_LENGTH: '12' }, fetchImpl })).rejects.toThrow('PERCH_CONTEXT_LENGTH must be a whole number of at least 256');
   });
 });

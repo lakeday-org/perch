@@ -1,5 +1,5 @@
 /** TypeSafe System One client: typed questions over a state, answered with probabilities. */
-import { questionBatches, estimateTokens, TOKEN_LIMITS, ContextLimitError } from './tokens.js';
+import { questionBatches, estimateTokens, JEV_TOKENS, TOKEN_LIMITS, tokenLimitsFor, ContextLimitError } from './tokens.js';
 
 export const DEFAULT_SYSTEM_ONE_MODEL = 'jev-latest';
 export const DECISIONS_MODEL = 'gpt-6-luna';
@@ -20,6 +20,8 @@ const SYSTEM_ONE = { service: 'System One', model: DEFAULT_SYSTEM_ONE_MODEL, bod
 
 /** The option a Decisions choice falls back to. Asked a choice none of whose options fits, the API refuses it; System One never does. */
 const NONE = 'none_of_these';
+/** The option of a choice that says none of the others fits, as kind's does. An answer of none_of_these is an answer of it. */
+const OTHER = 'other';
 
 /**
  * OpenAI's Decisions API. The state goes as one string and the questions as an array naming each one, and the answers come back
@@ -44,7 +46,7 @@ const DECISIONS = {
       if (type !== 'choice' && !criteria) return { type: 'predicate', name, instructions: text };
       const options = type === 'choice' ? criteria : { true: criteria.true, false: criteria.false };
       const choices = Object.entries(options).map(([value, description]) => ({ value, description: description ?? value }));
-      return { type: 'choice', name, instructions: text, choices: type === 'choice' && !(NONE in options) ? [...choices, { value: NONE, description: 'None of these fits' }] : choices };
+      return { type: 'choice', name, instructions: text, choices: type === 'choice' && !Object.hasOwn(options, NONE) ? [...choices, { value: NONE, description: 'None of these fits' }] : choices };
     }),
   }),
   reply: ({ answers = [], ...rest }, { questions }) => {
@@ -53,11 +55,17 @@ const DECISIONS = {
     return { ...rest, answers: Object.fromEntries(answers.map(({ name, type, probability, probabilities, ...answer }) => {
       const asked = questions[name], shares = Object.fromEntries((probabilities ?? []).map(option => [option.value, option.probability]));
       if (asked?.type === 'noul') return [name, { type: 'noul', noul: type === 'predicate' ? probability : shares.true ?? 0 }];
-      if (asked?.type !== 'choice' || NONE in asked.criteria) return [name, { type, ...answer, probabilities: shares }];
+      if (asked?.type !== 'choice' || Object.hasOwn(asked.criteria, NONE)) return [name, { type, ...answer, probabilities: shares }];
+      // A choice with an option for none of the others takes none_of_these as that option. One without spreads it over the
+      // options asked about, all of them when the answer gave a share to none_of_these alone.
+      const none = shares[NONE] ?? 0;
       delete shares[NONE];
-      const options = Object.keys(shares), total = options.reduce((sum, option) => sum + shares[option], 0);
-      const spread = Object.fromEntries(options.map(option => [option, total > 0 ? shares[option] / total : 1 / options.length]));
-      const choice = answer.choice in spread ? answer.choice : options.reduce((best, option) => (spread[option] > spread[best] ? option : best));
+      if (Object.hasOwn(asked.criteria, OTHER)) shares[OTHER] = (shares[OTHER] ?? 0) + none;
+      const options = Object.keys(shares).length ? Object.keys(shares) : Object.keys(asked.criteria);
+      const total = options.reduce((sum, option) => sum + (shares[option] ?? 0), 0);
+      const spread = Object.fromEntries(options.map(option => [option, total > 0 ? (shares[option] ?? 0) / total : 1 / options.length]));
+      const picked = answer.choice === NONE && Object.hasOwn(asked.criteria, OTHER) ? OTHER : answer.choice;
+      const choice = Object.hasOwn(spread, picked) ? picked : options.reduce((best, option) => (spread[option] > spread[best] ? option : best));
       return [name, { type, ...answer, choice, probabilities: spread }];
     })) };
   },
@@ -71,14 +79,18 @@ export function createSystemOne({
   retryDelayMs = 2000,
   sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
   log = () => {},
-  limits = TOKEN_LIMITS,
+  limits = {},
   firstQuestions = Infinity,
 } = {}) {
   if (!apiKey) throw new Error('PERCH_API_KEY is not set. Export an API key before running perch scan or perch check.');
   const wire = speaksDecisions(baseUrl) ? DECISIONS : SYSTEM_ONE, { service } = wire;
   model ??= wire.model;
-  // A copy, so what this endpoint reports about itself changes this client and no other.
-  limits = { ...TOKEN_LIMITS, ...limits };
+  // The model's own token limits (tokens.js) under whatever this client was given; a copy, so what this endpoint reports about
+  // itself changes this client and no other.
+  limits = { ...TOKEN_LIMITS, ...tokenLimitsFor(model), ...limits };
+  // Jev gives a request more than its default 64k only when asked with this header, which turns its long context on.
+  const longContext = wire === SYSTEM_ONE && /(^|\.)typesafe\.ai$/i.test(new URL(baseUrl, 'https://invalid.test').hostname) && limits.request > JEV_TOKENS.request;
+  const headers = { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json', ...(longContext ? { 'TypeSafe-Danger-Zone-Long-Context': 'true' } : {}) };
   let authenticationFailure = null, answered = false, opening = null;
 
   /**
@@ -100,7 +112,7 @@ export function createSystemOne({
       let response;
       try {
         attempted();
-        response = await fetchImpl(baseUrl, { method: 'POST', headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' }, body: JSON.stringify(wire.body(body)) });
+        response = await fetchImpl(baseUrl, { method: 'POST', headers, body: JSON.stringify(wire.body(body)) });
       } catch (error) {
         if (attempt >= 3) throw error;
         log(`${service} request failed (${error.message}); retrying`);

@@ -26,15 +26,28 @@ export const EACH = ['file', 'method', 'test'];
  */
 export const SEES = ['self', 'file', 'calls', 'callers', 'neighbors'];
 /**
- * `ensure` is asked of every unit and every unit has to satisfy it. The other two are asked of units in turn until one answers,
- * because the claim is about the codebase and not about any one file: `ensure_present` passes at the first unit that has the
- * thing, `ensure_absent` fails at the first unit that has it. Passing a present rule is cheap and proving an absent rule is not,
- * which is the right way round — proving an absence is the expensive claim.
+ * Whether `context` names a document a rule can be shown beside each unit, such as a style guide or the vocabulary the rule
+ * judges against. A path with a slash in it is one file from the repository root. A bare name is the nearest file so named,
+ * from the unit's own directory up, so one rule over `src/**` is shown each area's own `LANGUAGE.md`. Either way it stays inside
+ * the repository and names one file rather than a glob.
+ */
+function isContextPath(context) {
+  if (typeof context !== 'string') return false;
+  const path = context.trim();
+  if (path === '' || path.startsWith('/')) return false;
+  if (path.split('/').includes('..')) return false;
+  return !/[*?[\]{}\\]/.test(path);
+}
+/**
+ * `ensure` is asked of every unit and every unit has to satisfy it. `ensure_absent` is asked of every unit too, and each unit that
+ * has the thing breaks it. `ensure_present` is a claim about the codebase and not about any one file, so it is asked of units in
+ * turn and passes at the first that has the thing. Passing a present rule is cheap and proving an absent rule is not, which is
+ * the right way round — proving an absence is the expensive claim.
  */
 export const ENSURES = ['ensure', 'ensure_present', 'ensure_absent'];
 export const SEARCHES = kind => kind === 'ensure_present' || kind === 'ensure_absent';
 
-const KEYS = new Set(['name', 'disabled', 'min', 'gate', 'type', 'each', 'where', 'language', 'except', 'sees', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', ...ENSURES]);
+const KEYS = new Set(['name', 'disabled', 'min', 'gate', 'type', 'each', 'where', 'language', 'except', 'sees', 'context', 'ask', 'true', 'false', 'options', 'levels', 'when', 'issue', ...ENSURES]);
 const ISSUE_KEYS = new Set(['type', 'label', 'on', 'pick', 'except']);
 /** A correctness issue is weighed by the severity rubric; everything else weighs as itself. */
 export const CORRECTNESS = new Set(['defect', 'security']);
@@ -76,6 +89,24 @@ function expand(rule) {
  */
 const gates = question => (question.gate === undefined ? Boolean(question.issue) || SEARCHES(question.kind) : question.gate);
 
+const percentage = value => typeof value !== 'object' && Number(value) >= 0 && Number(value) <= 100;
+
+/**
+ * A floor as written: a percentage, or a map from model id prefix to a percentage with a `default` for every other model. The
+ * same wording reads at different confidences on different models, so a question can set its line for each.
+ */
+function floorsOf(min, where) {
+  if (min === undefined || min === null) return null;
+  if (typeof min !== 'object' || Array.isArray(min)) {
+    if (!percentage(min)) throw new Error(`${where}: min is a percentage, 0 to 100, or a map of model id prefixes to one, not ${min}`);
+    return Number(min);
+  }
+  if (!Object.hasOwn(min, 'default')) throw new Error(`${where}: a min map needs a default for the models it does not name`);
+  const wrong = Object.entries(min).filter(([, value]) => !percentage(value)).map(([prefix]) => prefix);
+  if (wrong.length) throw new Error(`${where}: min for ${wrong.join(', ')} is not a percentage, 0 to 100`);
+  return Object.fromEntries(Object.entries(min).map(([prefix, value]) => [prefix, Number(value)]));
+}
+
 /** A question that cannot be understood is a mistake to fix now, not a question to skip quietly at the point it would have mattered. */
 export function check(question, at, noun = 'question') {
   if (!question?.name) throw new Error(`${at}: every ${noun} needs a name`);
@@ -104,24 +135,36 @@ export function check(question, at, noun = 'question') {
   if (full.sees && !SEES.includes(full.sees)) throw new Error(`${where}: sees is ${SEES.join(', ')}, not ${full.sees}`);
   // Silently ignoring it would let a rule read as though it had asked for something it never got.
   if (full.sees && each === 'method') throw new Error(`${where}: a method is always asked with its callers and callees in view, so sees says nothing here`);
+  if (full.context !== undefined && !isContextPath(full.context))
+    throw new Error(`${where}: context is a file name, or a path from the repository root, not ${JSON.stringify(full.context)}`);
+  // A question written out longhand is asked inside a method's reading, where there is no document to show it.
+  if (full.context && !full.kind) throw new Error(`${where}: context needs one of ${ENSURES.join(', ')}`);
+  // A method rule with a document is asked in a request of its own rather than in the method's reading, since perch's own
+  // questions have no business being shown the document. Its callers and callees come with it, as they do in the reading.
+  const sees = full.sees ?? (each === 'method' && full.context ? 'neighbors' : 'self');
   if (!full.ask) throw new Error(`${where}: needs ask, or one of ${ENSURES.join(', ')}`);
   if (type === 'noul' && (full.true === undefined || full.false === undefined)) throw new Error(`${where}: a noul needs true and false`);
   if (type === 'choice' && !full.options) throw new Error(`${where}: a choice needs options`);
   if (type === 'score' && !Array.isArray(full.levels)) throw new Error(`${where}: a score needs levels, weakest first`);
   // How sure this one has to be before it is worth saying. A question the model hedges on fills a report with coin flips, and
   // where that line sits is a judgement about the question rather than about the run, so it is set beside the question.
-  if (full.min !== undefined && !(Number(full.min) >= 0 && Number(full.min) <= 100)) throw new Error(`${where}: min is a percentage, 0 to 100, not ${full.min}`);
+  const min = floorsOf(full.min, where);
   if (full.gate !== undefined && typeof full.gate !== 'boolean') throw new Error(`${where}: gate is true or false, not ${full.gate}`);
   if (full.issue) {
     const unknown = Object.keys(full.issue).filter(key => !ISSUE_KEYS.has(key));
     if (unknown.length) throw new Error(`${where}: issue takes ${[...ISSUE_KEYS].join(', ')}, not ${unknown.join(', ')}`);
     if (!full.issue.type) throw new Error(`${where}: an issue needs a type`);
   }
-  return { ...full, type, each, sees: full.sees ?? 'self', min: full.min === undefined ? null : Number(full.min), gate: gates(full),
+  return { ...full, type, each, sees, min, gate: gates(full), context: full.context?.trim() ?? null,
     kind: full.kind ?? null, text: full.text ?? null, at,
     // As it was written, so a question perch ships can be copied into your own file and changed from there.
     declared: question,
-    hash: sha(JSON.stringify([full.ask, full.true, full.false, full.options, full.levels, full.where, full.language, full.except, full.each, full.sees])) };
+    // A search's kind is in its hash. ensure_present and ensure_absent ask the same question and read the answer opposite ways,
+    // and an absent rule's checks are kept per unit where they were once one row for the whole search, so a check kept from one
+    // shape is not an answer in the other. The document's name is in it only when there is one, so a rule without one keeps the
+    // hash it had before the key existed.
+    hash: sha(JSON.stringify([full.ask, full.true, full.false, full.options, full.levels, full.where, full.language, full.except, full.each, full.sees,
+      ...(SEARCHES(full.kind) ? [full.kind] : []), ...(full.context ? [full.context.trim()] : [])])) };
 }
 
 /** A missing language selector applies to every parsed language. */
@@ -211,14 +254,32 @@ export const installQuestions = set => { installed = set; return set; };
 export const setHash = (questions = questionSet()) => sha(questions.map(question => `${question.name}:${question.hash}`).sort().join('\n')).slice(0, 16);
 
 /**
+ * A question's own floor, as a fraction, for the model that answered it. In a map the longest prefix of the model's id wins, and
+ * a model none of them names, or an answer that does not say which model gave it, takes the default.
+ */
+export function ownFloor(question, model = null) {
+  const min = question?.min;
+  if (min == null) return 0;
+  if (typeof min !== 'object') return min / 100;
+  const named = Object.keys(min).filter(prefix => prefix !== 'default' && typeof model === 'string' && model.startsWith(prefix));
+  const longest = named.sort((a, b) => b.length - a.length)[0];
+  return (longest === undefined ? min.default : min[longest]) / 100;
+}
+
+/** A floor as `perch rules` prints it: `60%`, or the default followed by each model's own. */
+export const floorText = min => (typeof min !== 'object' || min === null ? `${min}%`
+  : [`${min.default}%`, ...Object.entries(min).filter(([prefix]) => prefix !== 'default').map(([prefix, value]) => `${prefix} ${value}%`)].join(', '));
+
+/**
  * How sure this one has to be before it counts. Both floors apply and the higher wins: a question that hedges sets its own, and
- * `--min` sets one for the run, so asking for 90% does not get you back a 73% because some rule said 70 was enough.
+ * `--min` sets one for the run, so asking for 90% does not get you back a 73% because some rule said 70 was enough. `model` is
+ * the one that gave the answer, for a question whose floor differs by model.
  *
  * `--min 0` is the exception, and means what zero says: every answer, floors and all, which is how you see what a question is
  * really doing before deciding where its floor belongs. Everything that decides whether something is broken reads this, so a run
  * cannot report one number and count another.
  */
-export const floorFor = (question, min) => (min === 0 ? 0 : Math.max(min, question?.min == null ? 0 : question.min / 100));
+export const floorFor = (question, min, model = null) => (min === 0 ? 0 : Math.max(min, ownFloor(question, model)));
 
 /** The questions asked of a method, as System One takes them. Only the shape; the state they are asked over is built elsewhere. */
 export function compile(questions) {
@@ -260,6 +321,7 @@ function labelOf(question, questions, answers) {
  * Every issue a set of answers carries, strongest first. Nothing is filtered out beyond `min`: an issue at 8% is listed at 8% and
  * sorts to the bottom, where it belongs. Where two answers are both needed for a problem to be real they multiply, and where
  * several answers are the same kind of problem only the likeliest is listed, since one method has one worst vulnerability.
+ * Each question's floor is the one it sets for `answers.model`, the model that gave these answers.
  */
 export function issues(answers, min = 0, questions = questionSet(), rename = kind => kind) {
   const found = [], strongest = new Map();
@@ -272,7 +334,7 @@ export function issues(answers, min = 0, questions = questionSet(), rename = kin
     // `from` is the question, which is what says whether the issue fails a run. The label cannot: it is often an answer rather
     // than a name, and a model that picks a word outside the options it was offered would walk straight past a gate.
     const issue = { type: question.issue.type, label: rename(label), from: question.name, probability: raised,
-      floor: floorFor(question, min), text: `${rename(label)} ${Math.round(raised * 100)}%` };
+      floor: floorFor(question, min, answers.model), text: `${rename(label)} ${Math.round(raised * 100)}%` };
     if (issue.probability <= issue.floor) continue;
     if (question.issue.pick !== 'strongest') { found.push(issue); continue; }
     const held = strongest.get(question.issue.type);
@@ -290,25 +352,34 @@ function labelsOf(question, questions, rename = kind => kind) {
   return [rename(wanted === 'self' ? question.name : wanted)];
 }
 
+/** Filter keys that name the questions able to raise what they match. `rule` names one question directly. */
+const NAMING = new Set(['type', 'kind', 'rule']);
+
+/**
+ * Whether a filter decides which questions a run asks. Clauses on different keys must all hold of a finding, so a run asks the
+ * union of what each clause could list. A type, a kind or a rule names the questions that raise it. A severity names none:
+ * every issue on a P1 method is listed, whichever question raised it, so a filter with one asks the whole set.
+ */
+export const narrows = filters => filters.length > 0 && filters.every(clause => NAMING.has(clause.key));
+
 /**
  * The questions worth asking for a given filter. A filter that narrows a report to one kind of problem should narrow the run to
  * the questions that can raise it: asking thirty questions per method and printing two is paying for twenty-eight answers nobody
  * reads. What a kept question depends on comes with it — the gate it multiplies by, the choice that names it, and the severity
- * rubric when it is a correctness issue, since that is what ranks it.
+ * rubric when it is a correctness issue, since that is what ranks it. A filter that does not narrow keeps every question.
  */
 export function questionsFor(questions, filters = [], rename = kind => kind) {
-  // `rule` names one question directly. It narrows like `kind` does, because a rule's issue is filed under its own name.
-  const named = filters.filter(clause => clause.key === 'type' || clause.key === 'kind' || clause.key === 'rule');
-  if (!named.length) return questions;
+  if (!narrows(filters)) return questions;
   const canon = value => String(value).toLowerCase().replace(/[_-]+/g, ' ');
   const wanted = new Set();
   for (const question of questions) {
-    // `rule` names the question itself, so it selects one that raises no issue of its own. An ensure_present rule is exactly
-    // that: it declares no issue, and matching on labels alone dropped it from every filtered run without saying so.
-    if (named.some(clause => clause.key === 'rule' && canon(question.name) === clause.value)) { wanted.add(question.name); continue; }
-    if (!question.issue) continue;
-    const labels = labelsOf(question, questions, rename);
-    if (named.some(clause => (clause.key === 'type' ? question.issue.type === clause.value : labels.some(label => canon(label) === clause.value)))) wanted.add(question.name);
+    // `rule` names the question itself, so it selects one that raises no issue of its own.
+    if (filters.some(clause => clause.key === 'rule' && canon(question.name) === clause.value)) { wanted.add(question.name); continue; }
+    // A search declares no issue, because whether it is broken is decided over every unit. It is listed as a lint issue under
+    // its own name, as vocabulary says, so `type=lint` and `kind=<its name>` ask it.
+    if (!question.issue && !SEARCHES(question.kind)) continue;
+    const type = question.issue?.type ?? 'lint', labels = labelsOf(question, questions, rename);
+    if (filters.some(clause => (clause.key === 'type' ? type === clause.value : labels.some(label => canon(label) === clause.value)))) wanted.add(question.name);
   }
   for (const name of [...wanted]) {
     const question = questions.find(other => other.name === name);

@@ -1,9 +1,19 @@
 import { mkdir, mkdtemp, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { saveCoverageReport } from '../src/coverage.js';
 import { jsonChunks, jsonPieces, openStore } from '../src/store.js';
+
+// How many log writes are open at once.
+const appends = vi.hoisted(() => ({ open: 0, most: 0 }));
+vi.mock('node:fs/promises', async importOriginal => {
+  const actual = await importOriginal();
+  return { ...actual, appendFile: async (...args) => {
+    appends.most = Math.max(appends.most, ++appends.open);
+    try { return await actual.appendFile(...args); } finally { appends.open--; }
+  } };
+});
 
 describe('JSON in pieces', () => {
   it('joins to exactly what JSON.stringify writes', () => {
@@ -81,5 +91,18 @@ describe('symbolic links in the results directory', () => {
     const log = await openStore(out).startLog();
     await log('analyzing 1 source files');
     expect(await readFile(join(out, 'scan.log'), 'utf8')).toMatch(/analyzing 1 source files/);
+  });
+
+  it('writes a burst of log lines one write at a time, in order', async () => {
+    const { out } = await repository();
+    const log = await openStore(out).startLog();
+    // A write a line, all open at once, ran a large repository's scan out of open files.
+    appends.most = 0;
+    let last;
+    for (let n = 0; n < 2000; n++) last = log(`line ${n}`);
+    await last;
+    expect(appends.most).toBe(1);
+    const lines = (await readFile(join(out, 'scan.log'), 'utf8')).trim().split('\n').slice(1).map(line => line.replace(/^\S+ /, ''));
+    expect(lines).toEqual(Array.from({ length: 2000 }, (_, n) => `line ${n}`));
   });
 });

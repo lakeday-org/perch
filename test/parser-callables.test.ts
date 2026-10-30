@@ -112,6 +112,75 @@ it('reads a Python lambda as one declaration, not also its lambda keyword', asyn
   for (const declaration of result.declarations) expect(declaration.parent_id).not.toBe(declaration.id);
 });
 
+it.each(['overload', 'typing.overload'])('leaves Python @%s signatures out of declarations', async decorator => {
+  const source = [
+    'import typing',
+    'from typing import overload',
+    `@${decorator}`,
+    'def convert(value: int) -> int:',
+    '    pass',
+    `@${decorator}`,
+    'def convert(value: str) -> str:',
+    '    ...',
+    'def convert(value):',
+    '    return value',
+  ].join('\n');
+  const result = await createAnalyzer().analyzeSource(source, 'python');
+  expect(result.parser_status).toBe('parsed');
+  expect(result.declarations.map(item => [item.qualified_name, item.line])).toEqual([['convert', 9]]);
+  expect(result.top_level).toEqual([1, 2]);
+});
+
+it.each([
+  '@overload\ndef signature():\n    return helper()\n',
+  '@typing.overload\nasync def signature():\n    return helper()\n',
+  'class API:\n    @staticmethod\n    @typing.overload\n    def signature(value):\n        return helper()\n',
+])('leaves a Python overload out even when its body is not a placeholder: %s', async source => {
+  const result = await createAnalyzer().analyzeSource(source, 'python');
+  expect(result.parser_status).toBe('parsed');
+  expect(result.declarations).toEqual([]);
+  // The decorator is evaluated, but nothing in the excluded body is.
+  expect(result.references.filter(item => item.name !== 'typing.overload')).toEqual([]);
+  expect(result.top_level.filter(line => source.split('\n')[line - 1]?.trim())).toEqual([]);
+});
+
+it.each([
+  'pass',
+  '... # placeholder',
+  '# comment\n    pass # placeholder',
+  '"""Only a docstring."""',
+  '"""Documented stub."""\n    # comment\n    ...',
+  'r"Raw docstring."\n    pass',
+  '("A concatenated "\n     "docstring.")',
+])('leaves a Python placeholder body out of declarations: %s', async body => {
+  const source = `def placeholder():\n    ${body}\n`;
+  const result = await createAnalyzer().analyzeSource(source, 'python');
+  expect(result.parser_status).toBe('parsed');
+  expect(result.declarations).toEqual([]);
+  expect(result.top_level.filter(line => source.split('\n')[line - 1]?.trim())).toEqual([]);
+});
+
+it('leaves nested and async Python placeholders out without dropping their enclosing implementation', async () => {
+  const source = 'async def outer():\n    async def placeholder():\n        ...\n    return None\n';
+  const result = await createAnalyzer().analyzeSource(source, 'python');
+  expect(result.parser_status).toBe('parsed');
+  expect(result.declarations.map(item => item.qualified_name)).toEqual(['outer']);
+});
+
+it.each([
+  'return None',
+  'raise NotImplementedError',
+  '"""Documented implementation."""\n    return helper()',
+  'pass\n    return helper()',
+  'f"{helper()}"',
+  'f"An f-string is not a docstring."',
+  'b"A byte string is not a docstring."',
+])('keeps an executable Python body: %s', async body => {
+  const result = await createAnalyzer().analyzeSource(`def implementation():\n    ${body}\n`, 'python');
+  expect(result.parser_status).toBe('parsed');
+  expect(result.declarations.map(item => item.qualified_name)).toEqual(['implementation']);
+});
+
 it('records CommonJS require as an import, with the names it binds', async () => {
   const source = "const utils = require('./utils');\nconst { parse, format: fmt } = require('../lib/format');\nrequire('./setup');\nconst dynamic = require(name);\n";
   const result = await createAnalyzer().analyzeSource(source, 'javascript');

@@ -1,7 +1,7 @@
 {
   "name": "@lakeday/perch",
-  "version": "0.4.6",
-  "description": "Semantic code linting with Jev",
+  "version": "0.4.9",
+  "description": "Semantic code and security scanner",
   "license": "MIT",
   "repository": {
     "type": "git",

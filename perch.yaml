@@ -70,6 +70,23 @@ rules:
     except: skill.md
     min: 65
 
+  # A reader of docs.perchscan.com quoted "Custom rules ride in the request perch was already making about that method. A method
+  # covered by five rules costs one reading." as prose that is hard to read. Bounded to the opening like the rules above.
+  # Floored at 65. Before the rewrite docs/index.md read 94%, docs/rules.md 90% and docs/coverage.md 71%; after it, every
+  # docs page read under 55%, and the README, which the rewrite did not touch, 58%.
+  - name: docs-say-it-plainly
+    min: 65
+    where: "{README.md,docs/**/*.md}"
+    ensure: >-
+      Skip the frontmatter between the `---` markers. Read the first six prose
+      paragraphs; headings, tables, lists and fenced blocks are not prose. Each
+      sentence has a subject and a verb and says literally what perch or the
+      reader does. A figure of speech standing in for a mechanism breaks this
+      rule, such as rules ride in a request. So does an everyday word used as a
+      term the page never defines, such as a reading for one request about a
+      method, and a fragment used for effect, such as Nothing. or Is it a
+      security hole.
+
   - name: docs-succinct
     where: "**/*.md"
     ensure: >
@@ -123,27 +140,23 @@ rules:
   - name: no-silent-failure
     where: "src/**/*.js"
     each: method
+    context: .perch/rules/code-style.md
     min: 80
     ensure: >-
       Find each catch block and each .catch() callback in this method's own
       body, not in the callers and callees shown with it; if it has none, this
-      rule holds, whatever else the method does. Each one
-      rethrows the error, returns it to the caller, or reports it. An empty
-      catch, or one that returns a stand-in value such as null, [] or '' so
-      the method carries on as if the step had worked, breaks this rule. A
-      catch that turns only a missing file (ENOENT) into an empty value and
-      rethrows every other error does not.
+      rule holds, whatever else the method does. Each one handles the error as
+      the Errors section of the style guide says. One that swallows it breaks
+      this rule.
 
   - name: tests-assert-real-behavior
     where: "test/**/*.js"
+    context: .perch/rules/code-style.md
     ensure: >-
-      Read the first three tests in this file. Each calls code imported from
-      src/, or runs the perch command, and asserts on what that code returned,
-      printed, wrote or sent. A test breaks this rule when its assertions would
-      still pass if the code under test did nothing: they check a value the test
-      built itself, or a fake's canned reply that never went through code from
-      src/. A fake that records what the code sent it is fine to assert on. A
-      file that defines no tests satisfies this rule.
+      Read the first three tests in this file. Each asserts on what code from
+      src/ did, as the Tests section of the style guide says. A test whose
+      assertions would still pass if the code under test did nothing breaks
+      this rule. A file that defines no tests satisfies this rule.
   - name: readme-lists-setup
     where: README.md
     ensure: >-
@@ -176,14 +189,12 @@ rules:
       install lines and exports. A page with no such block satisfies the rule.
   - name: docs-headings-name-things
     where: "{README.md,skill.md,docs/**/*.md}"
+    context: .perch/rules/docs-style.md
     ensure: >-
-      Every heading names a task or a thing. A heading phrased as a question the
-      page answers, such as What it writes or Why use this, breaks this. So does
-      one that is a sentence or a fragment of prose, such as Code perch does not
-      read, Rewording what perch itself asks, One issue opened up, or Answers
-      that are not yes-or-no.
-    # Floored at 75. docs/cli.md reads in the sixties with headings that are all plain noun phrases: perch scan, Exit codes.
-    # The real ones read in the eighties and nineties.
+      Every heading on the page names a task or a thing, as the Headings
+      section of the style guide says. A heading phrased as a question the page
+      answers, or as a sentence or a fragment of prose, breaks this rule.
+    # Floored at 75. Clean pages read 41% at most. A copy of docs/check.md with question headings reads 86%.
     min: 75
   # Bounded to the headings and the first table, where a page names what it covers. A thing described with a clause instead of
   # named reads as machine prose: "Read what CI found" for CI results, "the issues one run found" for a run's issues.
@@ -205,16 +216,13 @@ rules:
   # a page rewritten entirely in 34-word run-ons read 92% and the same page in short sentences read 88%.
   - name: docs-sentences-are-short
     where: "{README.md,skill.md,docs/**/*.md}"
+    context: .perch/rules/docs-style.md
     ensure: >-
       Skip the frontmatter between the `---` markers at the top. Read the first
       four prose paragraphs of the body; headings, tables, lists and fenced
-      blocks are not prose. Each sentence in them is under twenty-five words. A
-      sentence of twenty-five words or more breaks this rule. So does one that
-      chains three or more full clauses, each with its own verb, using commas,
-      semicolons and "and". A list of nouns or short phrases inside a sentence
-      is not a chain of clauses.
-    # A long frontmatter block still pulls this to the mid fifties on a file whose body is clean, so the floor sits above that
-    # band. Broken controls read 76 to 85.
+      blocks are not prose. Each sentence in them keeps to the Sentence length
+      section of the style guide. A sentence that does not breaks this rule.
+    # Floored at 65. A long frontmatter block pulls a clean page to 60%. A copy of docs/check.md opened with run-ons reads 83%.
     min: 65
   - name: docs-no-next-steps
     where: "{README.md,skill.md,docs/**/*.md}"
@@ -223,13 +231,13 @@ rules:
       section says something of its own. A last section titled Where to go next,
       Next steps, See also or Further reading, or one made only of links to
       other pages, breaks this rule.
-  - name: intro-anchors-to-a-linter
+  - name: intro-says-what-perch-is
     where: docs/index.md
     ensure: >-
       Skip the frontmatter between the `---` markers. Read the first sentence
-      under the page's first heading. It says perch is a linter and what kind,
-      as in perch is a semantic linter. A first sentence that says something
-      else, or that describes perch by what other linters fail to do, breaks
+      under the page's first heading. It says what perch is, as in perch is a
+      semantic code and security scanner. A first sentence that says something
+      else, or that describes perch by what other tools fail to do, breaks
       this rule.
   - name: docs-no-antithesis
     where: "{README.md,skill.md,docs/**/*.md}"
@@ -245,14 +253,11 @@ rules:
   # clean reference pages, which is the length effect the other file rules had.
   - name: docs-no-empty-sentence
     where: "{README.md,skill.md,docs/**/*.md}"
+    context: .perch/rules/docs-style.md
     ensure: >-
       Read the first two sentences under each of this page's first six headings.
-      None of them announces what is coming instead of saying it, and none
-      points back at something already said without adding to it. "Two things,
-      in the order they matter", "There are a few things worth knowing here",
-      "Before going further, note the following", "It is worth noting that", and
-      "Each check says which it is" all break the rule. Judge only those
-      sentences.
+      None of them is an empty sentence, as the Empty sentences section of the
+      style guide describes one. Judge only those sentences.
 
   # Bounded to the opening, where an explanation of the basics goes. A control with a paragraph defining "linter" and "model"
   # reads 81%; a clean page reads 51% at worst, so the floor sits between.
@@ -316,14 +321,13 @@ rules:
       manual run or skips the analysis step breaks this rule.
   - name: docs-no-anthropomorphism
     where: "{README.md,skill.md,docs/**/*.md}"
+    context: .perch/rules/docs-style.md
     ensure: >-
-      Code, a question, a page or a table is not a person. A sentence giving one
-      a mind or a will breaks the rule: the question's own business, the parser
-      speaks for it, the rule stopped hedging, the table says, the README knows.
-      A tool doing what it does is not this: a scan reads a file, a filter
-      narrows a list.
-    # Floored at 60. This one is weak: it read 56% on "what fails is the question's own business", the plainest case in the docs,
-    # and reads in the low fifties on pages with none. It catches a page full of it and will miss a single sentence.
+      No sentence on the page gives code, a question, a page or a table a mind
+      or a will, as the Things are not people section of the style guide
+      describes.
+    # Floored at 60. Clean pages read 60% at most, except docs/skill.md at 69%. A copy of docs/check.md with three such sentences
+    # reads 91%. It catches a page full of it and can miss a single sentence.
     min: 60
   - name: docs-no-refactor-history
     where: "{README.md,skill.md,docs/**/*.md}"
@@ -350,32 +354,3 @@ rules:
     # where the rule cannot tell them apart.
     min: 70
     except: [docs/scan.md, docs/issues.md]
-
-  # The two defect questions as scan.yaml ships them, pinned here for their floor. The pull request scan runs a released perch,
-  # and one that still floors them at 50 fails a branch on readings of 51 to 56 that a scan from this checkout leaves out.
-  - name: has_bug
-    each: method
-    where: "**/*"
-    ask: Does `method` contain a concrete behavioral defect that a caller can reach?
-    "true": >
-      For some input a caller can pass, the method returns a wrong result, leaves wrong state, throws
-      when it should not, or fails to throw when it should
-    "false": >
-      The method behaves correctly for every input its callers can pass; style, performance, and
-      hypothetical misuse do not count. A helper is judged by what its shown callers pass it
-    issue:
-      type: defect
-      label: kind
-      pick: strongest
-    min: 60
-  - name: bug_edge_case
-    each: method
-    where: "**/*"
-    ask: Does `method` produce a wrong result for a valid empty, zero, first, last, or missing input?
-    "true": One of these inputs produces an incorrect result or failure, and a shown caller can pass it or it arrives from outside the program.
-    "false": These inputs produce the intended results and errors, or no shown caller can pass them.
-    issue:
-      type: defect
-      label: kind
-      pick: strongest
-    min: 60

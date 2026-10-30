@@ -184,9 +184,19 @@ const basesOf = (file, name) => (file?.bases && Object.hasOwn(file.bases, name) 
  * `modules` are the repository's Go modules, each as its go.mod's module path and the directory the go.mod is in, which is how
  * an import path names a directory of this repository.
  */
-export function buildGraph(files, { crates = [], modules = [] } = {}) {
-  const resolveIn = (from, module, language, known) => resolveModule(from, module, language, known, crates);
+export function buildGraph(files, { crates = [], modules = [], focus = null } = {}) {
   const nodes = new Map(), byPath = new Map(), paths = new Set(files.map(file => file.path));
+  // A graph asks where the same import leads from the same place once for every call, member and parameter type that names
+  // it. On Sentry, working each out again (dozens of candidate paths, each normalized) held a scan in path normalization for
+  // most of half an hour (October 21, 2026), so each is worked out once. A Python import depends only on the importing
+  // file's directory, so every file in a directory shares its answers.
+  const resolved = new Map();
+  const resolveIn = (from, module, language, known) => {
+    if (known !== paths) return resolveModule(from, module, language, known, crates);
+    const key = `${language}\0${language === 'python' ? dirname(from) : from}\0${module}`;
+    if (!resolved.has(key)) resolved.set(key, resolveModule(from, module, language, paths, crates));
+    return resolved.get(key);
+  };
   for (const file of files) {
     const byQualified = new Map(), sameName = new Map();
     for (const method of file.methods) {
@@ -1168,47 +1178,83 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
   // JavaScript's and Python's getters are read the same way, and a read that reaches a method of the receiver's class reaches
   // the getter the language runs.
   const uniformAccess = file => (UNIFORM_ACCESS.has(file.language) ? (file.reads ?? []) : []);
-  for (const file of files) {
-    for (const call of [...file.calls, ...uniformAccess(file)]) {
-      // `commands[name](io)`, or `const command = commands[name]; command(io)`: every function in the table, since the key is
-      // the run's to choose.
-      const tableName = call.name.endsWith('[]') ? call.name.slice(0, -2) : !call.name.includes('.') && !call.name.includes('::') ? call.name : null;
-      const to = call.name.endsWith('[]') ? null : resolve(file, call.name, call.from, 0, call.via ?? null);
-      if (!to && tableName) {
-        const fields = tableFields(file, { local: tableName }, call.from);
-        if (fields) {
-          for (const held of Object.values(fields)) {
-            const target = functionOf(file, held, call.from);
-            if (!target || target === call.from) continue;
-            link(callees, call.from, target);
-            link(callers, target, call.from);
-            dynamic.add(`${call.from}->${target}`);
-            if (!sites.has(`${call.from}->${target}`)) sites.set(`${call.from}->${target}`, call.line);
-          }
-          continue;
+  /** Places one call: the edges to what it runs, or, when it runs nothing in the repository, what it reaches outside. */
+  const place = (file, call) => {
+    // `commands[name](io)`, or `const command = commands[name]; command(io)`: every function in the table, since the key is
+    // the run's to choose.
+    const tableName = call.name.endsWith('[]') ? call.name.slice(0, -2) : !call.name.includes('.') && !call.name.includes('::') ? call.name : null;
+    const to = call.name.endsWith('[]') ? null : resolve(file, call.name, call.from, 0, call.via ?? null);
+    if (!to && tableName) {
+      const fields = tableFields(file, { local: tableName }, call.from);
+      if (fields) {
+        for (const held of Object.values(fields)) {
+          const target = functionOf(file, held, call.from);
+          if (!target || target === call.from) continue;
+          link(callees, call.from, target);
+          link(callers, target, call.from);
+          dynamic.add(`${call.from}->${target}`);
+          if (!sites.has(`${call.from}->${target}`)) sites.set(`${call.from}->${target}`, call.line);
         }
-        if (call.name.endsWith('[]')) continue;
+        return;
       }
-      if (!to) {
-        // A member of a receiver the tree cannot name says nothing about what leaves the repository: `expect(x).not.toThrow()`.
-        // Nor does a read that reaches no method: it is a field, or a member of something outside the repository.
-        if (call.name.startsWith('$receiver.') || !file.calls.includes(call)) continue;
-        // A method of a parameter: decided once every caller is known, by what the callers pass. Any other call that leaves
-        // the repository reaches the methods of what it was handed.
-        if (onParameter(call)) deferred.push({ file, call }); else handed(file, call);
-        // What a method calls outside the repository: a library, the runtime, the operating system.
-        if (!external.has(call.from)) external.set(call.from, new Map());
-        external.get(call.from).set(`${call.name}:${call.line}`, { name: call.name, line: call.line });
-        continue;
-      }
-      if (to === call.from) continue;
-      link(callees, call.from, to);
-      link(callers, to, call.from);
-      remember(file, call, to);
-      const key = `${call.from}->${to}`;
-      if (!sites.has(key)) sites.set(key, call.line);
-      beside(file, call, to);
+      if (call.name.endsWith('[]')) return;
     }
+    if (!to) {
+      // A member of a receiver the tree cannot name says nothing about what leaves the repository: `expect(x).not.toThrow()`.
+      // Nor does a read that reaches no method: it is a field, or a member of something outside the repository.
+      if (call.name.startsWith('$receiver.') || !file.calls.includes(call)) return;
+      // A method of a parameter: decided once every caller is known, by what the callers pass. Any other call that leaves
+      // the repository reaches the methods of what it was handed.
+      if (onParameter(call)) deferred.push({ file, call }); else handed(file, call);
+      // What a method calls outside the repository: a library, the runtime, the operating system.
+      if (!external.has(call.from)) external.set(call.from, new Map());
+      external.get(call.from).set(`${call.name}:${call.line}`, { name: call.name, line: call.line });
+      return;
+    }
+    if (to === call.from) return;
+    link(callees, call.from, to);
+    link(callers, to, call.from);
+    remember(file, call, to);
+    const key = `${call.from}->${to}`;
+    if (!sites.has(key)) sites.set(key, call.line);
+    beside(file, call, to);
+  };
+  // A scan narrowed by --since or --paths reads only the methods in the files it covers, and shows the model each one with its
+  // callers, its callees and the calls between them. Placing every other call in the repository is most of a large scan's
+  // wait: on Sentry, 32 of the 42 seconds before the first question went to placing 556,000 calls, of which the 62 methods a
+  // pull request changed needed about 17,000 (October 21, 2026). So a graph with a focus places the calls of the methods in
+  // the focus, of every method whose call or handover mentions a name they are declared under, and then of their callees. Any
+  // part of a call counts, and its arguments: `Endpoint.as_view()` and `register(Endpoint)` reach the class's methods too.
+  // A name is reached under more than its own: `import { a as b }` calls it b, and a value typed by an ancestor class reaches the
+  // focused class's overrides without naming it (Sentry's `get_installation_of_type`, which only imports IntegrationInstallation).
+  // So the names are the focused methods' parts, what they are imported as, and their classes' ancestors, and every call in a
+  // file that imports one of those names is placed.
+  const focused = focus ? new Set(files.filter(file => focus(file.path)).flatMap(file => file.methods.map(method => method.id))) : null;
+  const placing = focused && new Set(focused);
+  if (placing) {
+    const named = new Set([...focused].flatMap(id => nodes.get(id).qualified_name.split(/::|\./)));
+    const tail = name => String(name).split(/::|\./).at(-1);
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const file of files) for (const [name, bases] of Object.entries(file.bases ?? {})) {
+        if (!named.has(tail(name))) continue;
+        for (const base of bases ?? []) if (!named.has(tail(base))) { named.add(tail(base)); grew = true; }
+      }
+    }
+    for (const file of files) for (const item of file.imports ?? []) if (item.alias && named.has(tail(item.name))) named.add(item.alias);
+    const mentions = text => String(text).split(/[^\w$]+/).some(word => named.has(word));
+    const about = item => mentions(item.name) || ((item.args?.length || item.named) && mentions(JSON.stringify([item.args ?? [], item.named ?? {}])));
+    for (const file of files) {
+      const imports = (file.imports ?? []).some(item => named.has(tail(item.name)) || (item.alias && named.has(item.alias)));
+      for (const call of [...file.calls, ...uniformAccess(file)]) if (imports || about(call)) placing.add(call.from);
+      for (const value of file.values ?? []) if (imports || about(value)) placing.add(value.from);
+    }
+  }
+  for (const file of files) for (const call of [...file.calls, ...uniformAccess(file)]) if (!placing || placing.has(call.from)) place(file, call);
+  if (placing) {
+    const reached = new Set([...focused].flatMap(id => [...(callees.get(id) ?? [])]).filter(id => !placing.has(id)));
+    for (const id of reached) placing.add(id);
+    for (const file of files) for (const call of [...file.calls, ...uniformAccess(file)]) if (reached.has(call.from)) place(file, call);
   }
   for (let waiting = deferred.splice(0); waiting.length;) {
     const again = [];
@@ -1254,6 +1300,7 @@ export function buildGraph(files, { crates = [], modules = [] } = {}) {
   // variable called `total` is not the one method called total somewhere else in the repository, in whatever language.
   for (const file of files) {
     for (const value of file.values ?? []) {
+      if (placing && !placing.has(value.from)) continue;
       const to = resolve(file, value.name, value.from);
       if (!to || to === value.from || !nodes.has(to)) continue;
       if (callees.get(value.from)?.has(to)) continue;

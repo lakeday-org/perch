@@ -3,74 +3,71 @@ title: Checking a change
 nav: Checking a change
 group: Using perch
 order: 5
-summary: perch check asks about one point in the code as it reads on disk. It records nothing and exits 3 while something is wrong.
+summary: perch check asks about one method or file as it is on disk. It records nothing and exits 3 while something is wrong.
 ---
 
 # Checking a change
 
-`perch scan` reads the repository at `HEAD`. `perch check` reads one point in the code
-as it is on disk right now. Run it while you are working:
+`perch check` checks a single method or file as it is on disk, including changes you haven't committed. It's useful while
+you're working on a fix, because you can see whether the problem is gone without running a full scan:
 
 ```console
-$ perch check checkout.py::can_fulfil
-checkout.py:20  can_fulfil
-1 check, 1 broken.
+$ perch check storage.py::load_order
+storage.py:10  load_order
+2 checks, 1 broken.
 
-  Confidence  Rule           Description
-         93%  can_fulfil     True when every line in the cart is in stock.
-1 request  4k tokens in / 646 out  $0.0002
+  Confidence  Rule                     Description
+         80%  errors-reach-the-caller  When this method catches an exception, it raises it again or
+                                       returns a value the caller can tell apart from success. Logging
+                                       the exception and returning an ordinary value breaks this rule.
+
+  Also raised: error_ignored 68%
+2 requests  447 tokens in / 25 out  $0.0001
 ```
 
-A target is a method by name, a whole file, or the id of an issue:
+In this example, `load_order` breaks the custom rule `errors-reach-the-caller`. The `Also raised` line shows problems
+found by Perch's built-in questions, which here report the same swallowed exception as a defect.
+
+## Targets
+
+You can check a method, a file, or an issue ID from `perch issues`:
 
 ```sh
-perch check src/model.js::createModel
-perch check src/model.js
-perch check 92c7781e
+perch check cart.py::subtotal   # Check one method.
+perch check cart.py             # Check one file.
+perch check 287bfb9d            # Check the method behind an issue.
 ```
 
-It asks every rule that covers the target, plus the scan's own questions when the
-target is a method.
+For a method, Perch asks its built-in questions and every custom rule that applies to the method. For a file, it asks the
+custom rules that apply to the file.
 
-## Narrowing by rule
+## Check for specific problems
 
-`--rules` takes rule names out of `perch.yaml`, or the classes the scan asks
-about: `defect`, `security`, `refactor`, `docs`.
+To check only certain rules, pass their names to `--rules`. You can also pass a type of problem: `defect`, `security`,
+`refactor` or `docs`. For example:
 
-```sh
-perch check src/model.js::createModel --rules security
-perch check src/model.js --rules private-logs,no-silent-failure
+```console
+$ perch check checkout.py::can_fulfil --rules security
+checkout.py:21  can_fulfil
+1 check, nothing to report.
+1 request  3k tokens in / 439 out  $0.0021
 ```
 
-After a security fix, asking about security alone is one question against one
-method. That is cheap enough to sit in a loop.
+Checking one type of problem in one method takes a single request, so you can run it after every edit.
 
-## The loop
+## Exit codes
 
-`perch check` exits 3 while something it asked about is still wrong, and 0 when
-nothing is:
+`perch check` exits with code 3 if anything it checked is still broken, and 0 if nothing is. This lets you use it in a
+loop until a fix works:
 
 ```sh
-until perch check src/model.js::createModel --rules security; do
-  $EDITOR src/model.js
+until perch check cart.py::subtotal --rules defect; do
+  $EDITOR cart.py
 done
 ```
 
-Because it reads from disk rather than from git, it sees uncommitted work, staged
-or not.
+## Effect on issues
 
-## Reading the answer
-
-`check` prints the whole distribution, including what falls under the floor.
-Halving a 40 percent defect is visible as that. `perch issues` would list neither
-reading.
-
-`issues` is a list of claims, so it has a floor. `check` answers the question you
-asked, and reports whatever came back.
-
-## Side effects
-
-Nothing. The issue that sent you there stays open in `.perch`. The next
-`perch scan` re-reads that method and finds it gone.
-
-A passing `check` does not close an issue.
+`perch check` doesn't save its results. The issue you're fixing stays open in `perch issues` until the next `perch scan`
+reads the method and no longer finds the problem. Running `perch check` doesn't close an issue, even when the check
+passes.

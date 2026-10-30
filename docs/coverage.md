@@ -8,25 +8,15 @@ summary: Find unit tests of low value and discover the real coverage gaps in you
 
 # Test coverage
 
-Perch Coverage finds low-value unit tests and the real gaps in your test
-coverage. It is mutation testing with a decision model on top. Perch plants
-small bugs, mutants, in your code and runs your tests against each one. A
-mutant no test catches is a survivor. Most survivors are noise, so perch asks a
-decision model, Jev, which of them a user could ever notice. It lists only
-those, each with the test to write.
+`perch coverage` finds the code your tests run but don't check, and the tests that add nothing. It is mutation testing:
+Perch makes small edits to your code, called mutants, and runs your tests against each one. If a test fails, it caught
+the mutant. If every test passes, the mutant survived, and nothing checks what that code does. Perch then asks the model
+which survivors a caller could ever notice, and lists only those, each with the test to add.
 
-A mutant is one edit to one method. Perch removes a call statement, empties an
-`if` body, forces a condition to `true` or `false`, or swaps an operator: `<`
-to `<=`, `&&` to `||`, `+` to `-`, `n++` to `n--`. It swaps a method for its
-opposite, `startsWith` for `endsWith`, or drops `.filter(…)` from a chain. It
-drops a `!`, flips a boolean, empties a string or a list, moves a number by
-one, makes `a?.b` unconditional, or replaces a returned value. These are the
-operators Stryker and PIT use. If a test fails with a mutant in place, the test
-kills it. If every test passes, the mutant survives. A survived mutant is a
-real gap in your coverage: a test runs that code, and nothing checks what it
-does.
+Each mutant is one edit to one method, of the same kinds that Stryker and PIT make. For example, Perch removes a call,
+empties an `if` body, or swaps `<` for `<=`. [What gets mutated](#what-gets-mutated) lists every kind.
 
-Point it at a repository:
+Run it at the root of a repository:
 
 ```console
 $ perch coverage
@@ -76,14 +66,16 @@ fails with the mutant in place. No coverage counts the mutants on lines no test
 runs. They count against the score. Source files are listed worst first, and
 test files only when something in them needs fixing.
 
-Under the tables, Perch lists the methods to add a test to, most survived
-mutants first, each with the test to add. `--all` lists every method and every
-survived mutant. Then come the test problems, by file:
+Under the tables, Perch lists the methods that need a test, the method with the most
+surviving mutants first, each with the test to add. `--all` lists every method and every
+surviving mutant. Then it lists problems with the tests themselves, by file:
 
-- **checks_nothing:** the test kills none of the mutants in the code it reaches.
-- **redundant:** the test kills exactly the mutants an earlier test kills.
-- **mocked:** the test only calls methods it has replaced with mocks.
-- **infra:** the test calls a live service with nothing mocked.
+| Problem | Meaning |
+| --- | --- |
+| `checks_nothing` | The test kills none of the mutants in the code it reaches. |
+| `redundant` | The test kills exactly the mutants an earlier test kills. |
+| `mocked` | The test only calls methods it has replaced with mocks. |
+| `infra` | The test calls a live service with nothing mocked. |
 
 A problem the test run settled is 100%. A survivor's confidence is how sure the
 model is that a caller could see the edit. `-` means the call graph decided it,
@@ -111,12 +103,12 @@ your working tree is never touched:
    report. A mutant the code can't be built or loaded with is invalid, and is
    left out. A failing test is run again by itself before it counts, so a test
    that fails only under load is not a kill.
-3. It asks the decision model about the survivors only: would a caller ever see
+3. It asks the model about the survivors only: would a caller ever see
    this change, or is it harmless, like a log message, or an edit that changes
    nothing? Harmless survivors are equivalent mutants, and are left out of the
    score. Stryker and PIT can't tell them apart from real gaps.
 
-Before perch says a test checks nothing, it runs that test alone against the
+Before Perch says a test checks nothing, it runs that test alone against the
 rest of its mutants. Before it calls a test a duplicate, it runs both against
 every mutant they reach.
 
@@ -135,7 +127,7 @@ TypeScript it runs the framework installed in your `node_modules`, so install
 your dependencies first. node:test needs Node 22 or later. Rust needs cargo, Go
 needs go, and C# needs dotnet and a test project that references
 `Microsoft.NET.Test.Sdk`. Java, Kotlin and Scala need a JDK and the project's
-Gradle, Maven or sbt. If perch can't run your tests, it stops and says what's
+Gradle, Maven or sbt. If Perch can't run your tests, it stops and says what's
 missing.
 
 ## What gets mutated
@@ -166,7 +158,7 @@ Perch makes every mutant a method has; there is no cap. Each is one edit:
 
 A method with none of these, a one-line delegate or a getter, gets no
 mutants and counts as covered with nothing to kill. A method no test reaches
-gets its mutants too, but perch runs and asks nothing about them: they have no
+gets its mutants too, but Perch runs and asks nothing about them: they have no
 coverage, they count against the score, and the No coverage column counts them
 rather than listing each one.
 
@@ -175,22 +167,22 @@ rather than listing each one.
 `perch coverage` reads the code your test frameworks run and measure. It
 ignores release scripts, examples, documentation tooling and CI actions.
 
-- **Vitest and Jest:** perch loads your configuration using the copy of the
+- **Vitest and Jest:** Perch loads your configuration using the copy of the
   framework you've installed, so it runs over the same tests the framework
   would run. The coverage configuration's `include` and `exclude` options decide
   which files are source code. If you don't have an `include` option, the
   source is the code your tests import, plus the files beside your tests.
-- **Mocha, Jasmine and node:test:** perch reads every test it finds, and the
+- **Mocha, Jasmine and node:test:** Perch reads every test it finds, and the
   code beside it. Mocha and node:test keep the flags your `test` script
   passes, such as `--require test/support/env` or
   `--experimental-test-module-mocks`.
-- **Karma:** perch loads `karma.conf.js` and covers the files it loads.
+- **Karma:** Perch loads `karma.conf.js` and covers the files it loads.
 - **Cucumber:** each scenario in your feature files is a test, and the source
   is the code your step definitions import.
-- **pytest:** perch reads the `testpaths` and `python_files` options from
+- **pytest:** Perch reads the `testpaths` and `python_files` options from
   `pytest.ini`, `pyproject.toml`, `tox.ini` or `setup.cfg`, and the `source`
   and `omit` options from your coverage.py configuration.
-- **Go, Rust, C#, Java, Kotlin and Scala:** perch covers the module the tests
+- **Go, Rust, C#, Java, Kotlin and Scala:** Perch covers the module the tests
   are in: the Go module, the code under a Rust crate's `src/`, the projects a
   .NET test project references, and a Gradle, Maven or sbt module's
   `src/main`.
@@ -204,7 +196,7 @@ $ perch coverage --verbose
 [perch] pytest (pytest.ini) runs 3 test files
 ```
 
-If perch can't load a configuration, it names that configuration on the last
+If Perch can't load a configuration, it names that configuration on the last
 line and reads every test it can find instead. `--verbose` shows the error. You
 can leave out more files and directories with the `ignore:` option in
 `perch.yaml`.
@@ -223,12 +215,12 @@ can leave out more files and directories with the `ignore:` option in
 
 Perch reads those mocks to find a test that mocks every method it calls. Perch
 also finds tests in Swift, C, C++, Ruby, PHP, Lua, Zig and Solidity, but
-can't run them yet. In a repository with tests in one of those, perch leaves
+can't run them yet. In a repository with tests in one of those, Perch leaves
 out the code only those tests run, and says so.
 
 ## Checking a branch
 
-Run perch with `--since REF` to list the problems in methods and tests you've
+Run Perch with `--since REF` to list the problems in methods and tests you've
 changed on the branch:
 
 ```console
@@ -247,13 +239,13 @@ Report: .perch/coverage/index.html
 6 requests  0 tokens in  $0.0000
 ```
 
-On a branch, perch runs only the mutants in code the branch changed, and the
+On a branch, Perch runs only the mutants in code the branch changed, and the
 ones its changed tests reach. Every other mutant keeps the outcome saved by an
 earlier run, when it still holds; one with no saved outcome isn't run, and the
 last line counts it. A test that reaches a mutant that wasn't run isn't called
 a duplicate or said to check nothing.
 
-With `--since`, perch exits 3 only when it finds a problem in changed code. It
+With `--since`, Perch exits 3 only when it finds a problem in changed code. It
 compares the results with a previous run only when you also pass `--diff` to say
 which run.
 

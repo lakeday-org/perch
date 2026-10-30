@@ -1,20 +1,21 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 
 export const hash = value => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex');
 export async function jsonl(file) {
   const data = await fs.readFile(file);
   return (file.endsWith('.gz') ? gunzipSync(data) : data).toString().trim().split('\n').filter(Boolean).map(JSON.parse);
 }
-export async function verifyBundle(root) {
-  const manifest = JSON.parse(await fs.readFile(new URL('manifest.json', root), 'utf8'));
+/** Checks each file in the data folder `dir` against its SHA-256 in the folder's manifest.json, and that every target is a method. */
+export async function verifyBundle(dir) {
+  const manifest = JSON.parse(await fs.readFile(path.join(dir, 'manifest.json'), 'utf8'));
   for (const [file, expected] of Object.entries(manifest.sha256)) {
-    const actual = createHash('sha256').update(await fs.readFile(new URL(file, root))).digest('hex');
+    const actual = createHash('sha256').update(await fs.readFile(path.join(dir, file))).digest('hex');
     if (actual !== expected) throw Error('Snapshot hash mismatch: ' + file);
   }
-  const targets = await jsonl(fileURLToPath(new URL('targets.jsonl', root)));
+  const targets = await jsonl(path.join(dir, 'targets.jsonl'));
   if (manifest.target_scope !== 'method' || targets.some(t => !t.name || ['<file>', '<top-level>'].includes(t.name))) throw Error('ReviewBench inputs must be method-only');
   return manifest;
 }

@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { appendFile, lstat, mkdir, open, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { git, repoRoot } from './git.js';
 import { BELIEVED, flagged, issuesOf, issueWeight } from './questions.js';
 
@@ -12,6 +12,17 @@ export const sha256 = text => createHash('sha256').update(text).digest('hex');
 export const identity = (...parts) => sha256(JSON.stringify(parts)).slice(0, 16);
 /** A short stable handle for a method's finding, the same across scans. */
 export const findingId = method => identity('finding', method).slice(0, 8);
+
+/**
+ * What is closed on a finding. A rule's answer about a method is one finding whether the method's reading asked it or a request of
+ * its own did, as a rule shown a document is, so a check about a method is also held by a closure on the method for that rule.
+ */
+export function closureOf(dismissals, finding) {
+  const own = dismissals.get(finding.id);
+  if (own?.kinds.size || !finding.rule || !finding.method) return own;
+  const onMethod = dismissals.get(findingId(finding.method));
+  return onMethod?.kinds.has(finding.rule) ? { ...onMethod, kinds: new Set([finding.rule]) } : own;
+}
 
 const plain = value => value !== null && typeof value === 'object' && typeof value.toJSON !== 'function'
   && (Array.isArray(value) || [Object.prototype, null].includes(Object.getPrototypeOf(value)));
@@ -233,9 +244,11 @@ export function openStore(out) {
     },
     /** Ignore generated results while allowing closures and the default rule directory to be committed. */
     async exclude(root) {
-      if (!out.startsWith(root + '/')) return;
+      // relative, not a '/' prefix: on Windows git names the root C:/repo and the results directory is C:\repo\.perch.
+      const inside = relative(root, out);
+      if (!inside || inside === '..' || inside.startsWith('..' + sep) || isAbsolute(inside)) return;
       const path = join(out, '.gitignore');
-      const rules = out === join(root, '.perch') ? '!rules/\n' : '';
+      const rules = inside === '.perch' ? '!rules/\n' : '';
       const wanted = '# Written by perch. Rules and closures are committed; scan output is not.\n/*\n!closed.jsonl\n' + rules;
       await writable(out, path);
       if (await readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return null; throw error; }) === wanted) return;
@@ -258,10 +271,22 @@ export function openStore(out) {
       await writeFile(store.logPath, `${new Date().toISOString()} perch\n`);
       // A line the log could not take must not end the run it describes, so it is said once on stderr and the run goes on.
       let warned = false;
-      return line => appendFile(store.logPath, `${new Date().toISOString()} ${line}\n`).catch(error => {
-        if (!warned) process.stderr.write(`perch: could not write ${store.logPath}: ${error.message}; the run goes on without its log\n`);
-        warned = true;
-      });
+      // One write at a time, taking every line that arrived while the last one was being written. A large repository logs
+      // hundreds of lines a second while it is parsed, and a write each, all open at once, used every file the process may open:
+      // the scan then failed on the next file it read (EMFILE, 2026-10-21).
+      let queued = '', writing = Promise.resolve(), next = null;
+      return line => {
+        queued += `${new Date().toISOString()} ${line}\n`;
+        next ??= writing = writing.then(() => {
+          const text = queued;
+          queued = ''; next = null;
+          return appendFile(store.logPath, text).catch(error => {
+            if (!warned) process.stderr.write(`perch: could not write ${store.logPath}: ${error.message}; the run goes on without its log\n`);
+            warned = true;
+          });
+        });
+        return next;
+      };
     },
     /** Enough of the end to show what a run was doing when it stopped, which is what doctor prints when one did not finish. */
     async tail(count = 20) {
@@ -374,7 +399,7 @@ export function openStore(out) {
       // the scan's list. One that passed carries nothing to report and falls out below with everything else that is quiet.
       for (const event of checks.values()) every.push({ ...event, lint: { rule: event.rule, broken: event.broken, text: event.text ?? null, said: event.said ?? null } });
       return every.map(finding => {
-        const held = dismissals.get(finding.id);
+        const held = closureOf(dismissals, finding);
         if (!held?.kinds.size) return finding;
         const closed = { kinds: [...held.kinds], at: held.at, reason: held.reason };
         // Closed when nothing is left live on it, and still listed by `perch issues --closed` either way, which is why what it
