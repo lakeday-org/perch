@@ -106,7 +106,8 @@ describe('running JavaScript tests', () => {
     await covered(jasmine, 'jasmine', 'spec/cart.spec.js::applyDiscount > takes 10 percent off');
   }, 600000);
 
-  it.skipIf(!chrome)('runs Karma in headless Chrome, its sources and tests read from the Karma config', async () => {
+  // Chrome no longer starts on GitHub's Ubuntu runner, so this runs on a machine with Chrome and not in CI.
+  it.skipIf(!chrome || process.env.CI)('runs Karma in headless Chrome, its sources and tests read from the Karma config', async () => {
     const root = await repository({
       'package.json': JSON.stringify({ name: 'shop', private: true, devDependencies: { karma: '^6.4.4', 'karma-jasmine': '^5.1.0', 'jasmine-core': '^5.5.0', 'karma-chrome-launcher': '^3.2.0' } }),
       'karma.conf.js': "module.exports = config => config.set({ frameworks: ['jasmine'], files: ['src/**/*.js', 'test/**/*.spec.js'], browsers: ['ChromeHeadless'], singleRun: true });\n",
