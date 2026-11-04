@@ -15,6 +15,10 @@
   "bin": {
     "perch": "bin/perch.mjs"
   },
+  "exports": {
+    ".": "./dist/lib.mjs",
+    "./package.json": "./package.json"
+  },
   "files": [
     "LICENSE",
     "README.md",

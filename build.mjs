@@ -31,8 +31,9 @@ async function stamp() {
 
 await build({
   define: { PERCH_VERSION: JSON.stringify(await stamp()) },
-  entryPoints: ['src/cli.js'],
-  outfile: 'dist/cli.mjs',
+  entryPoints: ['src/cli.js', 'src/lib.js'],
+  outdir: 'dist',
+  outExtension: { '.js': '.mjs' },
   bundle: true,
   platform: 'node',
   format: 'esm',
