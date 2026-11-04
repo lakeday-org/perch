@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2](https://github.com/lakeday-org/perch/compare/v0.5.1...v0.5.2) (2026-11-04)
+
+
+### Bug Fixes
+
+* set up Java in the release workflows ([#448](https://github.com/lakeday-org/perch/issues/448)) ([a3c058e](https://github.com/lakeday-org/perch/commit/a3c058e3e011de8c60a7808875c57dd95fa0e713))
+
 ## [0.5.1](https://github.com/lakeday-org/perch/compare/v0.5.0...v0.5.1) (2026-11-04)
 
 
