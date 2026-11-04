@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/lakeday-org/perch/compare/v0.5.0...v0.5.1) (2026-11-04)
+
+
+### Features
+
+* export the source analysis as a library ([#446](https://github.com/lakeday-org/perch/issues/446)) ([8f3edb3](https://github.com/lakeday-org/perch/commit/8f3edb3a270e22b252c1ceaf97055dd6453dc778))
+
 ## [0.5.0](https://github.com/lakeday-org/perch/compare/v0.4.9...v0.5.0) (2026-10-30)
 
 
