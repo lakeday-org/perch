@@ -35,6 +35,12 @@ jobs:
           registry-url: https://registry.npmjs.org/
           cache: npm
 
+      # The compiled runner tests need the same Java as ci.yml. The runner's default no longer builds their Kotlin project.
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
       # Trusted publishing needs npm 11.5.1 or later, and Node 22 ships an older one.
       - run: npm install -g npm@latest
 
