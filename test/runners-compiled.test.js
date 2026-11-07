@@ -46,6 +46,32 @@ describe('running compiled tests', () => {
     expect(report.findings.some(finding => finding.kind === 'checks_nothing' && finding.unit === 'src/lib.rs::scales_without_checking')).toBe(true);
   }, 300000);
 
+  const WORKSPACE = {
+    'Cargo.toml': '[workspace]\nmembers = ["crates/*"]\nresolver = "2"\n',
+    'crates/shop/Cargo.toml': '[package]\nname = "shop"\nversion = "0.0.0"\nedition = "2021"\n',
+    'crates/shop/src/lib.rs': 'pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn adds() {\n        assert_eq!(add(2, 3), 5);\n    }\n}\n',
+    // A package whose tests do not compile: a run that builds it fails.
+    'crates/other/Cargo.toml': '[package]\nname = "other"\nversion = "0.0.0"\nedition = "2021"\n',
+    'crates/other/src/lib.rs': 'pub fn one() -> i32 {\n    1\n}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn broken() {\n        let value: i32 = "not a number";\n        assert_eq!(value, 1);\n    }\n}\n',
+  };
+
+  it.skipIf(!installed('cargo'))('builds only the packages holding the paths asked about', async () => {
+    const root = await repository(WORKSPACE, 'target\n');
+    const report = await coverageRepository({ root, revision: await revision(root), out: join(root, '.perch'), analyzer, systemOne: model(), parallel: 2, paths: ['crates/shop'] });
+    expect(mutant(report, 'add', 'arithmetic')).toMatchObject({ killed: true, killed_by: ['crates/shop/src/lib.rs::adds'] });
+  }, 300000);
+
+  it.skipIf(!installed('cargo'))('says which code has no runner when the paths asked about hold only that', async () => {
+    const root = await repository({ ...WORKSPACE, 'scripts/deploy.sh': 'deploy() {\n  echo deploying\n}\n' }, 'target\n');
+    await expect(coverageRepository({ root, revision: await revision(root), out: join(root, '.perch'), analyzer, systemOne: model(), parallel: 2, paths: ['scripts'] }))
+      .rejects.toThrow('no test runner for bash, the code under scripts');
+  }, 300000);
+
+  it.skipIf(!installed('cargo'))('builds the whole workspace when no paths are asked about', async () => {
+    const root = await repository(WORKSPACE, 'target\n');
+    await expect(run(root)).rejects.toThrow('does not build');
+  }, 300000);
+
   it.skipIf(!installed('go'))('builds each mutant into a copy of the module, and runs each test alone for what it covers', async () => {
     const root = await repository({
       'go.mod': 'module example.com/shop\n\ngo 1.22\n',

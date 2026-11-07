@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { runnersFor, usable } from '../src/runners/index.js';
 import { available, exec, executedBy, session, testOf } from '../src/runners/pytest.js';
 import { sandboxKind } from '../src/runners/sandbox.js';
 import { startDriver } from '../src/runners/driver.js';
@@ -11,6 +12,34 @@ import { startWorkers, WORKER_IO } from '../src/runners/workers.js';
 const cleanups = [];
 const pytest = await available({ root: tmpdir() });
 afterEach(async () => { for (const path of cleanups.splice(0)) await rm(path, { recursive: true, force: true }); });
+
+describe('the runners a run needs', () => {
+  const graph = { nodes: new Map([['lib', { path: 'src/lib.rs', case: {} }]]), files: new Map([['src/lib.rs', { file: { language: 'rust' } }]]) };
+  const scope = { frameworks: [{ name: 'pytest', tests: ['tests/check.py'] }] };
+  const stub = (name, reason) => ({ name, languages: new Set([name]), copiesFor: () => 1, available: async () => (reason ? { reason } : {}) });
+
+  it('takes every framework the repository has when no languages are asked for', async () => {
+    const found = await runnersFor({ scope, graph, root: tmpdir() });
+    expect(found.map(runner => runner.name).sort()).toEqual(['cargo', 'pytest']);
+  });
+
+  it('takes only the runners for the languages asked about', async () => {
+    const found = await runnersFor({ scope, graph, root: tmpdir(), languages: new Set(['rust']) });
+    expect(found.map(runner => runner.name)).toEqual(['cargo']);
+  });
+
+  it('leaves out a runner that cannot run and keeps the rest', async () => {
+    const { runner, missing } = await usable([stub('pytest', 'no pytest'), stub('cargo')], { root: tmpdir() });
+    expect(runner.name).toBe('cargo');
+    expect(missing).toMatchObject([{ runner: { name: 'pytest' }, reason: 'no pytest' }]);
+  });
+
+  it('has no runner when none can run', async () => {
+    const { runner, missing } = await usable([stub('pytest', 'no pytest'), stub('cargo', 'no cargo')], { root: tmpdir() });
+    expect(runner).toBeNull();
+    expect(missing.map(item => item.reason)).toEqual(['no pytest', 'no cargo']);
+  });
+});
 
 describe('a test run perch starts', () => {
   it.skipIf(!sandboxKind())('writes only inside its copy, its scratch directory and the temporary directory', async () => {
