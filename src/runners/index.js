@@ -20,9 +20,9 @@ const run = promisify(execFile);
 /**
  * The runners for the repository's test frameworks, by what frameworkScope found and what the root package depends on: pytest for
  * Python tests; Vitest or Jest where their config loaded; otherwise Mocha where the package depends on it, or node:test where
- * the tests import it. More than one is one runner over all of them.
+ * the tests import it. With `languages`, only the runners for those: a run over Rust files needs no Python.
  */
-export async function runnersFor({ scope, root, graph }) {
+export async function runnersFor({ scope, root, graph, languages = null }) {
   // A framework counts the test files it runs.
   const names = new Set((scope?.frameworks ?? []).filter(framework => (Array.isArray(framework.tests) ? framework.tests.length : framework.tests ?? 0) > 0).map(framework => framework.name));
   const found = [];
@@ -50,7 +50,17 @@ export async function runnersFor({ scope, root, graph }) {
   if (tested.has('go')) found.push(goRunner());
   if (tested.has('csharp') || tested.has('c_sharp')) found.push(dotnetRunner());
   if (tested.has('java') || tested.has('kotlin') || tested.has('scala')) found.push(jvmRunner());
-  return found.length ? combined(found) : null;
+  return languages ? found.filter(runner => [...runner.languages].some(language => languages.has(language))) : found;
+}
+
+/**
+ * Those of `runners` that can run here, as one runner, and the ones that cannot with why. One missing tool leaves out its own
+ * tests and not the others'.
+ */
+export async function usable(runners, args) {
+  const checked = await Promise.all(runners.map(async runner => ({ runner, reason: (await runner.available(args)).reason })));
+  const ready = checked.filter(item => !item.reason).map(item => item.runner);
+  return { runner: ready.length ? combined(ready) : null, missing: checked.filter(item => item.reason) };
 }
 
 /**

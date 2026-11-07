@@ -28,7 +28,7 @@ import { estimateTokens, IncompleteCheckError, TOKEN_LIMITS, withTokenRetries } 
 import { matches, readIgnored } from './units.js';
 import { covers } from './scan.js';
 import { describeMutant, mutantId, mutantsOf } from './mutants.js';
-import { copiesOf, runnersFor } from './runners/index.js';
+import { copiesOf, runnersFor, usable } from './runners/index.js';
 import { sandboxKind } from './runners/sandbox.js';
 
 /** Tests or methods in flight at once. */
@@ -1052,16 +1052,21 @@ export async function coverageRepository({ root, revision, label = root, github 
   for (const framework of scope?.frameworks ?? []) if (framework.error) log(`could not load ${framework.config}: ${framework.error}`);
   // The repository's own tests, run by perch: once for which tests run each line, then once per mutant. Nothing is estimated: a
   // repository whose tests perch cannot run is one it cannot measure, and it says what is missing.
-  const runner = given ?? await runnersFor({ scope, root, graph });
-  if (!runner) throw new Error(`perch coverage runs your tests itself, and has no runner for ${(scope?.frameworks ?? []).filter(item => item.tests).map(item => item.name).join(', ') || 'what it found'} yet; it runs pytest, Vitest, Jest, Mocha, Jasmine, Karma, Cucumber, node:test, cargo, go test, dotnet test, and JUnit, TestNG, ScalaTest and MUnit on Gradle, Maven or sbt`);
+  const asked = paths.length ? new Set(scan.files.filter(file => covered(file.path)).map(file => file.language)) : null;
+  const runners = given ? [given] : await runnersFor({ scope, root, graph, languages: asked?.size ? asked : null });
+  if (!runners.length && asked?.size) throw new Error(`perch coverage has no test runner for ${[...asked].join(', ')}, the code under ${paths.join(', ')}`);
+  if (!runners.length) throw new Error(`perch coverage runs your tests itself, and has no runner for ${(scope?.frameworks ?? []).filter(item => item.tests).map(item => item.name).join(', ') || 'what it found'} yet; it runs pytest, Vitest, Jest, Mocha, Jasmine, Karma, Cucumber, node:test, cargo, go test, dotnet test, and JUnit, TestNG, ScalaTest and MUnit on Gradle, Maven or sbt`);
+  const { runner, missing } = await usable(runners, { root });
+  if (!runner) throw new Error(`${missing.map(item => item.runner.name).join(' and ')} cannot run here: ${missing.length === 1 ? missing[0].reason : missing.map(item => `${item.runner.name}: ${item.reason}`).join('; ')}`);
+  for (const item of missing) log(`${item.runner.name} cannot run here, so the code only its tests cover is left out: ${item.reason}`);
   const tool = await runner.available({ root });
-  if (tool.reason) throw new Error(`${runner.name} cannot run here: ${tool.reason}`);
   if (!sandboxKind()) log(`${runner.name} runs unsandboxed here: install bubblewrap so a mutated test can write only inside its copy`);
   // Only the code of the languages the runner runs: a TypeScript file in a repository whose pytest suite perch runs is no test of
   // that suite's to cover, and its own tests are a framework perch cannot run yet.
   const languageOf = path => graph.files.get(path)?.file.language;
   const runnable = path => runner.languages.has(languageOf(path));
-  const otherwise = (scope?.tests ? [...new Set(scan.files.filter(file => file.test && !runnable(file.path)).map(file => file.language))] : []);
+  const reported = language => (!asked?.size || asked.has(language)) && !missing.some(item => item.runner.languages.has(language));
+  const otherwise = (scope?.tests ? [...new Set(scan.files.filter(file => file.test && !runnable(file.path) && reported(file.language)).map(file => file.language))] : []);
   if (otherwise.length) log(`perch has no runner for the ${otherwise.join(', ')} tests here yet, so the code only they test is left out`);
   const chosen = path => covered(path) && !ignored.some(glob => matches(glob, path));
   const inScope = path => chosen(path) && (!scope || scope.source(path)) && runnable(path);
@@ -1072,7 +1077,7 @@ export async function coverageRepository({ root, revision, label = root, github 
   try {
     const sourceText = async path => (await linesOf({ path })).join('\n');
     const generated = await generateMutants({ methods: computeCoverage({ scan, graph, inScope, named: chosen, runs }).methods, graph, sourceText });
-    await runner.prepare?.({ copies, generated, graph, tool });
+    await runner.prepare?.({ copies, generated, graph, tool, scoped: paths.length > 0 });
     debug(`running ${runner.name} once with per-test coverage`);
     const base = await runner.coverageRun({ copy: copies[0].dir, scratch: copies[0].scratch, tool, copies });
     coverage = computeCoverage({ scan, graph, inScope, named: chosen, runs, run: base });

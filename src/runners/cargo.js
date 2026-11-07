@@ -81,9 +81,10 @@ async function available({ root }) {
 
 /**
  * The copy made ready: each crate root given the switch, every mutant written into its file, and the tests built, again without
- * whatever the compiler rejects, until they build.
+ * whatever the compiler rejects, until they build. A `scoped` run builds only the packages holding its mutants: `cargo test` on
+ * its own builds every test in the workspace, whichever files were asked about.
  */
-async function prepare(state, { copies: [copy], generated, graph }) {
+async function prepare(state, { copies: [copy], generated, graph, scoped = false }) {
   const ids = new Map(), keys = new Map(), unplaced = new Map(), names = new Map(), testOfNode = new Map();
   Object.assign(state, { ids, keys, unplaced, names, testOfNode, binaries: [] });
   const target = join(copy.scratch, 'target');
@@ -120,6 +121,11 @@ async function prepare(state, { copies: [copy], generated, graph }) {
       byFile.get(node.path).push({ id, mutant });
     }
   }
+  const packages = metadata.packages.map(item => ({ name: item.name, dir: relative(copy.dir, dirname(item.manifest_path)) }));
+  const owners = [...byFile.keys()].map(path => packages.filter(item => !item.dir || path.startsWith(`${item.dir}/`))
+    .sort((a, b) => b.dir.length - a.dir.length)[0]?.name);
+  // A file in no package of this workspace is one only the whole build can reach.
+  const only = scoped && owners.length && owners.every(Boolean) ? [...new Set(owners)].flatMap(owner => ['-p', owner]) : [];
   const sources = new Map();
   for (const path of byFile.keys()) sources.set(path, await readFile(join(copy.dir, path), 'utf8'));
   for (let round = 0; ; round++) {
@@ -132,7 +138,7 @@ async function prepare(state, { copies: [copy], generated, graph }) {
     }
     let output;
     try {
-      ({ stdout: output } = await run('cargo', ['test', '--no-run', '--message-format=json', '--quiet'], { cwd: copy.dir, env: { ...process.env, CARGO_TARGET_DIR: target }, maxBuffer: 1 << 28 }));
+      ({ stdout: output } = await run('cargo', ['test', '--no-run', '--message-format=json', '--quiet', ...only], { cwd: copy.dir, env: { ...process.env, CARGO_TARGET_DIR: target }, maxBuffer: 1 << 28 }));
     } catch (error) { output = error.stdout ?? ''; }
     const messages = output.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line));
     const errors = messages.filter(item => item.reason === 'compiler-message' && item.message.level === 'error');

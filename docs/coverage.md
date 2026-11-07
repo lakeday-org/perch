@@ -127,8 +127,15 @@ TypeScript it runs the framework installed in your `node_modules`, so install
 your dependencies first. node:test needs Node 22 or later. Rust needs cargo, Go
 needs go, and C# needs dotnet and a test project that references
 `Microsoft.NET.Test.Sdk`. Java, Kotlin and Scala need a JDK and the project's
-Gradle, Maven or sbt. If Perch can't run your tests, it stops and says what's
-missing.
+Gradle, Maven or sbt.
+
+Perch only needs the tools for the code it's covering, so `--paths` over Rust
+files needs cargo and not pytest. If a tool is missing, Perch logs what it left
+out and runs the other languages. If it can't run any of your tests, it stops
+and says what's missing.
+
+With `--paths`, Rust runs build and test only the packages holding those files.
+A test in another package that exercises them isn't counted.
 
 ## What gets mutated
 
