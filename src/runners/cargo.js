@@ -43,7 +43,8 @@ pub mod __perch {
             let test = std::thread::current().name().unwrap_or("").to_string();
             if let Ok(mut guard) = hits.lock() {
                 if guard.0.insert((test.clone(), id)) {
-                    let _ = writeln!(guard.1, "{}\\t{}", id, test);
+                    // One write per line: a test's child processes append to the same file, and pieces would interleave.
+                    let _ = guard.1.write_all(format!("{}\\t{}\\n", id, test).as_bytes());
                 }
             }
         }
@@ -194,6 +195,8 @@ async function coverageRun({ names, keys, unplaced, binaries, testOfNode }, { co
   const reached = new Map(), executed = new Map();
   for (const line of (await readFile(hits, 'utf8')).split('\n').filter(Boolean)) {
     const [id, thread] = line.split('\t');
+    // A child process a test started and then killed can leave half a line.
+    if (thread === undefined || !keys.has(Number(id))) continue;
     const test = idOf(thread);
     if (!reached.has(test)) { reached.set(test, new Set()); executed.set(test, new Map()); }
     const { key, mutant, path } = keys.get(Number(id));

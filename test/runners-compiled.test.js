@@ -99,6 +99,18 @@ describe('running compiled tests', () => {
     expect(mutant(report, 'socket', 'string')).toMatchObject({ killed: true });
   }, 300000);
 
+  it.skipIf(!installed('cargo'))('reads what tests reach through the binaries they start, many at once', async () => {
+    const root = await repository({
+      'Cargo.toml': '[package]\nname = "shop"\nversion = "0.0.0"\nedition = "2021"\n',
+      'src/lib.rs': 'pub fn total(values: &[i64]) -> i64 {\n    let mut sum = 0;\n    for value in values {\n        if *value > 0 {\n            sum += value;\n        }\n    }\n    sum * 2 - 1\n}\n',
+      'src/main.rs': 'fn main() {\n    for n in 0..200 { std::hint::black_box(shop::total(&[n, -n, 3])); }\n}\n',
+      // Each test starts the binary over and over, in parallel, every child appending what it reaches to one file.
+      'tests/cli.rs': '    #[test]\n    fn run_0() {\n        for _ in 0..20 { assert!(std::process::Command::new(env!(\"CARGO_BIN_EXE_shop\")).status().unwrap().success()); }\n    }\n    #[test]\n    fn run_1() {\n        for _ in 0..20 { assert!(std::process::Command::new(env!(\"CARGO_BIN_EXE_shop\")).status().unwrap().success()); }\n    }\n    #[test]\n    fn run_2() {\n        for _ in 0..20 { assert!(std::process::Command::new(env!(\"CARGO_BIN_EXE_shop\")).status().unwrap().success()); }\n    }\n    #[test]\n    fn run_3() {\n        for _ in 0..20 { assert!(std::process::Command::new(env!(\"CARGO_BIN_EXE_shop\")).status().unwrap().success()); }\n    }\n    #[test]\n    fn run_4() {\n        for _ in 0..20 { assert!(std::process::Command::new(env!(\"CARGO_BIN_EXE_shop\")).status().unwrap().success()); }\n    }\n    #[test]\n    fn run_5() {\n        for _ in 0..20 { assert!(std::process::Command::new(env!(\"CARGO_BIN_EXE_shop\")).status().unwrap().success()); }\n    }\n    #[test]\n    fn run_6() {\n        for _ in 0..20 { assert!(std::process::Command::new(env!(\"CARGO_BIN_EXE_shop\")).status().unwrap().success()); }\n    }\n    #[test]\n    fn run_7() {\n        for _ in 0..20 { assert!(std::process::Command::new(env!(\"CARGO_BIN_EXE_shop\")).status().unwrap().success()); }\n    }\n',
+    }, 'target\n');
+    const report = await run(root);
+    expect(report.methods.find(item => item.id.endsWith('::total'))).toBeTruthy();
+  }, 300000);
+
   it.skipIf(!installed('cargo'))('builds the whole workspace when no paths are asked about', async () => {
     const root = await repository(WORKSPACE, 'target\n');
     await expect(run(root)).rejects.toThrow('does not build');
