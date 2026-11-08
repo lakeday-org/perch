@@ -88,6 +88,8 @@ const DIALECTS = {
       if ((parent?.type === 'assignment_expression' || parent?.type === 'compound_assignment_expr') && parent.childForFieldName('left')?.id === at.id) return true;
       // A method called on a value is called on that value, not on a copy the choice made: `a.len()` stays whole.
       if (parent?.type === 'call_expression' && parent.childForFieldName('function')?.id === at.id) return true;
+      // So is one called with its type arguments, `a.collect::<Vec<_>>()`: the choice goes around the whole call.
+      if (parent?.type === 'generic_function' && parent.childForFieldName('function')?.id === at.id) return true;
       if (parent?.type === 'reference_expression' || (parent?.type === 'field_expression' && parent.childForFieldName('value')?.id === at.id)) return true;
       // A block that is a function's or a branch's body is the body, not a value inside it.
       return at.type === 'block' && parent && !['parenthesized_expression', 'arguments', 'let_declaration'].includes(parent.type);

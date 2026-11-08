@@ -153,7 +153,9 @@ async function prepare(state, { copies: [copy], generated, graph, scoped = false
     for (const error of errors) {
       for (const span of error.message.spans.filter(item => item.is_primary)) {
         const result = placed.get(relative(copy.dir, join(copy.dir, span.file_name)));
-        for (const id of result?.locate(span.line_start, span.column_start) ?? []) if (!rejected.has(id)) rejected.set(id, error.message.message);
+        // A syntax error can point just past the edit that caused it, so a place no edit covers falls back to its line.
+        const at = result?.locate(span.line_start, span.column_start) ?? [];
+        for (const id of at.length ? at : result?.locate(span.line_start) ?? []) if (!rejected.has(id)) rejected.set(id, error.message.message);
       }
     }
     if (!rejected.size || round > 20) throw new Error(`the crate does not build: ${errors[0].message.rendered?.trim().split('\n').slice(0, 6).join(' | ')}`);

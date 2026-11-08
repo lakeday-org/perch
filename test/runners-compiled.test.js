@@ -79,6 +79,16 @@ describe('running compiled tests', () => {
     expect(mutant(report, 'add', 'arithmetic')).toMatchObject({ killed: true, killed_by: ['crates/shop/src/lib.rs::adds'] });
   }, 300000);
 
+  it.skipIf(!installed('cargo'))('builds a call with type arguments, and the mutants inside it run', async () => {
+    const root = await repository({
+      'Cargo.toml': '[package]\nname = "shop"\nversion = "0.0.0"\nedition = "2021"\n',
+      // Removing `.filter(...)` edits the receiver of `collect::<…>`, which the choice has to go around whole.
+      'src/lib.rs': 'pub fn positive(values: &[i32]) -> Vec<i32> {\n    values\n        .iter()\n        .copied()\n        .filter(|value| *value > 0)\n        .collect::<Vec<_>>()\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn keeps_positive() {\n        assert_eq!(positive(&[-1, 2]), vec![2]);\n    }\n}\n',
+    }, 'target\n');
+    const report = await run(root);
+    expect(mutant(report, 'positive', 'method')).toMatchObject({ killed: true, killed_by: ['src/lib.rs::keeps_positive'] });
+  }, 300000);
+
   it.skipIf(!installed('cargo'))('builds the whole workspace when no paths are asked about', async () => {
     const root = await repository(WORKSPACE, 'target\n');
     await expect(run(root)).rejects.toThrow('does not build');
