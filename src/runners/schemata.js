@@ -82,6 +82,8 @@ const DIALECTS = {
     statementChoice: (entries, original) => `${entries.map(entry => `if crate::__perch::on(${entry.id}) { ${entry.text} } else `).join('')}{ ${original} }`,
     blockChoice: (entries, original) => `{ ${entries.map(entry => `if crate::__perch::on(${entry.id}) ${entry.text} else `).join('')}${original} }`,
     refuse: at => (/pattern/.test(at.type) || ['const_item', 'static_item', 'attribute_item', 'inner_attribute_item', 'enum_variant'].includes(at.type) ? `the edit is inside a ${at.type}` : null),
+    // A literal is an expression, so the walk stops at it before reaching the pattern it is matched in.
+    within: at => (/pattern/.test(at.type) ? `the edit is inside a ${at.type}` : null),
     keep: (at, parent) => {
       if ((parent?.type === 'assignment_expression' || parent?.type === 'compound_assignment_expr') && parent.childForFieldName('left')?.id === at.id) return true;
       // A method called on a value is called on that value, not on a copy the choice made: `a.len()` stays whole.
@@ -202,6 +204,22 @@ export const SCHEMATA_LANGUAGES = new Set(['javascript', 'typescript', 'tsx']);
 const ofKind = kind => (kind === 'removal' ? 'statement' : kind === 'block' || kind === 'body' ? 'block' : 'expression');
 const ORDER = { block: 0, statement: 1, counter: 2, expression: 3 };
 
+const BOUNDARY = /(_statement|_declaration|_item|^program|^source_file|^compilation_unit|^statement_block)$/;
+
+/**
+ * Why no choice can stand at `at`, from it up to its statement, for a dialect whose `within` names such places: a literal
+ * Rust matches in `Some("x" | "y")` is an expression, but its place is the pattern around it, where only a constant goes.
+ */
+function refusedAbove(at, dialect) {
+  if (!dialect.within) return null;
+  for (; at; at = at.parent) {
+    const refused = dialect.within(at);
+    if (refused) return refused;
+    if (BOUNDARY.test(at.type) && at.type !== dialect.statement) return null;
+  }
+  return null;
+}
+
 /** The node the edit is placed at, by its kind, or the reason it has none. */
 function anchorOf(node, style, dialect) {
   if (style === 'block') {
@@ -213,10 +231,12 @@ function anchorOf(node, style, dialect) {
   for (let at = node; at; at = at.parent) {
     const refused = dialect.refuse(at);
     if (refused) return { reason: refused };
-    if (/(_statement|_declaration|_item|^program|^source_file|^compilation_unit|^statement_block)$/.test(at.type) && at.type !== dialect.statement) return { reason: 'no expression holds the edit' };
+    if (BOUNDARY.test(at.type) && at.type !== dialect.statement) return { reason: 'no expression holds the edit' };
     // A for loop's `i++` sits where only a statement goes: `i += (choice ? -1 : 1)` is one, and counts the same way.
     if (dialect.counters?.has(at.type) && at.parent?.type === 'for_statement' && /^(\+\+|--)$/.test(node.text)) return { node: at, style: 'counter' };
     if (!dialect.expressions.has(at.type) || dialect.keep(at, at.parent)) continue;
+    const above = refusedAbove(at.parent, dialect);
+    if (above) return { reason: above };
     if (dialect.statementsOnly && at.parent?.type === dialect.statement) return { node: at.parent, style: 'statement' };
     // Kotlin's assignment is a statement, never a value: chosen as one.
     if (dialect.statementParent && at.type === 'assignment') return at.parent?.type === dialect.statementParent ? { node: at, style: 'statement' } : { reason: 'an assignment outside a list of statements' };
