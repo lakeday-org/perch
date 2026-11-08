@@ -67,6 +67,18 @@ describe('running compiled tests', () => {
       .rejects.toThrow('no test runner for bash, the code under scripts');
   }, 300000);
 
+  it.skipIf(!installed('cargo'))('builds a workspace with a proc-macro crate in it', async () => {
+    const root = await repository({
+      'Cargo.toml': '[workspace]\nmembers = ["crates/*"]\nresolver = "2"\n',
+      'crates/shop/Cargo.toml': WORKSPACE['crates/shop/Cargo.toml'],
+      'crates/shop/src/lib.rs': WORKSPACE['crates/shop/src/lib.rs'],
+      'crates/derive/Cargo.toml': '[package]\nname = "derive"\nversion = "0.0.0"\nedition = "2021"\n\n[lib]\nproc-macro = true\n',
+      'crates/derive/src/lib.rs': 'use proc_macro::TokenStream;\n\n#[proc_macro]\npub fn twice(input: TokenStream) -> TokenStream {\n    let mut out = input.clone();\n    out.extend(input);\n    out\n}\n',
+    }, 'target\n');
+    const report = await run(root);
+    expect(mutant(report, 'add', 'arithmetic')).toMatchObject({ killed: true, killed_by: ['crates/shop/src/lib.rs::adds'] });
+  }, 300000);
+
   it.skipIf(!installed('cargo'))('builds the whole workspace when no paths are asked about', async () => {
     const root = await repository(WORKSPACE, 'target\n');
     await expect(run(root)).rejects.toThrow('does not build');

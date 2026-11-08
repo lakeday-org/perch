@@ -91,10 +91,11 @@ async function prepare(state, { copies: [copy], generated, graph, scoped = false
   const { stdout } = await run('cargo', ['metadata', '--no-deps', '--format-version', '1'], { cwd: copy.dir, maxBuffer: 1 << 26 });
   const metadata = JSON.parse(stdout);
   const roots = metadata.packages.flatMap(item => item.targets.filter(entry => entry.kind.some(kind => ['lib', 'bin', 'proc-macro'].includes(kind)))
-    .map(entry => ({ file: relative(copy.dir, entry.src_path), dir: relative(copy.dir, dirname(item.manifest_path)) })));
-  for (const { file } of roots) {
+    .map(entry => ({ file: relative(copy.dir, entry.src_path), dir: relative(copy.dir, dirname(item.manifest_path)), macro: entry.kind.includes('proc-macro') })));
+  for (const { file, macro } of roots) {
     const path = join(copy.dir, file);
-    await writeFile(path, `${await readFile(path, 'utf8')}\n${SWITCH}`);
+    // A proc-macro crate may export nothing but its macros, so its switch is private: mutants reach it as `crate::__perch`.
+    await writeFile(path, `${await readFile(path, 'utf8')}\n${macro ? SWITCH.replace('pub mod __perch', 'mod __perch') : SWITCH}`);
   }
   // Each test by its function's name, with its file's module path under its crate root: libtest names it by that path, any
   // modules inside the file, and the function. Every target is a crate root here, an integration test, an example and a bench
