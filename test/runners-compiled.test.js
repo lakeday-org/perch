@@ -89,6 +89,16 @@ describe('running compiled tests', () => {
     expect(mutant(report, 'positive', 'method')).toMatchObject({ killed: true, killed_by: ['src/lib.rs::keeps_positive'] });
   }, 300000);
 
+  it.skipIf(!installed('cargo'))('builds an `if` whose branches are values, and the mutants inside it run', async () => {
+    const root = await repository({
+      'Cargo.toml': '[package]\nname = "shop"\nversion = "0.0.0"\nedition = "2021"\n',
+      // Each branch is the `if`'s value: an emptied body is `()`, which rustc reports at the `else`, not at the edit.
+      'src/lib.rs': 'pub fn socket(url: &str) -> String {\n    let base = if let Some(rest) = url.strip_prefix("https://") {\n        format!("wss://{}", rest)\n    } else {\n        url.to_string()\n    };\n    format!("{}?t=1", base)\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn secure() {\n        assert_eq!(socket("https://a"), "wss://a?t=1");\n    }\n}\n',
+    }, 'target\n');
+    const report = await run(root);
+    expect(mutant(report, 'socket', 'string')).toMatchObject({ killed: true });
+  }, 300000);
+
   it.skipIf(!installed('cargo'))('builds the whole workspace when no paths are asked about', async () => {
     const root = await repository(WORKSPACE, 'target\n');
     await expect(run(root)).rejects.toThrow('does not build');

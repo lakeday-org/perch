@@ -448,7 +448,10 @@ export function mutantsOf({ source, language, line, end_line }) {
         }
         // `return 0 if x` has no body to empty: the statement is the body.
         const body = IFS.has(node.type) && normalized !== 'bash' && !node.type.endsWith('_modifier') ? consequenceOf(node) : null;
-        const empty = body && body.namedChildren.some(child => !child.type.includes('comment')) ? emptyBlock(body) : null;
+        // A Rust `if` with an `else` is a value when its body ends in an expression, and `{}` is not that value's type.
+        const valued = normalized === 'rust' && node.childForFieldName('alternative') && body
+          && !/statement|declaration|item|comment/.test(body.namedChildren.filter(child => !child.type.includes('comment')).at(-1)?.type ?? 'statement');
+        const empty = body && !valued && body.namedChildren.some(child => !child.type.includes('comment')) ? emptyBlock(body) : null;
         if (empty !== null) add('block', body, empty);
       }
       // `a ? b : c` forced each way, like an if.

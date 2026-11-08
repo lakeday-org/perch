@@ -88,6 +88,9 @@ describe('mutants', () => {
     const rust = mutantsOf({ source: 'fn f(a: i32, b: bool) -> i32 {\n    if a >= 100 && !b { return 0; }\n    if let Some(x) = g() { return x; }\n    save(a);\n    a - 2\n}\n', language: 'rust', line: 1, end_line: 6 });
     expect(edits(rust)).toEqual(['condition 2 a >= 100 && !b>true', 'condition 2 a >= 100 && !b>false', 'boundary 2 >=>>', 'number 2 100>101', 'logic 2 &&>||', 'not 2 !b>b', 'block 2 { return 0; }>{}', 'return 2 0>1',
       'block 3 { return x; }>{}', 'removal 4 save(a);>', 'arithmetic 5 ->+', 'number 5 2>3']);
+    // A Rust `if` with an `else` whose body ends in a value is an expression of that value's type: `{}` would not compile.
+    const valued = mutantsOf({ source: 'fn f(t: &str) -> String {\n    let w = if let Some(r) = t.strip_prefix("a") {\n        r.to_string()\n    } else {\n        t.to_string()\n    };\n    if t.is_empty() { save(); } else { other(); }\n    w\n}\n', language: 'rust', line: 1, end_line: 9 });
+    expect(edits(valued).filter(edit => edit.startsWith('block'))).toEqual(['block 7 { save(); }>{}']);
     // A brace language's one-statement body without braces stays: emptied, what follows the `if` would become its body.
     const cpp = mutantsOf({ source: 'int f(int a, bool b) {\n  if (a >= 100 && !b) return 0;\n  return a - 2;\n}\n', language: 'cpp', line: 1, end_line: 4 });
     expect(edits(cpp)).toEqual(['condition 2 a >= 100 && !b>true', 'condition 2 a >= 100 && !b>false', 'boundary 2 >=>>', 'number 2 100>101', 'logic 2 &&>||', 'not 2 !b>b', 'return 2 0>1', 'arithmetic 3 ->+', 'number 3 2>3']);
