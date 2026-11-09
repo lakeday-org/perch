@@ -111,6 +111,16 @@ describe('running compiled tests', () => {
     expect(report.methods.find(item => item.id.endsWith('::total'))).toBeTruthy();
   }, 300000);
 
+  it.skipIf(!installed('cargo'))('gives the switch to a library whose manifest names its crate type', async () => {
+    const root = await repository({
+      'Cargo.toml': '[package]\nname = "shop"\nversion = "0.0.0"\nedition = "2021"\n\n[lib]\ncrate-type = ["rlib"]\n',
+      'src/lib.rs': 'mod price;\npub use price::discount;\n',
+      'src/price.rs': 'pub fn discount(total: i64) -> i64 {\n    if total > 100 {\n        total - 10\n    } else {\n        total\n    }\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn takes_ten_off_large_totals() {\n        assert_eq!(discount(150), 140);\n    }\n}\n',
+    }, 'target\n');
+    const report = await run(root);
+    expect(mutant(report, 'discount', 'arithmetic')).toMatchObject({ killed: true });
+  }, 300000);
+
   it.skipIf(!installed('cargo'))('builds the whole workspace when no paths are asked about', async () => {
     const root = await repository(WORKSPACE, 'target\n');
     await expect(run(root)).rejects.toThrow('does not build');

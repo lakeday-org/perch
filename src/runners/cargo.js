@@ -91,7 +91,9 @@ async function prepare(state, { copies: [copy], generated, graph, scoped = false
   const target = join(copy.scratch, 'target');
   const { stdout } = await run('cargo', ['metadata', '--no-deps', '--format-version', '1'], { cwd: copy.dir, maxBuffer: 1 << 26 });
   const metadata = JSON.parse(stdout);
-  const roots = metadata.packages.flatMap(item => item.targets.filter(entry => entry.kind.some(kind => ['lib', 'bin', 'proc-macro'].includes(kind)))
+  // A library's kind is its crate types where the manifest names them: `crate-type = ["rlib"]` is an `rlib`, not a `lib`.
+  const ROOTS = ['lib', 'rlib', 'dylib', 'cdylib', 'staticlib', 'bin', 'proc-macro'];
+  const roots = metadata.packages.flatMap(item => item.targets.filter(entry => entry.kind.some(kind => ROOTS.includes(kind)))
     .map(entry => ({ file: relative(copy.dir, entry.src_path), dir: relative(copy.dir, dirname(item.manifest_path)), macro: entry.kind.includes('proc-macro') })));
   for (const { file, macro } of roots) {
     const path = join(copy.dir, file);
