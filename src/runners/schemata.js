@@ -320,7 +320,37 @@ export function instrument({ source, language, mutants, prelude = '', head: top 
     break;
   }
   const out = `${text(0, bang)}${top}${text(bang, head)}${head > bang ? '\n' : ''}${prelude}${prelude ? '\n' : ''}${inner(head, bytes.length, tree.children)}`;
-  return { text: out, unplaced, locate: (line, column) => locate(out, line, column) };
+  return { text: out, unplaced, locate: (line, column) => locate(out, line, column),
+    between: (from, to) => between(out, from, to), around: line => around(out, normalized, line) };
+}
+
+/** The mutants whose edits start on lines `from` to `to` of an instrumented file. */
+function between(text, from, to) {
+  const ids = new Set();
+  let line = 1, at = 0;
+  for (const match of text.matchAll(/\/\*<(\d+)\*\//g)) {
+    for (; at < match.index; at++) if (text[at] === '\n') line++;
+    if (line >= from && line <= to) ids.add(Number(match[1]));
+  }
+  return [...ids];
+}
+
+/**
+ * The mutants in the function around `line` of an instrumented file: what an error can be put down to when it names no edit,
+ * as a type or borrow error can, pointing at the uses an edit made wrong rather than at the edit.
+ */
+function around(text, language, line) {
+  const root = new Node(downloading(() => pack.getParser(language)).parse(text).rootNode(), Buffer.from(text));
+  let found = null;
+  const walk = node => {
+    if (node.startPosition.row + 1 > line || node.endPosition.row + 1 < line) return;
+    if (/function|method/.test(node.type) && !/call|signature|type/.test(node.type)) found = node;
+    for (const child of node.children) walk(child);
+  };
+  walk(root);
+  if (!found) return [];
+  const body = Buffer.from(text).subarray(found.startIndex, found.endIndex).toString('utf8');
+  return [...new Set([...body.matchAll(/\/\*<(\d+)\*\//g)].map(match => Number(match[1])))];
 }
 
 /**

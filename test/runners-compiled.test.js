@@ -121,6 +121,16 @@ describe('running compiled tests', () => {
     expect(mutant(report, 'discount', 'arithmetic')).toMatchObject({ killed: true });
   }, 300000);
 
+  it.skipIf(!installed('cargo'))('drops the edit a borrow error falls between, and runs the rest of its function', async () => {
+    const root = await repository({
+      'Cargo.toml': '[package]\nname = "shop"\nversion = "0.0.0"\nedition = "2021"\n',
+      // Emptying the inner branch lets an empty `response` fall through after it moved: rustc names the move and the use.
+      'src/lib.rs': 'pub fn describe(response: String, limit: usize) -> Result<usize, String> {\n    if response.is_empty() {\n        let body = response;\n        if let Some(first) = body.chars().next() {\n            return Err(format!("starts with {}", first));\n        } else {\n            return Err(body);\n        }\n    }\n    let size = response.len();\n    let doubled = size * 2;\n    if doubled > limit {\n        return Err("too long".to_string());\n    }\n    Ok(doubled)\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn doubles_the_length() {\n        assert_eq!(describe("abc".to_string(), 100), Ok(6));\n    }\n}\n',
+    }, 'target\n');
+    const report = await run(root);
+    expect(mutant(report, 'describe', 'arithmetic')).toMatchObject({ killed: true });
+  }, 300000);
+
   it.skipIf(!installed('cargo'))('builds the whole workspace when no paths are asked about', async () => {
     const root = await repository(WORKSPACE, 'target\n');
     await expect(run(root)).rejects.toThrow('does not build');

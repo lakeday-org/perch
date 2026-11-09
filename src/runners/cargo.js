@@ -156,11 +156,17 @@ async function prepare(state, { copies: [copy], generated, graph, scoped = false
     for (const error of errors) {
       // The place each span names, the error's own and those its labels point at: a type error can be reported where two
       // branches meet rather than at the edit that changed one. Failing that, the edits on those lines, since a syntax error
-      // can point just past its edit; failing that, every edit in those files, so one misplaced edit costs its file, not the run.
+      // can point just past its edit; failing that, the edits between them; failing that, the edits in the functions around them, as a borrow error names only the uses an
+      // edit broke; failing that, every edit in those files, so one misplaced edit costs its file, not the run.
       const spans = error.message.spans.map(span => ({ span, result: placed.get(relative(copy.dir, join(copy.dir, span.file_name))) })).filter(item => item.result);
       const exact = spans.flatMap(({ span, result }) => result.locate(span.line_start, span.column_start));
       const lines = exact.length ? exact : spans.flatMap(({ span, result }) => result.locate(span.line_start));
-      const at = lines.length ? lines : [...new Set(spans.map(({ span }) => relative(copy.dir, join(copy.dir, span.file_name))))]
+      // A borrow error names where a value moved and where it was used after: the edit that let it is between them.
+      const files = [...new Set(spans.map(({ result }) => result))];
+      const range = result => { const own = spans.filter(item => item.result === result).map(({ span }) => span.line_start); return result.between(Math.min(...own), Math.max(...own)); };
+      const spanned = lines.length ? lines : files.flatMap(range);
+      const near = spanned.length ? spanned : spans.flatMap(({ span, result }) => result.around(span.line_start));
+      const at = near.length ? near : [...new Set(spans.map(({ span }) => relative(copy.dir, join(copy.dir, span.file_name))))]
         .flatMap(path => byFile.get(path).map(item => item.id).filter(id => !unplaced.has(id)));
       for (const id of at) if (!rejected.has(id)) rejected.set(id, error.message.message);
     }
