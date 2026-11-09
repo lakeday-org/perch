@@ -47,7 +47,7 @@
     "check": "npm run lint && npm run typecheck && npm test"
   },
   "dependencies": {
-    "@xberg-io/tree-sitter-language-pack": "1.22.1",
+    "@xberg-io/tree-sitter-language-pack": "1.24.1",
     "yaml": "^2.9.1"
   },
   "devDependencies": {
