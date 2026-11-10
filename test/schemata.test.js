@@ -93,4 +93,15 @@ describe('mutant schemata', () => {
     const { unplaced } = instrument({ source, language: 'javascript', mutants: mutants.map((mutant, id) => ({ id, mutant })), prelude: PRELUDE, head: TS_HEAD });
     expect(unplaced.map(item => [mutants[item.id].kind, item.reason])).toEqual([['body', 'a constructor\'s body must call super() itself']]);
   });
+
+  it('leaves out an edit to a literal a Rust match compares against, and keeps the arm\'s value', () => {
+    const source = 'fn idle(state: Option<&str>) -> &str {\n    match state {\n        Some("Stopped" | "Idle") => "yes",\n        _ => "no",\n    }\n}\n';
+    const mutants = mutantsOf({ source, language: 'rust', line: 1, end_line: 6 });
+    const { text, unplaced } = instrument({ source, language: 'rust', mutants: mutants.map((mutant, id) => ({ id, mutant })) });
+    const refused = new Set(unplaced.map(item => item.id));
+    expect(mutants.filter((mutant, id) => ['"Stopped"', '"Idle"'].includes(mutant.from) && !refused.has(id))).toEqual([]);
+    expect(mutants.some(mutant => mutant.from === '"Stopped"')).toBe(true);
+    expect(text).toContain('Some("Stopped" | "Idle") =>');
+    expect(mutants.some((mutant, id) => mutant.from === '"yes"' && !refused.has(id))).toBe(true);
+  });
 });

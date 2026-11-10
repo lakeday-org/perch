@@ -43,7 +43,8 @@ pub mod __perch {
             let test = std::thread::current().name().unwrap_or("").to_string();
             if let Ok(mut guard) = hits.lock() {
                 if guard.0.insert((test.clone(), id)) {
-                    let _ = writeln!(guard.1, "{}\\t{}", id, test);
+                    // One write per line: a test's child processes append to the same file, and pieces would interleave.
+                    let _ = guard.1.write_all(format!("{}\\t{}\\n", id, test).as_bytes());
                 }
             }
         }
@@ -81,19 +82,23 @@ async function available({ root }) {
 
 /**
  * The copy made ready: each crate root given the switch, every mutant written into its file, and the tests built, again without
- * whatever the compiler rejects, until they build.
+ * whatever the compiler rejects, until they build. A `scoped` run builds only the packages holding its mutants: `cargo test` on
+ * its own builds every test in the workspace, whichever files were asked about.
  */
-async function prepare(state, { copies: [copy], generated, graph }) {
+async function prepare(state, { copies: [copy], generated, graph, scoped = false }) {
   const ids = new Map(), keys = new Map(), unplaced = new Map(), names = new Map(), testOfNode = new Map();
   Object.assign(state, { ids, keys, unplaced, names, testOfNode, binaries: [] });
   const target = join(copy.scratch, 'target');
   const { stdout } = await run('cargo', ['metadata', '--no-deps', '--format-version', '1'], { cwd: copy.dir, maxBuffer: 1 << 26 });
   const metadata = JSON.parse(stdout);
-  const roots = metadata.packages.flatMap(item => item.targets.filter(entry => entry.kind.some(kind => ['lib', 'bin', 'proc-macro'].includes(kind)))
-    .map(entry => ({ file: relative(copy.dir, entry.src_path), dir: relative(copy.dir, dirname(item.manifest_path)) })));
-  for (const { file } of roots) {
+  // A library's kind is its crate types where the manifest names them: `crate-type = ["rlib"]` is an `rlib`, not a `lib`.
+  const ROOTS = ['lib', 'rlib', 'dylib', 'cdylib', 'staticlib', 'bin', 'proc-macro'];
+  const roots = metadata.packages.flatMap(item => item.targets.filter(entry => entry.kind.some(kind => ROOTS.includes(kind)))
+    .map(entry => ({ file: relative(copy.dir, entry.src_path), dir: relative(copy.dir, dirname(item.manifest_path)), macro: entry.kind.includes('proc-macro') })));
+  for (const { file, macro } of roots) {
     const path = join(copy.dir, file);
-    await writeFile(path, `${await readFile(path, 'utf8')}\n${SWITCH}`);
+    // A proc-macro crate may export nothing but its macros, so its switch is private: mutants reach it as `crate::__perch`.
+    await writeFile(path, `${await readFile(path, 'utf8')}\n${macro ? SWITCH.replace('pub mod __perch', 'mod __perch') : SWITCH}`);
   }
   // Each test by its function's name, with its file's module path under its crate root: libtest names it by that path, any
   // modules inside the file, and the function. Every target is a crate root here, an integration test, an example and a bench
@@ -120,6 +125,11 @@ async function prepare(state, { copies: [copy], generated, graph }) {
       byFile.get(node.path).push({ id, mutant });
     }
   }
+  const packages = metadata.packages.map(item => ({ name: item.name, dir: relative(copy.dir, dirname(item.manifest_path)) }));
+  const owners = [...byFile.keys()].map(path => packages.filter(item => !item.dir || path.startsWith(`${item.dir}/`))
+    .sort((a, b) => b.dir.length - a.dir.length)[0]?.name);
+  // A file in no package of this workspace is one only the whole build can reach.
+  const only = scoped && owners.length && owners.every(Boolean) ? [...new Set(owners)].flatMap(owner => ['-p', owner]) : [];
   const sources = new Map();
   for (const path of byFile.keys()) sources.set(path, await readFile(join(copy.dir, path), 'utf8'));
   for (let round = 0; ; round++) {
@@ -132,7 +142,7 @@ async function prepare(state, { copies: [copy], generated, graph }) {
     }
     let output;
     try {
-      ({ stdout: output } = await run('cargo', ['test', '--no-run', '--message-format=json', '--quiet'], { cwd: copy.dir, env: { ...process.env, CARGO_TARGET_DIR: target }, maxBuffer: 1 << 28 }));
+      ({ stdout: output } = await run('cargo', ['test', '--no-run', '--message-format=json', '--quiet', ...only], { cwd: copy.dir, env: { ...process.env, CARGO_TARGET_DIR: target }, maxBuffer: 1 << 28 }));
     } catch (error) { output = error.stdout ?? ''; }
     const messages = output.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line));
     const errors = messages.filter(item => item.reason === 'compiler-message' && item.message.level === 'error');
@@ -144,10 +154,21 @@ async function prepare(state, { copies: [copy], generated, graph }) {
     }
     const rejected = new Map();
     for (const error of errors) {
-      for (const span of error.message.spans.filter(item => item.is_primary)) {
-        const result = placed.get(relative(copy.dir, join(copy.dir, span.file_name)));
-        for (const id of result?.locate(span.line_start, span.column_start) ?? []) if (!rejected.has(id)) rejected.set(id, error.message.message);
-      }
+      // The place each span names, the error's own and those its labels point at: a type error can be reported where two
+      // branches meet rather than at the edit that changed one. Failing that, the edits on those lines, since a syntax error
+      // can point just past its edit; failing that, the edits between them; failing that, the edits in the functions around them, as a borrow error names only the uses an
+      // edit broke; failing that, every edit in those files, so one misplaced edit costs its file, not the run.
+      const spans = error.message.spans.map(span => ({ span, result: placed.get(relative(copy.dir, join(copy.dir, span.file_name))) })).filter(item => item.result);
+      const exact = spans.flatMap(({ span, result }) => result.locate(span.line_start, span.column_start));
+      const lines = exact.length ? exact : spans.flatMap(({ span, result }) => result.locate(span.line_start));
+      // A borrow error names where a value moved and where it was used after: the edit that let it is between them.
+      const files = [...new Set(spans.map(({ result }) => result))];
+      const range = result => { const own = spans.filter(item => item.result === result).map(({ span }) => span.line_start); return result.between(Math.min(...own), Math.max(...own)); };
+      const spanned = lines.length ? lines : files.flatMap(range);
+      const near = spanned.length ? spanned : spans.flatMap(({ span, result }) => result.around(span.line_start));
+      const at = near.length ? near : [...new Set(spans.map(({ span }) => relative(copy.dir, join(copy.dir, span.file_name))))]
+        .flatMap(path => byFile.get(path).map(item => item.id).filter(id => !unplaced.has(id)));
+      for (const id of at) if (!rejected.has(id)) rejected.set(id, error.message.message);
     }
     if (!rejected.size || round > 20) throw new Error(`the crate does not build: ${errors[0].message.rendered?.trim().split('\n').slice(0, 6).join(' | ')}`);
     for (const [id, message] of rejected) unplaced.set(id, `the compiler rejects it: ${message}`);
@@ -182,6 +203,8 @@ async function coverageRun({ names, keys, unplaced, binaries, testOfNode }, { co
   const reached = new Map(), executed = new Map();
   for (const line of (await readFile(hits, 'utf8')).split('\n').filter(Boolean)) {
     const [id, thread] = line.split('\t');
+    // A child process a test started and then killed can leave half a line.
+    if (thread === undefined || !keys.has(Number(id))) continue;
     const test = idOf(thread);
     if (!reached.has(test)) { reached.set(test, new Set()); executed.set(test, new Map()); }
     const { key, mutant, path } = keys.get(Number(id));

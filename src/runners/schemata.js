@@ -82,10 +82,14 @@ const DIALECTS = {
     statementChoice: (entries, original) => `${entries.map(entry => `if crate::__perch::on(${entry.id}) { ${entry.text} } else `).join('')}{ ${original} }`,
     blockChoice: (entries, original) => `{ ${entries.map(entry => `if crate::__perch::on(${entry.id}) ${entry.text} else `).join('')}${original} }`,
     refuse: at => (/pattern/.test(at.type) || ['const_item', 'static_item', 'attribute_item', 'inner_attribute_item', 'enum_variant'].includes(at.type) ? `the edit is inside a ${at.type}` : null),
+    // A literal is an expression, so the walk stops at it before reaching the pattern it is matched in.
+    within: at => (/pattern/.test(at.type) ? `the edit is inside a ${at.type}` : null),
     keep: (at, parent) => {
       if ((parent?.type === 'assignment_expression' || parent?.type === 'compound_assignment_expr') && parent.childForFieldName('left')?.id === at.id) return true;
       // A method called on a value is called on that value, not on a copy the choice made: `a.len()` stays whole.
       if (parent?.type === 'call_expression' && parent.childForFieldName('function')?.id === at.id) return true;
+      // So is one called with its type arguments, `a.collect::<Vec<_>>()`: the choice goes around the whole call.
+      if (parent?.type === 'generic_function' && parent.childForFieldName('function')?.id === at.id) return true;
       if (parent?.type === 'reference_expression' || (parent?.type === 'field_expression' && parent.childForFieldName('value')?.id === at.id)) return true;
       // A block that is a function's or a branch's body is the body, not a value inside it.
       return at.type === 'block' && parent && !['parenthesized_expression', 'arguments', 'let_declaration'].includes(parent.type);
@@ -202,6 +206,22 @@ export const SCHEMATA_LANGUAGES = new Set(['javascript', 'typescript', 'tsx']);
 const ofKind = kind => (kind === 'removal' ? 'statement' : kind === 'block' || kind === 'body' ? 'block' : 'expression');
 const ORDER = { block: 0, statement: 1, counter: 2, expression: 3 };
 
+const BOUNDARY = /(_statement|_declaration|_item|^program|^source_file|^compilation_unit|^statement_block)$/;
+
+/**
+ * Why no choice can stand at `at`, from it up to its statement, for a dialect whose `within` names such places: a literal
+ * Rust matches in `Some("x" | "y")` is an expression, but its place is the pattern around it, where only a constant goes.
+ */
+function refusedAbove(at, dialect) {
+  if (!dialect.within) return null;
+  for (; at; at = at.parent) {
+    const refused = dialect.within(at);
+    if (refused) return refused;
+    if (BOUNDARY.test(at.type) && at.type !== dialect.statement) return null;
+  }
+  return null;
+}
+
 /** The node the edit is placed at, by its kind, or the reason it has none. */
 function anchorOf(node, style, dialect) {
   if (style === 'block') {
@@ -213,10 +233,12 @@ function anchorOf(node, style, dialect) {
   for (let at = node; at; at = at.parent) {
     const refused = dialect.refuse(at);
     if (refused) return { reason: refused };
-    if (/(_statement|_declaration|_item|^program|^source_file|^compilation_unit|^statement_block)$/.test(at.type) && at.type !== dialect.statement) return { reason: 'no expression holds the edit' };
+    if (BOUNDARY.test(at.type) && at.type !== dialect.statement) return { reason: 'no expression holds the edit' };
     // A for loop's `i++` sits where only a statement goes: `i += (choice ? -1 : 1)` is one, and counts the same way.
     if (dialect.counters?.has(at.type) && at.parent?.type === 'for_statement' && /^(\+\+|--)$/.test(node.text)) return { node: at, style: 'counter' };
     if (!dialect.expressions.has(at.type) || dialect.keep(at, at.parent)) continue;
+    const above = refusedAbove(at.parent, dialect);
+    if (above) return { reason: above };
     if (dialect.statementsOnly && at.parent?.type === dialect.statement) return { node: at.parent, style: 'statement' };
     // Kotlin's assignment is a statement, never a value: chosen as one.
     if (dialect.statementParent && at.type === 'assignment') return at.parent?.type === dialect.statementParent ? { node: at, style: 'statement' } : { reason: 'an assignment outside a list of statements' };
@@ -298,7 +320,37 @@ export function instrument({ source, language, mutants, prelude = '', head: top 
     break;
   }
   const out = `${text(0, bang)}${top}${text(bang, head)}${head > bang ? '\n' : ''}${prelude}${prelude ? '\n' : ''}${inner(head, bytes.length, tree.children)}`;
-  return { text: out, unplaced, locate: (line, column) => locate(out, line, column) };
+  return { text: out, unplaced, locate: (line, column) => locate(out, line, column),
+    between: (from, to) => between(out, from, to), around: line => around(out, normalized, line) };
+}
+
+/** The mutants whose edits start on lines `from` to `to` of an instrumented file. */
+function between(text, from, to) {
+  const ids = new Set();
+  let line = 1, at = 0;
+  for (const match of text.matchAll(/\/\*<(\d+)\*\//g)) {
+    for (; at < match.index; at++) if (text[at] === '\n') line++;
+    if (line >= from && line <= to) ids.add(Number(match[1]));
+  }
+  return [...ids];
+}
+
+/**
+ * The mutants in the function around `line` of an instrumented file: what an error can be put down to when it names no edit,
+ * as a type or borrow error can, pointing at the uses an edit made wrong rather than at the edit.
+ */
+function around(text, language, line) {
+  const root = new Node(downloading(() => pack.getParser(language)).parse(text).rootNode(), Buffer.from(text));
+  let found = null;
+  const walk = node => {
+    if (node.startPosition.row + 1 > line || node.endPosition.row + 1 < line) return;
+    if (/function|method/.test(node.type) && !/call|signature|type/.test(node.type)) found = node;
+    for (const child of node.children) walk(child);
+  };
+  walk(root);
+  if (!found) return [];
+  const body = Buffer.from(text).subarray(found.startIndex, found.endIndex).toString('utf8');
+  return [...new Set([...body.matchAll(/\/\*<(\d+)\*\//g)].map(match => Number(match[1])))];
 }
 
 /**
